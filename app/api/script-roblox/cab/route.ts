@@ -422,10 +422,9 @@ export async function GET(request: NextRequest) {
     const gameId = searchParams.get("gameId");
     const placeId = searchParams.get("placeId");
 
-    // Enforce lock on main script payload (Bypassed by default, uncomment and change to enable Place ID lock)
-    /*
+    // Enforce lock on main script payload
     if (key) {
-      const TARGET_PLACE_ID = "YOUR_NEW_GAME_PLACE_ID";
+      const TARGET_PLACE_ID = "140063367098641";
       if (gameId !== TARGET_PLACE_ID && placeId !== TARGET_PLACE_ID) {
         const errScript = getErrorGuiLua(
           `Access Denied: This script is locked and can only be executed in game ${TARGET_PLACE_ID}.`,
@@ -439,7 +438,6 @@ export async function GET(request: NextRequest) {
         });
       }
     }
-    */
 
     // Detect client IP address from proxy headers
     const forwarded = request.headers.get("x-forwarded-for");
@@ -459,11 +457,7 @@ export async function GET(request: NextRequest) {
         const loaderScript = `-- HipHub Loader Bootstrapper
 repeat task.wait() until game:IsLoaded()
 
--- Optional game checks (Uncomment to enable)
--- if game.PlaceId ~= YOUR_PLACE_ID and game.GameId ~= YOUR_PLACE_ID then
---     print("not support")
---     return
--- end
+-- Game place lock check is enforced at boot
 
 local player = game:GetService("Players").LocalPlayer
 while not player do
@@ -642,6 +636,11 @@ local function showLocalError(errorMessage)
             end)
         end)
     end)
+end
+
+if game.PlaceId ~= 140063367098641 and game.GameId ~= 140063367098641 then
+    showLocalError("Access Denied: This script is locked and can only be executed in game 140063367098641.")
+    return
 end
 
 if not key then
