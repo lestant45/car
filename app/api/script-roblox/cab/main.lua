@@ -42,6 +42,12 @@ local success, err = pcall(function()
 
 	local saveConfig
 
+	-- Catcher persistent states
+	local catchDelay = 1.0
+	local safeModeEnabled = true
+	local minLevelFilter = 1
+	local selectedRarityIndex = 1
+
 	------------------------------------------------
 	-- 🖼️ DRAGGING FUNCTIONALITY
 	------------------------------------------------
@@ -233,13 +239,1001 @@ local success, err = pcall(function()
 		gui:Destroy()
 	end)
 
-	-- Profile image fetch background task
 	task.spawn(function()
 		local successThumbnail, thumbContent = pcall(function()
 			return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
 		end)
 		if successThumbnail then avatarLabel.Image = thumbContent end
 	end)
+
+	------------------------------------------------
+	-- 🧠 BRAINROT AUTO-CATCHER INTEGRATION
+	------------------------------------------------
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local BrainrotDir = ReplicatedStorage:WaitForChild("Brainrot", 5)
+
+	if BrainrotDir then
+		task.spawn(function()
+			local RotChillerDir = BrainrotDir:WaitForChild("RotChiller", 5)
+			local ServerDir = RotChillerDir and RotChillerDir:WaitForChild("Server", 5)
+			if not ServerDir then return end
+
+			local CatchRequest = ServerDir:WaitForChild("CatchRequest", 5)
+			local GetInitialContainerStates = ServerDir:WaitForChild("GetInitialContainerStates", 5)
+			local UpdateEvent = ServerDir:WaitForChild("Update", 5)
+			if not (CatchRequest and GetInitialContainerStates and UpdateEvent) then return end
+
+			local Core = nil
+			pcall(function()
+				Core = require(ReplicatedStorage.Brainrot.Core)
+			end)
+
+			-- State Variables
+			local containers = {}
+			local activeRots = {}
+			local caughtCount = 0
+			local battlesStarted = 0
+			local autoCatchEnabled = false
+			local currentlyCatching = nil
+			local uiNeedsUpdate = false
+
+			-- Filters State
+			local rarityNames = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical"}
+
+			-- Helper functions
+			local function countTable(t)
+				local c = 0
+				for _ in pairs(t) do c = c + 1 end
+				return c
+			end
+
+			local function getRotRarity(name)
+				if Core and Core.Species and Core.Species[name] then
+					local species = Core.Species[name]
+					if species.Rarity then
+						if typeof(species.Rarity) == "table" and species.Rarity.Name then
+							return species.Rarity.Name
+						elseif typeof(species.Rarity) == "string" then
+							return species.Rarity
+						elseif typeof(species.Rarity) == "table" and species.Rarity.Value then
+							local valueMap = {[1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] = "Legendary", [6] = "Mythical"}
+							return valueMap[species.Rarity.Value] or tostring(species.Rarity.Value)
+						end
+					end
+					if species.RarityValue then
+						local valueMap = {[1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] = "Legendary", [6] = "Mythical"}
+						return valueMap[species.RarityValue] or tostring(species.RarityValue)
+					end
+				end
+				return "Common"
+			end
+
+			local function matchesRarityFilter(rotName)
+				local filter = rarityNames[selectedRarityIndex]
+				if filter == "All" then return true end
+				
+				local rotRarity = getRotRarity(rotName)
+				local rLower = string.lower(tostring(rotRarity))
+				local fLower = string.lower(filter)
+				
+				if rLower == fLower then return true end
+				
+				local rarityValueMap = {
+					common = 1, uncommon = 2, rare = 3, epic = 4, legendary = 5, mythical = 6
+				}
+				local mappedValue = rarityValueMap[fLower]
+				if mappedValue and Core and Core.Species and Core.Species[rotName] then
+					local species = Core.Species[rotName]
+					if species.Rarity and species.Rarity.Value == mappedValue then
+						return true
+					end
+				end
+				
+				return false
+			end
+
+			-- Async Staff / Admin Caching
+			local staffCache = {}
+			local function cachePlayerStaff(p)
+				if p == player then return end
+				
+				local isStaff = false
+				if p.UserId == game.CreatorId then
+					isStaff = true
+				else
+					task.spawn(function()
+						local success, inGroup = pcall(function()
+							return p:IsInGroup(1200769)
+						end)
+						if success and inGroup then
+							staffCache[p] = true
+						end
+					end)
+				end
+				staffCache[p] = isStaff
+			end
+
+			for _, p in ipairs(Players:GetPlayers()) do
+				cachePlayerStaff(p)
+			end
+			Players.PlayerAdded:Connect(cachePlayerStaff)
+			Players.PlayerRemoving:Connect(function(p)
+				staffCache[p] = nil
+			end)
+
+			-- Find sidebar & tabContainer dynamically
+			local tabContainer = nil
+			local sidebar = refs.profileCard and refs.profileCard.Parent
+			if sidebar then
+				for _, child in ipairs(sidebar:GetChildren()) do
+					if child:IsA("Frame") and child ~= refs.profileCard and child.Name == "" then
+						if child.Size.Y.Offset == -60 then
+							tabContainer = child
+							break
+						end
+					end
+				end
+			end
+
+			if not tabContainer then return end
+
+			-- Create custom tab
+			local tabName = "Auto Catch"
+			local button = Instance.new("TextButton")
+			button.Size = UDim2.new(1, 0, 0, 30)
+			button.BackgroundColor3 = COLORS.glassSurface
+			button.BackgroundTransparency = 1
+			button.BorderSizePixel = 0
+			button.ZIndex = 3
+			button.Text = "   🧠  " .. tabName
+			button.TextColor3 = COLORS.textSecondary
+			button.Font = Enum.Font.GothamMedium
+			button.TextSize = 12
+			button.TextXAlignment = Enum.TextXAlignment.Left
+			button.LayoutOrder = 3
+			button.Parent = tabContainer
+
+			refs.applyGlass(button, { corner = refs.CORNER.small })
+
+			local indicator = Instance.new("Frame")
+			indicator.Size = UDim2.new(0, 3, 0, 16)
+			indicator.Position = UDim2.new(0, 2, 0.5, -8)
+			indicator.BackgroundColor3 = COLORS.accentCyan
+			indicator.BackgroundTransparency = 1
+			indicator.BorderSizePixel = 0
+			indicator.Visible = false
+			indicator.ZIndex = 4
+			indicator.Parent = button
+
+			local indicatorCorner = Instance.new("UICorner")
+			indicatorCorner.CornerRadius = UDim.new(0, 2)
+			indicatorCorner.Parent = indicator
+
+			refs.tabButtons[tabName] = button
+
+			local contentArea = refs.mainFrameContent.Parent
+			local tabFrame = Instance.new("ScrollingFrame")
+			tabFrame.Size = UDim2.new(1, 0, 1, 0)
+			tabFrame.BackgroundTransparency = 1
+			tabFrame.BorderSizePixel = 0
+			tabFrame.ScrollBarThickness = 3
+			tabFrame.ScrollBarImageColor3 = COLORS.accentCyan
+			tabFrame.ScrollBarImageTransparency = 0.4
+			tabFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+			tabFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			tabFrame.ClipsDescendants = true
+			tabFrame.Visible = false
+			tabFrame.ZIndex = 2
+			tabFrame.Parent = contentArea
+
+			refs.applyPadding(tabFrame, 16, 16, 16, 16)
+			refs.applyListLayout(tabFrame, 10)
+
+			refs.tabs[tabName] = {
+				Frame = tabFrame,
+				Button = button,
+				Indicator = indicator,
+			}
+
+			button.MouseButton1Click:Connect(function()
+				refs.selectTab(tabName)
+			end)
+
+			button.MouseEnter:Connect(function()
+				if refs.tabs[tabName].Indicator.Visible == false or button.BackgroundTransparency == 1 then
+					TweenService:Create(button, TweenInfo.new(0.15), {
+						BackgroundColor3 = COLORS.glassHover,
+						BackgroundTransparency = 0.5,
+					}):Play()
+				end
+			end)
+			button.MouseLeave:Connect(function()
+				if refs.tabs[tabName].Indicator.Visible == false or button.BackgroundTransparency == 1 then
+					TweenService:Create(button, TweenInfo.new(0.15), {
+						BackgroundColor3 = COLORS.glassSurface,
+						BackgroundTransparency = 1,
+					}):Play()
+				end
+			end)
+
+			-- Control Card (Start/Stop, Stats)
+			local controlCard = Instance.new("Frame")
+			controlCard.Size = UDim2.new(1, 0, 0, 80)
+			controlCard.BackgroundColor3 = COLORS.glassCard
+			controlCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			controlCard.BorderSizePixel = 0
+			controlCard.Parent = tabFrame
+
+			refs.applyGlass(controlCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7,
+				gradient = true,
+				gradientRotation = 120
+			})
+
+			local statsLabel = Instance.new("TextLabel")
+			statsLabel.Size = UDim2.new(0.6, 0, 1, 0)
+			statsLabel.Position = UDim2.new(0, 12, 0, 0)
+			statsLabel.BackgroundTransparency = 1
+			statsLabel.Text = "Status: <font color='#ff4d4d'>Inactive</font>\nCaught: 0 | Battles: 0"
+			statsLabel.TextColor3 = COLORS.textSecondary
+			statsLabel.TextSize = 12
+			statsLabel.RichText = true
+			statsLabel.Font = Enum.Font.GothamMedium
+			statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+			statsLabel.LineHeight = 1.3
+			statsLabel.Parent = controlCard
+
+			local toggleBtn = Instance.new("TextButton")
+			toggleBtn.Size = UDim2.new(0, 120, 0, 35)
+			toggleBtn.Position = UDim2.new(1, -132, 0.5, -17.5)
+			toggleBtn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+			toggleBtn.Text = "START"
+			toggleBtn.TextColor3 = COLORS.textWhite
+			toggleBtn.TextSize = 13
+			toggleBtn.Font = Enum.Font.GothamBold
+			toggleBtn.Parent = controlCard
+
+			local toggleCorner = Instance.new("UICorner")
+			toggleCorner.CornerRadius = refs.CORNER.small
+			toggleCorner.Parent = toggleBtn
+
+			-- Settings Card
+			local settingsCard = Instance.new("Frame")
+			settingsCard.Size = UDim2.new(1, 0, 0, 172)
+			settingsCard.BackgroundColor3 = COLORS.glassCard
+			settingsCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			settingsCard.BorderSizePixel = 0
+			settingsCard.Parent = tabFrame
+
+			refs.applyGlass(settingsCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7
+			})
+
+			refs.applyListLayout(settingsCard, 8)
+			refs.applyPadding(settingsCard, 10, 10, 10, 10)
+
+			-- UI builders
+			local function createTextBoxRow(labelText, defaultValue)
+				local row = Instance.new("Frame")
+				row.Size = UDim2.new(1, 0, 0, 32)
+				row.BackgroundColor3 = COLORS.glassSurface
+				row.BackgroundTransparency = 0.25
+				row.BorderSizePixel = 0
+				
+				refs.applyGlass(row, {
+					corner = refs.CORNER.small,
+					stroke = true,
+					strokeColor = COLORS.borderGlass,
+					strokeThickness = 1,
+					strokeTransparency = 0.85
+				})
+
+				local label = Instance.new("TextLabel")
+				label.Size = UDim2.new(0.6, 0, 1, 0)
+				label.Position = UDim2.new(0, 12, 0, 0)
+				label.BackgroundTransparency = 1
+				label.Text = labelText
+				label.TextColor3 = COLORS.textPrimary
+				label.Font = Enum.Font.GothamMedium
+				label.TextSize = 12
+				label.TextXAlignment = Enum.TextXAlignment.Left
+				label.Parent = row
+
+				local input = Instance.new("TextBox")
+				input.Size = UDim2.new(0, 60, 0, 22)
+				input.Position = UDim2.new(1, -72, 0.5, -11)
+				input.BackgroundColor3 = Color3.fromRGB(30, 34, 54)
+				input.Text = defaultValue
+				input.TextColor3 = COLORS.textWhite
+				input.TextSize = 11
+				input.Font = Enum.Font.GothamBold
+				input.Parent = row
+
+				local inputCorner = Instance.new("UICorner")
+				inputCorner.CornerRadius = refs.CORNER.small
+				inputCorner.Parent = input
+
+				local inputStroke = Instance.new("UIStroke")
+				inputStroke.Color = COLORS.borderGlass
+				inputStroke.Thickness = 1
+				inputStroke.Parent = input
+
+				return row, input
+			end
+
+			local function createButtonRow(labelText, defaultButtonText)
+				local row = Instance.new("Frame")
+				row.Size = UDim2.new(1, 0, 0, 32)
+				row.BackgroundColor3 = COLORS.glassSurface
+				row.BackgroundTransparency = 0.25
+				row.BorderSizePixel = 0
+				
+				refs.applyGlass(row, {
+					corner = refs.CORNER.small,
+					stroke = true,
+					strokeColor = COLORS.borderGlass,
+					strokeThickness = 1,
+					strokeTransparency = 0.85
+				})
+
+				local label = Instance.new("TextLabel")
+				label.Size = UDim2.new(0.5, 0, 1, 0)
+				label.Position = UDim2.new(0, 12, 0, 0)
+				label.BackgroundTransparency = 1
+				label.Text = labelText
+				label.TextColor3 = COLORS.textPrimary
+				label.Font = Enum.Font.GothamMedium
+				label.TextSize = 12
+				label.TextXAlignment = Enum.TextXAlignment.Left
+				label.Parent = row
+
+				local button = Instance.new("TextButton")
+				button.Size = UDim2.new(0, 100, 0, 22)
+				button.Position = UDim2.new(1, -112, 0.5, -11)
+				button.BackgroundColor3 = Color3.fromRGB(30, 34, 54)
+				button.Text = defaultButtonText
+				button.TextColor3 = COLORS.textWhite
+				button.TextSize = 11
+				button.Font = Enum.Font.GothamBold
+				button.Parent = row
+
+				local buttonCorner = Instance.new("UICorner")
+				buttonCorner.CornerRadius = refs.CORNER.small
+				buttonCorner.Parent = button
+
+				local buttonStroke = Instance.new("UIStroke")
+				buttonStroke.Color = COLORS.borderGlass
+				buttonStroke.Thickness = 1
+				buttonStroke.Parent = button
+
+				return row, button
+			end
+
+			local delayRow, delayInput = createTextBoxRow("Catch Delay (seconds)", tostring(catchDelay))
+			delayRow.Parent = settingsCard
+
+			local levelRow, levelInput = createTextBoxRow("Min Level Filter", tostring(minLevelFilter))
+			levelRow.Parent = settingsCard
+
+			local rarityRow, rarityBtn = createButtonRow("Rarity Filter", rarityNames[selectedRarityIndex])
+			rarityRow.Parent = settingsCard
+
+			local safeRow, safeTrack, safeThumb = refs.createGlassToggle(settingsCard, "Anti-Staff Safety", 0)
+			safeRow.Size = UDim2.new(1, 0, 0, 32)
+
+			local function updateSafeModeVisuals()
+				if safeModeEnabled then
+					TweenService:Create(safeTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+					TweenService:Create(safeThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+						{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				else
+					TweenService:Create(safeTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+					TweenService:Create(safeThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+						{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				end
+			end
+			updateSafeModeVisuals()
+
+			safeTrack.MouseButton1Click:Connect(function()
+				safeModeEnabled = not safeModeEnabled
+				updateSafeModeVisuals()
+				pcall(saveConfig)
+			end)
+
+			-- Detected Brainrots Card
+			local rotsCard = Instance.new("Frame")
+			rotsCard.Size = UDim2.new(1, 0, 0, 200)
+			rotsCard.BackgroundColor3 = COLORS.glassCard
+			rotsCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			rotsCard.BorderSizePixel = 0
+			rotsCard.Parent = tabFrame
+
+			refs.applyGlass(rotsCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7
+			})
+
+			local rotsTitle = Instance.new("TextLabel")
+			rotsTitle.Size = UDim2.new(1, -24, 0, 26)
+			rotsTitle.Position = UDim2.new(0, 12, 0, 8)
+			rotsTitle.BackgroundTransparency = 1
+			rotsTitle.Text = "DETECTED BRAINROTS"
+			rotsTitle.TextColor3 = COLORS.accentCyan
+			rotsTitle.Font = Enum.Font.GothamBold
+			rotsTitle.TextSize = 10
+			rotsTitle.TextXAlignment = Enum.TextXAlignment.Left
+			rotsTitle.Parent = rotsCard
+
+			local scrollList = Instance.new("ScrollingFrame")
+			scrollList.Size = UDim2.new(1, -24, 1, -40)
+			scrollList.Position = UDim2.new(0, 12, 0, 32)
+			scrollList.BackgroundTransparency = 1
+			scrollList.BorderSizePixel = 0
+			scrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
+			scrollList.ScrollBarThickness = 3
+			scrollList.ScrollBarImageColor3 = COLORS.accentCyan
+			scrollList.ScrollBarImageTransparency = 0.4
+			scrollList.Parent = rotsCard
+
+			refs.applyListLayout(scrollList, 6)
+
+			-- Battle Detection
+			local battleGuiRef = nil
+			local function getBattleGui()
+				if battleGuiRef and battleGuiRef.Parent then return battleGuiRef end
+				local playerGui = player:WaitForChild("PlayerGui", 2)
+				if not playerGui then return nil end
+				for _, g in ipairs(playerGui:GetChildren()) do
+					if g:IsA("ScreenGui") then
+						local nameLower = string.lower(g.Name)
+						if string.find(nameLower, "battle") or string.find(nameLower, "combat") or string.find(nameLower, "fight") then
+							battleGuiRef = g
+							return g
+						end
+					end
+				end
+				return nil
+			end
+
+			local function isPlayerInBattle()
+				local g = getBattleGui()
+				if g and g.Enabled then return true end
+				
+				local character = player.Character
+				if character then
+					if character:GetAttribute("InBattle") == true or character:GetAttribute("Battling") == true then
+						return true
+					end
+					if character:FindFirstChild("BattleTag") or character:FindFirstChild("InBattle") then
+						return true
+					end
+				end
+				return false
+			end
+
+			local function updateStats()
+				local statusText
+				if not autoCatchEnabled then
+					statusText = "<font color='#ff4d4d'>Inactive</font>"
+				elseif isPlayerInBattle() then
+					statusText = "<font color='#ffb84d'>In Battle</font>"
+				else
+					statusText = "<font color='#4dff4d'>Scanning...</font>"
+				end
+				statsLabel.Text = "Status: " .. statusText .. "\nCaught: " .. tostring(caughtCount) .. " | Battles: " .. tostring(battlesStarted)
+			end
+
+			-- Spawn/Despawn Logic
+			local function findRotModelInWorkspace(rot)
+				local success, found = pcall(function()
+					return workspace:FindFirstChild(rot.ID, true)
+				end)
+				if success and found then return found end
+				
+				success, found = pcall(function()
+					return workspace:FindFirstChild(rot.ContainerID, true)
+				end)
+				if success and found then return found end
+				
+				local container = containers[rot.ContainerID]
+				local containerPos = container and container.CFrame and container.CFrame.Position
+				if containerPos and rot.Name then
+					local closestModel = nil
+					local closestDist = 50
+					
+					local searchSuccess, children = pcall(function() return workspace:GetChildren() end)
+					if searchSuccess and children then
+						for _, child in ipairs(children) do
+							if child:IsA("Model") and string.lower(child.Name) == string.lower(rot.Name) then
+								local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+								if primary then
+									local dist = (primary.Position - containerPos).Magnitude
+									if dist < closestDist then
+										closestDist = dist
+										closestModel = child
+									end
+								end
+							end
+						end
+					end
+					if closestModel then return closestModel end
+				end
+				return nil
+			end
+
+			local function getRotCFrame(rot)
+				local model = findRotModelInWorkspace(rot)
+				if model then
+					local success, pivot = pcall(function()
+						if model:IsA("Model") then
+							return model:GetPivot()
+						elseif model:IsA("BasePart") then
+							return model.CFrame
+						end
+					end)
+					if success and pivot then return pivot end
+				end
+				
+				local container = containers[rot.ContainerID]
+				if container then
+					if container.CFrame then return container.CFrame end
+					local success, foundInstance = pcall(function()
+						return workspace:FindFirstChild(rot.ContainerID, true)
+					end)
+					if success and foundInstance then
+						if foundInstance:IsA("BasePart") then
+							container.CFrame = foundInstance.CFrame
+							return foundInstance.CFrame
+						elseif foundInstance:IsA("Model") then
+							local pivot = foundInstance:GetPivot()
+							container.CFrame = pivot
+							return pivot
+						end
+					end
+				end
+				return nil
+			end
+
+			local function teleportToRot(rot)
+				local cframe = getRotCFrame(rot)
+				if cframe then
+					local character = player.Character
+					local hrp = character and character:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						hrp.CFrame = cframe + Vector3.new(0, 2.5, 0)
+						task.wait(0.25)
+					end
+				end
+			end
+
+			local catchRot -- Forward decl
+			local function addRot(containerId, rotData, fallbackId)
+				local rotId = rotData and (rotData.ID or fallbackId)
+				if not rotId then return end
+
+				if not containers[containerId] then
+					containers[containerId] = {
+						ID = containerId,
+						Rots = {}
+					}
+				end
+				
+				local name = "Unknown"
+				local level = 1
+				if rotData.RotInstance then
+					if typeof(rotData.RotInstance) == "table" then
+						name = rotData.RotInstance.Name or "Unknown"
+						level = tonumber(rotData.RotInstance.Level) or 1
+					elseif typeof(rotData.RotInstance) == "Instance" then
+						name = rotData.RotInstance.Name or "Unknown"
+						local success, lv = pcall(function()
+							return rotData.RotInstance:GetAttribute("Level") or rotData.RotInstance.Level
+						end)
+						if success and lv then
+							if typeof(lv) == "Instance" and lv:IsA("ValueObject") then
+								level = lv.Value
+							else
+								level = tonumber(lv) or 1
+							end
+						end
+					end
+				end
+				
+				local rarity = getRotRarity(name)
+				local rot = {
+					ID = rotId,
+					Seed = rotData.Seed,
+					RotInstance = rotData.RotInstance,
+					DespawnTime = rotData.DespawnTime,
+					ContainerID = containerId,
+					Name = name,
+					Level = level,
+					Rarity = rarity
+				}
+				
+				containers[containerId].Rots[rotId] = rot
+				activeRots[rotId] = rot
+			end
+
+			local function removeRot(containerId, rotDataOrId)
+				local rotId = typeof(rotDataOrId) == "table" and rotDataOrId.ID or rotDataOrId
+				if not rotId then return end
+
+				if containers[containerId] and containers[containerId].Rots[rotId] then
+					containers[containerId].Rots[rotId] = nil
+				end
+				activeRots[rotId] = nil
+			end
+
+			-- Dynamic rows recycling
+			local uiRowsCache = {}
+			local function updateUIList()
+				if not tabFrame.Visible then return end
+				
+				local character = player.Character
+				local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position or Vector3.zero
+				
+				local sortedList = {}
+				for rotId, rot in pairs(activeRots) do
+					local rotLevel = rot.Level or 1
+					local rotName = rot.Name or ""
+					
+					if rotLevel >= minLevelFilter and matchesRarityFilter(rotName) then
+						local container = containers[rot.ContainerID]
+						local dist = 999999
+						if container and container.CFrame then
+							dist = (playerPos - container.CFrame.Position).Magnitude
+						end
+						table.insert(sortedList, {
+							rot = rot,
+							distance = dist
+						})
+					end
+				end
+				
+				table.sort(sortedList, function(a, b)
+					return a.distance < b.distance
+				end)
+				
+				local contentHeight = 0
+				for i, itemData in ipairs(sortedList) do
+					local rot = itemData.rot
+					local distance = itemData.distance
+					
+					local cache = uiRowsCache[i]
+					if not cache then
+						local row = Instance.new("Frame")
+						row.Size = UDim2.new(1, -6, 0, 36)
+						row.BackgroundColor3 = COLORS.glassSurface
+						row.BackgroundTransparency = 0.3
+						row.BorderSizePixel = 0
+						
+						refs.applyGlass(row, {
+							corner = refs.CORNER.small,
+							stroke = true,
+							strokeColor = COLORS.borderGlass,
+							strokeThickness = 1,
+							strokeTransparency = 0.8
+						})
+						
+						local infoLabel = Instance.new("TextLabel")
+						infoLabel.Size = UDim2.new(0.7, 0, 1, 0)
+						infoLabel.Position = UDim2.new(0, 8, 0, 0)
+						infoLabel.BackgroundTransparency = 1
+						infoLabel.TextColor3 = COLORS.textPrimary
+						infoLabel.TextSize = 10
+						infoLabel.Font = Enum.Font.GothamMedium
+						infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+						infoLabel.Parent = row
+						
+						local catchBtn = Instance.new("TextButton")
+						catchBtn.Size = UDim2.new(0.24, 0, 0.75, 0)
+						catchBtn.Position = UDim2.new(0.74, 0, 0.125, 0)
+						catchBtn.BackgroundColor3 = COLORS.accentViolet
+						catchBtn.Text = "CATCH"
+						catchBtn.TextColor3 = COLORS.textWhite
+						catchBtn.TextSize = 8
+						catchBtn.Font = Enum.Font.GothamBold
+						catchBtn.Parent = row
+						
+						local btnCorner = Instance.new("UICorner")
+						btnCorner.CornerRadius = refs.CORNER.small
+						btnCorner.Parent = catchBtn
+						
+						row.Parent = scrollList
+						
+						cache = {
+							row = row,
+							infoLabel = infoLabel,
+							catchBtn = catchBtn,
+							associatedRot = nil
+						}
+						
+						catchBtn.MouseButton1Click:Connect(function()
+							local currentRot = cache.associatedRot
+							if not currentRot or currentlyCatching then return end
+							
+							catchBtn.Text = "..."
+							catchBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+							
+							local success = catchRot(currentRot)
+							
+							if success then
+								catchBtn.Text = "OK"
+								catchBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+							else
+								catchBtn.Text = "FAIL"
+								catchBtn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+								task.delay(1.5, function()
+									if cache.associatedRot == currentRot then
+										catchBtn.Text = "CATCH"
+										catchBtn.BackgroundColor3 = COLORS.accentViolet
+									end
+								end)
+							end
+						end)
+						
+						uiRowsCache[i] = cache
+					end
+					
+					cache.associatedRot = rot
+					cache.row.Visible = true
+					
+					local nameStr = rot.Name or "Unknown"
+					local lvStr = rot.Level and tostring(rot.Level) or "?"
+					local distStr = distance < 999999 and (string.format("%.0f", distance) .. "m") or "N/A"
+					local rarityStr = rot.Rarity or "Common"
+					
+					cache.infoLabel.Text = string.format("%s (Lv. %s) [%s]\nDist: %s", nameStr, lvStr, rarityStr, distStr)
+					
+					if cache.catchBtn.Text ~= "..." and cache.catchBtn.Text ~= "FAIL" and cache.catchBtn.Text ~= "OK" then
+						cache.catchBtn.Text = "CATCH"
+						cache.catchBtn.BackgroundColor3 = COLORS.accentViolet
+					end
+					
+					contentHeight = contentHeight + 42
+				end
+				
+				for i = #sortedList + 1, #uiRowsCache do
+					uiRowsCache[i].associatedRot = nil
+					uiRowsCache[i].row.Visible = false
+				end
+				
+				scrollList.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
+			end
+
+			catchRot = function(rot)
+				if not rot or currentlyCatching then return false end
+				currentlyCatching = rot
+				
+				teleportToRot(rot)
+				
+				local startTime = os.clock()
+				local joined = false
+				while os.clock() - startTime < 3 do
+					if isPlayerInBattle() then
+						joined = true
+						break
+					end
+					task.wait(0.1)
+				end
+				
+				if joined then
+					battlesStarted = battlesStarted + 1
+					caughtCount = caughtCount + 1
+					updateStats()
+					currentlyCatching = nil
+					return true
+				end
+				
+				local success, result = pcall(function()
+					return CatchRequest:InvokeServer(rot.ContainerID, rot.ID)
+				end)
+				
+				task.wait(0.5)
+				
+				if isPlayerInBattle() or (success and result ~= nil) then
+					battlesStarted = battlesStarted + 1
+					caughtCount = caughtCount + 1
+					updateStats()
+					currentlyCatching = nil
+					return true
+				end
+				
+				currentlyCatching = nil
+				return false
+			end
+
+			-- Load Initial Map State
+			local function loadInitialState()
+				local success, result = pcall(function()
+					return GetInitialContainerStates:InvokeServer()
+				end)
+				
+				if success and result and result.Containers then
+					for containerId, containerData in pairs(result.Containers) do
+						containers[containerId] = {
+							ID = containerId,
+							CFrame = containerData.CFrame,
+							Size = containerData.Size,
+							World = containerData.World,
+							Tags = containerData.Tags,
+							Rots = {}
+						}
+						if containerData.Rots then
+							for rotId, rotData in pairs(containerData.Rots) do
+								addRot(containerId, rotData, rotId)
+							end
+						end
+					end
+					updateUIList()
+				else
+					task.delay(3, loadInitialState)
+				end
+			end
+			loadInitialState()
+
+			UpdateEvent.OnClientEvent:Connect(function(updates)
+				for _, update in ipairs(updates) do
+					if update.Type == "Spawn" then
+						addRot(update.Container, update.Rot, update.Rot and update.Rot.ID)
+					elseif update.Type == "Despawn" or update.Type == "Encounter" then
+						removeRot(update.Container, update.Rot)
+					end
+				end
+				uiNeedsUpdate = true
+			end)
+
+			-- Auto-Cleanup despawn local timer
+			task.spawn(function()
+				while true do
+					task.wait(1)
+					local now = os.clock()
+					local changed = false
+					for rotId, rot in pairs(activeRots) do
+						if rot.DespawnTime and now > rot.DespawnTime then
+							removeRot(rot.ContainerID, rotId)
+							changed = true
+						end
+					end
+					if changed then uiNeedsUpdate = true end
+				end
+			end)
+
+			-- Inputs Event Binding
+			delayInput.FocusLost:Connect(function()
+				local val = tonumber(delayInput.Text)
+				if val and val >= 0.1 then
+					catchDelay = val
+					pcall(saveConfig)
+				else
+					delayInput.Text = tostring(catchDelay)
+				end
+			end)
+
+			levelInput.FocusLost:Connect(function()
+				local val = tonumber(levelInput.Text)
+				if val and val >= 1 then
+					minLevelFilter = math.floor(val)
+					pcall(saveConfig)
+				else
+					levelInput.Text = tostring(minLevelFilter)
+				end
+				uiNeedsUpdate = true
+			end)
+
+			rarityBtn.MouseButton1Click:Connect(function()
+				selectedRarityIndex = selectedRarityIndex + 1
+				if selectedRarityIndex > #rarityNames then
+					selectedRarityIndex = 1
+				end
+				rarityBtn.Text = rarityNames[selectedRarityIndex]
+				pcall(saveConfig)
+				uiNeedsUpdate = true
+			end)
+
+			local function toggleAutoCatch()
+				autoCatchEnabled = not autoCatchEnabled
+				if autoCatchEnabled then
+					toggleBtn.Text = "STOP"
+					TweenService:Create(toggleBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(46, 204, 113)}):Play()
+				else
+					toggleBtn.Text = "START"
+					TweenService:Create(toggleBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(231, 76, 60)}):Play()
+				end
+				updateStats()
+			end
+			toggleBtn.MouseButton1Click:Connect(toggleAutoCatch)
+
+			-- Throttled UI & distance update loop
+			local lastPlayerPos = Vector3.zero
+			task.spawn(function()
+				while true do
+					task.wait(0.5)
+					local character = player.Character
+					local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position or Vector3.zero
+					local moved = (playerPos - lastPlayerPos).Magnitude > 1.5
+					
+					if autoCatchEnabled or uiNeedsUpdate or moved then
+						updateUIList()
+						updateStats()
+						uiNeedsUpdate = false
+						lastPlayerPos = playerPos
+					end
+				end
+			end)
+
+			-- Auto-Catching Execution Loop
+			task.spawn(function()
+				while true do
+					task.wait(0.2)
+					
+					if not autoCatchEnabled then continue end
+					
+					if isPlayerInBattle() or currentlyCatching then
+						task.wait(0.5)
+						continue
+					end
+					
+					-- Anti-Staff safety check
+					if safeModeEnabled then
+						local adminFound = false
+						for _, p in ipairs(Players:GetPlayers()) do
+							if staffCache[p] then
+								adminFound = true
+								break
+							end
+						end
+						if adminFound then
+							task.wait(5)
+							continue
+						end
+					end
+					
+					local character = player.Character
+					local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position
+					if not playerPos then continue end
+					
+					local closestRot = nil
+					local minDistance = 999999
+					
+					for rotId, rot in pairs(activeRots) do
+						local rotLevel = rot.Level or 1
+						local rotName = rot.Name or ""
+						
+						if rotLevel >= minLevelFilter and matchesRarityFilter(rotName) then
+							local container = containers[rot.ContainerID]
+							if container and container.CFrame then
+								local dist = (playerPos - container.CFrame.Position).Magnitude
+								if dist < minDistance then
+									minDistance = dist
+									closestRot = rot
+								end
+							end
+						end
+					end
+					
+					if closestRot then
+						local success = catchRot(closestRot)
+						if success then
+							task.wait(catchDelay)
+						end
+					end
+				end
+			end)
+		end)
+	end
 
 	------------------------------------------------
 	-- ⚙️ CONFIGURATION SAVING & LOADING
@@ -260,6 +1254,10 @@ local success, err = pcall(function()
 			else
 				data.keybind = kbValue.Text
 			end
+			data.catchDelay = catchDelay
+			data.safeModeEnabled = safeModeEnabled
+			data.minLevelFilter = minLevelFilter
+			data.selectedRarityIndex = selectedRarityIndex
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
@@ -282,6 +1280,11 @@ local success, err = pcall(function()
 			local data = game:GetService("HttpService"):JSONDecode(content)
 			if data and type(data) == "table" then
 				if data.keybind and tostring(data.keybind) ~= "" then kbValue.Text = tostring(data.keybind) end
+
+				if data.catchDelay ~= nil then catchDelay = tonumber(data.catchDelay) or 1.0 end
+				if data.safeModeEnabled ~= nil then safeModeEnabled = (data.safeModeEnabled == true) end
+				if data.minLevelFilter ~= nil then minLevelFilter = tonumber(data.minLevelFilter) or 1 end
+				if data.selectedRarityIndex ~= nil then selectedRarityIndex = tonumber(data.selectedRarityIndex) or 1 end
 
 				-- Load settings config variables for settings.lua
 				if data.antiAfk ~= nil or data.touchFling ~= nil or data.antiFling ~= nil or data.noclip ~= nil or data.startMinimized ~= nil or data.keybind ~= nil then
