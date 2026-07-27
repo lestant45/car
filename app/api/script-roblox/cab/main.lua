@@ -253,11 +253,14 @@ local success, err = pcall(function()
 	local setMiningState = nil
 
 	if mainFrameContent then
+		local isExpanded = false
+
 		local miningCard = Instance.new("Frame")
-		miningCard.Size = UDim2.new(1, 0, 0, 160)
+		miningCard.Size = UDim2.new(1, 0, 0, 36)
 		miningCard.BackgroundColor3 = COLORS.glassCard
 		miningCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		miningCard.BorderSizePixel = 0
+		miningCard.ClipsDescendants = true
 		miningCard.LayoutOrder = 1
 		miningCard.Parent = mainFrameContent
 
@@ -269,18 +272,19 @@ local success, err = pcall(function()
 			strokeTransparency = 0.7
 		})
 
-		-- Header Bar with | indicator line and > chevron (Picture 2 style)
-		local headerBar = Instance.new("Frame")
-		headerBar.Size = UDim2.new(1, 0, 0, 36)
-		headerBar.BackgroundTransparency = 1
-		headerBar.Parent = miningCard
+		-- Expandable Header Click Button (Picture 1 & 2 style)
+		local headerBtn = Instance.new("TextButton")
+		headerBtn.Size = UDim2.new(1, 0, 0, 36)
+		headerBtn.BackgroundTransparency = 1
+		headerBtn.Text = ""
+		headerBtn.Parent = miningCard
 
 		local accentBar = Instance.new("Frame")
 		accentBar.Size = UDim2.new(0, 3, 0, 18)
 		accentBar.Position = UDim2.new(0, 12, 0, 9)
 		accentBar.BackgroundColor3 = COLORS.accentCyan
 		accentBar.BorderSizePixel = 0
-		accentBar.Parent = headerBar
+		accentBar.Parent = headerBtn
 
 		local accentCorner = Instance.new("UICorner")
 		accentCorner.CornerRadius = UDim.new(0, 2)
@@ -295,7 +299,7 @@ local success, err = pcall(function()
 		miningTitle.Font = Enum.Font.GothamBold
 		miningTitle.TextSize = 13
 		miningTitle.TextXAlignment = Enum.TextXAlignment.Left
-		miningTitle.Parent = headerBar
+		miningTitle.Parent = headerBtn
 
 		local chevronLabel = Instance.new("TextLabel")
 		chevronLabel.Size = UDim2.new(0, 24, 1, 0)
@@ -305,16 +309,38 @@ local success, err = pcall(function()
 		chevronLabel.TextColor3 = COLORS.accentCyan
 		chevronLabel.Font = Enum.Font.GothamBold
 		chevronLabel.TextSize = 13
-		chevronLabel.Parent = headerBar
+		chevronLabel.Parent = headerBtn
 
 		-- Toggles Container inside Mining Card
 		local toggleContainer = Instance.new("Frame")
 		toggleContainer.Size = UDim2.new(1, -24, 0, 115)
-		toggleContainer.Position = UDim2.new(0, 12, 0, 38)
+		toggleContainer.Position = UDim2.new(0, 12, 0, 42)
 		toggleContainer.BackgroundTransparency = 1
 		toggleContainer.Parent = miningCard
 
 		refs.applyListLayout(toggleContainer, 6)
+
+		local function updateMainTabCanvas()
+			if mainFrameContent:IsA("ScrollingFrame") then
+				local layout = mainFrameContent:FindFirstChildOfClass("UIListLayout")
+				if layout then
+					mainFrameContent.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 30)
+				end
+			end
+		end
+
+		headerBtn.MouseButton1Click:Connect(function()
+			isExpanded = not isExpanded
+			chevronLabel.Text = isExpanded and "v" or ">"
+			local targetHeight = isExpanded and 165 or 36
+
+			local tween = TweenService:Create(miningCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.new(1, 0, 0, targetHeight)
+			})
+			tween:Play()
+			tween.Completed:Connect(updateMainTabCanvas)
+			updateMainTabCanvas()
+		end)
 
 		-- Mining Persistent States
 		local antiFallEnabled = false
