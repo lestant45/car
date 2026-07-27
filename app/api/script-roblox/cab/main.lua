@@ -1596,6 +1596,7 @@ local success, err = pcall(function()
 				data.droppedRuneEspEnabled = espState.droppedRuneEspEnabled
 				data.playerEspEnabled = espState.playerEspEnabled
 				data.selectedCrystalRarity = espState.selectedCrystalRarity
+				data.selectedCrystalSize = espState.selectedCrystalSize
 			end
 
 			-- Mining config state
@@ -1641,6 +1642,7 @@ local success, err = pcall(function()
 						droppedRuneEspEnabled = data.droppedRuneEspEnabled,
 						playerEspEnabled = data.playerEspEnabled,
 						selectedCrystalRarity = data.selectedCrystalRarity,
+						selectedCrystalSize = data.selectedCrystalSize,
 					})
 				end
 

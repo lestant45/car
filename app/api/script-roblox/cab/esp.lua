@@ -24,9 +24,10 @@ local function initESP()
 		droppedRuneEspEnabled = false,
 		playerEspEnabled = false,
 		selectedCrystalRarity = "All",
+		selectedCrystalSize = "All",
 	}
 
-	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals
+	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals, updateSizeDropdownVisuals
 
 	if refs.addTab then
 		local espTabFrame = refs.addTab("ESP", "", 2)
@@ -189,6 +190,7 @@ local function initESP()
 				end)
 
 				updateTabCanvas()
+				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
 				if saveConfig then pcall(saveConfig) end
 			end)
 		end
@@ -205,6 +207,133 @@ local function initESP()
 			if not isOpen then
 				slideTween.Completed:Connect(function()
 					if not isOpen then menuFrame.Visible = false end
+				end)
+			end
+
+			updateTabCanvas()
+		end)
+
+		-- 🔽 Crystal Size Filter Dropdown Card (Below Rarity Filter)
+		local sizeFilterCard = Instance.new("Frame")
+		sizeFilterCard.Size = UDim2.new(1, 0, 0, 44)
+		sizeFilterCard.BackgroundColor3 = COLORS.glassCard
+		sizeFilterCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		sizeFilterCard.BorderSizePixel = 0
+		sizeFilterCard.ClipsDescendants = true
+		sizeFilterCard.Parent = espTabFrame
+
+		refs.applyGlass(sizeFilterCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		local sizeFilterTitle = Instance.new("TextLabel")
+		sizeFilterTitle.Size = UDim2.new(0.5, 0, 0, 44)
+		sizeFilterTitle.Position = UDim2.new(0, 12, 0, 0)
+		sizeFilterTitle.BackgroundTransparency = 1
+		sizeFilterTitle.Text = "Crystal Size Filter"
+		sizeFilterTitle.TextColor3 = COLORS.textPrimary
+		sizeFilterTitle.Font = Enum.Font.GothamMedium
+		sizeFilterTitle.TextSize = 12
+		sizeFilterTitle.TextXAlignment = Enum.TextXAlignment.Left
+		sizeFilterTitle.Parent = sizeFilterCard
+
+		local sizeDropBtn = Instance.new("TextButton")
+		sizeDropBtn.Size = UDim2.new(0, 140, 0, 26)
+		sizeDropBtn.Position = UDim2.new(1, -152, 0, 9)
+		sizeDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
+		sizeDropBtn.Text = (state.selectedCrystalSize or "All") .. "  ▼"
+		sizeDropBtn.TextColor3 = COLORS.accentCyan
+		sizeDropBtn.Font = Enum.Font.GothamBold
+		sizeDropBtn.TextSize = 10
+		sizeDropBtn.Parent = sizeFilterCard
+
+		local sizeDropCorner = Instance.new("UICorner")
+		sizeDropCorner.CornerRadius = refs.CORNER.small
+		sizeDropCorner.Parent = sizeDropBtn
+
+		local sizeDropStroke = Instance.new("UIStroke")
+		sizeDropStroke.Color = COLORS.borderGlass
+		sizeDropStroke.Thickness = 1
+		sizeDropStroke.Transparency = 0.5
+		sizeDropStroke.Parent = sizeDropBtn
+
+		local sizeMenuFrame = Instance.new("Frame")
+		sizeMenuFrame.Size = UDim2.new(0, 140, 0, 110)
+		sizeMenuFrame.Position = UDim2.new(1, -152, 0, 40)
+		sizeMenuFrame.BackgroundTransparency = 1
+		sizeMenuFrame.Visible = false
+		sizeMenuFrame.ClipsDescendants = true
+		sizeMenuFrame.Parent = sizeFilterCard
+
+		refs.applyListLayout(sizeMenuFrame, 3)
+
+		local sizes = {
+			"All",
+			"Medium",
+			"Large",
+			"Small"
+		}
+		local isSizeOpen = false
+
+		updateSizeDropdownVisuals = function()
+			sizeDropBtn.Text = (state.selectedCrystalSize or "All") .. (isSizeOpen and "  ▲" or "  ▼")
+			for _, child in ipairs(sizeMenuFrame:GetChildren()) do
+				if child:IsA("TextButton") then
+					local isSel = (child.Text == state.selectedCrystalSize)
+					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
+				end
+			end
+		end
+
+		for _, sName in ipairs(sizes) do
+			local itemBtn = Instance.new("TextButton")
+			itemBtn.Size = UDim2.new(1, 0, 0, 24)
+			itemBtn.BackgroundColor3 = (state.selectedCrystalSize == sName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+			itemBtn.BackgroundTransparency = 0.15
+			itemBtn.Text = sName
+			itemBtn.TextColor3 = (state.selectedCrystalSize == sName) and COLORS.accentCyan or COLORS.textSecondary
+			itemBtn.Font = Enum.Font.GothamMedium
+			itemBtn.TextSize = 10
+			itemBtn.Parent = sizeMenuFrame
+
+			local itemCorner = Instance.new("UICorner")
+			itemCorner.CornerRadius = UDim.new(0, 5)
+			itemCorner.Parent = itemBtn
+
+			itemBtn.MouseButton1Click:Connect(function()
+				state.selectedCrystalSize = sName
+				isSizeOpen = false
+				updateSizeDropdownVisuals()
+
+				local slideTween = TweenService:Create(sizeFilterCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 44) })
+				slideTween:Play()
+				slideTween.Completed:Connect(function()
+					if not isSizeOpen then sizeMenuFrame.Visible = false end
+				end)
+
+				updateTabCanvas()
+				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
+				if saveConfig then pcall(saveConfig) end
+			end)
+		end
+
+		sizeDropBtn.MouseButton1Click:Connect(function()
+			isSizeOpen = not isSizeOpen
+			if isSizeOpen then sizeMenuFrame.Visible = true end
+			updateSizeDropdownVisuals()
+
+			local targetHeight = isSizeOpen and (44 + 115) or 44
+			local slideTween = TweenService:Create(sizeFilterCard, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, targetHeight) })
+			slideTween:Play()
+
+			if not isSizeOpen then
+				slideTween.Completed:Connect(function()
+					if not isSizeOpen then sizeMenuFrame.Visible = false end
 				end)
 			end
 
@@ -405,6 +534,53 @@ local function initESP()
 		return false
 	end
 
+	local function crystalMatchesSize(crystalObj)
+		local filter = state.selectedCrystalSize or "All"
+		if filter == "All" or filter == "" then return true end
+
+		local filterLower = string.lower(filter)
+		local nameLower = string.lower(crystalObj.Name)
+
+		if string.find(nameLower, filterLower, 1, true) then
+			return true
+		end
+
+		local attr = crystalObj:GetAttribute("Size") or crystalObj:GetAttribute("Category") or crystalObj:GetAttribute("size") or crystalObj:GetAttribute("category")
+		if attr then
+			local attrStr = string.lower(tostring(attr))
+			if string.find(attrStr, filterLower, 1, true) then
+				return true
+			end
+		end
+
+		local sizeVec = nil
+		if crystalObj:IsA("BasePart") then
+			sizeVec = crystalObj.Size
+		elseif crystalObj:IsA("Model") then
+			local primary = crystalObj.PrimaryPart or crystalObj:FindFirstChildWhichIsA("BasePart")
+			if primary then
+				sizeVec = primary.Size
+			end
+		end
+
+		if sizeVec then
+			local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
+			if filterLower == "large" and maxDim >= 4.5 then
+				return true
+			elseif filterLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
+				return true
+			elseif filterLower == "small" and maxDim < 1.8 then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function crystalMatchesFilters(crystalObj)
+		return crystalMatchesRarity(crystalObj) and crystalMatchesSize(crystalObj)
+	end
+
 	local function formatComma(n)
 		local num = tonumber(n)
 		if not num then return tostring(n or "") end
@@ -592,7 +768,7 @@ local function initESP()
 			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
 			if crystalsFolder then
 				for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
-					if crystalMatchesRarity(crystalObj) then
+					if crystalMatchesFilters(crystalObj) then
 						if not activeESPs[crystalObj] then
 							local colorHex = getCrystalAccentColor(crystalObj.Name)
 							createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
@@ -611,7 +787,7 @@ local function initESP()
 			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
 			if dcFolder then
 				for _, dcObj in ipairs(dcFolder:GetChildren()) do
-					if crystalMatchesRarity(dcObj) then
+					if crystalMatchesFilters(dcObj) then
 						if not activeESPs[dcObj] then
 							local colorHex = getCrystalAccentColor(dcObj.Name)
 							createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
@@ -661,7 +837,7 @@ local function initESP()
 		folder.ChildAdded:Connect(function(child)
 			if isCrystal then
 				if (category == "crystal" and state.crystalEspEnabled) or (category == "dropped_crystal" and state.droppedCrystalEspEnabled) then
-					if crystalMatchesRarity(child) then
+					if crystalMatchesFilters(child) then
 						local colorHex = getCrystalAccentColor(child.Name)
 						createBillboardForObject(child, child.Name, category, colorHex)
 					end
@@ -744,12 +920,14 @@ local function initESP()
 			if newState.droppedRuneEspEnabled ~= nil then state.droppedRuneEspEnabled = (newState.droppedRuneEspEnabled == true) end
 			if newState.playerEspEnabled ~= nil then state.playerEspEnabled = (newState.playerEspEnabled == true) end
 			if newState.selectedCrystalRarity ~= nil then state.selectedCrystalRarity = tostring(newState.selectedCrystalRarity) end
+			if newState.selectedCrystalSize ~= nil then state.selectedCrystalSize = tostring(newState.selectedCrystalSize) end
 
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
+			if updateSizeDropdownVisuals then updateSizeDropdownVisuals() end
 
 			pcall(scanAllObjects)
 		end,
@@ -759,6 +937,7 @@ local function initESP()
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
+			if updateSizeDropdownVisuals then updateSizeDropdownVisuals() end
 
 			pcall(scanAllObjects)
 		end
