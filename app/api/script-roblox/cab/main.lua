@@ -573,6 +573,240 @@ local success, err = pcall(function()
 			end,
 			setState = setMiningState
 		}
+
+		------------------------------------------------
+		-- 💰 AUTOMATION SELL CATEGORY SECTION (MAIN TAB)
+		------------------------------------------------
+		local function getShopCFrame()
+			local Workspace = game:GetService("Workspace")
+			local candidates = {
+				Workspace:FindFirstChild("Shop"),
+				Workspace:FindFirstChild("Merchant"),
+				Workspace:FindFirstChild("SellZone"),
+				Workspace:FindFirstChild("SellArea"),
+				Workspace:FindFirstChild("Sell"),
+				Workspace:FindFirstChild("Collector"),
+				Workspace:FindFirstChild("NPCs") and Workspace.NPCs:FindFirstChild("Shop"),
+				Workspace:FindFirstChild("NPCs") and Workspace.NPCs:FindFirstChild("Merchant"),
+				Workspace:FindFirstChild("Things") and Workspace.Things:FindFirstChild("Shop"),
+				Workspace:FindFirstChild("Things") and Workspace.Things:FindFirstChild("Merchant"),
+			}
+
+			for _, cand in ipairs(candidates) do
+				if cand then
+					if cand:IsA("BasePart") then
+						return cand.CFrame
+					elseif cand:IsA("Model") then
+						if cand.PrimaryPart then
+							return cand.PrimaryPart.CFrame
+						else
+							local p = cand:FindFirstChildWhichIsA("BasePart")
+							if p then return p.CFrame end
+						end
+					end
+				end
+			end
+
+			for _, desc in ipairs(Workspace:GetDescendants()) do
+				if desc:IsA("BasePart") or desc:IsA("Model") then
+					local dName = string.lower(desc.Name)
+					if dName == "shop" or dName == "sellzone" or dName == "merchant" or dName == "sellarea" or dName == "collector" then
+						if desc:IsA("BasePart") then
+							return desc.CFrame
+						elseif desc:IsA("Model") then
+							local p = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")
+							if p then return p.CFrame end
+						end
+					end
+				end
+			end
+			return nil
+		end
+
+		local isSellExpanded = false
+		local autoSellEnabled = false
+		local isSelling = false
+
+		local sellCard = Instance.new("Frame")
+		sellCard.Size = UDim2.new(1, 0, 0, 36)
+		sellCard.BackgroundColor3 = COLORS.glassCard
+		sellCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		sellCard.BorderSizePixel = 0
+		sellCard.ClipsDescendants = true
+		sellCard.LayoutOrder = 2
+		sellCard.Parent = mainFrameContent
+
+		refs.applyGlass(sellCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		-- Expandable Header Click Button
+		local sellHeaderBtn = Instance.new("TextButton")
+		sellHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+		sellHeaderBtn.BackgroundTransparency = 1
+		sellHeaderBtn.Text = ""
+		sellHeaderBtn.Parent = sellCard
+
+		local sellAccentBar = Instance.new("Frame")
+		sellAccentBar.Size = UDim2.new(0, 3, 0, 18)
+		sellAccentBar.Position = UDim2.new(0, 12, 0, 9)
+		sellAccentBar.BackgroundColor3 = COLORS.accentCyan
+		sellAccentBar.BorderSizePixel = 0
+		sellAccentBar.Parent = sellHeaderBtn
+
+		local sellAccentCorner = Instance.new("UICorner")
+		sellAccentCorner.CornerRadius = UDim.new(0, 2)
+		sellAccentCorner.Parent = sellAccentBar
+
+		local sellTitle = Instance.new("TextLabel")
+		sellTitle.Size = UDim2.new(1, -60, 1, 0)
+		sellTitle.Position = UDim2.new(0, 24, 0, 0)
+		sellTitle.BackgroundTransparency = 1
+		sellTitle.Text = "Automation Sell"
+		sellTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		sellTitle.Font = Enum.Font.GothamBold
+		sellTitle.TextSize = 13
+		sellTitle.TextXAlignment = Enum.TextXAlignment.Left
+		sellTitle.Parent = sellHeaderBtn
+
+		local sellChevronLabel = Instance.new("TextLabel")
+		sellChevronLabel.Size = UDim2.new(0, 24, 1, 0)
+		sellChevronLabel.Position = UDim2.new(1, -30, 0, 0)
+		sellChevronLabel.BackgroundTransparency = 1
+		sellChevronLabel.Text = ">"
+		sellChevronLabel.TextColor3 = COLORS.accentCyan
+		sellChevronLabel.Font = Enum.Font.GothamBold
+		sellChevronLabel.TextSize = 13
+		sellChevronLabel.Parent = sellHeaderBtn
+
+		-- Content Container inside Automation Sell Card
+		local sellContentContainer = Instance.new("Frame")
+		sellContentContainer.Size = UDim2.new(1, -24, 0, 80)
+		sellContentContainer.Position = UDim2.new(0, 12, 0, 42)
+		sellContentContainer.BackgroundTransparency = 1
+		sellContentContainer.Parent = sellCard
+
+		refs.applyListLayout(sellContentContainer, 6)
+
+		sellHeaderBtn.MouseButton1Click:Connect(function()
+			isSellExpanded = not isSellExpanded
+			sellChevronLabel.Text = isSellExpanded and "v" or ">"
+			local targetHeight = isSellExpanded and 130 or 36
+
+			local tween = TweenService:Create(sellCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.new(1, 0, 0, targetHeight)
+			})
+			tween:Play()
+			tween.Completed:Connect(updateMainTabCanvas)
+			updateMainTabCanvas()
+		end)
+
+		-- Sell All Execution Logic (Teleport to Shop, Fire Remote, Return to Original Position)
+		local function executeSellAllTeleport()
+			if isSelling then return end
+			isSelling = true
+
+			local myChar = player and player.Character
+			local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+			if not myHrp then
+				isSelling = false
+				return
+			end
+
+			local lastCFrame = myHrp.CFrame
+			local shopCFrame = getShopCFrame()
+
+			if shopCFrame then
+				myHrp.CFrame = shopCFrame + Vector3.new(0, 3, 0)
+				task.wait(0.4)
+			end
+
+			pcall(function()
+				local rem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("SellRequest")
+				if rem then
+					rem:FireServer("all")
+				end
+			end)
+
+			if shopCFrame then
+				task.wait(0.3)
+				if myHrp and myHrp.Parent then
+					myHrp.CFrame = lastCFrame
+				end
+			end
+
+			isSelling = false
+		end
+
+		-- 1. Action Button: Sell All Items
+		local actionBtn = Instance.new("TextButton")
+		actionBtn.Size = UDim2.new(1, 0, 0, 32)
+		actionBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
+		actionBtn.BackgroundTransparency = 0.2
+		actionBtn.Text = "⚡ Sell All Items (Teleport & Return)"
+		actionBtn.TextColor3 = COLORS.accentCyan
+		actionBtn.Font = Enum.Font.GothamBold
+		actionBtn.TextSize = 11
+		actionBtn.LayoutOrder = 1
+		actionBtn.Parent = sellContentContainer
+
+		local actionCorner = Instance.new("UICorner")
+		actionCorner.CornerRadius = refs.CORNER.small
+		actionCorner.Parent = actionBtn
+
+		local actionStroke = Instance.new("UIStroke")
+		actionStroke.Color = COLORS.borderGlass
+		actionStroke.Thickness = 1
+		actionStroke.Transparency = 0.5
+		actionStroke.Parent = actionBtn
+
+		actionBtn.MouseButton1Click:Connect(function()
+			task.spawn(executeSellAllTeleport)
+		end)
+
+		-- 2. Toggle: Auto Sell All
+		local asRow, asTrack, asThumb = refs.createGlassToggle(sellContentContainer, "Auto Sell All", 2)
+		local updateAutoSellVisuals = function()
+			if autoSellEnabled then
+				TweenService:Create(asTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(asThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(asTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(asThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+
+		asTrack.MouseButton1Click:Connect(function()
+			autoSellEnabled = not autoSellEnabled
+			updateAutoSellVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- Auto Sell Loop
+		task.spawn(function()
+			while true do
+				task.wait(15)
+				if autoSellEnabled then
+					pcall(executeSellAllTeleport)
+				end
+			end
+		end)
+
+		_G.HipHubAutomationSell = {
+			getState = function()
+				return { autoSellEnabled = autoSellEnabled }
+			end,
+			setState = function(s)
+				if s and s.autoSellEnabled ~= nil then
+					autoSellEnabled = (s.autoSellEnabled == true)
+					updateAutoSellVisuals()
+				end
+			end
+		}
 	end
 
 	------------------------------------------------
@@ -1607,6 +1841,12 @@ local success, err = pcall(function()
 				data.instantPickupEnabled = mState.instantPickupEnabled
 			end
 
+			-- Automation Sell config state
+			if _G.HipHubAutomationSell and _G.HipHubAutomationSell.getState then
+				local sellState = _G.HipHubAutomationSell.getState()
+				data.autoSellEnabled = sellState.autoSellEnabled
+			end
+
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
@@ -1651,6 +1891,12 @@ local success, err = pcall(function()
 						antiFallEnabled = data.antiFallEnabled,
 						instantMineEnabled = data.instantMineEnabled,
 						instantPickupEnabled = data.instantPickupEnabled,
+					})
+				end
+
+				if _G.HipHubAutomationSell and _G.HipHubAutomationSell.setState then
+					_G.HipHubAutomationSell.setState({
+						autoSellEnabled = data.autoSellEnabled,
 					})
 				end
 
