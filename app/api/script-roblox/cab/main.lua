@@ -950,16 +950,44 @@ local success, err = pcall(function()
 		amRarMenuFrame.Visible = false
 		amRarMenuFrame.ClipsDescendants = true
 		amRarMenuFrame.Parent = amRarCard
+		local autoFarmRarityFilters = { ["All"] = true }
+		local autoFarmSizeFilters = { ["All"] = true }
 
-		refs.applyListLayout(amRarMenuFrame, 3)
+		local function getSelectedRarityLabelText()
+			if autoFarmRarityFilters["All"] or next(autoFarmRarityFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
+				if autoFarmRarityFilters[r] then table.insert(list, r) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
+		local function getSelectedSizeLabelText()
+			if autoFarmSizeFilters["All"] or next(autoFarmSizeFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, s in ipairs({ "Small", "Medium", "Large", "Titan", "Colossal" }) do
+				if autoFarmSizeFilters[s] then table.insert(list, s) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
 
 		local amRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
 
 		local function updateAmRarityVisuals()
-			amRarDropBtn.Text = (autoFarmRarityFilter or "All") .. (isRarOpen and "  ▲" or "  ▼")
+			amRarDropBtn.Text = getSelectedRarityLabelText() .. (isRarOpen and "  ▲" or "  ▼")
 			for _, child in ipairs(amRarMenuFrame:GetChildren()) do
 				if child:IsA("TextButton") then
-					local isSel = (child.Text == autoFarmRarityFilter)
+					local isSel = (autoFarmRarityFilters[child.Text] == true)
 					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
 					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
 				end
@@ -969,10 +997,10 @@ local success, err = pcall(function()
 		for _, rName in ipairs(amRarities) do
 			local itemBtn = Instance.new("TextButton")
 			itemBtn.Size = UDim2.new(1, 0, 0, 20)
-			itemBtn.BackgroundColor3 = (autoFarmRarityFilter == rName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+			itemBtn.BackgroundColor3 = (autoFarmRarityFilters[rName] == true) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
 			itemBtn.BackgroundTransparency = 0.15
 			itemBtn.Text = rName
-			itemBtn.TextColor3 = (autoFarmRarityFilter == rName) and COLORS.accentCyan or COLORS.textSecondary
+			itemBtn.TextColor3 = (autoFarmRarityFilters[rName] == true) and COLORS.accentCyan or COLORS.textSecondary
 			itemBtn.Font = Enum.Font.GothamMedium
 			itemBtn.TextSize = 10
 			itemBtn.Parent = amRarMenuFrame
@@ -982,15 +1010,30 @@ local success, err = pcall(function()
 			itemCorner.Parent = itemBtn
 
 			itemBtn.MouseButton1Click:Connect(function()
-				autoFarmRarityFilter = rName
-				isRarOpen = false
+				if rName == "All" then
+					autoFarmRarityFilters = { ["All"] = true }
+				else
+					autoFarmRarityFilters["All"] = nil
+					if autoFarmRarityFilters[rName] then
+						autoFarmRarityFilters[rName] = nil
+					else
+						autoFarmRarityFilters[rName] = true
+					end
+					local hasAny = false
+					for _, v in pairs(autoFarmRarityFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then
+						autoFarmRarityFilters["All"] = true
+					end
+				end
+
 				updateAmRarityVisuals()
-				TweenService:Create(amRarCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 36) }):Play()
-				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 220) }):Play()
-				updateMainTabCanvas()
 				if refs.saveConfig then pcall(refs.saveConfig) end
 			end)
 		end
+
+		refs.applyListLayout(amRarMenuFrame, 3)
 
 		amRarDropBtn.MouseButton1Click:Connect(function()
 			isRarOpen = not isRarOpen
@@ -1032,7 +1075,7 @@ local success, err = pcall(function()
 		amSzDropBtn.Size = UDim2.new(0, 128, 0, 22)
 		amSzDropBtn.Position = UDim2.new(1, -140, 0, 7)
 		amSzDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
-		amSzDropBtn.Text = (autoFarmSizeFilter or "All") .. "  ▼"
+		amSzDropBtn.Text = "All  ▼"
 		amSzDropBtn.TextColor3 = COLORS.accentCyan
 		amSzDropBtn.Font = Enum.Font.GothamBold
 		amSzDropBtn.TextSize = 10
@@ -1055,10 +1098,10 @@ local success, err = pcall(function()
 		local amSizes = { "All", "Small", "Medium", "Large", "Titan", "Colossal" }
 
 		local function updateAmSizeVisuals()
-			amSzDropBtn.Text = (autoFarmSizeFilter or "All") .. (isSzOpen and "  ▲" or "  ▼")
+			amSzDropBtn.Text = getSelectedSizeLabelText() .. (isSzOpen and "  ▲" or "  ▼")
 			for _, child in ipairs(amSzMenuFrame:GetChildren()) do
 				if child:IsA("TextButton") then
-					local isSel = (child.Text == autoFarmSizeFilter)
+					local isSel = (autoFarmSizeFilters[child.Text] == true)
 					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
 					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
 				end
@@ -1068,10 +1111,10 @@ local success, err = pcall(function()
 		for _, sName in ipairs(amSizes) do
 			local itemBtn = Instance.new("TextButton")
 			itemBtn.Size = UDim2.new(1, 0, 0, 20)
-			itemBtn.BackgroundColor3 = (autoFarmSizeFilter == sName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+			itemBtn.BackgroundColor3 = (autoFarmSizeFilters[sName] == true) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
 			itemBtn.BackgroundTransparency = 0.15
 			itemBtn.Text = sName
-			itemBtn.TextColor3 = (autoFarmSizeFilter == sName) and COLORS.accentCyan or COLORS.textSecondary
+			itemBtn.TextColor3 = (autoFarmSizeFilters[sName] == true) and COLORS.accentCyan or COLORS.textSecondary
 			itemBtn.Font = Enum.Font.GothamMedium
 			itemBtn.TextSize = 10
 			itemBtn.Parent = amSzMenuFrame
@@ -1081,12 +1124,25 @@ local success, err = pcall(function()
 			itemCorner.Parent = itemBtn
 
 			itemBtn.MouseButton1Click:Connect(function()
-				autoFarmSizeFilter = sName
-				isSzOpen = false
+				if sName == "All" then
+					autoFarmSizeFilters = { ["All"] = true }
+				else
+					autoFarmSizeFilters["All"] = nil
+					if autoFarmSizeFilters[sName] then
+						autoFarmSizeFilters[sName] = nil
+					else
+						autoFarmSizeFilters[sName] = true
+					end
+					local hasAny = false
+					for _, v in pairs(autoFarmSizeFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then
+						autoFarmSizeFilters["All"] = true
+					end
+				end
+
 				updateAmSizeVisuals()
-				TweenService:Create(amSzCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 36) }):Play()
-				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 220) }):Play()
-				updateMainTabCanvas()
 				if refs.saveConfig then pcall(refs.saveConfig) end
 			end)
 		end
@@ -1142,16 +1198,13 @@ local success, err = pcall(function()
 			if refs.saveConfig then pcall(refs.saveConfig) end
 		end)
 
-		-- Helper to get closest filtered crystal using Automation Mining's independent filters
+		-- Helper to get closest filtered crystal using Automation Mining's multi-select filters
 		local function getClosestFilteredCrystal()
 			local char = player and player.Character
 			local hrp = char and char:FindFirstChild("HumanoidRootPart")
 			if not hrp then return nil end
 
 			local myPos = hrp.Position
-			local selRarity = autoFarmRarityFilter or "All"
-			local selSize = autoFarmSizeFilter or "All"
-
 			local things = workspace:FindFirstChild("Things")
 			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
 			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
@@ -1162,75 +1215,99 @@ local success, err = pcall(function()
 
 			local function evaluateFolder(folder)
 				if not folder then return end
-				for _, child in ipairs(folder:GetChildren()) do
-					if child and child.Parent then
+				for _, child in ipairs(folder:GetDescendants()) do
+					if child and child.Parent and (child:IsA("BasePart") or child:IsA("Model")) and not child:IsA("Accessory") then
 						local nameLower = string.lower(child.Name)
-						local rarityLower = string.lower(selRarity)
-						local sizeLower = string.lower(selSize)
 
-						-- Independent Rarity Check
-						local matchesRarity = (rarityLower == "all" or rarityLower == "")
-						if not matchesRarity then
+						-- Multi-Select Rarity Check
+						local matchesRarity = false
+						if autoFarmRarityFilters["All"] or next(autoFarmRarityFilters) == nil then
+							matchesRarity = true
+						else
 							local filterMap = {
-								["common"] = {"_t1", "t1", "common"},
-								["uncommon"] = {"_t2", "t2", "uncommon"},
-								["rare"] = {"_t3", "t3", "rare"},
-								["epic"] = {"_t4", "t4", "epic"},
-								["legendary"] = {"_t5", "t5", "legendary"},
-								["mythical"] = {"_t6", "t6", "mythical", "mythic"},
-								["mythic"] = {"_t6", "t6", "mythical", "mythic"},
+								["common"] = {"_t1", "t1", "common", "tier1", "tier 1", "1"},
+								["uncommon"] = {"_t2", "t2", "uncommon", "tier2", "tier 2", "2"},
+								["rare"] = {"_t3", "t3", "rare", "tier3", "tier 3", "3"},
+								["epic"] = {"_t4", "t4", "epic", "tier4", "tier 4", "4"},
+								["legendary"] = {"_t5", "t5", "legendary", "tier5", "tier 5", "5"},
+								["mythical"] = {"_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6"},
+								["mythic"] = {"_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6"},
 							}
-							local kws = filterMap[rarityLower]
-							if kws then
-								for _, kw in ipairs(kws) do
-									if string.find(nameLower, kw, 1, true) then
-										matchesRarity = true
-										break
+							for selRarity, isSel in pairs(autoFarmRarityFilters) do
+								if isSel then
+									local rarityLower = string.lower(selRarity)
+									local kws = filterMap[rarityLower]
+									if kws then
+										for _, kw in ipairs(kws) do
+											if string.find(nameLower, kw, 1, true) then
+												matchesRarity = true
+												break
+											end
+										end
 									end
-								end
-							end
-							if not matchesRarity and string.find(nameLower, rarityLower, 1, true) then
-								matchesRarity = true
-							end
-							if not matchesRarity then
-								local attr = child:GetAttribute("Rarity") or child:GetAttribute("Tier") or child:GetAttribute("rarity") or child:GetAttribute("tier")
-								if attr and string.find(string.lower(tostring(attr)), rarityLower, 1, true) then
-									matchesRarity = true
+									if not matchesRarity and string.find(nameLower, rarityLower, 1, true) then
+										matchesRarity = true
+									end
+									if not matchesRarity then
+										local attr = child:GetAttribute("Rarity") or child:GetAttribute("Tier") or child:GetAttribute("rarity") or child:GetAttribute("tier")
+										if attr then
+											local attrStr = string.lower(tostring(attr))
+											if string.find(attrStr, rarityLower, 1, true) then
+												matchesRarity = true
+											elseif kws then
+												for _, kw in ipairs(kws) do
+													if string.find(attrStr, kw, 1, true) or attrStr == kw then
+														matchesRarity = true
+														break
+													end
+												end
+											end
+										end
+									end
+									if matchesRarity then break end
 								end
 							end
 						end
 
-						-- Independent Size Check
-						local matchesSize = (sizeLower == "all" or sizeLower == "")
-						if not matchesSize then
-							if string.find(nameLower, sizeLower, 1, true) then
-								matchesSize = true
-							else
-								local attr = child:GetAttribute("Size") or child:GetAttribute("Category") or child:GetAttribute("size") or child:GetAttribute("category")
-								if attr and string.find(string.lower(tostring(attr)), sizeLower, 1, true) then
-									matchesSize = true
-								else
-									local sizeVec = nil
-									if child:IsA("BasePart") then
-										sizeVec = child.Size
-									elseif child:IsA("Model") then
-										local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-										if primary then sizeVec = primary.Size end
-									end
-									if sizeVec then
-										local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
-										if sizeLower == "colossal" and maxDim >= 12 then
+						-- Multi-Select Size Check
+						local matchesSize = false
+						if autoFarmSizeFilters["All"] or next(autoFarmSizeFilters) == nil then
+							matchesSize = true
+						else
+							for selSize, isSel in pairs(autoFarmSizeFilters) do
+								if isSel then
+									local sizeLower = string.lower(selSize)
+									if string.find(nameLower, sizeLower, 1, true) then
+										matchesSize = true
+									else
+										local attr = child:GetAttribute("Size") or child:GetAttribute("Category") or child:GetAttribute("size") or child:GetAttribute("category")
+										if attr and string.find(string.lower(tostring(attr)), sizeLower, 1, true) then
 											matchesSize = true
-										elseif sizeLower == "titan" and (maxDim >= 7 and maxDim < 12) then
-											matchesSize = true
-										elseif sizeLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
-											matchesSize = true
-										elseif sizeLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
-											matchesSize = true
-										elseif sizeLower == "small" and maxDim < 1.8 then
-											matchesSize = true
+										else
+											local sizeVec = nil
+											if child:IsA("BasePart") then
+												sizeVec = child.Size
+											elseif child:IsA("Model") then
+												local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+												if primary then sizeVec = primary.Size end
+											end
+											if sizeVec then
+												local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
+												if sizeLower == "colossal" and maxDim >= 12 then
+													matchesSize = true
+												elseif sizeLower == "titan" and (maxDim >= 7 and maxDim < 12) then
+													matchesSize = true
+												elseif sizeLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
+													matchesSize = true
+												elseif sizeLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
+													matchesSize = true
+												elseif sizeLower == "small" and maxDim < 1.8 then
+													matchesSize = true
+												end
+											end
 										end
 									end
+									if matchesSize then break end
 								end
 							end
 						end
@@ -1447,8 +1524,8 @@ local success, err = pcall(function()
 					autoFarmCrystalsEnabled = autoFarmCrystalsEnabled,
 					autoFarmNoclipEnabled = autoFarmNoclipEnabled,
 					autoSellOnFullEnabled = autoSellOnFullEnabled,
-					autoFarmRarityFilter = autoFarmRarityFilter,
-					autoFarmSizeFilter = autoFarmSizeFilter,
+					autoFarmRarityFilters = autoFarmRarityFilters,
+					autoFarmSizeFilters = autoFarmSizeFilters,
 				}
 			end,
 			setState = function(s)
@@ -1467,12 +1544,26 @@ local success, err = pcall(function()
 					autoSellOnFullEnabled = (s.autoSellOnFullEnabled == true)
 					updateAutoSellFullVisuals()
 				end
-				if s.autoFarmRarityFilter ~= nil then
-					autoFarmRarityFilter = tostring(s.autoFarmRarityFilter)
+				if s.autoFarmRarityFilters ~= nil then
+					if type(s.autoFarmRarityFilters) == "table" then
+						autoFarmRarityFilters = s.autoFarmRarityFilters
+					elseif type(s.autoFarmRarityFilters) == "string" then
+						autoFarmRarityFilters = { [s.autoFarmRarityFilters] = true }
+					end
+					updateAmRarityVisuals()
+				elseif s.autoFarmRarityFilter ~= nil then
+					autoFarmRarityFilters = { [tostring(s.autoFarmRarityFilter)] = true }
 					updateAmRarityVisuals()
 				end
-				if s.autoFarmSizeFilter ~= nil then
-					autoFarmSizeFilter = tostring(s.autoFarmSizeFilter)
+				if s.autoFarmSizeFilters ~= nil then
+					if type(s.autoFarmSizeFilters) == "table" then
+						autoFarmSizeFilters = s.autoFarmSizeFilters
+					elseif type(s.autoFarmSizeFilters) == "string" then
+						autoFarmSizeFilters = { [s.autoFarmSizeFilters] = true }
+					end
+					updateAmSizeVisuals()
+				elseif s.autoFarmSizeFilter ~= nil then
+					autoFarmSizeFilters = { [tostring(s.autoFarmSizeFilter)] = true }
 					updateAmSizeVisuals()
 				end
 			end
@@ -2523,8 +2614,8 @@ local success, err = pcall(function()
 				data.autoFarmCrystalsEnabled = amState.autoFarmCrystalsEnabled
 				data.autoFarmNoclipEnabled = amState.autoFarmNoclipEnabled
 				data.autoSellOnFullEnabled = amState.autoSellOnFullEnabled
-				data.autoFarmRarityFilter = amState.autoFarmRarityFilter
-				data.autoFarmSizeFilter = amState.autoFarmSizeFilter
+				data.autoFarmRarityFilters = amState.autoFarmRarityFilters
+				data.autoFarmSizeFilters = amState.autoFarmSizeFilters
 			end
 
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -2585,8 +2676,8 @@ local success, err = pcall(function()
 						autoFarmCrystalsEnabled = data.autoFarmCrystalsEnabled,
 						autoFarmNoclipEnabled = data.autoFarmNoclipEnabled,
 						autoSellOnFullEnabled = data.autoSellOnFullEnabled,
-						autoFarmRarityFilter = data.autoFarmRarityFilter,
-						autoFarmSizeFilter = data.autoFarmSizeFilter,
+						autoFarmRarityFilters = data.autoFarmRarityFilters or data.autoFarmRarityFilter,
+						autoFarmSizeFilters = data.autoFarmSizeFilters or data.autoFarmSizeFilter,
 					})
 				end
 
