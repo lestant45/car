@@ -101,13 +101,13 @@ local function initESP()
 		filterTitle.Parent = filterCard
 
 		local dropBtn = Instance.new("TextButton")
-		dropBtn.Size = UDim2.new(0, 130, 0, 26)
-		dropBtn.Position = UDim2.new(1, -142, 0, 9)
+		dropBtn.Size = UDim2.new(0, 140, 0, 26)
+		dropBtn.Position = UDim2.new(1, -152, 0, 9)
 		dropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
 		dropBtn.Text = (state.selectedCrystalRarity or "All") .. "  ▼"
 		dropBtn.TextColor3 = COLORS.accentCyan
 		dropBtn.Font = Enum.Font.GothamBold
-		dropBtn.TextSize = 11
+		dropBtn.TextSize = 10
 		dropBtn.Parent = filterCard
 
 		local dropCorner = Instance.new("UICorner")
@@ -121,7 +121,7 @@ local function initESP()
 		dropStroke.Parent = dropBtn
 
 		local menuFrame = Instance.new("Frame")
-		menuFrame.Size = UDim2.new(1, -24, 0, 175)
+		menuFrame.Size = UDim2.new(1, -24, 0, 185)
 		menuFrame.Position = UDim2.new(0, 12, 0, 44)
 		menuFrame.BackgroundTransparency = 1
 		menuFrame.Visible = false
@@ -129,7 +129,15 @@ local function initESP()
 
 		refs.applyListLayout(menuFrame, 4)
 
-		local rarities = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical"}
+		local rarities = {
+			"All",
+			"T1 (Common)",
+			"T2 (Uncommon)",
+			"T3 (Rare)",
+			"T4 (Epic)",
+			"T5 (Legendary)",
+			"T6 (Mythical)"
+		}
 		local isOpen = false
 
 		updateDropdownVisuals = function()
@@ -171,7 +179,7 @@ local function initESP()
 		dropBtn.MouseButton1Click:Connect(function()
 			isOpen = not isOpen
 			menuFrame.Visible = isOpen
-			local targetHeight = isOpen and (44 + 185) or 44
+			local targetHeight = isOpen and (44 + 195) or 44
 			TweenService:Create(filterCard, TweenInfo.new(0.25, Enum.EasingStyle.Quart), { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
 			updateDropdownVisuals()
 		end)
@@ -284,38 +292,74 @@ local function initESP()
 		return nil
 	end
 
+	local function getCrystalAccentColor(name)
+		local nameLower = string.lower(name)
+		if string.find(nameLower, "_t6") or string.find(nameLower, "t6") or string.find(nameLower, "mythical") then
+			return "#ff3366"
+		elseif string.find(nameLower, "_t5") or string.find(nameLower, "t5") or string.find(nameLower, "legendary") then
+			return "#ffaa00"
+		elseif string.find(nameLower, "_t4") or string.find(nameLower, "t4") or string.find(nameLower, "epic") then
+			return "#aa00ff"
+		elseif string.find(nameLower, "_t3") or string.find(nameLower, "t3") or string.find(nameLower, "rare") then
+			return "#00c8ff"
+		elseif string.find(nameLower, "_t2") or string.find(nameLower, "t2") or string.find(nameLower, "uncommon") then
+			return "#55ff55"
+		elseif string.find(nameLower, "_t1") or string.find(nameLower, "t1") or string.find(nameLower, "common") then
+			return "#d0d0d0"
+		end
+		return "#00c8ff"
+	end
+
 	local function crystalMatchesRarity(crystalObj)
 		local filter = state.selectedCrystalRarity or "All"
 		if filter == "All" or filter == "" then return true end
 
-		local fLower = string.lower(filter)
 		local nameLower = string.lower(crystalObj.Name)
 
-		if string.find(nameLower, fLower) then
-			return true
-		end
+		local filterMap = {
+			["t1"] = {"_t1", "t1", "common"},
+			["t1 (common)"] = {"_t1", "t1", "common"},
+			["common"] = {"_t1", "t1", "common"},
 
-		local attr = crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("rarity")
-		if attr and string.lower(tostring(attr)) == fLower then
-			return true
-		end
+			["t2"] = {"_t2", "t2", "uncommon"},
+			["t2 (uncommon)"] = {"_t2", "t2", "uncommon"},
+			["uncommon"] = {"_t2", "t2", "uncommon"},
 
-		local child = crystalObj:FindFirstChild("Rarity")
-		if child then
-			local val = child:IsA("StringValue") and child.Value or tostring(child)
-			if string.lower(tostring(val)) == fLower then
+			["t3"] = {"_t3", "t3", "rare"},
+			["t3 (rare)"] = {"_t3", "t3", "rare"},
+			["rare"] = {"_t3", "t3", "rare"},
+
+			["t4"] = {"_t4", "t4", "epic"},
+			["t4 (epic)"] = {"_t4", "t4", "epic"},
+			["epic"] = {"_t4", "t4", "epic"},
+
+			["t5"] = {"_t5", "t5", "legendary"},
+			["t5 (legendary)"] = {"_t5", "t5", "legendary"},
+			["legendary"] = {"_t5", "t5", "legendary"},
+
+			["t6"] = {"_t6", "t6", "mythical"},
+			["t6 (mythical)"] = {"_t6", "t6", "mythical"},
+			["mythical"] = {"_t6", "t6", "mythical"},
+		}
+
+		local keywords = filterMap[string.lower(filter)]
+		if keywords then
+			for _, kw in ipairs(keywords) do
+				if string.find(nameLower, kw, 1, true) then
+					return true
+				end
+			end
+		else
+			if string.find(nameLower, string.lower(filter), 1, true) then
 				return true
 			end
 		end
 
-		local Core = _G.Core or _G.HipHubCore
-		if Core and Core.Species and Core.Species[crystalObj.Name] then
-			local species = Core.Species[crystalObj.Name]
-			if species.Rarity then
-				local rName = typeof(species.Rarity) == "table" and species.Rarity.Name or tostring(species.Rarity)
-				if string.lower(tostring(rName)) == fLower then
-					return true
-				end
+		local attr = crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("Tier") or crystalObj:GetAttribute("rarity") or crystalObj:GetAttribute("tier")
+		if attr then
+			local attrStr = string.lower(tostring(attr))
+			if string.find(attrStr, string.lower(filter), 1, true) then
+				return true
 			end
 		end
 
@@ -415,15 +459,16 @@ local function initESP()
 				end
 			end
 
-			-- 2. Crystal ESP Scan (workspace.Things.Crystals)
+			-- 2. Crystal ESP Scan (workspace.Things.Crystals or workspace.Crystals)
 			if state.crystalEspEnabled then
 				local things = workspace:FindFirstChild("Things")
-				local crystalsFolder = things and things:FindFirstChild("Crystals")
+				local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
 				if crystalsFolder then
 					for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
 						if crystalMatchesRarity(crystalObj) then
 							if not activeESPs[crystalObj] then
-								createBillboardForObject(crystalObj, crystalObj.Name, "crystal", "#00c8ff")
+								local colorHex = getCrystalAccentColor(crystalObj.Name)
+								createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
 							end
 						else
 							removeBillboardForObject(crystalObj)
@@ -441,7 +486,8 @@ local function initESP()
 					for _, dcObj in ipairs(dcFolder:GetChildren()) do
 						if crystalMatchesRarity(dcObj) then
 							if not activeESPs[dcObj] then
-								createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", "#00e6a8")
+								local colorHex = getCrystalAccentColor(dcObj.Name)
+								createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
 							end
 						else
 							removeBillboardForObject(dcObj)
