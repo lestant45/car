@@ -578,49 +578,8 @@ local success, err = pcall(function()
 		-- 💰 AUTOMATION SELL CATEGORY SECTION (MAIN TAB)
 		------------------------------------------------
 		local function getShopCFrame()
-			local Workspace = game:GetService("Workspace")
-			local candidates = {
-				Workspace:FindFirstChild("Shop"),
-				Workspace:FindFirstChild("Merchant"),
-				Workspace:FindFirstChild("SellZone"),
-				Workspace:FindFirstChild("SellArea"),
-				Workspace:FindFirstChild("Sell"),
-				Workspace:FindFirstChild("Collector"),
-				Workspace:FindFirstChild("NPCs") and Workspace.NPCs:FindFirstChild("Shop"),
-				Workspace:FindFirstChild("NPCs") and Workspace.NPCs:FindFirstChild("Merchant"),
-				Workspace:FindFirstChild("Things") and Workspace.Things:FindFirstChild("Shop"),
-				Workspace:FindFirstChild("Things") and Workspace.Things:FindFirstChild("Merchant"),
-			}
-
-			for _, cand in ipairs(candidates) do
-				if cand then
-					if cand:IsA("BasePart") then
-						return cand.CFrame
-					elseif cand:IsA("Model") then
-						if cand.PrimaryPart then
-							return cand.PrimaryPart.CFrame
-						else
-							local p = cand:FindFirstChildWhichIsA("BasePart")
-							if p then return p.CFrame end
-						end
-					end
-				end
-			end
-
-			for _, desc in ipairs(Workspace:GetDescendants()) do
-				if desc:IsA("BasePart") or desc:IsA("Model") then
-					local dName = string.lower(desc.Name)
-					if dName == "shop" or dName == "sellzone" or dName == "merchant" or dName == "sellarea" or dName == "collector" then
-						if desc:IsA("BasePart") then
-							return desc.CFrame
-						elseif desc:IsA("Model") then
-							local p = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")
-							if p then return p.CFrame end
-						end
-					end
-				end
-			end
-			return nil
+			-- Exact shop coordinates from user screenshot
+			return CFrame.new(-41.420551300048883, 29.296977996826172, 1066.813232421875)
 		end
 
 		local isSellExpanded = false
@@ -721,7 +680,7 @@ local success, err = pcall(function()
 			local shopCFrame = getShopCFrame()
 
 			if shopCFrame then
-				myHrp.CFrame = shopCFrame + Vector3.new(0, 3, 0)
+				myHrp.CFrame = shopCFrame
 				task.wait(0.4)
 			end
 
