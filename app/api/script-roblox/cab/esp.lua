@@ -366,25 +366,132 @@ local function initESP()
 		return false
 	end
 
+	local function formatComma(n)
+		local num = tonumber(n)
+		if not num then return tostring(n or "") end
+		local formatted = tostring(math.floor(num))
+		while true do
+			local k
+			formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1,%2')
+			if k == 0 then break end
+		end
+		return formatted
+	end
+
+	local function buildObjectEspDetails(obj, category, distanceMeters)
+		if category == "player" then
+			local displayName = obj.Name
+			if obj:IsA("Model") then
+				local pl = Players:GetPlayerFromCharacter(obj)
+				if pl then displayName = pl.DisplayName or pl.Name end
+			end
+			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%dm]</font>", displayName, distanceMeters or 0)
+		elseif category == "dropped_rune" then
+			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%dm]</font>", obj.Name, distanceMeters or 0)
+		end
+
+		local name = obj.Name
+		local nameLower = string.lower(name)
+
+		-- 1. Extract Rarity & Display Name
+		local colorHex = getCrystalAccentColor(name)
+		local rarityStr = ""
+		local displayName = name
+
+		if string.find(nameLower, "droppedcrystal_") then
+			local tier = string.match(name, "T%d+") or "T2"
+			local tierMap = {
+				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythical"
+			}
+			rarityStr = tierMap[tier] or tier
+			displayName = "Crystal"
+		elseif string.find(nameLower, "_t%d") then
+			local tier = string.match(name, "T%d+") or ""
+			local tierMap = {
+				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythical"
+			}
+			rarityStr = tierMap[tier] or tier
+			displayName = string.gsub(name, "_T%d+", "")
+		end
+
+		local attrRarity = obj:GetAttribute("Rarity") or obj:GetAttribute("rarity")
+		if attrRarity then
+			rarityStr = tostring(attrRarity)
+		end
+
+		-- 2. Mutation check
+		local mutationTag = ""
+		local hasMutation = obj:FindFirstChild("FrostMutationSurface") or obj:FindFirstChild("Mutation") or obj:GetAttribute("Mutation")
+		if hasMutation then
+			local mName = typeof(hasMutation) == "string" and hasMutation or "M"
+			mutationTag = string.format(" <font color='#00ff66'><b>[%s]</b></font>", mName)
+		end
+
+		-- 3. Title line (Rarity + Name + Mutation)
+		local titleLine = ""
+		if rarityStr ~= "" then
+			titleLine = string.format("<font color='%s'><b>%s</b></font> <b>%s</b>%s", colorHex, rarityStr, displayName, mutationTag)
+		else
+			titleLine = string.format("<font color='%s'><b>%s</b></font>%s", colorHex, displayName, mutationTag)
+		end
+
+		-- 4. Sub-header (Size) & Separator
+		local sizeVal = obj:GetAttribute("Size") or obj:GetAttribute("Category") or "Medium"
+		local subLine = string.format("<font color='#a0b5d0'>%s</font>", tostring(sizeVal))
+		local separatorLine = "<font color='#405075'>___________________________</font>"
+
+		-- 5. Weight / Mass & Distance
+		local weight = obj:GetAttribute("Weight") or obj:GetAttribute("kg") or obj:GetAttribute("Mass")
+		local weightLine = ""
+		if weight then
+			weightLine = string.format("<font color='#e0f0ff'>%.1f kg</font> <font color='#a0b0d0'>[%dm]</font>", tonumber(weight) or 0, distanceMeters or 0)
+		else
+			weightLine = string.format("<font color='#e0f0ff'>[%dm]</font>", distanceMeters or 0)
+		end
+
+		-- 6. Price / Value
+		local price = obj:GetAttribute("Price") or obj:GetAttribute("Value") or obj:GetAttribute("Worth")
+		local priceLine = ""
+		if price then
+			priceLine = string.format("\n<font color='#ffcc00'><b>$%s</b></font>", formatComma(price))
+		end
+
+		-- 7. Luck / Stat Bonus
+		local luck = obj:GetAttribute("Luck") or obj:GetAttribute("Bonus") or obj:GetAttribute("Stat")
+		local luckLine = ""
+		if luck then
+			local luckVal = tonumber(luck)
+			local luckStr = luckVal and string.format("+%.2f%%", luckVal) or tostring(luck)
+			luckLine = string.format("\n<font color='#00ff66'><b>Luck: %s</b></font>", luckStr)
+		end
+
+		return titleLine .. "\n" .. subLine .. "\n" .. separatorLine .. "\n" .. weightLine .. priceLine .. luckLine
+	end
+
 	local function createBillboardForObject(obj, namePrefix, category, accentColorHex)
 		if activeESPs[obj] then return end
 
 		local targetPart = getTargetPart(obj)
 		if not targetPart then return end
 
+		local isCardCategory = (category == "crystal" or category == "dropped_crystal")
+		local bWidth = isCardCategory and 190 or 150
+		local bHeight = isCardCategory and 95 or 28
+
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "ESP_" .. tostring(obj.Name)
-		billboard.Size = UDim2.new(0, 160, 0, 26)
+		billboard.Size = UDim2.new(0, bWidth, 0, bHeight)
 		billboard.AlwaysOnTop = true
-		billboard.ExtentsOffset = Vector3.new(0, 2.5, 0)
+		billboard.ExtentsOffset = isCardCategory and Vector3.new(0, 3.5, 0) or Vector3.new(0, 2.5, 0)
 		billboard.LightInfluence = 0
+		billboard.MaxDistance = 1500
 		billboard.Adornee = targetPart
 		billboard.Parent = espFolder
 
 		local card = Instance.new("Frame")
 		card.Size = UDim2.new(1, 0, 1, 0)
-		card.BackgroundColor3 = Color3.fromRGB(12, 16, 30)
-		card.BackgroundTransparency = 0.25
+		card.BackgroundColor3 = Color3.fromRGB(10, 14, 26)
+		card.BackgroundTransparency = isCardCategory and 0.2 or 0.3
 		card.BorderSizePixel = 0
 		card.Parent = billboard
 
@@ -395,20 +502,24 @@ local function initESP()
 		local stroke = Instance.new("UIStroke")
 		stroke.Color = COLORS.borderGlass or Color3.fromRGB(50, 65, 110)
 		stroke.Thickness = 1
-		stroke.Transparency = 0.5
+		stroke.Transparency = 0.4
 		stroke.Parent = card
 
+		local prefix = namePrefix or obj.Name
+		local color = accentColorHex or "#00c8ff"
+
 		local label = Instance.new("TextLabel")
-		label.Size = UDim2.new(1, -8, 1, 0)
-		label.Position = UDim2.new(0, 4, 0, 0)
+		label.Size = UDim2.new(1, -12, 1, -8)
+		label.Position = UDim2.new(0, 6, 0, 4)
 		label.BackgroundTransparency = 1
 		label.TextColor3 = Color3.fromRGB(255, 255, 255)
 		label.Font = Enum.Font.GothamBold
 		label.TextSize = 11
 		label.RichText = true
-		label.TextXAlignment = Enum.TextXAlignment.Center
-		label.TextYAlignment = Enum.TextYAlignment.Center
-		label.Text = string.format("<font color='%s'>%s</font>", accentColorHex or "#00c8ff", namePrefix or obj.Name)
+		label.TextWrapped = true
+		label.TextXAlignment = isCardCategory and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
+		label.TextYAlignment = isCardCategory and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
+		label.Text = buildObjectEspDetails(obj, category, 0)
 		label.Parent = card
 
 		activeESPs[obj] = {
@@ -416,8 +527,9 @@ local function initESP()
 			textLabel = label,
 			targetPart = targetPart,
 			category = category,
-			namePrefix = namePrefix or obj.Name,
-			accentColorHex = accentColorHex or "#00c8ff"
+			namePrefix = prefix,
+			accentColorHex = color,
+			lastDist = -1
 		}
 	end
 
@@ -439,93 +551,103 @@ local function initESP()
 		end
 	end
 
-	task.spawn(function()
-		while true do
-			task.wait(0.15)
-
-			local myChar = player and player.Character
-			local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
-			local myPos = myHrp and myHrp.Position or Vector3.zero
-
-			-- 1. Validate existing active ESPs
-			for obj, data in pairs(activeESPs) do
-				if not obj or not obj.Parent or not data.targetPart or not data.targetPart.Parent then
-					removeBillboardForObject(obj)
-				else
-					local dist = (myPos - data.targetPart.Position).Magnitude
-					local distStr = string.format("%.0fm", dist)
-					data.textLabel.Text = string.format("<font color='%s'><b>%s</b></font> <font color='#a0b0d0'>[%s]</font>",
-						data.accentColorHex, data.namePrefix, distStr)
-				end
-			end
-
-			-- 2. Crystal ESP Scan (workspace.Things.Crystals or workspace.Crystals)
-			if state.crystalEspEnabled then
-				local things = workspace:FindFirstChild("Things")
-				local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
-				if crystalsFolder then
-					for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
-						if crystalMatchesRarity(crystalObj) then
-							if not activeESPs[crystalObj] then
-								local colorHex = getCrystalAccentColor(crystalObj.Name)
-								createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
-							end
-						else
-							removeBillboardForObject(crystalObj)
+	local function scanAllObjects()
+		-- 1. Crystal ESP Scan (workspace.Things.Crystals or workspace.Crystals)
+		if state.crystalEspEnabled then
+			local things = workspace:FindFirstChild("Things")
+			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
+			if crystalsFolder then
+				for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
+					if crystalMatchesRarity(crystalObj) then
+						if not activeESPs[crystalObj] then
+							local colorHex = getCrystalAccentColor(crystalObj.Name)
+							createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
 						end
+					else
+						removeBillboardForObject(crystalObj)
 					end
 				end
-			else
-				clearCategoryESP("crystal")
 			end
+		else
+			clearCategoryESP("crystal")
+		end
 
-			-- 3. Dropped Crystal ESP Scan (workspace.DroppedCrystals)
-			if state.droppedCrystalEspEnabled then
-				local dcFolder = workspace:FindFirstChild("DroppedCrystals")
-				if dcFolder then
-					for _, dcObj in ipairs(dcFolder:GetChildren()) do
-						if crystalMatchesRarity(dcObj) then
-							if not activeESPs[dcObj] then
-								local colorHex = getCrystalAccentColor(dcObj.Name)
-								createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
-							end
-						else
-							removeBillboardForObject(dcObj)
+		-- 2. Dropped Crystal ESP Scan (workspace.DroppedCrystals)
+		if state.droppedCrystalEspEnabled then
+			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
+			if dcFolder then
+				for _, dcObj in ipairs(dcFolder:GetChildren()) do
+					if crystalMatchesRarity(dcObj) then
+						if not activeESPs[dcObj] then
+							local colorHex = getCrystalAccentColor(dcObj.Name)
+							createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
 						end
+					else
+						removeBillboardForObject(dcObj)
 					end
 				end
-			else
-				clearCategoryESP("dropped_crystal")
 			end
+		else
+			clearCategoryESP("dropped_crystal")
+		end
 
-			-- 4. Dropped Rune ESP Scan (workspace.DroppedRunes)
-			if state.droppedRuneEspEnabled then
-				local drFolder = workspace:FindFirstChild("DroppedRunes")
-				if drFolder then
-					for _, drObj in ipairs(drFolder:GetChildren()) do
-						if not activeESPs[drObj] then
-							createBillboardForObject(drObj, drObj.Name, "dropped_rune", "#ffaa00")
-						end
+		-- 3. Dropped Rune ESP Scan (workspace.DroppedRunes)
+		if state.droppedRuneEspEnabled then
+			local drFolder = workspace:FindFirstChild("DroppedRunes")
+			if drFolder then
+				for _, drObj in ipairs(drFolder:GetChildren()) do
+					if not activeESPs[drObj] then
+						createBillboardForObject(drObj, drObj.Name, "dropped_rune", "#ffaa00")
 					end
 				end
-			else
-				clearCategoryESP("dropped_rune")
 			end
+		else
+			clearCategoryESP("dropped_rune")
+		end
 
-			-- 5. Player ESP Scan (Players)
-			if state.playerEspEnabled then
-				for _, otherPlayer in ipairs(Players:GetPlayers()) do
-					if otherPlayer ~= player and otherPlayer.Character then
-						local char = otherPlayer.Character
-						if not activeESPs[char] then
-							local displayName = otherPlayer.DisplayName or otherPlayer.Name
-							createBillboardForObject(char, "👤 " .. displayName, "player", "#8c78ff")
-						end
+		-- 4. Player ESP Scan (Players)
+		if state.playerEspEnabled then
+			for _, otherPlayer in ipairs(Players:GetPlayers()) do
+				if otherPlayer ~= player and otherPlayer.Character then
+					local char = otherPlayer.Character
+					if not activeESPs[char] then
+						local displayName = otherPlayer.DisplayName or otherPlayer.Name
+						createBillboardForObject(char, "👤 " .. displayName, "player", "#8c78ff")
 					end
 				end
-			else
-				clearCategoryESP("player")
 			end
+		else
+			clearCategoryESP("player")
+		end
+	end
+
+	-- High-performance 60FPS Heartbeat loop
+	local RunService = game:GetService("RunService")
+	local lastScanTime = 0
+
+	RunService.Heartbeat:Connect(function()
+		local myChar = player and player.Character
+		local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local myPos = myHrp and myHrp.Position or Vector3.zero
+
+		-- 1. Fast distance text update (updates UI text ONLY when integer distance changes)
+		for obj, data in pairs(activeESPs) do
+			if not obj or not obj.Parent or not data.targetPart or not data.targetPart.Parent then
+				removeBillboardForObject(obj)
+			else
+				local distInt = math.floor((myPos - data.targetPart.Position).Magnitude + 0.5)
+				if distInt ~= data.lastDist then
+					data.lastDist = distInt
+					data.textLabel.Text = buildObjectEspDetails(obj, data.category, distInt)
+				end
+			end
+		end
+
+		-- 2. Periodic folder scanning (decoupled from render frame rate)
+		local now = os.clock()
+		if now - lastScanTime >= 0.4 then
+			lastScanTime = now
+			pcall(scanAllObjects)
 		end
 	end)
 
@@ -547,6 +669,8 @@ local function initESP()
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
+
+			pcall(scanAllObjects)
 		end,
 		updateVisuals = function()
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
@@ -554,6 +678,8 @@ local function initESP()
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
+
+			pcall(scanAllObjects)
 		end
 	}
 end
