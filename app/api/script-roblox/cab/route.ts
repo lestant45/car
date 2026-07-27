@@ -437,6 +437,7 @@ export async function GET(request: NextRequest) {
 
     // Read the Roblox script files and serve them concatenated
     const uiPath = path.join(process.cwd(), "app/api/script-roblox/cab/ui.lua");
+    const espPath = path.join(process.cwd(), "app/api/script-roblox/cab/esp.lua");
     const settingsPath = path.join(process.cwd(), "app/api/script-roblox/cab/settings.lua");
     const mainPath = path.join(process.cwd(), "app/api/script-roblox/cab/main.lua");
 
@@ -459,6 +460,10 @@ export async function GET(request: NextRequest) {
     let luaScript = `_G.hiphub_key = "free"\n_G.hiphub_role = "free"\n_G.hiphub_url = "${baseUrl}"\nif getgenv then getgenv().hiphub_key = "free" end\nif getgenv then getgenv().hiphub_role = "free" end\nif getgenv then getgenv().hiphub_url = "${baseUrl}" end\n`;
 
     luaScript += fs.readFileSync(uiPath, "utf8");
+
+    if (fs.existsSync(espPath)) {
+      luaScript += "\n" + fs.readFileSync(espPath, "utf8");
+    }
 
     if (fs.existsSync(settingsPath)) {
       luaScript += "\n" + fs.readFileSync(settingsPath, "utf8");
