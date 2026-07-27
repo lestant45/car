@@ -766,6 +766,561 @@ local success, err = pcall(function()
 				end
 			end
 		}
+
+		------------------------------------------------
+		-- ⛏️ AUTOMATION MINING CATEGORY SECTION (MAIN TAB)
+		------------------------------------------------
+		local isAutoMineCategoryExpanded = false
+		local autoFarmCrystalsEnabled = false
+		local autoFarmNoclipEnabled = true
+		local autoFarmRarityFilter = "All"
+		local autoFarmSizeFilter = "All"
+
+		local autoMineCategoryCard = Instance.new("Frame")
+		autoMineCategoryCard.Size = UDim2.new(1, 0, 0, 36)
+		autoMineCategoryCard.BackgroundColor3 = COLORS.glassCard
+		autoMineCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		autoMineCategoryCard.BorderSizePixel = 0
+		autoMineCategoryCard.ClipsDescendants = true
+		autoMineCategoryCard.LayoutOrder = 3
+		autoMineCategoryCard.Parent = mainFrameContent
+
+		refs.applyGlass(autoMineCategoryCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		-- Expandable Header Click Button
+		local amHeaderBtn = Instance.new("TextButton")
+		amHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+		amHeaderBtn.BackgroundTransparency = 1
+		amHeaderBtn.Text = ""
+		amHeaderBtn.Parent = autoMineCategoryCard
+
+		local amAccentBar = Instance.new("Frame")
+		amAccentBar.Size = UDim2.new(0, 3, 0, 18)
+		amAccentBar.Position = UDim2.new(0, 12, 0, 9)
+		amAccentBar.BackgroundColor3 = COLORS.accentCyan
+		amAccentBar.BorderSizePixel = 0
+		amAccentBar.Parent = amHeaderBtn
+
+		local amAccentCorner = Instance.new("UICorner")
+		amAccentCorner.CornerRadius = UDim.new(0, 2)
+		amAccentCorner.Parent = amAccentBar
+
+		local amTitle = Instance.new("TextLabel")
+		amTitle.Size = UDim2.new(1, -60, 1, 0)
+		amTitle.Position = UDim2.new(0, 24, 0, 0)
+		amTitle.BackgroundTransparency = 1
+		amTitle.Text = "Automation Mining"
+		amTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		amTitle.Font = Enum.Font.GothamBold
+		amTitle.TextSize = 13
+		amTitle.TextXAlignment = Enum.TextXAlignment.Left
+		amTitle.Parent = amHeaderBtn
+
+		local amChevronLabel = Instance.new("TextLabel")
+		amChevronLabel.Size = UDim2.new(0, 24, 1, 0)
+		amChevronLabel.Position = UDim2.new(1, -30, 0, 0)
+		amChevronLabel.BackgroundTransparency = 1
+		amChevronLabel.Text = ">"
+		amChevronLabel.TextColor3 = COLORS.accentCyan
+		amChevronLabel.Font = Enum.Font.GothamBold
+		amChevronLabel.TextSize = 13
+		amChevronLabel.Parent = amHeaderBtn
+
+		-- Content Container inside Automation Mining Card
+		local amContentContainer = Instance.new("Frame")
+		amContentContainer.Size = UDim2.new(1, -24, 0, 160)
+		amContentContainer.Position = UDim2.new(0, 12, 0, 42)
+		amContentContainer.BackgroundTransparency = 1
+		amContentContainer.Parent = autoMineCategoryCard
+
+		refs.applyListLayout(amContentContainer, 6)
+
+		local isRarOpen = false
+		local isSzOpen = false
+
+		amHeaderBtn.MouseButton1Click:Connect(function()
+			isAutoMineCategoryExpanded = not isAutoMineCategoryExpanded
+			amChevronLabel.Text = isAutoMineCategoryExpanded and "v" or ">"
+			if not isAutoMineCategoryExpanded then
+				isRarOpen = false
+				isSzOpen = false
+			end
+
+			local targetHeight = isAutoMineCategoryExpanded and (isRarOpen and 370 or (isSzOpen and 350 or 210)) or 36
+			local tween = TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.new(1, 0, 0, targetHeight)
+			})
+			tween:Play()
+			tween.Completed:Connect(updateMainTabCanvas)
+			updateMainTabCanvas()
+		end)
+
+		-- 1. Auto Farm Crystals Toggle
+		local afcRow, afcTrack, afcThumb = refs.createGlassToggle(amContentContainer, "Auto Farm Crystals", 1)
+		local updateAutoFarmVisuals = function()
+			if autoFarmCrystalsEnabled then
+				TweenService:Create(afcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(afcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(afcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(afcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+
+		-- 2. Auto Farm Noclip Toggle
+		local afnRow, afnTrack, afnThumb = refs.createGlassToggle(amContentContainer, "Auto Farm Noclip", 2)
+		local updateAutoFarmNoclipVisuals = function()
+			if autoFarmNoclipEnabled then
+				TweenService:Create(afnTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(afnThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(afnTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(afnThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		updateAutoFarmNoclipVisuals()
+
+		-- 3. Target Rarity Filter Card inside Automation Mining
+		local amRarCard = Instance.new("Frame")
+		amRarCard.Size = UDim2.new(1, 0, 0, 32)
+		amRarCard.BackgroundColor3 = COLORS.glassCard
+		amRarCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		amRarCard.BorderSizePixel = 0
+		amRarCard.ClipsDescendants = true
+		amRarCard.LayoutOrder = 3
+		amRarCard.Parent = amContentContainer
+
+		refs.applyGlass(amRarCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
+
+		local amRarTitle = Instance.new("TextLabel")
+		amRarTitle.Size = UDim2.new(0.5, 0, 0, 32)
+		amRarTitle.Position = UDim2.new(0, 10, 0, 0)
+		amRarTitle.BackgroundTransparency = 1
+		amRarTitle.Text = "Target Rarity"
+		amRarTitle.TextColor3 = COLORS.textPrimary
+		amRarTitle.Font = Enum.Font.GothamMedium
+		amRarTitle.TextSize = 11
+		amRarTitle.TextXAlignment = Enum.TextXAlignment.Left
+		amRarTitle.Parent = amRarCard
+
+		local amRarDropBtn = Instance.new("TextButton")
+		amRarDropBtn.Size = UDim2.new(0, 130, 0, 22)
+		amRarDropBtn.Position = UDim2.new(1, -136, 0, 5)
+		amRarDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
+		amRarDropBtn.Text = (autoFarmRarityFilter or "All") .. "  ▼"
+		amRarDropBtn.TextColor3 = COLORS.accentCyan
+		amRarDropBtn.Font = Enum.Font.GothamBold
+		amRarDropBtn.TextSize = 10
+		amRarDropBtn.Parent = amRarCard
+
+		local amRarCorner = Instance.new("UICorner")
+		amRarCorner.CornerRadius = refs.CORNER.small
+		amRarCorner.Parent = amRarDropBtn
+
+		local amRarMenuFrame = Instance.new("Frame")
+		amRarMenuFrame.Size = UDim2.new(0, 130, 0, 160)
+		amRarMenuFrame.Position = UDim2.new(1, -136, 0, 32)
+		amRarMenuFrame.BackgroundTransparency = 1
+		amRarMenuFrame.Visible = false
+		amRarMenuFrame.ClipsDescendants = true
+		amRarMenuFrame.Parent = amRarCard
+
+		refs.applyListLayout(amRarMenuFrame, 3)
+
+		local amRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+
+		local function updateAmRarityVisuals()
+			amRarDropBtn.Text = (autoFarmRarityFilter or "All") .. (isRarOpen and "  ▲" or "  ▼")
+			for _, child in ipairs(amRarMenuFrame:GetChildren()) do
+				if child:IsA("TextButton") then
+					local isSel = (child.Text == autoFarmRarityFilter)
+					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
+				end
+			end
+		end
+
+		for _, rName in ipairs(amRarities) do
+			local itemBtn = Instance.new("TextButton")
+			itemBtn.Size = UDim2.new(1, 0, 0, 20)
+			itemBtn.BackgroundColor3 = (autoFarmRarityFilter == rName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+			itemBtn.BackgroundTransparency = 0.15
+			itemBtn.Text = rName
+			itemBtn.TextColor3 = (autoFarmRarityFilter == rName) and COLORS.accentCyan or COLORS.textSecondary
+			itemBtn.Font = Enum.Font.GothamMedium
+			itemBtn.TextSize = 10
+			itemBtn.Parent = amRarMenuFrame
+
+			local itemCorner = Instance.new("UICorner")
+			itemCorner.CornerRadius = UDim.new(0, 4)
+			itemCorner.Parent = itemBtn
+
+			itemBtn.MouseButton1Click:Connect(function()
+				autoFarmRarityFilter = rName
+				isRarOpen = false
+				updateAmRarityVisuals()
+				TweenService:Create(amRarCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 32) }):Play()
+				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 210) }):Play()
+				updateMainTabCanvas()
+				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
+		end
+
+		amRarDropBtn.MouseButton1Click:Connect(function()
+			isRarOpen = not isRarOpen
+			if isRarOpen then isSzOpen = false end
+			amRarMenuFrame.Visible = isRarOpen
+			updateAmRarityVisuals()
+
+			local rarTargetHeight = isRarOpen and (32 + 165) or 32
+			local cardTargetHeight = isRarOpen and 370 or 210
+			TweenService:Create(amRarCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, rarTargetHeight) }):Play()
+			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
+			updateMainTabCanvas()
+		end)
+
+		-- 4. Target Size Filter Card inside Automation Mining
+		local amSzCard = Instance.new("Frame")
+		amSzCard.Size = UDim2.new(1, 0, 0, 32)
+		amSzCard.BackgroundColor3 = COLORS.glassCard
+		amSzCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		amSzCard.BorderSizePixel = 0
+		amSzCard.ClipsDescendants = true
+		amSzCard.LayoutOrder = 4
+		amSzCard.Parent = amContentContainer
+
+		refs.applyGlass(amSzCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
+
+		local amSzTitle = Instance.new("TextLabel")
+		amSzTitle.Size = UDim2.new(0.5, 0, 0, 32)
+		amSzTitle.Position = UDim2.new(0, 10, 0, 0)
+		amSzTitle.BackgroundTransparency = 1
+		amSzTitle.Text = "Target Size"
+		amSzTitle.TextColor3 = COLORS.textPrimary
+		amSzTitle.Font = Enum.Font.GothamMedium
+		amSzTitle.TextSize = 11
+		amSzTitle.TextXAlignment = Enum.TextXAlignment.Left
+		amSzTitle.Parent = amSzCard
+
+		local amSzDropBtn = Instance.new("TextButton")
+		amSzDropBtn.Size = UDim2.new(0, 130, 0, 22)
+		amSzDropBtn.Position = UDim2.new(1, -136, 0, 5)
+		amSzDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
+		amSzDropBtn.Text = (autoFarmSizeFilter or "All") .. "  ▼"
+		amSzDropBtn.TextColor3 = COLORS.accentCyan
+		amSzDropBtn.Font = Enum.Font.GothamBold
+		amSzDropBtn.TextSize = 10
+		amSzDropBtn.Parent = amSzCard
+
+		local amSzCorner = Instance.new("UICorner")
+		amSzCorner.CornerRadius = refs.CORNER.small
+		amSzCorner.Parent = amSzDropBtn
+
+		local amSzMenuFrame = Instance.new("Frame")
+		amSzMenuFrame.Size = UDim2.new(0, 130, 0, 140)
+		amSzMenuFrame.Position = UDim2.new(1, -136, 0, 32)
+		amSzMenuFrame.BackgroundTransparency = 1
+		amSzMenuFrame.Visible = false
+		amSzMenuFrame.ClipsDescendants = true
+		amSzMenuFrame.Parent = amSzCard
+
+		refs.applyListLayout(amSzMenuFrame, 3)
+
+		local amSizes = { "All", "Small", "Medium", "Large", "Titan", "Colossal" }
+
+		local function updateAmSizeVisuals()
+			amSzDropBtn.Text = (autoFarmSizeFilter or "All") .. (isSzOpen and "  ▲" or "  ▼")
+			for _, child in ipairs(amSzMenuFrame:GetChildren()) do
+				if child:IsA("TextButton") then
+					local isSel = (child.Text == autoFarmSizeFilter)
+					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
+				end
+			end
+		end
+
+		for _, sName in ipairs(amSizes) do
+			local itemBtn = Instance.new("TextButton")
+			itemBtn.Size = UDim2.new(1, 0, 0, 20)
+			itemBtn.BackgroundColor3 = (autoFarmSizeFilter == sName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+			itemBtn.BackgroundTransparency = 0.15
+			itemBtn.Text = sName
+			itemBtn.TextColor3 = (autoFarmSizeFilter == sName) and COLORS.accentCyan or COLORS.textSecondary
+			itemBtn.Font = Enum.Font.GothamMedium
+			itemBtn.TextSize = 10
+			itemBtn.Parent = amSzMenuFrame
+
+			local itemCorner = Instance.new("UICorner")
+			itemCorner.CornerRadius = UDim.new(0, 4)
+			itemCorner.Parent = itemBtn
+
+			itemBtn.MouseButton1Click:Connect(function()
+				autoFarmSizeFilter = sName
+				isSzOpen = false
+				updateAmSizeVisuals()
+				TweenService:Create(amSzCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 32) }):Play()
+				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 210) }):Play()
+				updateMainTabCanvas()
+				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
+		end
+
+		amSzDropBtn.MouseButton1Click:Connect(function()
+			isSzOpen = not isSzOpen
+			if isSzOpen then isRarOpen = false end
+			amSzMenuFrame.Visible = isSzOpen
+			updateAmSizeVisuals()
+
+			local szTargetHeight = isSzOpen and (32 + 145) or 32
+			local cardTargetHeight = isSzOpen and 350 or 210
+			TweenService:Create(amSzCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, szTargetHeight) }):Play()
+			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
+			updateMainTabCanvas()
+		end)
+
+		afcTrack.MouseButton1Click:Connect(function()
+			autoFarmCrystalsEnabled = not autoFarmCrystalsEnabled
+			updateAutoFarmVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		afnTrack.MouseButton1Click:Connect(function()
+			autoFarmNoclipEnabled = not autoFarmNoclipEnabled
+			updateAutoFarmNoclipVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- Noclip Engine
+		local noclipConnection = nil
+		local function setAutoFarmNoclip(enabled)
+			if enabled then
+				if not noclipConnection then
+					noclipConnection = RunService.Stepped:Connect(function()
+						local char = player and player.Character
+						if char then
+							for _, part in ipairs(char:GetDescendants()) do
+								if part:IsA("BasePart") and part.CanCollide then
+									part.CanCollide = false
+								end
+							end
+						end
+					end)
+				end
+			else
+				if noclipConnection then
+					noclipConnection:Disconnect()
+					noclipConnection = nil
+				end
+			end
+		end
+
+		-- Helper to get closest filtered crystal using Automation Mining's independent filters
+		local function getClosestFilteredCrystal()
+			local char = player and player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if not hrp then return nil end
+
+			local myPos = hrp.Position
+			local selRarity = autoFarmRarityFilter or "All"
+			local selSize = autoFarmSizeFilter or "All"
+
+			local things = workspace:FindFirstChild("Things")
+			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
+			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
+
+			local bestObj = nil
+			local bestPart = nil
+			local shortestDist = math.huge
+
+			local function evaluateFolder(folder)
+				if not folder then return end
+				for _, child in ipairs(folder:GetChildren()) do
+					if child and child.Parent then
+						local nameLower = string.lower(child.Name)
+						local rarityLower = string.lower(selRarity)
+						local sizeLower = string.lower(selSize)
+
+						-- Independent Rarity Check
+						local matchesRarity = (rarityLower == "all" or rarityLower == "")
+						if not matchesRarity then
+							local filterMap = {
+								["common"] = {"_t1", "t1", "common"},
+								["uncommon"] = {"_t2", "t2", "uncommon"},
+								["rare"] = {"_t3", "t3", "rare"},
+								["epic"] = {"_t4", "t4", "epic"},
+								["legendary"] = {"_t5", "t5", "legendary"},
+								["mythical"] = {"_t6", "t6", "mythical", "mythic"},
+								["mythic"] = {"_t6", "t6", "mythical", "mythic"},
+							}
+							local kws = filterMap[rarityLower]
+							if kws then
+								for _, kw in ipairs(kws) do
+									if string.find(nameLower, kw, 1, true) then
+										matchesRarity = true
+										break
+									end
+								end
+							end
+							if not matchesRarity and string.find(nameLower, rarityLower, 1, true) then
+								matchesRarity = true
+							end
+							if not matchesRarity then
+								local attr = child:GetAttribute("Rarity") or child:GetAttribute("Tier") or child:GetAttribute("rarity") or child:GetAttribute("tier")
+								if attr and string.find(string.lower(tostring(attr)), rarityLower, 1, true) then
+									matchesRarity = true
+								end
+							end
+						end
+
+						-- Independent Size Check
+						local matchesSize = (sizeLower == "all" or sizeLower == "")
+						if not matchesSize then
+							if string.find(nameLower, sizeLower, 1, true) then
+								matchesSize = true
+							else
+								local attr = child:GetAttribute("Size") or child:GetAttribute("Category") or child:GetAttribute("size") or child:GetAttribute("category")
+								if attr and string.find(string.lower(tostring(attr)), sizeLower, 1, true) then
+									matchesSize = true
+								else
+									local sizeVec = nil
+									if child:IsA("BasePart") then
+										sizeVec = child.Size
+									elseif child:IsA("Model") then
+										local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+										if primary then sizeVec = primary.Size end
+									end
+									if sizeVec then
+										local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
+										if sizeLower == "colossal" and maxDim >= 12 then
+											matchesSize = true
+										elseif sizeLower == "titan" and (maxDim >= 7 and maxDim < 12) then
+											matchesSize = true
+										elseif sizeLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
+											matchesSize = true
+										elseif sizeLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
+											matchesSize = true
+										elseif sizeLower == "small" and maxDim < 1.8 then
+											matchesSize = true
+										end
+									end
+								end
+							end
+						end
+
+						if matchesRarity and matchesSize then
+							local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+							if targetPart then
+								local dist = (myPos - targetPart.Position).Magnitude
+								if dist < shortestDist then
+									shortestDist = dist
+									bestObj = child
+									bestPart = targetPart
+								end
+							end
+						end
+					end
+				end
+			end
+
+			evaluateFolder(crystalsFolder)
+			evaluateFolder(dcFolder)
+
+			if bestObj and bestPart then
+				return { obj = bestObj, part = bestPart }
+			end
+			return nil
+		end
+
+		-- Auto Farm Loop
+		task.spawn(function()
+			while true do
+				task.wait(0.2)
+				if autoFarmCrystalsEnabled then
+					if autoFarmNoclipEnabled then
+						setAutoFarmNoclip(true)
+					else
+						setAutoFarmNoclip(false)
+					end
+
+					local target = getClosestFilteredCrystal()
+					if target and target.obj and target.obj.Parent and target.part and target.part.Parent then
+						local obj = target.obj
+						local part = target.part
+						local myChar = player and player.Character
+						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+						if myHrp then
+							myHrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+							
+							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+							if prompt then
+								prompt.HoldDuration = 0
+								pcall(function()
+									if fireproximityprompt then
+										fireproximityprompt(prompt)
+									end
+								end)
+							end
+
+							local startTime = os.clock()
+							while autoFarmCrystalsEnabled and obj and obj.Parent and (os.clock() - startTime < 2.5) do
+								task.wait(0.15)
+								if myHrp and part and part.Parent then
+									myHrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+									if prompt and prompt.Parent then
+										pcall(function()
+											if fireproximityprompt then
+												fireproximityprompt(prompt)
+											end
+										end)
+									end
+								end
+							end
+						end
+					else
+						task.wait(0.5)
+					end
+				else
+					setAutoFarmNoclip(false)
+				end
+			end
+		end)
+
+		_G.HipHubAutomationMining = {
+			getState = function()
+				return {
+					autoFarmCrystalsEnabled = autoFarmCrystalsEnabled,
+					autoFarmNoclipEnabled = autoFarmNoclipEnabled,
+					autoFarmRarityFilter = autoFarmRarityFilter,
+					autoFarmSizeFilter = autoFarmSizeFilter,
+				}
+			end,
+			setState = function(s)
+				if not s then return end
+				if s.autoFarmCrystalsEnabled ~= nil then
+					autoFarmCrystalsEnabled = (s.autoFarmCrystalsEnabled == true)
+					updateAutoFarmVisuals()
+				end
+				if s.autoFarmNoclipEnabled ~= nil then
+					autoFarmNoclipEnabled = (s.autoFarmNoclipEnabled == true)
+					updateAutoFarmNoclipVisuals()
+				end
+				if s.autoFarmRarityFilter ~= nil then
+					autoFarmRarityFilter = tostring(s.autoFarmRarityFilter)
+					updateAmRarityVisuals()
+				end
+				if s.autoFarmSizeFilter ~= nil then
+					autoFarmSizeFilter = tostring(s.autoFarmSizeFilter)
+					updateAmSizeVisuals()
+				end
+			end
+		}
 	end
 
 	------------------------------------------------
@@ -1806,6 +2361,15 @@ local success, err = pcall(function()
 				data.autoSellEnabled = sellState.autoSellEnabled
 			end
 
+			-- Automation Mining config state
+			if _G.HipHubAutomationMining and _G.HipHubAutomationMining.getState then
+				local amState = _G.HipHubAutomationMining.getState()
+				data.autoFarmCrystalsEnabled = amState.autoFarmCrystalsEnabled
+				data.autoFarmNoclipEnabled = amState.autoFarmNoclipEnabled
+				data.autoFarmRarityFilter = amState.autoFarmRarityFilter
+				data.autoFarmSizeFilter = amState.autoFarmSizeFilter
+			end
+
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
@@ -1856,6 +2420,15 @@ local success, err = pcall(function()
 				if _G.HipHubAutomationSell and _G.HipHubAutomationSell.setState then
 					_G.HipHubAutomationSell.setState({
 						autoSellEnabled = data.autoSellEnabled,
+					})
+				end
+
+				if _G.HipHubAutomationMining and _G.HipHubAutomationMining.setState then
+					_G.HipHubAutomationMining.setState({
+						autoFarmCrystalsEnabled = data.autoFarmCrystalsEnabled,
+						autoFarmNoclipEnabled = data.autoFarmNoclipEnabled,
+						autoFarmRarityFilter = data.autoFarmRarityFilter,
+						autoFarmSizeFilter = data.autoFarmSizeFilter,
 					})
 				end
 
