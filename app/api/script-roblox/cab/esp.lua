@@ -454,7 +454,7 @@ local function initESP()
 
 	local function getCrystalAccentColor(name)
 		local nameLower = string.lower(name)
-		if string.find(nameLower, "_t6") or string.find(nameLower, "t6") or string.find(nameLower, "mythical") then
+		if string.find(nameLower, "_t6") or string.find(nameLower, "t6") or string.find(nameLower, "mythic") then
 			return "#ff3366"
 		elseif string.find(nameLower, "_t5") or string.find(nameLower, "t5") or string.find(nameLower, "legendary") then
 			return "#ffaa00"
@@ -622,14 +622,14 @@ local function initESP()
 		if string.find(nameLower, "droppedcrystal_") then
 			local tier = string.match(name, "T%d+") or "T2"
 			local tierMap = {
-				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythical"
+				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythic"
 			}
 			rarityStr = tierMap[tier] or tier
 			displayName = "Crystal"
 		elseif string.find(nameLower, "_t%d") then
 			local tier = string.match(name, "T%d+") or ""
 			local tierMap = {
-				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythical"
+				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythic"
 			}
 			rarityStr = tierMap[tier] or tier
 			displayName = string.gsub(name, "_T%d+", "")
