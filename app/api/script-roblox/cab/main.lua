@@ -48,6 +48,12 @@ local success, err = pcall(function()
 	local minLevelFilter = 1
 	local selectedRarityIndex = 1
 
+	-- ESP persistent states
+	local crystalEspEnabled = false
+	local droppedCrystalEspEnabled = false
+	local droppedRuneEspEnabled = false
+	local playerEspEnabled = false
+
 	------------------------------------------------
 	-- 🖼️ DRAGGING FUNCTIONALITY
 	------------------------------------------------
@@ -1236,6 +1242,316 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
+	-- 👁️ ESP TAB & ENGINE INTEGRATION
+	------------------------------------------------
+	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals
+
+	if refs.addTab then
+		local espTabFrame = refs.addTab("ESP", "👁️", 3)
+		refs.applyListLayout(espTabFrame, 10)
+
+		-- ESP Header Card
+		local espCard = Instance.new("Frame")
+		espCard.Size = UDim2.new(1, 0, 0, 60)
+		espCard.BackgroundColor3 = COLORS.glassCard
+		espCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		espCard.BorderSizePixel = 0
+		espCard.Parent = espTabFrame
+
+		refs.applyGlass(espCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7,
+			gradient = true,
+			gradientRotation = 120
+		})
+
+		local espTitle = Instance.new("TextLabel")
+		espTitle.Size = UDim2.new(1, -24, 0, 24)
+		espTitle.Position = UDim2.new(0, 12, 0, 8)
+		espTitle.BackgroundTransparency = 1
+		espTitle.Text = "VISUAL ESP CONTROLS"
+		espTitle.TextColor3 = COLORS.accentCyan
+		espTitle.Font = Enum.Font.GothamBold
+		espTitle.TextSize = 11
+		espTitle.TextXAlignment = Enum.TextXAlignment.Left
+		espTitle.Parent = espCard
+
+		local espSub = Instance.new("TextLabel")
+		espSub.Size = UDim2.new(1, -24, 0, 20)
+		espSub.Position = UDim2.new(0, 12, 0, 30)
+		espSub.BackgroundTransparency = 1
+		espSub.Text = "Real-time world text labels for crystals, dropped items, and players."
+		espSub.TextColor3 = COLORS.textSecondary
+		espSub.Font = Enum.Font.Gotham
+		espSub.TextSize = 11
+		espSub.TextXAlignment = Enum.TextXAlignment.Left
+		espSub.Parent = espCard
+
+		-- Toggles Card
+		local togglesCard = Instance.new("Frame")
+		togglesCard.Size = UDim2.new(1, 0, 0, 170)
+		togglesCard.BackgroundColor3 = COLORS.glassCard
+		togglesCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		togglesCard.BorderSizePixel = 0
+		togglesCard.Parent = espTabFrame
+
+		refs.applyGlass(togglesCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+		refs.applyListLayout(togglesCard, 8)
+		refs.applyPadding(togglesCard, 10, 10, 10, 10)
+
+		-- 1. Crystal ESP Toggle
+		local cRow, cTrack, cThumb = refs.createGlassToggle(togglesCard, "Crystal ESP", 1)
+		updateCrystalEspVisuals = function()
+			if crystalEspEnabled then
+				TweenService:Create(cTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(cThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(cTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(cThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		cTrack.MouseButton1Click:Connect(function()
+			crystalEspEnabled = not crystalEspEnabled
+			updateCrystalEspVisuals()
+			pcall(saveConfig)
+		end)
+
+		-- 2. Dropped Crystal ESP Toggle
+		local dcRow, dcTrack, dcThumb = refs.createGlassToggle(togglesCard, "Dropped Crystal ESP", 2)
+		updateDroppedCrystalEspVisuals = function()
+			if droppedCrystalEspEnabled then
+				TweenService:Create(dcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(dcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(dcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(dcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		dcTrack.MouseButton1Click:Connect(function()
+			droppedCrystalEspEnabled = not droppedCrystalEspEnabled
+			updateDroppedCrystalEspVisuals()
+			pcall(saveConfig)
+		end)
+
+		-- 3. Dropped Rune ESP Toggle
+		local drRow, drTrack, drThumb = refs.createGlassToggle(togglesCard, "Dropped Rune ESP", 3)
+		updateDroppedRuneEspVisuals = function()
+			if droppedRuneEspEnabled then
+				TweenService:Create(drTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(drThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(drTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(drThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		drTrack.MouseButton1Click:Connect(function()
+			droppedRuneEspEnabled = not droppedRuneEspEnabled
+			updateDroppedRuneEspVisuals()
+			pcall(saveConfig)
+		end)
+
+		-- 4. Player ESP Toggle
+		local pRow, pTrack, pThumb = refs.createGlassToggle(togglesCard, "Player ESP", 4)
+		updatePlayerEspVisuals = function()
+			if playerEspEnabled then
+				TweenService:Create(pTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(pThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(pTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(pThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		pTrack.MouseButton1Click:Connect(function()
+			playerEspEnabled = not playerEspEnabled
+			updatePlayerEspVisuals()
+			pcall(saveConfig)
+		end)
+	end
+
+	-- ESP Billboard Engine
+	local espFolder = gui:FindFirstChild("HipHubESP")
+	if not espFolder then
+		espFolder = Instance.new("Folder")
+		espFolder.Name = "HipHubESP"
+		espFolder.Parent = gui
+	end
+
+	local activeESPs = {}
+
+	local function getTargetPart(obj)
+		if not obj then return nil end
+		if obj:IsA("BasePart") then
+			return obj
+		elseif obj:IsA("Model") then
+			if obj.PrimaryPart then return obj.PrimaryPart end
+			return obj:FindFirstChildWhichIsA("BasePart")
+		end
+		return nil
+	end
+
+	local function createBillboardForObject(obj, namePrefix, category, accentColorHex)
+		if activeESPs[obj] then return end
+
+		local targetPart = getTargetPart(obj)
+		if not targetPart then return end
+
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "ESP_" .. tostring(obj.Name)
+		billboard.Size = UDim2.new(0, 160, 0, 26)
+		billboard.AlwaysOnTop = true
+		billboard.ExtentsOffset = Vector3.new(0, 2.5, 0)
+		billboard.LightInfluence = 0
+		billboard.Adornee = targetPart
+		billboard.Parent = espFolder
+
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, 0, 1, 0)
+		card.BackgroundColor3 = Color3.fromRGB(12, 16, 30)
+		card.BackgroundTransparency = 0.25
+		card.BorderSizePixel = 0
+		card.Parent = billboard
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = card
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = COLORS.borderGlass or Color3.fromRGB(50, 65, 110)
+		stroke.Thickness = 1
+		stroke.Transparency = 0.5
+		stroke.Parent = card
+
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(1, -8, 1, 0)
+		label.Position = UDim2.new(0, 4, 0, 0)
+		label.BackgroundTransparency = 1
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 11
+		label.RichText = true
+		label.TextXAlignment = Enum.TextXAlignment.Center
+		label.TextYAlignment = Enum.TextYAlignment.Center
+		label.Text = string.format("<font color='%s'>%s</font>", accentColorHex or "#00c8ff", namePrefix or obj.Name)
+		label.Parent = card
+
+		activeESPs[obj] = {
+			billboard = billboard,
+			textLabel = label,
+			targetPart = targetPart,
+			category = category,
+			namePrefix = namePrefix or obj.Name,
+			accentColorHex = accentColorHex or "#00c8ff"
+		}
+	end
+
+	local function removeBillboardForObject(obj)
+		local espData = activeESPs[obj]
+		if espData then
+			if espData.billboard then
+				pcall(function() espData.billboard:Destroy() end)
+			end
+			activeESPs[obj] = nil
+		end
+	end
+
+	local function clearCategoryESP(category)
+		for obj, data in pairs(activeESPs) do
+			if data.category == category then
+				removeBillboardForObject(obj)
+			end
+		end
+	end
+
+	task.spawn(function()
+		while true do
+			task.wait(0.15)
+
+			local myChar = player.Character
+			local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+			local myPos = myHrp and myHrp.Position or Vector3.zero
+
+			-- 1. Validate existing active ESPs
+			for obj, data in pairs(activeESPs) do
+				if not obj or not obj.Parent or not data.targetPart or not data.targetPart.Parent then
+					removeBillboardForObject(obj)
+				else
+					local dist = (myPos - data.targetPart.Position).Magnitude
+					local distStr = string.format("%.0fm", dist)
+					data.textLabel.Text = string.format("<font color='%s'><b>%s</b></font> <font color='#a0b0d0'>[%s]</font>",
+						data.accentColorHex, data.namePrefix, distStr)
+				end
+			end
+
+			-- 2. Crystal ESP Scan (workspace.Things.Crystals)
+			if crystalEspEnabled then
+				local things = workspace:FindFirstChild("Things")
+				local crystalsFolder = things and things:FindFirstChild("Crystals")
+				if crystalsFolder then
+					for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
+						if not activeESPs[crystalObj] then
+							createBillboardForObject(crystalObj, crystalObj.Name, "crystal", "#00c8ff")
+						end
+					end
+				end
+			else
+				clearCategoryESP("crystal")
+			end
+
+			-- 3. Dropped Crystal ESP Scan (workspace.DroppedCrystals)
+			if droppedCrystalEspEnabled then
+				local dcFolder = workspace:FindFirstChild("DroppedCrystals")
+				if dcFolder then
+					for _, dcObj in ipairs(dcFolder:GetChildren()) do
+						if not activeESPs[dcObj] then
+							createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", "#00e6a8")
+						end
+					end
+				end
+			else
+				clearCategoryESP("dropped_crystal")
+			end
+
+			-- 4. Dropped Rune ESP Scan (workspace.DroppedRunes)
+			if droppedRuneEspEnabled then
+				local drFolder = workspace:FindFirstChild("DroppedRunes")
+				if drFolder then
+					for _, drObj in ipairs(drFolder:GetChildren()) do
+						if not activeESPs[drObj] then
+							createBillboardForObject(drObj, drObj.Name, "dropped_rune", "#ffaa00")
+						end
+					end
+				end
+			else
+				clearCategoryESP("dropped_rune")
+			end
+
+			-- 5. Player ESP Scan (Players)
+			if playerEspEnabled then
+				for _, otherPlayer in ipairs(Players:GetPlayers()) do
+					if otherPlayer ~= player and otherPlayer.Character then
+						local char = otherPlayer.Character
+						if not activeESPs[char] then
+							local displayName = otherPlayer.DisplayName or otherPlayer.Name
+							createBillboardForObject(char, "👤 " .. displayName, "player", "#8c78ff")
+						end
+					end
+				end
+			else
+				clearCategoryESP("player")
+			end
+		end
+	end)
+
+	------------------------------------------------
 	-- ⚙️ CONFIGURATION SAVING & LOADING
 	------------------------------------------------
 	saveConfig = function()
@@ -1258,6 +1574,13 @@ local success, err = pcall(function()
 			data.safeModeEnabled = safeModeEnabled
 			data.minLevelFilter = minLevelFilter
 			data.selectedRarityIndex = selectedRarityIndex
+
+			-- ESP config state
+			data.crystalEspEnabled = crystalEspEnabled
+			data.droppedCrystalEspEnabled = droppedCrystalEspEnabled
+			data.droppedRuneEspEnabled = droppedRuneEspEnabled
+			data.playerEspEnabled = playerEspEnabled
+
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
@@ -1285,6 +1608,16 @@ local success, err = pcall(function()
 				if data.safeModeEnabled ~= nil then safeModeEnabled = (data.safeModeEnabled == true) end
 				if data.minLevelFilter ~= nil then minLevelFilter = tonumber(data.minLevelFilter) or 1 end
 				if data.selectedRarityIndex ~= nil then selectedRarityIndex = tonumber(data.selectedRarityIndex) or 1 end
+
+				if data.crystalEspEnabled ~= nil then crystalEspEnabled = (data.crystalEspEnabled == true) end
+				if data.droppedCrystalEspEnabled ~= nil then droppedCrystalEspEnabled = (data.droppedCrystalEspEnabled == true) end
+				if data.droppedRuneEspEnabled ~= nil then droppedRuneEspEnabled = (data.droppedRuneEspEnabled == true) end
+				if data.playerEspEnabled ~= nil then playerEspEnabled = (data.playerEspEnabled == true) end
+
+				if updateCrystalEspVisuals then updateCrystalEspVisuals() end
+				if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
+				if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
+				if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 
 				-- Load settings config variables for settings.lua
 				if data.antiAfk ~= nil or data.touchFling ~= nil or data.antiFling ~= nil or data.noclip ~= nil or data.startMinimized ~= nil or data.keybind ~= nil then

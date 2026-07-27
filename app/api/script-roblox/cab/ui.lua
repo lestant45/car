@@ -1379,6 +1379,7 @@ local success, err = pcall(function()
 		tabs = tabs,
 		tabButtons = tabButtons,
 		selectTab = selectTab,
+		addTab = addTab,
 
 		-- Main tab specific elements
 		mainFrameContent = mainFrameContent,
