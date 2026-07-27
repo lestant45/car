@@ -1252,6 +1252,10 @@ local success, err = pcall(function()
 
 			evaluateFolder(crystalsFolder)
 			evaluateFolder(dcFolder)
+			evaluateFolder(workspace:FindFirstChild("FrozenCaves"))
+			evaluateFolder(workspace:FindFirstChild("CaveZones"))
+			evaluateFolder(workspace:FindFirstChild("Rocks"))
+			evaluateFolder(things and things:FindFirstChild("MountainZones"))
 
 			if bestObj and bestPart then
 				return { obj = bestObj, part = bestPart }

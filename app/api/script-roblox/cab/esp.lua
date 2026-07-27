@@ -768,19 +768,37 @@ local function initESP()
 	end
 
 	local function scanAllObjects()
-		-- 1. Crystal ESP Scan (workspace.Things.Crystals or workspace.Crystals)
+		-- 1. Crystal ESP Scan (Scans all mountain folders & descendants for unmined crystals inside rocks)
 		if state.crystalEspEnabled then
 			local things = workspace:FindFirstChild("Things")
-			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
-			if crystalsFolder then
-				for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
-					if crystalMatchesFilters(crystalObj) then
-						if not activeESPs[crystalObj] then
-							local colorHex = getCrystalAccentColor(crystalObj.Name)
-							createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
+			local foldersToScan = {
+				workspace:FindFirstChild("Crystals"),
+				things and things:FindFirstChild("Crystals"),
+				workspace:FindFirstChild("FrozenCaves"),
+				workspace:FindFirstChild("CaveZones"),
+				workspace:FindFirstChild("Rocks"),
+				workspace:FindFirstChild("Nodes"),
+				things and things:FindFirstChild("MountainZones"),
+			}
+
+			local scanned = {}
+			for _, folder in ipairs(foldersToScan) do
+				if folder then
+					for _, crystalObj in ipairs(folder:GetDescendants()) do
+						if not scanned[crystalObj] and (crystalObj:IsA("BasePart") or crystalObj:IsA("Model")) and not crystalObj:IsA("Accessory") then
+							local nameLower = string.lower(crystalObj.Name)
+							if string.find(nameLower, "crystal") or string.find(nameLower, "_t") or string.find(nameLower, "t%d") or crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("Tier") then
+								scanned[crystalObj] = true
+								if crystalMatchesFilters(crystalObj) then
+									if not activeESPs[crystalObj] then
+										local colorHex = getCrystalAccentColor(crystalObj.Name)
+										createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
+									end
+								else
+									removeBillboardForObject(crystalObj)
+								end
+							end
 						end
-					else
-						removeBillboardForObject(crystalObj)
 					end
 				end
 			end
@@ -792,14 +810,16 @@ local function initESP()
 		if state.droppedCrystalEspEnabled then
 			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
 			if dcFolder then
-				for _, dcObj in ipairs(dcFolder:GetChildren()) do
-					if crystalMatchesFilters(dcObj) then
-						if not activeESPs[dcObj] then
-							local colorHex = getCrystalAccentColor(dcObj.Name)
-							createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
+				for _, dcObj in ipairs(dcFolder:GetDescendants()) do
+					if dcObj:IsA("BasePart") or dcObj:IsA("Model") then
+						if crystalMatchesFilters(dcObj) then
+							if not activeESPs[dcObj] then
+								local colorHex = getCrystalAccentColor(dcObj.Name)
+								createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
+							end
+						else
+							removeBillboardForObject(dcObj)
 						end
-					else
-						removeBillboardForObject(dcObj)
 					end
 				end
 			end
@@ -840,7 +860,7 @@ local function initESP()
 	-- Event-driven Workspace & Folder Listeners (Instant ESP updates without 1s polling spikes)
 	local function hookFolderEvents(folder, category, isCrystal)
 		if not folder then return end
-		folder.ChildAdded:Connect(function(child)
+		folder.DescendantAdded:Connect(function(child)
 			if isCrystal then
 				if (category == "crystal" and state.crystalEspEnabled) or (category == "dropped_crystal" and state.droppedCrystalEspEnabled) then
 					if crystalMatchesFilters(child) then
@@ -853,7 +873,7 @@ local function initESP()
 			end
 		end)
 
-		folder.ChildRemoved:Connect(function(child)
+		folder.DescendantRemoving:Connect(function(child)
 			removeBillboardForObject(child)
 		end)
 	end
@@ -862,6 +882,12 @@ local function initESP()
 		local things = workspace:WaitForChild("Things", 5)
 		local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
 		if crystalsFolder then hookFolderEvents(crystalsFolder, "crystal", true) end
+
+		local frozenCaves = workspace:FindFirstChild("FrozenCaves")
+		if frozenCaves then hookFolderEvents(frozenCaves, "crystal", true) end
+
+		local caveZones = workspace:FindFirstChild("CaveZones")
+		if caveZones then hookFolderEvents(caveZones, "crystal", true) end
 
 		local dcFolder = workspace:WaitForChild("DroppedCrystals", 5)
 		if dcFolder then hookFolderEvents(dcFolder, "dropped_crystal", true) end
