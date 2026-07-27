@@ -1321,7 +1321,42 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Auto Farm Loop with Levitating / Flying Stay Engine & Auto Sell When Full
+		-- Smooth Fast Tween Helper for Automation Mining (Glide with fast speed)
+		local activeFarmTween = nil
+		local function tweenToTargetCFrame(myHrp, targetCFrame, speed)
+			if not myHrp or not targetCFrame then return end
+			local spd = speed or 350
+			local dist = (myHrp.Position - targetCFrame.Position).Magnitude
+			if dist <= 3 then
+				myHrp.CFrame = targetCFrame
+				pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+				return
+			end
+
+			local duration = math.clamp(dist / spd, 0.05, 1.5)
+			if activeFarmTween then
+				pcall(function() activeFarmTween:Cancel() end)
+				activeFarmTween = nil
+			end
+
+			local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+			activeFarmTween = TweenService:Create(myHrp, tweenInfo, { CFrame = targetCFrame })
+			activeFarmTween:Play()
+			
+			local startT = os.clock()
+			while activeFarmTween and (os.clock() - startT < duration + 0.05) and autoFarmCrystalsEnabled do
+				task.wait(0.02)
+				pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+			end
+
+			if activeFarmTween then
+				pcall(function() activeFarmTween:Cancel() end)
+				activeFarmTween = nil
+			end
+			pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+		end
+
+		-- Auto Farm Loop with Levitating / Flying Stay Engine & Fast Speed Movement
 		task.spawn(function()
 			while true do
 				task.wait(0.1)
@@ -1357,9 +1392,9 @@ local success, err = pcall(function()
 								flyHold.Parent = myHrp
 							end
 
-							-- Teleport EXACTLY ONCE to the target crystal
-							myHrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-							pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+							-- TWEEN WITH FAST SPEED to the target crystal instead of instant teleporting
+							local farmTargetCFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+							tweenToTargetCFrame(myHrp, farmTargetCFrame, 350)
 
 							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
 							if prompt then
