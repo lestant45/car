@@ -834,7 +834,7 @@ local success, err = pcall(function()
 
 		-- Content Container inside Automation Mining Card
 		local amContentContainer = Instance.new("Frame")
-		amContentContainer.Size = UDim2.new(1, -24, 0, 160)
+		amContentContainer.Size = UDim2.new(1, -24, 0, 360)
 		amContentContainer.Position = UDim2.new(0, 12, 0, 42)
 		amContentContainer.BackgroundTransparency = 1
 		amContentContainer.Parent = autoMineCategoryCard
@@ -852,7 +852,7 @@ local success, err = pcall(function()
 				isSzOpen = false
 			end
 
-			local targetHeight = isAutoMineCategoryExpanded and (isRarOpen and 370 or (isSzOpen and 350 or 210)) or 36
+			local targetHeight = isAutoMineCategoryExpanded and (isRarOpen and 385 or (isSzOpen and 365 or 220)) or 36
 			local tween = TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
 			})
@@ -888,7 +888,7 @@ local success, err = pcall(function()
 
 		-- 3. Target Rarity Filter Card inside Automation Mining
 		local amRarCard = Instance.new("Frame")
-		amRarCard.Size = UDim2.new(1, 0, 0, 32)
+		amRarCard.Size = UDim2.new(1, 0, 0, 36)
 		amRarCard.BackgroundColor3 = COLORS.glassCard
 		amRarCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		amRarCard.BorderSizePixel = 0
@@ -899,8 +899,8 @@ local success, err = pcall(function()
 		refs.applyGlass(amRarCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
 
 		local amRarTitle = Instance.new("TextLabel")
-		amRarTitle.Size = UDim2.new(0.5, 0, 0, 32)
-		amRarTitle.Position = UDim2.new(0, 10, 0, 0)
+		amRarTitle.Size = UDim2.new(0.5, 0, 0, 36)
+		amRarTitle.Position = UDim2.new(0, 12, 0, 0)
 		amRarTitle.BackgroundTransparency = 1
 		amRarTitle.Text = "Target Rarity"
 		amRarTitle.TextColor3 = COLORS.textPrimary
@@ -910,8 +910,8 @@ local success, err = pcall(function()
 		amRarTitle.Parent = amRarCard
 
 		local amRarDropBtn = Instance.new("TextButton")
-		amRarDropBtn.Size = UDim2.new(0, 130, 0, 22)
-		amRarDropBtn.Position = UDim2.new(1, -136, 0, 5)
+		amRarDropBtn.Size = UDim2.new(0, 128, 0, 22)
+		amRarDropBtn.Position = UDim2.new(1, -140, 0, 7)
 		amRarDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
 		amRarDropBtn.Text = (autoFarmRarityFilter or "All") .. "  ▼"
 		amRarDropBtn.TextColor3 = COLORS.accentCyan
@@ -924,8 +924,8 @@ local success, err = pcall(function()
 		amRarCorner.Parent = amRarDropBtn
 
 		local amRarMenuFrame = Instance.new("Frame")
-		amRarMenuFrame.Size = UDim2.new(0, 130, 0, 160)
-		amRarMenuFrame.Position = UDim2.new(1, -136, 0, 32)
+		amRarMenuFrame.Size = UDim2.new(0, 128, 0, 160)
+		amRarMenuFrame.Position = UDim2.new(1, -140, 0, 36)
 		amRarMenuFrame.BackgroundTransparency = 1
 		amRarMenuFrame.Visible = false
 		amRarMenuFrame.ClipsDescendants = true
@@ -965,8 +965,8 @@ local success, err = pcall(function()
 				autoFarmRarityFilter = rName
 				isRarOpen = false
 				updateAmRarityVisuals()
-				TweenService:Create(amRarCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 32) }):Play()
-				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 210) }):Play()
+				TweenService:Create(amRarCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 36) }):Play()
+				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 220) }):Play()
 				updateMainTabCanvas()
 				if refs.saveConfig then pcall(refs.saveConfig) end
 			end)
@@ -978,8 +978,8 @@ local success, err = pcall(function()
 			amRarMenuFrame.Visible = isRarOpen
 			updateAmRarityVisuals()
 
-			local rarTargetHeight = isRarOpen and (32 + 165) or 32
-			local cardTargetHeight = isRarOpen and 370 or 210
+			local rarTargetHeight = isRarOpen and (36 + 165) or 36
+			local cardTargetHeight = isRarOpen and 385 or 220
 			TweenService:Create(amRarCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, rarTargetHeight) }):Play()
 			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
 			updateMainTabCanvas()
@@ -987,7 +987,7 @@ local success, err = pcall(function()
 
 		-- 4. Target Size Filter Card inside Automation Mining
 		local amSzCard = Instance.new("Frame")
-		amSzCard.Size = UDim2.new(1, 0, 0, 32)
+		amSzCard.Size = UDim2.new(1, 0, 0, 36)
 		amSzCard.BackgroundColor3 = COLORS.glassCard
 		amSzCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		amSzCard.BorderSizePixel = 0
@@ -998,8 +998,8 @@ local success, err = pcall(function()
 		refs.applyGlass(amSzCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
 
 		local amSzTitle = Instance.new("TextLabel")
-		amSzTitle.Size = UDim2.new(0.5, 0, 0, 32)
-		amSzTitle.Position = UDim2.new(0, 10, 0, 0)
+		amSzTitle.Size = UDim2.new(0.5, 0, 0, 36)
+		amSzTitle.Position = UDim2.new(0, 12, 0, 0)
 		amSzTitle.BackgroundTransparency = 1
 		amSzTitle.Text = "Target Size"
 		amSzTitle.TextColor3 = COLORS.textPrimary
@@ -1009,8 +1009,8 @@ local success, err = pcall(function()
 		amSzTitle.Parent = amSzCard
 
 		local amSzDropBtn = Instance.new("TextButton")
-		amSzDropBtn.Size = UDim2.new(0, 130, 0, 22)
-		amSzDropBtn.Position = UDim2.new(1, -136, 0, 5)
+		amSzDropBtn.Size = UDim2.new(0, 128, 0, 22)
+		amSzDropBtn.Position = UDim2.new(1, -140, 0, 7)
 		amSzDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
 		amSzDropBtn.Text = (autoFarmSizeFilter or "All") .. "  ▼"
 		amSzDropBtn.TextColor3 = COLORS.accentCyan
@@ -1023,8 +1023,8 @@ local success, err = pcall(function()
 		amSzCorner.Parent = amSzDropBtn
 
 		local amSzMenuFrame = Instance.new("Frame")
-		amSzMenuFrame.Size = UDim2.new(0, 130, 0, 140)
-		amSzMenuFrame.Position = UDim2.new(1, -136, 0, 32)
+		amSzMenuFrame.Size = UDim2.new(0, 128, 0, 140)
+		amSzMenuFrame.Position = UDim2.new(1, -140, 0, 36)
 		amSzMenuFrame.BackgroundTransparency = 1
 		amSzMenuFrame.Visible = false
 		amSzMenuFrame.ClipsDescendants = true
@@ -1064,8 +1064,8 @@ local success, err = pcall(function()
 				autoFarmSizeFilter = sName
 				isSzOpen = false
 				updateAmSizeVisuals()
-				TweenService:Create(amSzCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 32) }):Play()
-				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 210) }):Play()
+				TweenService:Create(amSzCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 36) }):Play()
+				TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.25), { Size = UDim2.new(1, 0, 0, 220) }):Play()
 				updateMainTabCanvas()
 				if refs.saveConfig then pcall(refs.saveConfig) end
 			end)
@@ -1077,35 +1077,23 @@ local success, err = pcall(function()
 			amSzMenuFrame.Visible = isSzOpen
 			updateAmSizeVisuals()
 
-			local szTargetHeight = isSzOpen and (32 + 145) or 32
-			local cardTargetHeight = isSzOpen and 350 or 210
+			local szTargetHeight = isSzOpen and (36 + 145) or 36
+			local cardTargetHeight = isSzOpen and 365 or 220
 			TweenService:Create(amSzCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, szTargetHeight) }):Play()
 			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
 			updateMainTabCanvas()
 		end)
 
-		afcTrack.MouseButton1Click:Connect(function()
-			autoFarmCrystalsEnabled = not autoFarmCrystalsEnabled
-			updateAutoFarmVisuals()
-			if refs.saveConfig then pcall(refs.saveConfig) end
-		end)
-
-		afnTrack.MouseButton1Click:Connect(function()
-			autoFarmNoclipEnabled = not autoFarmNoclipEnabled
-			updateAutoFarmNoclipVisuals()
-			if refs.saveConfig then pcall(refs.saveConfig) end
-		end)
-
-		-- Noclip Engine
-		local noclipConnection = nil
-		local function setAutoFarmNoclip(enabled)
-			if enabled then
-				if not noclipConnection then
-					noclipConnection = RunService.Stepped:Connect(function()
+		-- Dedicated Noclip Engine for Automation Mining
+		local amNoclipConnection = nil
+		local function updateAutomationNoclipEngine()
+			if autoFarmNoclipEnabled then
+				if not amNoclipConnection then
+					amNoclipConnection = RunService.Stepped:Connect(function()
 						local char = player and player.Character
 						if char then
 							for _, part in ipairs(char:GetDescendants()) do
-								if part:IsA("BasePart") and part.CanCollide then
+								if part:IsA("BasePart") then
 									part.CanCollide = false
 								end
 							end
@@ -1113,12 +1101,26 @@ local success, err = pcall(function()
 					end)
 				end
 			else
-				if noclipConnection then
-					noclipConnection:Disconnect()
-					noclipConnection = nil
+				if amNoclipConnection then
+					amNoclipConnection:Disconnect()
+					amNoclipConnection = nil
 				end
 			end
 		end
+
+		afcTrack.MouseButton1Click:Connect(function()
+			autoFarmCrystalsEnabled = not autoFarmCrystalsEnabled
+			updateAutoFarmVisuals()
+			updateAutomationNoclipEngine()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		afnTrack.MouseButton1Click:Connect(function()
+			autoFarmNoclipEnabled = not autoFarmNoclipEnabled
+			updateAutoFarmNoclipVisuals()
+			updateAutomationNoclipEngine()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
 
 		-- Helper to get closest filtered crystal using Automation Mining's independent filters
 		local function getClosestFilteredCrystal()
@@ -1242,12 +1244,6 @@ local success, err = pcall(function()
 			while true do
 				task.wait(0.2)
 				if autoFarmCrystalsEnabled then
-					if autoFarmNoclipEnabled then
-						setAutoFarmNoclip(true)
-					else
-						setAutoFarmNoclip(false)
-					end
-
 					local target = getClosestFilteredCrystal()
 					if target and target.obj and target.obj.Parent and target.part and target.part.Parent then
 						local obj = target.obj
@@ -1286,8 +1282,6 @@ local success, err = pcall(function()
 					else
 						task.wait(0.5)
 					end
-				else
-					setAutoFarmNoclip(false)
 				end
 			end
 		end)
@@ -1306,10 +1300,12 @@ local success, err = pcall(function()
 				if s.autoFarmCrystalsEnabled ~= nil then
 					autoFarmCrystalsEnabled = (s.autoFarmCrystalsEnabled == true)
 					updateAutoFarmVisuals()
+					updateAutomationNoclipEngine()
 				end
 				if s.autoFarmNoclipEnabled ~= nil then
 					autoFarmNoclipEnabled = (s.autoFarmNoclipEnabled == true)
 					updateAutoFarmNoclipVisuals()
+					updateAutomationNoclipEngine()
 				end
 				if s.autoFarmRarityFilter ~= nil then
 					autoFarmRarityFilter = tostring(s.autoFarmRarityFilter)
