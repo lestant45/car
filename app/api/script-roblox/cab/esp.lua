@@ -633,7 +633,49 @@ local function initESP()
 		end
 	end
 
-	-- High-performance 10Hz Heartbeat loop (Zero CPU lag)
+	-- Event-driven Workspace & Folder Listeners (Instant ESP updates without 1s polling spikes)
+	local function hookFolderEvents(folder, category, isCrystal)
+		if not folder then return end
+		folder.ChildAdded:Connect(function(child)
+			if isCrystal then
+				if (category == "crystal" and state.crystalEspEnabled) or (category == "dropped_crystal" and state.droppedCrystalEspEnabled) then
+					if crystalMatchesRarity(child) then
+						local colorHex = getCrystalAccentColor(child.Name)
+						createBillboardForObject(child, child.Name, category, colorHex)
+					end
+				end
+			elseif category == "dropped_rune" and state.droppedRuneEspEnabled then
+				createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
+			end
+		end)
+
+		folder.ChildRemoved:Connect(function(child)
+			removeBillboardForObject(child)
+		end)
+	end
+
+	task.spawn(function()
+		local things = workspace:WaitForChild("Things", 5)
+		local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
+		if crystalsFolder then hookFolderEvents(crystalsFolder, "crystal", true) end
+
+		local dcFolder = workspace:WaitForChild("DroppedCrystals", 5)
+		if dcFolder then hookFolderEvents(dcFolder, "dropped_crystal", true) end
+
+		local drFolder = workspace:WaitForChild("DroppedRunes", 5)
+		if drFolder then hookFolderEvents(drFolder, "dropped_rune", false) end
+
+		Players.PlayerAdded:Connect(function(p)
+			p.CharacterAdded:Connect(function(char)
+				if state.playerEspEnabled then
+					local displayName = p.DisplayName or p.Name
+					createBillboardForObject(char, "👤 " .. displayName, "player", "#8c78ff")
+				end
+			end)
+		end)
+	end)
+
+	-- High-performance 10Hz Heartbeat loop (Zero CPU lag & zero 1-second FPS drops)
 	local RunService = game:GetService("RunService")
 	local lastScanTime = 0
 	local lastUpdateDistTime = 0
@@ -661,8 +703,8 @@ local function initESP()
 			end
 		end
 
-		-- 2. Periodic folder scanning (runs every 1.0s)
-		if now - lastScanTime >= 1.0 then
+		-- 2. Low-frequency periodic safety scan (runs every 8.0s instead of 1.0s to eliminate FPS drops)
+		if now - lastScanTime >= 8.0 then
 			lastScanTime = now
 			pcall(scanAllObjects)
 		end
