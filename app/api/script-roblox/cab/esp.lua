@@ -23,9 +23,10 @@ local function initESP()
 		droppedCrystalEspEnabled = false,
 		droppedRuneEspEnabled = false,
 		playerEspEnabled = false,
+		selectedCrystalRarity = "All",
 	}
 
-	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals
+	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals
 
 	if refs.addTab then
 		local espTabFrame = refs.addTab("ESP", "👁️", 3)
@@ -70,6 +71,110 @@ local function initESP()
 		espSub.TextSize = 11
 		espSub.TextXAlignment = Enum.TextXAlignment.Left
 		espSub.Parent = espCard
+
+		-- 🔽 Crystal Rarity Filter Dropdown Card (Above Toggles)
+		local filterCard = Instance.new("Frame")
+		filterCard.Size = UDim2.new(1, 0, 0, 44)
+		filterCard.BackgroundColor3 = COLORS.glassCard
+		filterCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		filterCard.BorderSizePixel = 0
+		filterCard.ClipsDescendants = true
+		filterCard.Parent = espTabFrame
+
+		refs.applyGlass(filterCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		local filterTitle = Instance.new("TextLabel")
+		filterTitle.Size = UDim2.new(0.5, 0, 0, 44)
+		filterTitle.Position = UDim2.new(0, 12, 0, 0)
+		filterTitle.BackgroundTransparency = 1
+		filterTitle.Text = "Crystal Rarity Filter"
+		filterTitle.TextColor3 = COLORS.textPrimary
+		filterTitle.Font = Enum.Font.GothamMedium
+		filterTitle.TextSize = 12
+		filterTitle.TextXAlignment = Enum.TextXAlignment.Left
+		filterTitle.Parent = filterCard
+
+		local dropBtn = Instance.new("TextButton")
+		dropBtn.Size = UDim2.new(0, 130, 0, 26)
+		dropBtn.Position = UDim2.new(1, -142, 0, 9)
+		dropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
+		dropBtn.Text = (state.selectedCrystalRarity or "All") .. "  ▼"
+		dropBtn.TextColor3 = COLORS.accentCyan
+		dropBtn.Font = Enum.Font.GothamBold
+		dropBtn.TextSize = 11
+		dropBtn.Parent = filterCard
+
+		local dropCorner = Instance.new("UICorner")
+		dropCorner.CornerRadius = refs.CORNER.small
+		dropCorner.Parent = dropBtn
+
+		local dropStroke = Instance.new("UIStroke")
+		dropStroke.Color = COLORS.borderGlass
+		dropStroke.Thickness = 1
+		dropStroke.Transparency = 0.5
+		dropStroke.Parent = dropBtn
+
+		local menuFrame = Instance.new("Frame")
+		menuFrame.Size = UDim2.new(1, -24, 0, 175)
+		menuFrame.Position = UDim2.new(0, 12, 0, 44)
+		menuFrame.BackgroundTransparency = 1
+		menuFrame.Visible = false
+		menuFrame.Parent = filterCard
+
+		refs.applyListLayout(menuFrame, 4)
+
+		local rarities = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical"}
+		local isOpen = false
+
+		updateDropdownVisuals = function()
+			dropBtn.Text = (state.selectedCrystalRarity or "All") .. (isOpen and "  ▲" or "  ▼")
+			for _, child in ipairs(menuFrame:GetChildren()) do
+				if child:IsA("TextButton") then
+					local isSel = (child.Text == state.selectedCrystalRarity)
+					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
+				end
+			end
+		end
+
+		for _, rName in ipairs(rarities) do
+			local itemBtn = Instance.new("TextButton")
+			itemBtn.Size = UDim2.new(1, 0, 0, 22)
+			itemBtn.BackgroundColor3 = (state.selectedCrystalRarity == rName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
+			itemBtn.BackgroundTransparency = 0.2
+			itemBtn.Text = rName
+			itemBtn.TextColor3 = (state.selectedCrystalRarity == rName) and COLORS.accentCyan or COLORS.textSecondary
+			itemBtn.Font = Enum.Font.GothamMedium
+			itemBtn.TextSize = 11
+			itemBtn.Parent = menuFrame
+
+			local itemCorner = Instance.new("UICorner")
+			itemCorner.CornerRadius = UDim.new(0, 4)
+			itemCorner.Parent = itemBtn
+
+			itemBtn.MouseButton1Click:Connect(function()
+				state.selectedCrystalRarity = rName
+				isOpen = false
+				menuFrame.Visible = false
+				TweenService:Create(filterCard, TweenInfo.new(0.2), { Size = UDim2.new(1, 0, 0, 44) }):Play()
+				updateDropdownVisuals()
+				if saveConfig then pcall(saveConfig) end
+			end)
+		end
+
+		dropBtn.MouseButton1Click:Connect(function()
+			isOpen = not isOpen
+			menuFrame.Visible = isOpen
+			local targetHeight = isOpen and (44 + 185) or 44
+			TweenService:Create(filterCard, TweenInfo.new(0.25, Enum.EasingStyle.Quart), { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
+			updateDropdownVisuals()
+		end)
 
 		-- Toggles Card
 		local togglesCard = Instance.new("Frame")
@@ -179,6 +284,44 @@ local function initESP()
 		return nil
 	end
 
+	local function crystalMatchesRarity(crystalObj)
+		local filter = state.selectedCrystalRarity or "All"
+		if filter == "All" or filter == "" then return true end
+
+		local fLower = string.lower(filter)
+		local nameLower = string.lower(crystalObj.Name)
+
+		if string.find(nameLower, fLower) then
+			return true
+		end
+
+		local attr = crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("rarity")
+		if attr and string.lower(tostring(attr)) == fLower then
+			return true
+		end
+
+		local child = crystalObj:FindFirstChild("Rarity")
+		if child then
+			local val = child:IsA("StringValue") and child.Value or tostring(child)
+			if string.lower(tostring(val)) == fLower then
+				return true
+			end
+		end
+
+		local Core = _G.Core or _G.HipHubCore
+		if Core and Core.Species and Core.Species[crystalObj.Name] then
+			local species = Core.Species[crystalObj.Name]
+			if species.Rarity then
+				local rName = typeof(species.Rarity) == "table" and species.Rarity.Name or tostring(species.Rarity)
+				if string.lower(tostring(rName)) == fLower then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
 	local function createBillboardForObject(obj, namePrefix, category, accentColorHex)
 		if activeESPs[obj] then return end
 
@@ -278,8 +421,12 @@ local function initESP()
 				local crystalsFolder = things and things:FindFirstChild("Crystals")
 				if crystalsFolder then
 					for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
-						if not activeESPs[crystalObj] then
-							createBillboardForObject(crystalObj, crystalObj.Name, "crystal", "#00c8ff")
+						if crystalMatchesRarity(crystalObj) then
+							if not activeESPs[crystalObj] then
+								createBillboardForObject(crystalObj, crystalObj.Name, "crystal", "#00c8ff")
+							end
+						else
+							removeBillboardForObject(crystalObj)
 						end
 					end
 				end
@@ -292,8 +439,12 @@ local function initESP()
 				local dcFolder = workspace:FindFirstChild("DroppedCrystals")
 				if dcFolder then
 					for _, dcObj in ipairs(dcFolder:GetChildren()) do
-						if not activeESPs[dcObj] then
-							createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", "#00e6a8")
+						if crystalMatchesRarity(dcObj) then
+							if not activeESPs[dcObj] then
+								createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", "#00e6a8")
+							end
+						else
+							removeBillboardForObject(dcObj)
 						end
 					end
 				end
@@ -343,17 +494,20 @@ local function initESP()
 			if newState.droppedCrystalEspEnabled ~= nil then state.droppedCrystalEspEnabled = (newState.droppedCrystalEspEnabled == true) end
 			if newState.droppedRuneEspEnabled ~= nil then state.droppedRuneEspEnabled = (newState.droppedRuneEspEnabled == true) end
 			if newState.playerEspEnabled ~= nil then state.playerEspEnabled = (newState.playerEspEnabled == true) end
+			if newState.selectedCrystalRarity ~= nil then state.selectedCrystalRarity = tostring(newState.selectedCrystalRarity) end
 
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
+			if updateDropdownVisuals then updateDropdownVisuals() end
 		end,
 		updateVisuals = function()
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
+			if updateDropdownVisuals then updateDropdownVisuals() end
 		end
 	}
 end
