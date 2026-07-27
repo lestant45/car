@@ -329,51 +329,61 @@ local function initESP()
 		if filter == "All" or filter == "" then return true end
 
 		local nameLower = string.lower(crystalObj.Name)
+		local filterLower = string.lower(filter)
 
 		local filterMap = {
-			["t1"] = {"_t1", "t1", "common"},
-			["t1 (common)"] = {"_t1", "t1", "common"},
 			["common"] = {"_t1", "t1", "common"},
+			["t1 (common)"] = {"_t1", "t1", "common"},
+			["t1"] = {"_t1", "t1", "common"},
 
-			["t2"] = {"_t2", "t2", "uncommon"},
-			["t2 (uncommon)"] = {"_t2", "t2", "uncommon"},
 			["uncommon"] = {"_t2", "t2", "uncommon"},
+			["t2 (uncommon)"] = {"_t2", "t2", "uncommon"},
+			["t2"] = {"_t2", "t2", "uncommon"},
 
-			["t3"] = {"_t3", "t3", "rare"},
-			["t3 (rare)"] = {"_t3", "t3", "rare"},
 			["rare"] = {"_t3", "t3", "rare"},
+			["t3 (rare)"] = {"_t3", "t3", "rare"},
+			["t3"] = {"_t3", "t3", "rare"},
 
-			["t4"] = {"_t4", "t4", "epic"},
-			["t4 (epic)"] = {"_t4", "t4", "epic"},
 			["epic"] = {"_t4", "t4", "epic"},
+			["t4 (epic)"] = {"_t4", "t4", "epic"},
+			["t4"] = {"_t4", "t4", "epic"},
 
-			["t5"] = {"_t5", "t5", "legendary"},
-			["t5 (legendary)"] = {"_t5", "t5", "legendary"},
 			["legendary"] = {"_t5", "t5", "legendary"},
+			["t5 (legendary)"] = {"_t5", "t5", "legendary"},
+			["t5"] = {"_t5", "t5", "legendary"},
 
-			["t6"] = {"_t6", "t6", "mythical"},
-			["t6 (mythical)"] = {"_t6", "t6", "mythical"},
-			["mythical"] = {"_t6", "t6", "mythical"},
+			["mythical"] = {"_t6", "t6", "mythical", "mythic"},
+			["mythic"] = {"_t6", "t6", "mythical", "mythic"},
+			["t6 (mythical)"] = {"_t6", "t6", "mythical", "mythic"},
+			["t6 (mythic)"] = {"_t6", "t6", "mythical", "mythic"},
+			["t6"] = {"_t6", "t6", "mythical", "mythic"},
 		}
 
-		local keywords = filterMap[string.lower(filter)]
+		local keywords = filterMap[filterLower]
 		if keywords then
 			for _, kw in ipairs(keywords) do
 				if string.find(nameLower, kw, 1, true) then
 					return true
 				end
 			end
-		else
-			if string.find(nameLower, string.lower(filter), 1, true) then
-				return true
-			end
+		end
+
+		if string.find(nameLower, filterLower, 1, true) then
+			return true
 		end
 
 		local attr = crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("Tier") or crystalObj:GetAttribute("rarity") or crystalObj:GetAttribute("tier")
 		if attr then
 			local attrStr = string.lower(tostring(attr))
-			if string.find(attrStr, string.lower(filter), 1, true) then
+			if string.find(attrStr, filterLower, 1, true) then
 				return true
+			end
+			if keywords then
+				for _, kw in ipairs(keywords) do
+					if string.find(attrStr, kw, 1, true) then
+						return true
+					end
+				end
 			end
 		end
 
@@ -392,16 +402,16 @@ local function initESP()
 		return formatted
 	end
 
-	local function buildStaticEspTemplate(obj, category)
+	local function buildObjectEspDetails(obj, category, distanceMeters)
 		if category == "player" then
 			local displayName = obj.Name
 			if obj:IsA("Model") then
 				local pl = Players:GetPlayerFromCharacter(obj)
 				if pl then displayName = pl.DisplayName or pl.Name end
 			end
-			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%%dm]</font>", displayName)
+			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%dm]</font>", displayName, distanceMeters or 0)
 		elseif category == "dropped_rune" then
-			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%%dm]</font>", obj.Name)
+			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%dm]</font>", obj.Name, distanceMeters or 0)
 		end
 
 		local name = obj.Name
@@ -454,13 +464,13 @@ local function initESP()
 		local subLine = string.format("<font color='#a0b5d0'>%s</font>", tostring(sizeVal))
 		local separatorLine = "<font color='#405075'>___________________________</font>"
 
-		-- 5. Weight / Mass & Distance Template
+		-- 5. Weight / Mass & Distance
 		local weight = obj:GetAttribute("Weight") or obj:GetAttribute("kg") or obj:GetAttribute("Mass")
 		local weightLine = ""
 		if weight then
-			weightLine = string.format("<font color='#e0f0ff'>%.1f kg</font> <font color='#a0b0d0'>[%%dm]</font>", tonumber(weight) or 0)
+			weightLine = string.format("<font color='#e0f0ff'>%.1f kg</font> <font color='#a0b0d0'>[%dm]</font>", tonumber(weight) or 0, distanceMeters or 0)
 		else
-			weightLine = "<font color='#e0f0ff'>[%%dm]</font>"
+			weightLine = string.format("<font color='#e0f0ff'>[%dm]</font>", distanceMeters or 0)
 		end
 
 		-- 6. Price / Value
@@ -519,8 +529,6 @@ local function initESP()
 		stroke.Transparency = 0.4
 		stroke.Parent = card
 
-		local staticTemplate = buildStaticEspTemplate(obj, category)
-
 		local label = Instance.new("TextLabel")
 		label.Size = UDim2.new(1, -12, 1, -8)
 		label.Position = UDim2.new(0, 6, 0, 4)
@@ -532,7 +540,7 @@ local function initESP()
 		label.TextWrapped = true
 		label.TextXAlignment = isCardCategory and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
 		label.TextYAlignment = isCardCategory and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
-		label.Text = string.format(staticTemplate, 0)
+		label.Text = buildObjectEspDetails(obj, category, 0)
 		label.Parent = card
 
 		activeESPs[obj] = {
@@ -540,7 +548,6 @@ local function initESP()
 			textLabel = label,
 			targetPart = targetPart,
 			category = category,
-			textFormat = staticTemplate,
 			lastDist = -1
 		}
 	end
@@ -697,7 +704,7 @@ local function initESP()
 					local distInt = math.floor((myPos - data.targetPart.Position).Magnitude + 0.5)
 					if distInt ~= data.lastDist then
 						data.lastDist = distInt
-						data.textLabel.Text = string.format(data.textFormat, distInt)
+						data.textLabel.Text = buildObjectEspDetails(obj, data.category, distInt)
 					end
 				end
 			end
