@@ -1042,7 +1042,7 @@ local success, err = pcall(function()
 			updateAmRarityVisuals()
 
 			local rarTargetHeight = isRarOpen and (36 + 165) or 36
-			local cardTargetHeight = isRarOpen and 385 or 220
+			local cardTargetHeight = isRarOpen and 430 or 265
 			TweenService:Create(amRarCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, rarTargetHeight) }):Play()
 			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
 			updateMainTabCanvas()
@@ -1154,7 +1154,7 @@ local success, err = pcall(function()
 			updateAmSizeVisuals()
 
 			local szTargetHeight = isSzOpen and (36 + 145) or 36
-			local cardTargetHeight = isSzOpen and 365 or 220
+			local cardTargetHeight = isSzOpen and 410 or 265
 			TweenService:Create(amSzCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, szTargetHeight) }):Play()
 			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
 			updateMainTabCanvas()
