@@ -247,6 +247,309 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
+	-- ⛏️ MINING CATEGORY SECTION (MAIN TAB)
+	------------------------------------------------
+	local mainFrameContent = refs.mainFrameContent or (refs.tabs and refs.tabs["Main"] and refs.tabs["Main"].Frame)
+	local setMiningState = nil
+
+	if mainFrameContent then
+		local miningCard = Instance.new("Frame")
+		miningCard.Size = UDim2.new(1, 0, 0, 160)
+		miningCard.BackgroundColor3 = COLORS.glassCard
+		miningCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		miningCard.BorderSizePixel = 0
+		miningCard.LayoutOrder = 1
+		miningCard.Parent = mainFrameContent
+
+		refs.applyGlass(miningCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		-- Header Bar with | indicator line and > chevron (Picture 2 style)
+		local headerBar = Instance.new("Frame")
+		headerBar.Size = UDim2.new(1, 0, 0, 36)
+		headerBar.BackgroundTransparency = 1
+		headerBar.Parent = miningCard
+
+		local accentBar = Instance.new("Frame")
+		accentBar.Size = UDim2.new(0, 3, 0, 18)
+		accentBar.Position = UDim2.new(0, 12, 0, 9)
+		accentBar.BackgroundColor3 = COLORS.accentCyan
+		accentBar.BorderSizePixel = 0
+		accentBar.Parent = headerBar
+
+		local accentCorner = Instance.new("UICorner")
+		accentCorner.CornerRadius = UDim.new(0, 2)
+		accentCorner.Parent = accentBar
+
+		local miningTitle = Instance.new("TextLabel")
+		miningTitle.Size = UDim2.new(1, -60, 1, 0)
+		miningTitle.Position = UDim2.new(0, 24, 0, 0)
+		miningTitle.BackgroundTransparency = 1
+		miningTitle.Text = "Mining"
+		miningTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		miningTitle.Font = Enum.Font.GothamBold
+		miningTitle.TextSize = 13
+		miningTitle.TextXAlignment = Enum.TextXAlignment.Left
+		miningTitle.Parent = headerBar
+
+		local chevronLabel = Instance.new("TextLabel")
+		chevronLabel.Size = UDim2.new(0, 24, 1, 0)
+		chevronLabel.Position = UDim2.new(1, -30, 0, 0)
+		chevronLabel.BackgroundTransparency = 1
+		chevronLabel.Text = ">"
+		chevronLabel.TextColor3 = COLORS.accentCyan
+		chevronLabel.Font = Enum.Font.GothamBold
+		chevronLabel.TextSize = 13
+		chevronLabel.Parent = headerBar
+
+		-- Toggles Container inside Mining Card
+		local toggleContainer = Instance.new("Frame")
+		toggleContainer.Size = UDim2.new(1, -24, 0, 115)
+		toggleContainer.Position = UDim2.new(0, 12, 0, 38)
+		toggleContainer.BackgroundTransparency = 1
+		toggleContainer.Parent = miningCard
+
+		refs.applyListLayout(toggleContainer, 6)
+
+		-- Mining Persistent States
+		local antiFallEnabled = false
+		local instantMineEnabled = false
+		local instantPickupEnabled = false
+
+		-- 1. Anti-Fall Toggle
+		local afRow, afTrack, afThumb = refs.createGlassToggle(toggleContainer, "Anti-Fall", 1)
+		local updateAntiFallVisuals = function()
+			if antiFallEnabled then
+				TweenService:Create(afTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(afTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+
+		-- 2. Instant Mine Toggle
+		local imRow, imTrack, imThumb = refs.createGlassToggle(toggleContainer, "Instant Mine", 2)
+		local updateInstantMineVisuals = function()
+			if instantMineEnabled then
+				TweenService:Create(imTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(imThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(imTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(imThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+
+		-- 3. Instant Pickup Toggle
+		local ipRow, ipTrack, ipThumb = refs.createGlassToggle(toggleContainer, "Instant Pickup", 3)
+		local updateInstantPickupVisuals = function()
+			if instantPickupEnabled then
+				TweenService:Create(ipTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(ipThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(ipTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(ipThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+
+		-- 🛡️ Anti-Fall Engine Logic
+		local function disableRagdoll()
+			if not antiFallEnabled then return end
+			pcall(function()
+				local ReplicatedStorage = game:GetService("ReplicatedStorage")
+				local rsPkg = ReplicatedStorage:FindFirstChild("RagdollSystemPackage")
+				local rsMod = rsPkg and rsPkg:FindFirstChild("RagdollSystem")
+				if rsMod then
+					local RagdollSystem = require(rsMod)
+					if RagdollSystem then
+						local ragdoll = RagdollSystem:getLocalRagdoll()
+						if ragdoll and ragdoll:isRagdolled() then
+							pcall(function() ragdoll:deactivateRagdollPhysics() end)
+							pcall(function() RagdollSystem.Remotes.DeactivateRagdoll:FireServer() end)
+						end
+					end
+				end
+			end)
+		end
+
+		task.spawn(function()
+			while true do
+				task.wait(0.15)
+				if antiFallEnabled then
+					disableRagdoll()
+				end
+			end
+		end)
+
+		afTrack.MouseButton1Click:Connect(function()
+			antiFallEnabled = not antiFallEnabled
+			updateAntiFallVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- ⛏️ Instant Mine Engine Logic
+		local hookedMineFolders = {}
+		local crystalLocations = {
+			{ parent = "Things", child = "Crystals" },
+			{ parent = nil, child = "DroppedCrystals" },
+			{ parent = nil, child = "Crystals" }
+		}
+
+		local function updateMinePrompt(prompt)
+			if not prompt or not prompt:IsA("ProximityPrompt") then return end
+			local orig = prompt:GetAttribute("IMC_OrigHold")
+			if typeof(orig) ~= "number" then
+				prompt:SetAttribute("IMC_OrigHold", prompt.HoldDuration)
+				orig = prompt.HoldDuration
+			end
+			if instantMineEnabled then
+				prompt.HoldDuration = 0
+			else
+				prompt.HoldDuration = orig or 0.5
+			end
+		end
+
+		local function updateMineFolder(folder)
+			if not folder then return end
+			for _, desc in ipairs(folder:GetDescendants()) do
+				if desc:IsA("ProximityPrompt") then
+					updateMinePrompt(desc)
+				end
+			end
+		end
+
+		local function hookMineFolder(folder)
+			if not folder or hookedMineFolders[folder] then
+				if folder then updateMineFolder(folder) end
+				return
+			end
+			hookedMineFolders[folder] = true
+			updateMineFolder(folder)
+			folder.DescendantAdded:Connect(function(desc)
+				if desc:IsA("ProximityPrompt") then
+					updateMinePrompt(desc)
+				end
+			end)
+		end
+
+		local function findAndHookMineFolders()
+			local Workspace = game:GetService("Workspace")
+			for _, loc in ipairs(crystalLocations) do
+				local pInst = Workspace
+				if loc.parent then
+					pInst = Workspace:FindFirstChild(loc.parent)
+				end
+				if pInst then
+					local f = pInst:FindFirstChild(loc.child)
+					if f then hookMineFolder(f) end
+				end
+			end
+		end
+
+		local function applyInstantMineState()
+			findAndHookMineFolders()
+			for folder in pairs(hookedMineFolders) do
+				if folder and folder.Parent then
+					updateMineFolder(folder)
+				end
+			end
+		end
+
+		imTrack.MouseButton1Click:Connect(function()
+			instantMineEnabled = not instantMineEnabled
+			updateInstantMineVisuals()
+			applyInstantMineState()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- 🤲 Instant Pickup Engine Logic
+		local function isCrystalPickupPrompt(prompt)
+			if not prompt or not prompt:IsA("ProximityPrompt") then return false end
+			local objText = prompt.ObjectText or ""
+			if objText == "Crystal" or string.find(string.lower(objText), "crystal", 1, true) then
+				return true
+			end
+			local curr = prompt.Parent
+			local Workspace = game:GetService("Workspace")
+			while curr and curr ~= Workspace do
+				if string.find(string.lower(curr.Name), "crystal", 1, true) then
+					return true
+				end
+				curr = curr.Parent
+			end
+			return false
+		end
+
+		local function patchPickupPrompt(instance)
+			if not instance or not instance:IsA("ProximityPrompt") or not isCrystalPickupPrompt(instance) then return end
+			local orig = instance:GetAttribute("OriginalHoldDuration")
+			if typeof(orig) ~= "number" then
+				instance:SetAttribute("OriginalHoldDuration", instance.HoldDuration)
+				orig = instance.HoldDuration
+			end
+			if instantPickupEnabled then
+				instance.HoldDuration = 0
+			else
+				instance.HoldDuration = orig or 0.5
+			end
+		end
+
+		local function updateAllPickupPrompts()
+			local Workspace = game:GetService("Workspace")
+			for _, desc in ipairs(Workspace:GetDescendants()) do
+				patchPickupPrompt(desc)
+			end
+		end
+
+		game:GetService("Workspace").DescendantAdded:Connect(function(desc)
+			if desc:IsA("ProximityPrompt") then
+				patchPickupPrompt(desc)
+			end
+		end)
+
+		ipTrack.MouseButton1Click:Connect(function()
+			instantPickupEnabled = not instantPickupEnabled
+			updateInstantPickupVisuals()
+			updateAllPickupPrompts()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		setMiningState = function(s)
+			if not s then return end
+			if s.antiFallEnabled ~= nil then
+				antiFallEnabled = (s.antiFallEnabled == true)
+				updateAntiFallVisuals()
+			end
+			if s.instantMineEnabled ~= nil then
+				instantMineEnabled = (s.instantMineEnabled == true)
+				updateInstantMineVisuals()
+				applyInstantMineState()
+			end
+			if s.instantPickupEnabled ~= nil then
+				instantPickupEnabled = (s.instantPickupEnabled == true)
+				updateInstantPickupVisuals()
+				updateAllPickupPrompts()
+			end
+		end
+
+		_G.HipHubMining = {
+			getState = function()
+				return {
+					antiFallEnabled = antiFallEnabled,
+					instantMineEnabled = instantMineEnabled,
+					instantPickupEnabled = instantPickupEnabled,
+				}
+			end,
+			setState = setMiningState
+		}
+	end
+
+	------------------------------------------------
 	-- 🧠 BRAINROT AUTO-CATCHER INTEGRATION
 	------------------------------------------------
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1269,6 +1572,14 @@ local success, err = pcall(function()
 				data.selectedCrystalRarity = espState.selectedCrystalRarity
 			end
 
+			-- Mining config state
+			if _G.HipHubMining and _G.HipHubMining.getState then
+				local mState = _G.HipHubMining.getState()
+				data.antiFallEnabled = mState.antiFallEnabled
+				data.instantMineEnabled = mState.instantMineEnabled
+				data.instantPickupEnabled = mState.instantPickupEnabled
+			end
+
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
@@ -1304,6 +1615,14 @@ local success, err = pcall(function()
 						droppedRuneEspEnabled = data.droppedRuneEspEnabled,
 						playerEspEnabled = data.playerEspEnabled,
 						selectedCrystalRarity = data.selectedCrystalRarity,
+					})
+				end
+
+				if _G.HipHubMining and _G.HipHubMining.setState then
+					_G.HipHubMining.setState({
+						antiFallEnabled = data.antiFallEnabled,
+						instantMineEnabled = data.instantMineEnabled,
+						instantPickupEnabled = data.instantPickupEnabled,
 					})
 				end
 
