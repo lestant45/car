@@ -262,7 +262,7 @@ local function initESP()
 		sizeDropStroke.Parent = sizeDropBtn
 
 		local sizeMenuFrame = Instance.new("Frame")
-		sizeMenuFrame.Size = UDim2.new(0, 140, 0, 110)
+		sizeMenuFrame.Size = UDim2.new(0, 140, 0, 165)
 		sizeMenuFrame.Position = UDim2.new(1, -152, 0, 40)
 		sizeMenuFrame.BackgroundTransparency = 1
 		sizeMenuFrame.Visible = false
@@ -273,9 +273,11 @@ local function initESP()
 
 		local sizes = {
 			"All",
+			"Small",
 			"Medium",
 			"Large",
-			"Small"
+			"Titan",
+			"Colossal"
 		}
 		local isSizeOpen = false
 
@@ -327,7 +329,7 @@ local function initESP()
 			if isSizeOpen then sizeMenuFrame.Visible = true end
 			updateSizeDropdownVisuals()
 
-			local targetHeight = isSizeOpen and (44 + 115) or 44
+			local targetHeight = isSizeOpen and (44 + 168) or 44
 			local slideTween = TweenService:Create(sizeFilterCard, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, targetHeight) })
 			slideTween:Play()
 
@@ -565,7 +567,11 @@ local function initESP()
 
 		if sizeVec then
 			local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
-			if filterLower == "large" and maxDim >= 4.5 then
+			if filterLower == "colossal" and maxDim >= 12 then
+				return true
+			elseif filterLower == "titan" and (maxDim >= 7 and maxDim < 12) then
+				return true
+			elseif filterLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
 				return true
 			elseif filterLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
 				return true
