@@ -852,7 +852,7 @@ local success, err = pcall(function()
 				isSzOpen = false
 			end
 
-			local targetHeight = isAutoMineCategoryExpanded and (isRarOpen and 385 or (isSzOpen and 365 or 220)) or 36
+			local targetHeight = isAutoMineCategoryExpanded and (isRarOpen and 430 or (isSzOpen and 410 or 265)) or 36
 			local tween = TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
 			})
@@ -886,14 +886,34 @@ local success, err = pcall(function()
 		end
 		updateAutoFarmNoclipVisuals()
 
-		-- 3. Target Rarity Filter Card inside Automation Mining
+		-- 3. Auto Sell When Full Toggle
+		local autoSellOnFullEnabled = true
+		local asfRow, asfTrack, asfThumb = refs.createGlassToggle(amContentContainer, "Auto Sell When Full", 3)
+		local updateAutoSellFullVisuals = function()
+			if autoSellOnFullEnabled then
+				TweenService:Create(asfTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(asfThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(asfTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(asfThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		updateAutoSellFullVisuals()
+
+		asfTrack.MouseButton1Click:Connect(function()
+			autoSellOnFullEnabled = not autoSellOnFullEnabled
+			updateAutoSellFullVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- 4. Target Rarity Filter Card inside Automation Mining
 		local amRarCard = Instance.new("Frame")
 		amRarCard.Size = UDim2.new(1, 0, 0, 36)
 		amRarCard.BackgroundColor3 = COLORS.glassCard
 		amRarCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		amRarCard.BorderSizePixel = 0
 		amRarCard.ClipsDescendants = true
-		amRarCard.LayoutOrder = 3
+		amRarCard.LayoutOrder = 4
 		amRarCard.Parent = amContentContainer
 
 		refs.applyGlass(amRarCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
@@ -1239,11 +1259,82 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Auto Farm Loop with Levitating / Flying Stay Engine
+		-- Helper to check if player backpack/inventory is full
+		local function isBackpackFull()
+			local p = player or game:GetService("Players").LocalPlayer
+			if not p then return false end
+
+			-- 1. Check Player attributes
+			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("Capacity") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag")
+			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount")
+
+			if typeof(maxCap) == "number" and typeof(currCap) == "number" and maxCap > 0 then
+				if currCap >= maxCap then return true end
+			end
+
+			-- 2. Check leaderstats
+			local leaderstats = p:FindFirstChild("leaderstats")
+			if leaderstats then
+				local capVal = leaderstats:FindFirstChild("Capacity") or leaderstats:FindFirstChild("Storage") or leaderstats:FindFirstChild("Backpack") or leaderstats:FindFirstChild("Bag")
+				local maxVal = leaderstats:FindFirstChild("MaxCapacity") or leaderstats:FindFirstChild("MaxStorage") or leaderstats:FindFirstChild("MaxBackpack") or leaderstats:FindFirstChild("MaxBag")
+				if capVal and maxVal and tonumber(capVal.Value) and tonumber(maxVal.Value) then
+					if tonumber(capVal.Value) >= tonumber(maxVal.Value) then return true end
+				end
+			end
+
+			-- 3. Check items in Backpack + Character tools
+			local bFolder = p:FindFirstChild("Backpack")
+			local bItems = bFolder and #bFolder:GetChildren() or 0
+			local charTools = 0
+			if p.Character then
+				for _, child in ipairs(p.Character:GetChildren()) do
+					if child:IsA("Tool") then charTools = charTools + 1 end
+				end
+			end
+			local totalItems = bItems + charTools
+
+			if typeof(maxCap) == "number" and maxCap > 0 and totalItems >= maxCap then
+				return true
+			end
+
+			-- 4. Check PlayerGui for Inventory Full popups / text
+			local pGui = p:FindFirstChild("PlayerGui")
+			if pGui then
+				for _, gui in ipairs(pGui:GetChildren()) do
+					if gui:IsA("ScreenGui") and gui.Enabled then
+						for _, label in ipairs(gui:GetDescendants()) do
+							if label:IsA("TextLabel") and label.Visible then
+								local txt = string.lower(label.Text or "")
+								if string.find(txt, "inventory full", 1, true) or string.find(txt, "backpack full", 1, true) or string.find(txt, "bag full", 1, true) or string.find(txt, "storage full", 1, true) or string.find(txt, "max capacity", 1, true) then
+									return true
+								end
+							end
+						end
+					end
+				end
+			end
+
+			return false
+		end
+
+		-- Auto Farm Loop with Levitating / Flying Stay Engine & Auto Sell When Full
 		task.spawn(function()
 			while true do
 				task.wait(0.1)
 				if autoFarmCrystalsEnabled then
+					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return)
+					if autoSellOnFullEnabled and isBackpackFull() then
+						local myChar = player and player.Character
+						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+						if myHrp then
+							local flyHold = myHrp:FindFirstChild("HipHubFarmFly")
+							if flyHold then pcall(function() flyHold:Destroy() end) end
+						end
+
+						pcall(executeSellAllTeleport)
+						task.wait(0.5)
+					end
+
 					local target = getClosestFilteredCrystal()
 					if target and target.obj and target.obj.Parent and target.part and target.part.Parent then
 						local obj = target.obj
@@ -1316,6 +1407,7 @@ local success, err = pcall(function()
 				return {
 					autoFarmCrystalsEnabled = autoFarmCrystalsEnabled,
 					autoFarmNoclipEnabled = autoFarmNoclipEnabled,
+					autoSellOnFullEnabled = autoSellOnFullEnabled,
 					autoFarmRarityFilter = autoFarmRarityFilter,
 					autoFarmSizeFilter = autoFarmSizeFilter,
 				}
@@ -1331,6 +1423,10 @@ local success, err = pcall(function()
 					autoFarmNoclipEnabled = (s.autoFarmNoclipEnabled == true)
 					updateAutoFarmNoclipVisuals()
 					updateAutomationNoclipEngine()
+				end
+				if s.autoSellOnFullEnabled ~= nil then
+					autoSellOnFullEnabled = (s.autoSellOnFullEnabled == true)
+					updateAutoSellFullVisuals()
 				end
 				if s.autoFarmRarityFilter ~= nil then
 					autoFarmRarityFilter = tostring(s.autoFarmRarityFilter)
@@ -2387,6 +2483,7 @@ local success, err = pcall(function()
 				local amState = _G.HipHubAutomationMining.getState()
 				data.autoFarmCrystalsEnabled = amState.autoFarmCrystalsEnabled
 				data.autoFarmNoclipEnabled = amState.autoFarmNoclipEnabled
+				data.autoSellOnFullEnabled = amState.autoSellOnFullEnabled
 				data.autoFarmRarityFilter = amState.autoFarmRarityFilter
 				data.autoFarmSizeFilter = amState.autoFarmSizeFilter
 			end
@@ -2448,6 +2545,7 @@ local success, err = pcall(function()
 					_G.HipHubAutomationMining.setState({
 						autoFarmCrystalsEnabled = data.autoFarmCrystalsEnabled,
 						autoFarmNoclipEnabled = data.autoFarmNoclipEnabled,
+						autoSellOnFullEnabled = data.autoSellOnFullEnabled,
 						autoFarmRarityFilter = data.autoFarmRarityFilter,
 						autoFarmSizeFilter = data.autoFarmSizeFilter,
 					})
