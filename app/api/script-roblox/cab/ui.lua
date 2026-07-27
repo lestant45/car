@@ -855,7 +855,7 @@ local success, err = pcall(function()
 
 	-- Add Core Tabs
 	addTab("Main", "", 1)
-	addTab("Settings", "", 2)
+	addTab("Settings", "", 99)
 
 	------------------------------------------------
 	-- 📱 MAIN TAB (Welcome & Stats Dashboard)

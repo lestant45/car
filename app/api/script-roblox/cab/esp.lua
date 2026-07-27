@@ -29,7 +29,7 @@ local function initESP()
 	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals
 
 	if refs.addTab then
-		local espTabFrame = refs.addTab("ESP", "👁️", 3)
+		local espTabFrame = refs.addTab("ESP", "", 2)
 		local tabLayout = refs.applyListLayout(espTabFrame, 10)
 
 		local function updateTabCanvas()
@@ -131,22 +131,23 @@ local function initESP()
 		dropStroke.Parent = dropBtn
 
 		local menuFrame = Instance.new("Frame")
-		menuFrame.Size = UDim2.new(1, -24, 0, 185)
-		menuFrame.Position = UDim2.new(0, 12, 0, 44)
+		menuFrame.Size = UDim2.new(0, 140, 0, 190)
+		menuFrame.Position = UDim2.new(1, -152, 0, 40)
 		menuFrame.BackgroundTransparency = 1
 		menuFrame.Visible = false
+		menuFrame.ClipsDescendants = true
 		menuFrame.Parent = filterCard
 
-		refs.applyListLayout(menuFrame, 4)
+		refs.applyListLayout(menuFrame, 3)
 
 		local rarities = {
 			"All",
-			"T1 (Common)",
-			"T2 (Uncommon)",
-			"T3 (Rare)",
-			"T4 (Epic)",
-			"T5 (Legendary)",
-			"T6 (Mythical)"
+			"Common",
+			"Uncommon",
+			"Rare",
+			"Epic",
+			"Legendary",
+			"Mythical"
 		}
 		local isOpen = false
 
@@ -163,37 +164,51 @@ local function initESP()
 
 		for _, rName in ipairs(rarities) do
 			local itemBtn = Instance.new("TextButton")
-			itemBtn.Size = UDim2.new(1, 0, 0, 22)
+			itemBtn.Size = UDim2.new(1, 0, 0, 24)
 			itemBtn.BackgroundColor3 = (state.selectedCrystalRarity == rName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-			itemBtn.BackgroundTransparency = 0.2
+			itemBtn.BackgroundTransparency = 0.15
 			itemBtn.Text = rName
 			itemBtn.TextColor3 = (state.selectedCrystalRarity == rName) and COLORS.accentCyan or COLORS.textSecondary
 			itemBtn.Font = Enum.Font.GothamMedium
-			itemBtn.TextSize = 11
+			itemBtn.TextSize = 10
 			itemBtn.Parent = menuFrame
 
 			local itemCorner = Instance.new("UICorner")
-			itemCorner.CornerRadius = UDim.new(0, 4)
+			itemCorner.CornerRadius = UDim.new(0, 5)
 			itemCorner.Parent = itemBtn
 
 			itemBtn.MouseButton1Click:Connect(function()
 				state.selectedCrystalRarity = rName
 				isOpen = false
-				menuFrame.Visible = false
-				TweenService:Create(filterCard, TweenInfo.new(0.2), { Size = UDim2.new(1, 0, 0, 44) }):Play()
 				updateDropdownVisuals()
-				task.delay(0.25, updateTabCanvas)
+
+				local slideTween = TweenService:Create(filterCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 44) })
+				slideTween:Play()
+				slideTween.Completed:Connect(function()
+					if not isOpen then menuFrame.Visible = false end
+				end)
+
+				updateTabCanvas()
 				if saveConfig then pcall(saveConfig) end
 			end)
 		end
 
 		dropBtn.MouseButton1Click:Connect(function()
 			isOpen = not isOpen
-			menuFrame.Visible = isOpen
-			local targetHeight = isOpen and (44 + 195) or 44
-			TweenService:Create(filterCard, TweenInfo.new(0.25, Enum.EasingStyle.Quart), { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
+			if isOpen then menuFrame.Visible = true end
 			updateDropdownVisuals()
-			task.delay(0.28, updateTabCanvas)
+
+			local targetHeight = isOpen and (44 + 192) or 44
+			local slideTween = TweenService:Create(filterCard, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, targetHeight) })
+			slideTween:Play()
+
+			if not isOpen then
+				slideTween.Completed:Connect(function()
+					if not isOpen then menuFrame.Visible = false end
+				end)
+			end
+
+			updateTabCanvas()
 		end)
 
 		-- Toggles Card
