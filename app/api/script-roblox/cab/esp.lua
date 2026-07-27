@@ -32,7 +32,17 @@ local function initESP()
 
 	if refs.addTab then
 		local espTabFrame = refs.addTab("ESP", "👁️", 3)
-		refs.applyListLayout(espTabFrame, 10)
+		local tabLayout = refs.applyListLayout(espTabFrame, 10)
+
+		local function updateTabCanvas()
+			if espTabFrame:IsA("ScrollingFrame") and tabLayout then
+				espTabFrame.CanvasSize = UDim2.new(0, 0, 0, tabLayout.AbsoluteContentSize.Y + 30)
+			end
+		end
+
+		if tabLayout then
+			tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateTabCanvas)
+		end
 
 		-- ESP Header Card
 		local espCard = Instance.new("Frame")
@@ -174,6 +184,7 @@ local function initESP()
 				menuFrame.Visible = false
 				TweenService:Create(filterCard, TweenInfo.new(0.2), { Size = UDim2.new(1, 0, 0, 44) }):Play()
 				updateDropdownVisuals()
+				task.delay(0.25, updateTabCanvas)
 				if saveConfig then pcall(saveConfig) end
 			end)
 		end
@@ -184,6 +195,7 @@ local function initESP()
 			local targetHeight = isOpen and (44 + 195) or 44
 			TweenService:Create(filterCard, TweenInfo.new(0.25, Enum.EasingStyle.Quart), { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
 			updateDropdownVisuals()
+			task.delay(0.28, updateTabCanvas)
 		end)
 
 		-- 📏 Max Distance Selector Card
@@ -219,7 +231,13 @@ local function initESP()
 		distBtnContainer.BackgroundTransparency = 1
 		distBtnContainer.Parent = distCard
 
-		refs.applyListLayout(distBtnContainer, 4, Enum.FillDirection.Horizontal)
+		local distLayout = Instance.new("UIListLayout")
+		distLayout.FillDirection = Enum.FillDirection.Horizontal
+		distLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		distLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+		distLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		distLayout.Padding = UDim.new(0, 4)
+		distLayout.Parent = distBtnContainer
 
 		local distOptions = {
 			{ name = "150m", val = 150 },
@@ -240,7 +258,7 @@ local function initESP()
 
 		for _, opt in ipairs(distOptions) do
 			local optBtn = Instance.new("TextButton")
-			optBtn.Size = UDim2.new(0, 46, 1, 0)
+			optBtn.Size = UDim2.new(0, 44, 1, 0)
 			optBtn.BackgroundColor3 = (state.maxDistance == opt.val) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(20, 24, 40)
 			optBtn.Text = opt.name
 			optBtn.TextColor3 = (state.maxDistance == opt.val) and COLORS.accentCyan or COLORS.textSecondary
@@ -364,6 +382,8 @@ local function initESP()
 			updateCompactEspVisuals()
 			if saveConfig then pcall(saveConfig) end
 		end)
+
+		task.defer(updateTabCanvas)
 	end
 
 	-- ESP Billboard Engine
