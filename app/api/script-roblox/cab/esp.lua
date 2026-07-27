@@ -378,16 +378,16 @@ local function initESP()
 		return formatted
 	end
 
-	local function buildObjectEspDetails(obj, category, distanceMeters)
+	local function buildStaticEspTemplate(obj, category)
 		if category == "player" then
 			local displayName = obj.Name
 			if obj:IsA("Model") then
 				local pl = Players:GetPlayerFromCharacter(obj)
 				if pl then displayName = pl.DisplayName or pl.Name end
 			end
-			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%dm]</font>", displayName, distanceMeters or 0)
+			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%%dm]</font>", displayName)
 		elseif category == "dropped_rune" then
-			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%dm]</font>", obj.Name, distanceMeters or 0)
+			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%%dm]</font>", obj.Name)
 		end
 
 		local name = obj.Name
@@ -440,13 +440,13 @@ local function initESP()
 		local subLine = string.format("<font color='#a0b5d0'>%s</font>", tostring(sizeVal))
 		local separatorLine = "<font color='#405075'>___________________________</font>"
 
-		-- 5. Weight / Mass & Distance
+		-- 5. Weight / Mass & Distance Template
 		local weight = obj:GetAttribute("Weight") or obj:GetAttribute("kg") or obj:GetAttribute("Mass")
 		local weightLine = ""
 		if weight then
-			weightLine = string.format("<font color='#e0f0ff'>%.1f kg</font> <font color='#a0b0d0'>[%dm]</font>", tonumber(weight) or 0, distanceMeters or 0)
+			weightLine = string.format("<font color='#e0f0ff'>%.1f kg</font> <font color='#a0b0d0'>[%%dm]</font>", tonumber(weight) or 0)
 		else
-			weightLine = string.format("<font color='#e0f0ff'>[%dm]</font>", distanceMeters or 0)
+			weightLine = "<font color='#e0f0ff'>[%%dm]</font>"
 		end
 
 		-- 6. Price / Value
@@ -484,7 +484,7 @@ local function initESP()
 		billboard.AlwaysOnTop = true
 		billboard.ExtentsOffset = isCardCategory and Vector3.new(0, 3.5, 0) or Vector3.new(0, 2.5, 0)
 		billboard.LightInfluence = 0
-		billboard.MaxDistance = 1500
+		billboard.MaxDistance = 1200
 		billboard.Adornee = targetPart
 		billboard.Parent = espFolder
 
@@ -505,8 +505,7 @@ local function initESP()
 		stroke.Transparency = 0.4
 		stroke.Parent = card
 
-		local prefix = namePrefix or obj.Name
-		local color = accentColorHex or "#00c8ff"
+		local staticTemplate = buildStaticEspTemplate(obj, category)
 
 		local label = Instance.new("TextLabel")
 		label.Size = UDim2.new(1, -12, 1, -8)
@@ -519,7 +518,7 @@ local function initESP()
 		label.TextWrapped = true
 		label.TextXAlignment = isCardCategory and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
 		label.TextYAlignment = isCardCategory and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
-		label.Text = buildObjectEspDetails(obj, category, 0)
+		label.Text = string.format(staticTemplate, 0)
 		label.Parent = card
 
 		activeESPs[obj] = {
@@ -527,8 +526,7 @@ local function initESP()
 			textLabel = label,
 			targetPart = targetPart,
 			category = category,
-			namePrefix = prefix,
-			accentColorHex = color,
+			textFormat = staticTemplate,
 			lastDist = -1
 		}
 	end
@@ -621,31 +619,36 @@ local function initESP()
 		end
 	end
 
-	-- High-performance 60FPS Heartbeat loop
+	-- High-performance 10Hz Heartbeat loop (Zero CPU lag)
 	local RunService = game:GetService("RunService")
 	local lastScanTime = 0
+	local lastUpdateDistTime = 0
 
 	RunService.Heartbeat:Connect(function()
-		local myChar = player and player.Character
-		local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
-		local myPos = myHrp and myHrp.Position or Vector3.zero
+		local now = os.clock()
 
-		-- 1. Fast distance text update (updates UI text ONLY when integer distance changes)
-		for obj, data in pairs(activeESPs) do
-			if not obj or not obj.Parent or not data.targetPart or not data.targetPart.Parent then
-				removeBillboardForObject(obj)
-			else
-				local distInt = math.floor((myPos - data.targetPart.Position).Magnitude + 0.5)
-				if distInt ~= data.lastDist then
-					data.lastDist = distInt
-					data.textLabel.Text = buildObjectEspDetails(obj, data.category, distInt)
+		-- 1. Fast distance update (runs at 10Hz: every 0.1s)
+		if now - lastUpdateDistTime >= 0.1 then
+			lastUpdateDistTime = now
+			local myChar = player and player.Character
+			local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+			local myPos = myHrp and myHrp.Position or Vector3.zero
+
+			for obj, data in pairs(activeESPs) do
+				if not obj or not obj.Parent or not data.targetPart or not data.targetPart.Parent then
+					removeBillboardForObject(obj)
+				else
+					local distInt = math.floor((myPos - data.targetPart.Position).Magnitude + 0.5)
+					if distInt ~= data.lastDist then
+						data.lastDist = distInt
+						data.textLabel.Text = string.format(data.textFormat, distInt)
+					end
 				end
 			end
 		end
 
-		-- 2. Periodic folder scanning (decoupled from render frame rate)
-		local now = os.clock()
-		if now - lastScanTime >= 0.4 then
+		-- 2. Periodic folder scanning (runs every 1.5s)
+		if now - lastScanTime >= 1.5 then
 			lastScanTime = now
 			pcall(scanAllObjects)
 		end
