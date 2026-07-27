@@ -1239,10 +1239,10 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Auto Farm Loop
+		-- Auto Farm Loop with Levitating / Flying Stay Engine
 		task.spawn(function()
 			while true do
-				task.wait(0.2)
+				task.wait(0.1)
 				if autoFarmCrystalsEnabled then
 					local target = getClosestFilteredCrystal()
 					if target and target.obj and target.obj.Parent and target.part and target.part.Parent then
@@ -1252,8 +1252,20 @@ local success, err = pcall(function()
 						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
 
 						if myHrp then
-							myHrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
-							
+							-- Create / Attach Hover Flight BodyVelocity to freeze character position in air like flying
+							local flyHold = myHrp:FindFirstChild("HipHubFarmFly")
+							if not flyHold then
+								flyHold = Instance.new("BodyVelocity")
+								flyHold.Name = "HipHubFarmFly"
+								flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+								flyHold.Velocity = Vector3.zero
+								flyHold.Parent = myHrp
+							end
+
+							local farmTargetCFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+							myHrp.CFrame = farmTargetCFrame
+							pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
 							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
 							if prompt then
 								prompt.HoldDuration = 0
@@ -1266,9 +1278,10 @@ local success, err = pcall(function()
 
 							local startTime = os.clock()
 							while autoFarmCrystalsEnabled and obj and obj.Parent and (os.clock() - startTime < 2.5) do
-								task.wait(0.15)
+								task.wait(0.1)
 								if myHrp and part and part.Parent then
-									myHrp.CFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+									myHrp.CFrame = farmTargetCFrame
+									pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 									if prompt and prompt.Parent then
 										pcall(function()
 											if fireproximityprompt then
@@ -1280,7 +1293,22 @@ local success, err = pcall(function()
 							end
 						end
 					else
-						task.wait(0.5)
+						-- Remove flying hover when no target found
+						local myChar = player and player.Character
+						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+						if myHrp then
+							local flyHold = myHrp:FindFirstChild("HipHubFarmFly")
+							if flyHold then flyHold:Destroy() end
+						end
+						task.wait(0.4)
+					end
+				else
+					-- Clean up flying hover when auto farm is turned OFF
+					local myChar = player and player.Character
+					local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+					if myHrp then
+						local flyHold = myHrp:FindFirstChild("HipHubFarmFly")
+						if flyHold then flyHold:Destroy() end
 					end
 				end
 			end
