@@ -1266,7 +1266,9 @@ local success, err = pcall(function()
 				data.droppedCrystalEspEnabled = espState.droppedCrystalEspEnabled
 				data.droppedRuneEspEnabled = espState.droppedRuneEspEnabled
 				data.playerEspEnabled = espState.playerEspEnabled
+				data.compactEspMode = espState.compactEspMode
 				data.selectedCrystalRarity = espState.selectedCrystalRarity
+				data.maxDistance = espState.maxDistance
 			end
 
 			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
@@ -1303,7 +1305,9 @@ local success, err = pcall(function()
 						droppedCrystalEspEnabled = data.droppedCrystalEspEnabled,
 						droppedRuneEspEnabled = data.droppedRuneEspEnabled,
 						playerEspEnabled = data.playerEspEnabled,
+						compactEspMode = data.compactEspMode,
 						selectedCrystalRarity = data.selectedCrystalRarity,
+						maxDistance = data.maxDistance,
 					})
 				end
 

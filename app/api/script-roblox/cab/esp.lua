@@ -23,10 +23,12 @@ local function initESP()
 		droppedCrystalEspEnabled = false,
 		droppedRuneEspEnabled = false,
 		playerEspEnabled = false,
+		compactEspMode = true,
 		selectedCrystalRarity = "All",
+		maxDistance = 250,
 	}
 
-	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals
+	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateCompactEspVisuals, updateDropdownVisuals, updateDistBtnVisuals
 
 	if refs.addTab then
 		local espTabFrame = refs.addTab("ESP", "👁️", 3)
@@ -65,7 +67,7 @@ local function initESP()
 		espSub.Size = UDim2.new(1, -24, 0, 20)
 		espSub.Position = UDim2.new(0, 12, 0, 30)
 		espSub.BackgroundTransparency = 1
-		espSub.Text = "Real-time world text labels for crystals, dropped items, and players."
+		espSub.Text = "Clean, anti-clutter world labels for crystals and dropped items."
 		espSub.TextColor3 = COLORS.textSecondary
 		espSub.Font = Enum.Font.Gotham
 		espSub.TextSize = 11
@@ -184,9 +186,85 @@ local function initESP()
 			updateDropdownVisuals()
 		end)
 
+		-- 📏 Max Distance Selector Card
+		local distCard = Instance.new("Frame")
+		distCard.Size = UDim2.new(1, 0, 0, 44)
+		distCard.BackgroundColor3 = COLORS.glassCard
+		distCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		distCard.BorderSizePixel = 0
+		distCard.Parent = espTabFrame
+
+		refs.applyGlass(distCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		local distTitle = Instance.new("TextLabel")
+		distTitle.Size = UDim2.new(0.4, 0, 0, 44)
+		distTitle.Position = UDim2.new(0, 12, 0, 0)
+		distTitle.BackgroundTransparency = 1
+		distTitle.Text = "Max Distance"
+		distTitle.TextColor3 = COLORS.textPrimary
+		distTitle.Font = Enum.Font.GothamMedium
+		distTitle.TextSize = 12
+		distTitle.TextXAlignment = Enum.TextXAlignment.Left
+		distTitle.Parent = distCard
+
+		local distBtnContainer = Instance.new("Frame")
+		distBtnContainer.Size = UDim2.new(0, 200, 0, 26)
+		distBtnContainer.Position = UDim2.new(1, -212, 0, 9)
+		distBtnContainer.BackgroundTransparency = 1
+		distBtnContainer.Parent = distCard
+
+		refs.applyListLayout(distBtnContainer, 4, Enum.FillDirection.Horizontal)
+
+		local distOptions = {
+			{ name = "150m", val = 150 },
+			{ name = "250m", val = 250 },
+			{ name = "400m", val = 400 },
+			{ name = "Max", val = 1200 },
+		}
+
+		local distBtnRefs = {}
+
+		updateDistBtnVisuals = function()
+			for _, item in ipairs(distBtnRefs) do
+				local isSel = (state.maxDistance == item.val)
+				item.btn.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(20, 24, 40)
+				item.btn.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
+			end
+		end
+
+		for _, opt in ipairs(distOptions) do
+			local optBtn = Instance.new("TextButton")
+			optBtn.Size = UDim2.new(0, 46, 1, 0)
+			optBtn.BackgroundColor3 = (state.maxDistance == opt.val) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(20, 24, 40)
+			optBtn.Text = opt.name
+			optBtn.TextColor3 = (state.maxDistance == opt.val) and COLORS.accentCyan or COLORS.textSecondary
+			optBtn.Font = Enum.Font.GothamBold
+			optBtn.TextSize = 10
+			optBtn.Parent = distBtnContainer
+
+			local optCorner = Instance.new("UICorner")
+			optCorner.CornerRadius = UDim.new(0, 4)
+			optCorner.Parent = optBtn
+
+			local optVal = opt.val
+			optBtn.MouseButton1Click:Connect(function()
+				state.maxDistance = optVal
+				updateDistBtnVisuals()
+				if saveConfig then pcall(saveConfig) end
+			end)
+
+			table.insert(distBtnRefs, { btn = optBtn, val = opt.val })
+		end
+
 		-- Toggles Card
 		local togglesCard = Instance.new("Frame")
-		togglesCard.Size = UDim2.new(1, 0, 0, 170)
+		togglesCard.Size = UDim2.new(1, 0, 0, 210)
 		togglesCard.BackgroundColor3 = COLORS.glassCard
 		togglesCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		togglesCard.BorderSizePixel = 0
@@ -267,6 +345,23 @@ local function initESP()
 		pTrack.MouseButton1Click:Connect(function()
 			state.playerEspEnabled = not state.playerEspEnabled
 			updatePlayerEspVisuals()
+			if saveConfig then pcall(saveConfig) end
+		end)
+
+		-- 5. Compact ESP Mode Toggle
+		local cmpRow, cmpTrack, cmpThumb = refs.createGlassToggle(togglesCard, "Compact Pill ESP (Anti-Clutter)", 5)
+		updateCompactEspVisuals = function()
+			if state.compactEspMode then
+				TweenService:Create(cmpTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(cmpThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(cmpTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(cmpThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		cmpTrack.MouseButton1Click:Connect(function()
+			state.compactEspMode = not state.compactEspMode
+			updateCompactEspVisuals()
 			if saveConfig then pcall(saveConfig) end
 		end)
 	end
@@ -427,7 +522,25 @@ local function initESP()
 			mutationTag = string.format(" <font color='#00ff66'><b>[%s]</b></font>", mName)
 		end
 
-		-- 3. Title line (Rarity + Name + Mutation)
+		-- 3. Price / Value
+		local price = obj:GetAttribute("Price") or obj:GetAttribute("Value") or obj:GetAttribute("Worth")
+		local priceTag = ""
+		if price then
+			local pNum = tonumber(price)
+			if pNum and pNum >= 1000 then
+				priceTag = string.format(" <font color='#ffcc00'>$%.1fk</font>", pNum / 1000)
+			elseif pNum then
+				priceTag = string.format(" <font color='#ffcc00'>$%d</font>", pNum)
+			end
+		end
+
+		-- COMPACT MODE Template (Single Line Pill)
+		if state.compactEspMode then
+			local titleText = (rarityStr ~= "") and (rarityStr .. " " .. displayName) or displayName
+			return string.format("<font color='%s'><b>%s</b></font>%s%s <font color='#a0b0d0'>[%%dm]</font>", colorHex, titleText, mutationTag, priceTag)
+		end
+
+		-- DETAILED CARD MODE Template (Multi-Line Card)
 		local titleLine = ""
 		if rarityStr ~= "" then
 			titleLine = string.format("<font color='%s'><b>%s</b></font> <b>%s</b>%s", colorHex, rarityStr, displayName, mutationTag)
@@ -435,12 +548,10 @@ local function initESP()
 			titleLine = string.format("<font color='%s'><b>%s</b></font>%s", colorHex, displayName, mutationTag)
 		end
 
-		-- 4. Sub-header (Size) & Separator
 		local sizeVal = obj:GetAttribute("Size") or obj:GetAttribute("Category") or "Medium"
 		local subLine = string.format("<font color='#a0b5d0'>%s</font>", tostring(sizeVal))
 		local separatorLine = "<font color='#405075'>___________________________</font>"
 
-		-- 5. Weight / Mass & Distance Template
 		local weight = obj:GetAttribute("Weight") or obj:GetAttribute("kg") or obj:GetAttribute("Mass")
 		local weightLine = ""
 		if weight then
@@ -449,14 +560,11 @@ local function initESP()
 			weightLine = "<font color='#e0f0ff'>[%%dm]</font>"
 		end
 
-		-- 6. Price / Value
-		local price = obj:GetAttribute("Price") or obj:GetAttribute("Value") or obj:GetAttribute("Worth")
 		local priceLine = ""
 		if price then
 			priceLine = string.format("\n<font color='#ffcc00'><b>$%s</b></font>", formatComma(price))
 		end
 
-		-- 7. Luck / Stat Bonus
 		local luck = obj:GetAttribute("Luck") or obj:GetAttribute("Bonus") or obj:GetAttribute("Stat")
 		local luckLine = ""
 		if luck then
@@ -474,29 +582,33 @@ local function initESP()
 		local targetPart = getTargetPart(obj)
 		if not targetPart then return end
 
+		local isCompact = state.compactEspMode
 		local isCardCategory = (category == "crystal" or category == "dropped_crystal")
-		local bWidth = isCardCategory and 190 or 150
-		local bHeight = isCardCategory and 95 or 28
+
+		local bWidth = (isCardCategory and not isCompact) and 190 or 160
+		local bHeight = (isCardCategory and not isCompact) and 95 or 24
+
+		local maxDistLimit = state.maxDistance or 250
 
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "ESP_" .. tostring(obj.Name)
 		billboard.Size = UDim2.new(0, bWidth, 0, bHeight)
 		billboard.AlwaysOnTop = true
-		billboard.ExtentsOffset = isCardCategory and Vector3.new(0, 3.5, 0) or Vector3.new(0, 2.5, 0)
+		billboard.ExtentsOffset = (isCardCategory and not isCompact) and Vector3.new(0, 3.5, 0) or Vector3.new(0, 2.0, 0)
 		billboard.LightInfluence = 0
-		billboard.MaxDistance = 1200
+		billboard.MaxDistance = maxDistLimit
 		billboard.Adornee = targetPart
 		billboard.Parent = espFolder
 
 		local card = Instance.new("Frame")
 		card.Size = UDim2.new(1, 0, 1, 0)
 		card.BackgroundColor3 = Color3.fromRGB(10, 14, 26)
-		card.BackgroundTransparency = isCardCategory and 0.2 or 0.3
+		card.BackgroundTransparency = (isCardCategory and not isCompact) and 0.2 or 0.35
 		card.BorderSizePixel = 0
 		card.Parent = billboard
 
 		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 6)
+		corner.CornerRadius = UDim.new(0, isCompact and 4 or 6)
 		corner.Parent = card
 
 		local stroke = Instance.new("UIStroke")
@@ -508,16 +620,16 @@ local function initESP()
 		local staticTemplate = buildStaticEspTemplate(obj, category)
 
 		local label = Instance.new("TextLabel")
-		label.Size = UDim2.new(1, -12, 1, -8)
-		label.Position = UDim2.new(0, 6, 0, 4)
+		label.Size = UDim2.new(1, -12, 1, (isCardCategory and not isCompact) and -8 or 0)
+		label.Position = UDim2.new(0, 6, 0, (isCardCategory and not isCompact) and 4 or 0)
 		label.BackgroundTransparency = 1
 		label.TextColor3 = Color3.fromRGB(255, 255, 255)
 		label.Font = Enum.Font.GothamBold
-		label.TextSize = 11
+		label.TextSize = 10
 		label.RichText = true
-		label.TextWrapped = true
-		label.TextXAlignment = isCardCategory and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
-		label.TextYAlignment = isCardCategory and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
+		label.TextWrapped = not isCompact
+		label.TextXAlignment = isCompact and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+		label.TextYAlignment = isCompact and Enum.TextYAlignment.Center or Enum.TextYAlignment.Top
 		label.Text = string.format(staticTemplate, 0)
 		label.Parent = card
 
@@ -550,52 +662,108 @@ local function initESP()
 	end
 
 	local function scanAllObjects()
-		-- 1. Crystal ESP Scan (workspace.Things.Crystals or workspace.Crystals)
+		local myChar = player and player.Character
+		local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local myPos = myHrp and myHrp.Position or Vector3.zero
+
+		local maxDist = state.maxDistance or 250
+		local MAX_ITEMS_CAP = 30 -- Anti-clutter: limit to nearest 30 objects per category
+
+		-- 1. Crystal ESP Scan
 		if state.crystalEspEnabled then
 			local things = workspace:FindFirstChild("Things")
 			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
 			if crystalsFolder then
+				local candidates = {}
 				for _, crystalObj in ipairs(crystalsFolder:GetChildren()) do
 					if crystalMatchesRarity(crystalObj) then
-						if not activeESPs[crystalObj] then
-							local colorHex = getCrystalAccentColor(crystalObj.Name)
-							createBillboardForObject(crystalObj, crystalObj.Name, "crystal", colorHex)
+						local part = getTargetPart(crystalObj)
+						if part then
+							local dist = (myPos - part.Position).Magnitude
+							if dist <= maxDist then
+								table.insert(candidates, { obj = crystalObj, dist = dist })
+							else
+								removeBillboardForObject(crystalObj)
+							end
 						end
 					else
 						removeBillboardForObject(crystalObj)
 					end
+				end
+
+				table.sort(candidates, function(a, b) return a.dist < b.dist end)
+
+				local matchedMap = {}
+				for i = 1, math.min(#candidates, MAX_ITEMS_CAP) do
+					local item = candidates[i]
+					matchedMap[item.obj] = true
+					if not activeESPs[item.obj] then
+						local colorHex = getCrystalAccentColor(item.obj.Name)
+						createBillboardForObject(item.obj, item.obj.Name, "crystal", colorHex)
+					end
+				end
+
+				-- Remove objects beyond the 30 nearest cap
+				for i = MAX_ITEMS_CAP + 1, #candidates do
+					removeBillboardForObject(candidates[i].obj)
 				end
 			end
 		else
 			clearCategoryESP("crystal")
 		end
 
-		-- 2. Dropped Crystal ESP Scan (workspace.DroppedCrystals)
+		-- 2. Dropped Crystal ESP Scan
 		if state.droppedCrystalEspEnabled then
 			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
 			if dcFolder then
+				local candidates = {}
 				for _, dcObj in ipairs(dcFolder:GetChildren()) do
 					if crystalMatchesRarity(dcObj) then
-						if not activeESPs[dcObj] then
-							local colorHex = getCrystalAccentColor(dcObj.Name)
-							createBillboardForObject(dcObj, dcObj.Name, "dropped_crystal", colorHex)
+						local part = getTargetPart(dcObj)
+						if part then
+							local dist = (myPos - part.Position).Magnitude
+							if dist <= maxDist then
+								table.insert(candidates, { obj = dcObj, dist = dist })
+							else
+								removeBillboardForObject(dcObj)
+							end
 						end
 					else
 						removeBillboardForObject(dcObj)
 					end
+				end
+
+				table.sort(candidates, function(a, b) return a.dist < b.dist end)
+
+				for i = 1, math.min(#candidates, MAX_ITEMS_CAP) do
+					local item = candidates[i]
+					if not activeESPs[item.obj] then
+						local colorHex = getCrystalAccentColor(item.obj.Name)
+						createBillboardForObject(item.obj, item.obj.Name, "dropped_crystal", colorHex)
+					end
+				end
+
+				for i = MAX_ITEMS_CAP + 1, #candidates do
+					removeBillboardForObject(candidates[i].obj)
 				end
 			end
 		else
 			clearCategoryESP("dropped_crystal")
 		end
 
-		-- 3. Dropped Rune ESP Scan (workspace.DroppedRunes)
+		-- 3. Dropped Rune ESP Scan
 		if state.droppedRuneEspEnabled then
 			local drFolder = workspace:FindFirstChild("DroppedRunes")
 			if drFolder then
 				for _, drObj in ipairs(drFolder:GetChildren()) do
-					if not activeESPs[drObj] then
-						createBillboardForObject(drObj, drObj.Name, "dropped_rune", "#ffaa00")
+					local part = getTargetPart(drObj)
+					local dist = part and (myPos - part.Position).Magnitude or 9999
+					if dist <= maxDist then
+						if not activeESPs[drObj] then
+							createBillboardForObject(drObj, drObj.Name, "dropped_rune", "#ffaa00")
+						end
+					else
+						removeBillboardForObject(drObj)
 					end
 				end
 			end
@@ -603,14 +771,20 @@ local function initESP()
 			clearCategoryESP("dropped_rune")
 		end
 
-		-- 4. Player ESP Scan (Players)
+		-- 4. Player ESP Scan
 		if state.playerEspEnabled then
 			for _, otherPlayer in ipairs(Players:GetPlayers()) do
 				if otherPlayer ~= player and otherPlayer.Character then
 					local char = otherPlayer.Character
-					if not activeESPs[char] then
-						local displayName = otherPlayer.DisplayName or otherPlayer.Name
-						createBillboardForObject(char, "👤 " .. displayName, "player", "#8c78ff")
+					local part = getTargetPart(char)
+					local dist = part and (myPos - part.Position).Magnitude or 9999
+					if dist <= maxDist then
+						if not activeESPs[char] then
+							local displayName = otherPlayer.DisplayName or otherPlayer.Name
+							createBillboardForObject(char, "👤 " .. displayName, "player", "#8c78ff")
+						end
+					else
+						removeBillboardForObject(char)
 					end
 				end
 			end
@@ -647,8 +821,8 @@ local function initESP()
 			end
 		end
 
-		-- 2. Periodic folder scanning (runs every 1.5s)
-		if now - lastScanTime >= 1.5 then
+		-- 2. Periodic folder scanning (runs every 1.2s)
+		if now - lastScanTime >= 1.2 then
 			lastScanTime = now
 			pcall(scanAllObjects)
 		end
@@ -665,13 +839,22 @@ local function initESP()
 			if newState.droppedCrystalEspEnabled ~= nil then state.droppedCrystalEspEnabled = (newState.droppedCrystalEspEnabled == true) end
 			if newState.droppedRuneEspEnabled ~= nil then state.droppedRuneEspEnabled = (newState.droppedRuneEspEnabled == true) end
 			if newState.playerEspEnabled ~= nil then state.playerEspEnabled = (newState.playerEspEnabled == true) end
+			if newState.compactEspMode ~= nil then state.compactEspMode = (newState.compactEspMode == true) end
 			if newState.selectedCrystalRarity ~= nil then state.selectedCrystalRarity = tostring(newState.selectedCrystalRarity) end
+			if newState.maxDistance ~= nil then state.maxDistance = tonumber(newState.maxDistance) or 250 end
+
+			-- Clear existing billboards to rebuild with new compact/distance settings
+			for obj in pairs(activeESPs) do
+				removeBillboardForObject(obj)
+			end
 
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
+			if updateCompactEspVisuals then updateCompactEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
+			if updateDistBtnVisuals then updateDistBtnVisuals() end
 
 			pcall(scanAllObjects)
 		end,
@@ -680,7 +863,9 @@ local function initESP()
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
+			if updateCompactEspVisuals then updateCompactEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
+			if updateDistBtnVisuals then updateDistBtnVisuals() end
 
 			pcall(scanAllObjects)
 		end
