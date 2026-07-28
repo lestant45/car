@@ -125,8 +125,10 @@ local success, err = pcall(function()
 
 				if shadowFrame then
 					TweenService:Create(shadowFrame, tweenInfo, {
-						Size = UDim2.new(windowedSize.X.Scale, windowedSize.X.Offset + 12, windowedSize.Y.Scale, windowedSize.Y.Offset + 12),
-						Position = UDim2.new(windowedPos.X.Scale, windowedPos.X.Offset - 6, windowedPos.Y.Scale, windowedPos.Y.Offset - 6),
+						Size = UDim2.new(windowedSize.X.Scale, windowedSize.X.Offset + 12, windowedSize.Y.Scale,
+							windowedSize.Y.Offset + 12),
+						Position = UDim2.new(windowedPos.X.Scale, windowedPos.X.Offset - 6, windowedPos.Y.Scale,
+							windowedPos.Y.Offset - 6),
 					}):Play()
 				end
 
@@ -241,10 +243,13 @@ local success, err = pcall(function()
 
 	task.spawn(function()
 		local successThumbnail, thumbContent = pcall(function()
-			return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+			return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize
+			.Size48x48)
 		end)
 		if successThumbnail then avatarLabel.Image = thumbContent end
 	end)
+
+
 
 	------------------------------------------------
 	-- ⛏️ MINING CATEGORY SECTION (MAIN TAB)
@@ -334,7 +339,8 @@ local success, err = pcall(function()
 			chevronLabel.Text = isExpanded and "v" or ">"
 			local targetHeight = isExpanded and 165 or 36
 
-			local tween = TweenService:Create(miningCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			local tween = TweenService:Create(miningCard,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
 			})
 			tween:Play()
@@ -352,10 +358,12 @@ local success, err = pcall(function()
 		local updateAntiFallVisuals = function()
 			if antiFallEnabled then
 				TweenService:Create(afTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(afTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 
@@ -364,10 +372,12 @@ local success, err = pcall(function()
 		local updateInstantMineVisuals = function()
 			if instantMineEnabled then
 				TweenService:Create(imTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(imThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(imThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(imTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(imThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(imThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 
@@ -376,10 +386,12 @@ local success, err = pcall(function()
 		local updateInstantPickupVisuals = function()
 			if instantPickupEnabled then
 				TweenService:Create(ipTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(ipThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(ipThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(ipTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(ipThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(ipThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 
@@ -422,8 +434,8 @@ local success, err = pcall(function()
 		local hookedMineFolders = {}
 		local crystalLocations = {
 			{ parent = "Things", child = "Crystals" },
-			{ parent = nil, child = "DroppedCrystals" },
-			{ parent = nil, child = "Crystals" }
+			{ parent = nil,      child = "DroppedCrystals" },
+			{ parent = nil,      child = "Crystals" }
 		}
 
 		local function updateMinePrompt(prompt)
@@ -656,7 +668,8 @@ local success, err = pcall(function()
 			sellChevronLabel.Text = isSellExpanded and "v" or ">"
 			local targetHeight = isSellExpanded and 130 or 36
 
-			local tween = TweenService:Create(sellCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			local tween = TweenService:Create(sellCard,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
 			})
 			tween:Play()
@@ -685,7 +698,8 @@ local success, err = pcall(function()
 			end
 
 			pcall(function()
-				local rem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("SellRequest")
+				local rem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and
+				game:GetService("ReplicatedStorage").Remotes:FindFirstChild("SellRequest")
 				if rem then
 					rem:FireServer("all")
 				end
@@ -732,10 +746,12 @@ local success, err = pcall(function()
 		local updateAutoSellVisuals = function()
 			if autoSellEnabled then
 				TweenService:Create(asTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(asThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(asThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(asTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(asThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(asThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 
@@ -841,19 +857,12 @@ local success, err = pcall(function()
 
 		refs.applyListLayout(amContentContainer, 6)
 
-		local isRarOpen = false
-		local isSzOpen = false
-
 		amHeaderBtn.MouseButton1Click:Connect(function()
 			isAutoMineCategoryExpanded = not isAutoMineCategoryExpanded
 			amChevronLabel.Text = isAutoMineCategoryExpanded and "v" or ">"
-			if not isAutoMineCategoryExpanded then
-				isRarOpen = false
-				isSzOpen = false
-			end
-
-			local targetHeight = isAutoMineCategoryExpanded and (isRarOpen and 430 or (isSzOpen and 410 or 265)) or 36
-			local tween = TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			local targetHeight = isAutoMineCategoryExpanded and 265 or 36
+			local tween = TweenService:Create(autoMineCategoryCard,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
 			})
 			tween:Play()
@@ -866,10 +875,12 @@ local success, err = pcall(function()
 		local updateAutoFarmVisuals = function()
 			if autoFarmCrystalsEnabled then
 				TweenService:Create(afcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(afcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(afcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(afcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(afcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(afcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 
@@ -878,10 +889,12 @@ local success, err = pcall(function()
 		local updateAutoFarmNoclipVisuals = function()
 			if autoFarmNoclipEnabled then
 				TweenService:Create(afnTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(afnThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(afnThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(afnTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(afnThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(afnThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 		updateAutoFarmNoclipVisuals()
@@ -892,10 +905,12 @@ local success, err = pcall(function()
 		local updateAutoSellFullVisuals = function()
 			if autoSellOnFullEnabled then
 				TweenService:Create(asfTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(asfThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				TweenService:Create(asfThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 			else
 				TweenService:Create(asfTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(asfThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				TweenService:Create(asfThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
 		updateAutoSellFullVisuals()
@@ -907,49 +922,12 @@ local success, err = pcall(function()
 		end)
 
 		-- 4. Target Rarity Filter Card inside Automation Mining
-		local amRarCard = Instance.new("Frame")
-		amRarCard.Size = UDim2.new(1, 0, 0, 36)
-		amRarCard.BackgroundColor3 = COLORS.glassCard
-		amRarCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-		amRarCard.BorderSizePixel = 0
-		amRarCard.ClipsDescendants = true
-		amRarCard.LayoutOrder = 4
-		amRarCard.Parent = amContentContainer
+		local amRarCard, amRarDropBtn, amRarDropLabel, amRarMenuFrame, amRarSearch, amRarScroll = refs
+		.createGlassDropdown(
+			amContentContainer, "Target Rarity", "All", 4
+		)
+		amRarCard.Size = UDim2.new(1, 0, 0, 32)
 
-		refs.applyGlass(amRarCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
-
-		local amRarTitle = Instance.new("TextLabel")
-		amRarTitle.Size = UDim2.new(0.5, 0, 0, 36)
-		amRarTitle.Position = UDim2.new(0, 12, 0, 0)
-		amRarTitle.BackgroundTransparency = 1
-		amRarTitle.Text = "Target Rarity"
-		amRarTitle.TextColor3 = COLORS.textPrimary
-		amRarTitle.Font = Enum.Font.GothamMedium
-		amRarTitle.TextSize = 11
-		amRarTitle.TextXAlignment = Enum.TextXAlignment.Left
-		amRarTitle.Parent = amRarCard
-
-		local amRarDropBtn = Instance.new("TextButton")
-		amRarDropBtn.Size = UDim2.new(0, 128, 0, 22)
-		amRarDropBtn.Position = UDim2.new(1, -140, 0, 7)
-		amRarDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
-		amRarDropBtn.Text = (autoFarmRarityFilter or "All") .. "  ▼"
-		amRarDropBtn.TextColor3 = COLORS.accentCyan
-		amRarDropBtn.Font = Enum.Font.GothamBold
-		amRarDropBtn.TextSize = 10
-		amRarDropBtn.Parent = amRarCard
-
-		local amRarCorner = Instance.new("UICorner")
-		amRarCorner.CornerRadius = refs.CORNER.small
-		amRarCorner.Parent = amRarDropBtn
-
-		local amRarMenuFrame = Instance.new("Frame")
-		amRarMenuFrame.Size = UDim2.new(0, 128, 0, 160)
-		amRarMenuFrame.Position = UDim2.new(1, -140, 0, 36)
-		amRarMenuFrame.BackgroundTransparency = 1
-		amRarMenuFrame.Visible = false
-		amRarMenuFrame.ClipsDescendants = true
-		amRarMenuFrame.Parent = amRarCard
 		local autoFarmRarityFilters = { ["All"] = true }
 		local autoFarmSizeFilters = { ["All"] = true }
 
@@ -983,182 +961,81 @@ local success, err = pcall(function()
 
 		local amRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
 
-		local function updateAmRarityVisuals()
-			amRarDropBtn.Text = getSelectedRarityLabelText() .. (isRarOpen and "  ▲" or "  ▼")
-			for _, child in ipairs(amRarMenuFrame:GetChildren()) do
-				if child:IsA("TextButton") then
-					local isSel = (autoFarmRarityFilters[child.Text] == true)
-					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
-				end
-			end
-		end
-
-		for _, rName in ipairs(amRarities) do
-			local itemBtn = Instance.new("TextButton")
-			itemBtn.Size = UDim2.new(1, 0, 0, 20)
-			itemBtn.BackgroundColor3 = (autoFarmRarityFilters[rName] == true) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-			itemBtn.BackgroundTransparency = 0.15
-			itemBtn.Text = rName
-			itemBtn.TextColor3 = (autoFarmRarityFilters[rName] == true) and COLORS.accentCyan or COLORS.textSecondary
-			itemBtn.Font = Enum.Font.GothamMedium
-			itemBtn.TextSize = 10
-			itemBtn.Parent = amRarMenuFrame
-
-			local itemCorner = Instance.new("UICorner")
-			itemCorner.CornerRadius = UDim.new(0, 4)
-			itemCorner.Parent = itemBtn
-
-			itemBtn.MouseButton1Click:Connect(function()
-				if rName == "All" then
+		refs.registerDropdownMenu(amRarDropBtn, amRarMenuFrame)
+		local amRarityBinder = refs.bindDropdown(
+			amRarDropBtn, amRarMenuFrame, amRarSearch, amRarScroll, amRarities,
+			function(opt)
+				return autoFarmRarityFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
 					autoFarmRarityFilters = { ["All"] = true }
 				else
 					autoFarmRarityFilters["All"] = nil
-					if autoFarmRarityFilters[rName] then
-						autoFarmRarityFilters[rName] = nil
-					else
-						autoFarmRarityFilters[rName] = true
-					end
+					autoFarmRarityFilters[opt] = not autoFarmRarityFilters[opt]
 					local hasAny = false
 					for _, v in pairs(autoFarmRarityFilters) do
-						if v then hasAny = true break end
+						if v then
+							hasAny = true
+							break
+						end
 					end
 					if not hasAny then
 						autoFarmRarityFilters["All"] = true
 					end
 				end
+			end,
+			function()
+				amRarDropLabel.Text = getSelectedRarityLabelText()
+			end
+		)
 
-				updateAmRarityVisuals()
-				if refs.saveConfig then pcall(refs.saveConfig) end
-			end)
+		local function updateAmRarityVisuals()
+			amRarDropLabel.Text = getSelectedRarityLabelText()
+			amRarityBinder.updateOptionVisuals()
 		end
 
-		refs.applyListLayout(amRarMenuFrame, 3)
-
-		amRarDropBtn.MouseButton1Click:Connect(function()
-			isRarOpen = not isRarOpen
-			if isRarOpen then isSzOpen = false end
-			amRarMenuFrame.Visible = isRarOpen
-			updateAmRarityVisuals()
-
-			local rarTargetHeight = isRarOpen and (36 + 165) or 36
-			local cardTargetHeight = isRarOpen and 430 or 265
-			TweenService:Create(amRarCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, rarTargetHeight) }):Play()
-			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
-			updateMainTabCanvas()
-		end)
-
-		-- 4. Target Size Filter Card inside Automation Mining
-		local amSzCard = Instance.new("Frame")
-		amSzCard.Size = UDim2.new(1, 0, 0, 36)
-		amSzCard.BackgroundColor3 = COLORS.glassCard
-		amSzCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-		amSzCard.BorderSizePixel = 0
-		amSzCard.ClipsDescendants = true
-		amSzCard.LayoutOrder = 4
-		amSzCard.Parent = amContentContainer
-
-		refs.applyGlass(amSzCard, { corner = refs.CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
-
-		local amSzTitle = Instance.new("TextLabel")
-		amSzTitle.Size = UDim2.new(0.5, 0, 0, 36)
-		amSzTitle.Position = UDim2.new(0, 12, 0, 0)
-		amSzTitle.BackgroundTransparency = 1
-		amSzTitle.Text = "Target Size"
-		amSzTitle.TextColor3 = COLORS.textPrimary
-		amSzTitle.Font = Enum.Font.GothamMedium
-		amSzTitle.TextSize = 11
-		amSzTitle.TextXAlignment = Enum.TextXAlignment.Left
-		amSzTitle.Parent = amSzCard
-
-		local amSzDropBtn = Instance.new("TextButton")
-		amSzDropBtn.Size = UDim2.new(0, 128, 0, 22)
-		amSzDropBtn.Position = UDim2.new(1, -140, 0, 7)
-		amSzDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
-		amSzDropBtn.Text = "All  ▼"
-		amSzDropBtn.TextColor3 = COLORS.accentCyan
-		amSzDropBtn.Font = Enum.Font.GothamBold
-		amSzDropBtn.TextSize = 10
-		amSzDropBtn.Parent = amSzCard
-
-		local amSzCorner = Instance.new("UICorner")
-		amSzCorner.CornerRadius = refs.CORNER.small
-		amSzCorner.Parent = amSzDropBtn
-
-		local amSzMenuFrame = Instance.new("Frame")
-		amSzMenuFrame.Size = UDim2.new(0, 128, 0, 140)
-		amSzMenuFrame.Position = UDim2.new(1, -140, 0, 36)
-		amSzMenuFrame.BackgroundTransparency = 1
-		amSzMenuFrame.Visible = false
-		amSzMenuFrame.ClipsDescendants = true
-		amSzMenuFrame.Parent = amSzCard
-
-		refs.applyListLayout(amSzMenuFrame, 3)
+		-- 5. Target Size Filter Card inside Automation Mining
+		local amSzCard, amSzDropBtn, amSzDropLabel, amSzMenuFrame, amSzSearch, amSzScroll = refs.createGlassDropdown(
+			amContentContainer, "Target Size", "All", 5
+		)
+		amSzCard.Size = UDim2.new(1, 0, 0, 32)
 
 		local amSizes = { "All", "Small", "Medium", "Large", "Titan", "Colossal" }
 
-		local function updateAmSizeVisuals()
-			amSzDropBtn.Text = getSelectedSizeLabelText() .. (isSzOpen and "  ▲" or "  ▼")
-			for _, child in ipairs(amSzMenuFrame:GetChildren()) do
-				if child:IsA("TextButton") then
-					local isSel = (autoFarmSizeFilters[child.Text] == true)
-					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
-				end
-			end
-		end
-
-		for _, sName in ipairs(amSizes) do
-			local itemBtn = Instance.new("TextButton")
-			itemBtn.Size = UDim2.new(1, 0, 0, 20)
-			itemBtn.BackgroundColor3 = (autoFarmSizeFilters[sName] == true) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-			itemBtn.BackgroundTransparency = 0.15
-			itemBtn.Text = sName
-			itemBtn.TextColor3 = (autoFarmSizeFilters[sName] == true) and COLORS.accentCyan or COLORS.textSecondary
-			itemBtn.Font = Enum.Font.GothamMedium
-			itemBtn.TextSize = 10
-			itemBtn.Parent = amSzMenuFrame
-
-			local itemCorner = Instance.new("UICorner")
-			itemCorner.CornerRadius = UDim.new(0, 4)
-			itemCorner.Parent = itemBtn
-
-			itemBtn.MouseButton1Click:Connect(function()
-				if sName == "All" then
+		refs.registerDropdownMenu(amSzDropBtn, amSzMenuFrame)
+		local amSizeBinder = refs.bindDropdown(
+			amSzDropBtn, amSzMenuFrame, amSzSearch, amSzScroll, amSizes,
+			function(opt)
+				return autoFarmSizeFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
 					autoFarmSizeFilters = { ["All"] = true }
 				else
 					autoFarmSizeFilters["All"] = nil
-					if autoFarmSizeFilters[sName] then
-						autoFarmSizeFilters[sName] = nil
-					else
-						autoFarmSizeFilters[sName] = true
-					end
+					autoFarmSizeFilters[opt] = not autoFarmSizeFilters[opt]
 					local hasAny = false
 					for _, v in pairs(autoFarmSizeFilters) do
-						if v then hasAny = true break end
+						if v then
+							hasAny = true
+							break
+						end
 					end
 					if not hasAny then
 						autoFarmSizeFilters["All"] = true
 					end
 				end
+			end,
+			function()
+				amSzDropLabel.Text = getSelectedSizeLabelText()
+			end
+		)
 
-				updateAmSizeVisuals()
-				if refs.saveConfig then pcall(refs.saveConfig) end
-			end)
+		local function updateAmSizeVisuals()
+			amSzDropLabel.Text = getSelectedSizeLabelText()
+			amSizeBinder.updateOptionVisuals()
 		end
-
-		amSzDropBtn.MouseButton1Click:Connect(function()
-			isSzOpen = not isSzOpen
-			if isSzOpen then isRarOpen = false end
-			amSzMenuFrame.Visible = isSzOpen
-			updateAmSizeVisuals()
-
-			local szTargetHeight = isSzOpen and (36 + 145) or 36
-			local cardTargetHeight = isSzOpen and 410 or 265
-			TweenService:Create(amSzCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, szTargetHeight) }):Play()
-			TweenService:Create(autoMineCategoryCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, cardTargetHeight) }):Play()
-			updateMainTabCanvas()
-		end)
 
 		-- Dedicated Noclip Engine for Automation Mining
 		local amNoclipConnection = nil
@@ -1225,13 +1102,13 @@ local success, err = pcall(function()
 							matchesRarity = true
 						else
 							local filterMap = {
-								["common"] = {"_t1", "t1", "common", "tier1", "tier 1", "1"},
-								["uncommon"] = {"_t2", "t2", "uncommon", "tier2", "tier 2", "2"},
-								["rare"] = {"_t3", "t3", "rare", "tier3", "tier 3", "3"},
-								["epic"] = {"_t4", "t4", "epic", "tier4", "tier 4", "4"},
-								["legendary"] = {"_t5", "t5", "legendary", "tier5", "tier 5", "5"},
-								["mythical"] = {"_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6"},
-								["mythic"] = {"_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6"},
+								["common"] = { "_t1", "t1", "common", "tier1", "tier 1", "1" },
+								["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2", "2" },
+								["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3", "3" },
+								["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4", "4" },
+								["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5", "5" },
+								["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6" },
+								["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6" },
 							}
 							for selRarity, isSel in pairs(autoFarmRarityFilters) do
 								if isSel then
@@ -1249,7 +1126,8 @@ local success, err = pcall(function()
 										matchesRarity = true
 									end
 									if not matchesRarity then
-										local attr = child:GetAttribute("Rarity") or child:GetAttribute("Tier") or child:GetAttribute("rarity") or child:GetAttribute("tier")
+										local attr = child:GetAttribute("Rarity") or child:GetAttribute("Tier") or
+										child:GetAttribute("rarity") or child:GetAttribute("tier")
 										if attr then
 											local attrStr = string.lower(tostring(attr))
 											if string.find(attrStr, rarityLower, 1, true) then
@@ -1280,7 +1158,8 @@ local success, err = pcall(function()
 									if string.find(nameLower, sizeLower, 1, true) then
 										matchesSize = true
 									else
-										local attr = child:GetAttribute("Size") or child:GetAttribute("Category") or child:GetAttribute("size") or child:GetAttribute("category")
+										local attr = child:GetAttribute("Size") or child:GetAttribute("Category") or
+										child:GetAttribute("size") or child:GetAttribute("category")
 										if attr and string.find(string.lower(tostring(attr)), sizeLower, 1, true) then
 											matchesSize = true
 										else
@@ -1288,7 +1167,8 @@ local success, err = pcall(function()
 											if child:IsA("BasePart") then
 												sizeVec = child.Size
 											elseif child:IsA("Model") then
-												local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+												local primary = child.PrimaryPart or
+												child:FindFirstChildWhichIsA("BasePart")
 												if primary then sizeVec = primary.Size end
 											end
 											if sizeVec then
@@ -1313,7 +1193,8 @@ local success, err = pcall(function()
 						end
 
 						if matchesRarity and matchesSize then
-							local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+							local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or
+							child:FindFirstChildWhichIsA("BasePart")
 							if targetPart then
 								local dist = (myPos - targetPart.Position).Magnitude
 								if dist < shortestDist then
@@ -1346,8 +1227,10 @@ local success, err = pcall(function()
 			if not p then return false end
 
 			-- 1. Check Player attributes
-			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("Capacity") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag")
-			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount")
+			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or
+			p:GetAttribute("Capacity") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag")
+			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or
+			p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount")
 
 			if typeof(maxCap) == "number" and typeof(currCap) == "number" and maxCap > 0 then
 				if currCap >= maxCap then return true end
@@ -1356,8 +1239,10 @@ local success, err = pcall(function()
 			-- 2. Check leaderstats
 			local leaderstats = p:FindFirstChild("leaderstats")
 			if leaderstats then
-				local capVal = leaderstats:FindFirstChild("Capacity") or leaderstats:FindFirstChild("Storage") or leaderstats:FindFirstChild("Backpack") or leaderstats:FindFirstChild("Bag")
-				local maxVal = leaderstats:FindFirstChild("MaxCapacity") or leaderstats:FindFirstChild("MaxStorage") or leaderstats:FindFirstChild("MaxBackpack") or leaderstats:FindFirstChild("MaxBag")
+				local capVal = leaderstats:FindFirstChild("Capacity") or leaderstats:FindFirstChild("Storage") or
+				leaderstats:FindFirstChild("Backpack") or leaderstats:FindFirstChild("Bag")
+				local maxVal = leaderstats:FindFirstChild("MaxCapacity") or leaderstats:FindFirstChild("MaxStorage") or
+				leaderstats:FindFirstChild("MaxBackpack") or leaderstats:FindFirstChild("MaxBag")
 				if capVal and maxVal and tonumber(capVal.Value) and tonumber(maxVal.Value) then
 					if tonumber(capVal.Value) >= tonumber(maxVal.Value) then return true end
 				end
@@ -1419,7 +1304,7 @@ local success, err = pcall(function()
 			local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
 			activeFarmTween = TweenService:Create(myHrp, tweenInfo, { CFrame = targetCFrame })
 			activeFarmTween:Play()
-			
+
 			local startT = os.clock()
 			while activeFarmTween and (os.clock() - startT < duration + 0.05) and autoFarmCrystalsEnabled do
 				task.wait(0.02)
@@ -1602,7 +1487,7 @@ local success, err = pcall(function()
 			local uiNeedsUpdate = false
 
 			-- Filters State
-			local rarityNames = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical"}
+			local rarityNames = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
 
 			-- Helper functions
 			local function countTable(t)
@@ -1620,12 +1505,14 @@ local success, err = pcall(function()
 						elseif typeof(species.Rarity) == "string" then
 							return species.Rarity
 						elseif typeof(species.Rarity) == "table" and species.Rarity.Value then
-							local valueMap = {[1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] = "Legendary", [6] = "Mythical"}
+							local valueMap = { [1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] =
+							"Legendary", [6] = "Mythical" }
 							return valueMap[species.Rarity.Value] or tostring(species.Rarity.Value)
 						end
 					end
 					if species.RarityValue then
-						local valueMap = {[1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] = "Legendary", [6] = "Mythical"}
+						local valueMap = { [1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] =
+						"Legendary", [6] = "Mythical" }
 						return valueMap[species.RarityValue] or tostring(species.RarityValue)
 					end
 				end
@@ -1635,13 +1522,13 @@ local success, err = pcall(function()
 			local function matchesRarityFilter(rotName)
 				local filter = rarityNames[selectedRarityIndex]
 				if filter == "All" then return true end
-				
+
 				local rotRarity = getRotRarity(rotName)
 				local rLower = string.lower(tostring(rotRarity))
 				local fLower = string.lower(filter)
-				
+
 				if rLower == fLower then return true end
-				
+
 				local rarityValueMap = {
 					common = 1, uncommon = 2, rare = 3, epic = 4, legendary = 5, mythical = 6
 				}
@@ -1652,7 +1539,7 @@ local success, err = pcall(function()
 						return true
 					end
 				end
-				
+
 				return false
 			end
 
@@ -1660,7 +1547,7 @@ local success, err = pcall(function()
 			local staffCache = {}
 			local function cachePlayerStaff(p)
 				if p == player then return end
-				
+
 				local isStaff = false
 				if p.UserId == game.CreatorId then
 					isStaff = true
@@ -1851,7 +1738,7 @@ local success, err = pcall(function()
 				row.BackgroundColor3 = COLORS.glassSurface
 				row.BackgroundTransparency = 0.25
 				row.BorderSizePixel = 0
-				
+
 				refs.applyGlass(row, {
 					corner = refs.CORNER.small,
 					stroke = true,
@@ -1899,7 +1786,7 @@ local success, err = pcall(function()
 				row.BackgroundColor3 = COLORS.glassSurface
 				row.BackgroundTransparency = 0.25
 				row.BorderSizePixel = 0
-				
+
 				refs.applyGlass(row, {
 					corner = refs.CORNER.small,
 					stroke = true,
@@ -2033,7 +1920,7 @@ local success, err = pcall(function()
 			local function isPlayerInBattle()
 				local g = getBattleGui()
 				if g and g.Enabled then return true end
-				
+
 				local character = player.Character
 				if character then
 					if character:GetAttribute("InBattle") == true or character:GetAttribute("Battling") == true then
@@ -2055,7 +1942,8 @@ local success, err = pcall(function()
 				else
 					statusText = "<font color='#4dff4d'>Scanning...</font>"
 				end
-				statsLabel.Text = "Status: " .. statusText .. "\nCaught: " .. tostring(caughtCount) .. " | Battles: " .. tostring(battlesStarted)
+				statsLabel.Text = "Status: " ..
+				statusText .. "\nCaught: " .. tostring(caughtCount) .. " | Battles: " .. tostring(battlesStarted)
 			end
 
 			-- Spawn/Despawn Logic
@@ -2064,18 +1952,18 @@ local success, err = pcall(function()
 					return workspace:FindFirstChild(rot.ID, true)
 				end)
 				if success and found then return found end
-				
+
 				success, found = pcall(function()
 					return workspace:FindFirstChild(rot.ContainerID, true)
 				end)
 				if success and found then return found end
-				
+
 				local container = containers[rot.ContainerID]
 				local containerPos = container and container.CFrame and container.CFrame.Position
 				if containerPos and rot.Name then
 					local closestModel = nil
 					local closestDist = 50
-					
+
 					local searchSuccess, children = pcall(function() return workspace:GetChildren() end)
 					if searchSuccess and children then
 						for _, child in ipairs(children) do
@@ -2108,7 +1996,7 @@ local success, err = pcall(function()
 					end)
 					if success and pivot then return pivot end
 				end
-				
+
 				local container = containers[rot.ContainerID]
 				if container then
 					if container.CFrame then return container.CFrame end
@@ -2152,7 +2040,7 @@ local success, err = pcall(function()
 						Rots = {}
 					}
 				end
-				
+
 				local name = "Unknown"
 				local level = 1
 				if rotData.RotInstance then
@@ -2173,7 +2061,7 @@ local success, err = pcall(function()
 						end
 					end
 				end
-				
+
 				local rarity = getRotRarity(name)
 				local rot = {
 					ID = rotId,
@@ -2185,7 +2073,7 @@ local success, err = pcall(function()
 					Level = level,
 					Rarity = rarity
 				}
-				
+
 				containers[containerId].Rots[rotId] = rot
 				activeRots[rotId] = rot
 			end
@@ -2204,15 +2092,15 @@ local success, err = pcall(function()
 			local uiRowsCache = {}
 			local function updateUIList()
 				if not tabFrame.Visible then return end
-				
+
 				local character = player.Character
 				local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position or Vector3.zero
-				
+
 				local sortedList = {}
 				for rotId, rot in pairs(activeRots) do
 					local rotLevel = rot.Level or 1
 					local rotName = rot.Name or ""
-					
+
 					if rotLevel >= minLevelFilter and matchesRarityFilter(rotName) then
 						local container = containers[rot.ContainerID]
 						local dist = 999999
@@ -2225,16 +2113,16 @@ local success, err = pcall(function()
 						})
 					end
 				end
-				
+
 				table.sort(sortedList, function(a, b)
 					return a.distance < b.distance
 				end)
-				
+
 				local contentHeight = 0
 				for i, itemData in ipairs(sortedList) do
 					local rot = itemData.rot
 					local distance = itemData.distance
-					
+
 					local cache = uiRowsCache[i]
 					if not cache then
 						local row = Instance.new("Frame")
@@ -2242,7 +2130,7 @@ local success, err = pcall(function()
 						row.BackgroundColor3 = COLORS.glassSurface
 						row.BackgroundTransparency = 0.3
 						row.BorderSizePixel = 0
-						
+
 						refs.applyGlass(row, {
 							corner = refs.CORNER.small,
 							stroke = true,
@@ -2250,7 +2138,7 @@ local success, err = pcall(function()
 							strokeThickness = 1,
 							strokeTransparency = 0.8
 						})
-						
+
 						local infoLabel = Instance.new("TextLabel")
 						infoLabel.Size = UDim2.new(0.7, 0, 1, 0)
 						infoLabel.Position = UDim2.new(0, 8, 0, 0)
@@ -2260,7 +2148,7 @@ local success, err = pcall(function()
 						infoLabel.Font = Enum.Font.GothamMedium
 						infoLabel.TextXAlignment = Enum.TextXAlignment.Left
 						infoLabel.Parent = row
-						
+
 						local catchBtn = Instance.new("TextButton")
 						catchBtn.Size = UDim2.new(0.24, 0, 0.75, 0)
 						catchBtn.Position = UDim2.new(0.74, 0, 0.125, 0)
@@ -2270,29 +2158,29 @@ local success, err = pcall(function()
 						catchBtn.TextSize = 8
 						catchBtn.Font = Enum.Font.GothamBold
 						catchBtn.Parent = row
-						
+
 						local btnCorner = Instance.new("UICorner")
 						btnCorner.CornerRadius = refs.CORNER.small
 						btnCorner.Parent = catchBtn
-						
+
 						row.Parent = scrollList
-						
+
 						cache = {
 							row = row,
 							infoLabel = infoLabel,
 							catchBtn = catchBtn,
 							associatedRot = nil
 						}
-						
+
 						catchBtn.MouseButton1Click:Connect(function()
 							local currentRot = cache.associatedRot
 							if not currentRot or currentlyCatching then return end
-							
+
 							catchBtn.Text = "..."
 							catchBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-							
+
 							local success = catchRot(currentRot)
-							
+
 							if success then
 								catchBtn.Text = "OK"
 								catchBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
@@ -2307,42 +2195,42 @@ local success, err = pcall(function()
 								end)
 							end
 						end)
-						
+
 						uiRowsCache[i] = cache
 					end
-					
+
 					cache.associatedRot = rot
 					cache.row.Visible = true
-					
+
 					local nameStr = rot.Name or "Unknown"
 					local lvStr = rot.Level and tostring(rot.Level) or "?"
 					local distStr = distance < 999999 and (string.format("%.0f", distance) .. "m") or "N/A"
 					local rarityStr = rot.Rarity or "Common"
-					
+
 					cache.infoLabel.Text = string.format("%s (Lv. %s) [%s]\nDist: %s", nameStr, lvStr, rarityStr, distStr)
-					
+
 					if cache.catchBtn.Text ~= "..." and cache.catchBtn.Text ~= "FAIL" and cache.catchBtn.Text ~= "OK" then
 						cache.catchBtn.Text = "CATCH"
 						cache.catchBtn.BackgroundColor3 = COLORS.accentViolet
 					end
-					
+
 					contentHeight = contentHeight + 42
 				end
-				
+
 				for i = #sortedList + 1, #uiRowsCache do
 					uiRowsCache[i].associatedRot = nil
 					uiRowsCache[i].row.Visible = false
 				end
-				
+
 				scrollList.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
 			end
 
 			catchRot = function(rot)
 				if not rot or currentlyCatching then return false end
 				currentlyCatching = rot
-				
+
 				teleportToRot(rot)
-				
+
 				local startTime = os.clock()
 				local joined = false
 				while os.clock() - startTime < 3 do
@@ -2352,7 +2240,7 @@ local success, err = pcall(function()
 					end
 					task.wait(0.1)
 				end
-				
+
 				if joined then
 					battlesStarted = battlesStarted + 1
 					caughtCount = caughtCount + 1
@@ -2360,13 +2248,13 @@ local success, err = pcall(function()
 					currentlyCatching = nil
 					return true
 				end
-				
+
 				local success, result = pcall(function()
 					return CatchRequest:InvokeServer(rot.ContainerID, rot.ID)
 				end)
-				
+
 				task.wait(0.5)
-				
+
 				if isPlayerInBattle() or (success and result ~= nil) then
 					battlesStarted = battlesStarted + 1
 					caughtCount = caughtCount + 1
@@ -2374,7 +2262,7 @@ local success, err = pcall(function()
 					currentlyCatching = nil
 					return true
 				end
-				
+
 				currentlyCatching = nil
 				return false
 			end
@@ -2384,7 +2272,7 @@ local success, err = pcall(function()
 				local success, result = pcall(function()
 					return GetInitialContainerStates:InvokeServer()
 				end)
-				
+
 				if success and result and result.Containers then
 					for containerId, containerData in pairs(result.Containers) do
 						containers[containerId] = {
@@ -2471,10 +2359,12 @@ local success, err = pcall(function()
 				autoCatchEnabled = not autoCatchEnabled
 				if autoCatchEnabled then
 					toggleBtn.Text = "STOP"
-					TweenService:Create(toggleBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(46, 204, 113)}):Play()
+					TweenService:Create(toggleBtn, TweenInfo.new(0.3), { BackgroundColor3 = Color3.fromRGB(46, 204, 113) })
+						:Play()
 				else
 					toggleBtn.Text = "START"
-					TweenService:Create(toggleBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(231, 76, 60)}):Play()
+					TweenService:Create(toggleBtn, TweenInfo.new(0.3), { BackgroundColor3 = Color3.fromRGB(231, 76, 60) })
+						:Play()
 				end
 				updateStats()
 			end
@@ -2486,9 +2376,10 @@ local success, err = pcall(function()
 				while true do
 					task.wait(0.5)
 					local character = player.Character
-					local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position or Vector3.zero
+					local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position or
+					Vector3.zero
 					local moved = (playerPos - lastPlayerPos).Magnitude > 1.5
-					
+
 					if autoCatchEnabled or uiNeedsUpdate or moved then
 						updateUIList()
 						updateStats()
@@ -2502,14 +2393,14 @@ local success, err = pcall(function()
 			task.spawn(function()
 				while true do
 					task.wait(0.2)
-					
+
 					if not autoCatchEnabled then continue end
-					
+
 					if isPlayerInBattle() or currentlyCatching then
 						task.wait(0.5)
 						continue
 					end
-					
+
 					-- Anti-Staff safety check
 					if safeModeEnabled then
 						local adminFound = false
@@ -2524,18 +2415,18 @@ local success, err = pcall(function()
 							continue
 						end
 					end
-					
+
 					local character = player.Character
 					local playerPos = character and character.PrimaryPart and character.PrimaryPart.Position
 					if not playerPos then continue end
-					
+
 					local closestRot = nil
 					local minDistance = 999999
-					
+
 					for rotId, rot in pairs(activeRots) do
 						local rotLevel = rot.Level or 1
 						local rotName = rot.Name or ""
-						
+
 						if rotLevel >= minLevelFilter and matchesRarityFilter(rotName) then
 							local container = containers[rot.ContainerID]
 							if container and container.CFrame then
@@ -2547,7 +2438,7 @@ local success, err = pcall(function()
 							end
 						end
 					end
-					
+
 					if closestRot then
 						local success = catchRot(closestRot)
 						if success then
@@ -2562,10 +2453,16 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- ⚙️ CONFIGURATION SAVING & LOADING
 	------------------------------------------------
+	local placeId = tostring(game.PlaceId)
+	local configPath = "HipHub/" .. placeId .. "/config.json"
+
 	saveConfig = function()
 		if not writefile then return end
 		pcall(function()
-			if makefolder then pcall(makefolder, "HipHub") end
+			if makefolder then
+				pcall(makefolder, "HipHub")
+				pcall(makefolder, "HipHub/" .. placeId)
+			end
 			local data = {}
 			if _G.HipHubSettings and _G.HipHubSettings.getState then
 				local settingsState = _G.HipHubSettings.getState()
@@ -2618,7 +2515,7 @@ local success, err = pcall(function()
 				data.autoFarmSizeFilters = amState.autoFarmSizeFilters
 			end
 
-			writefile("HipHub/config.json", game:GetService("HttpService"):JSONEncode(data))
+			writefile(configPath, game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
 
@@ -2629,7 +2526,9 @@ local success, err = pcall(function()
 	pcall(function()
 		local content = nil
 		if isfile and readfile then
-			if isfile("HipHub/config.json") then
+			if isfile(configPath) then
+				content = readfile(configPath)
+			elseif isfile("HipHub/config.json") then
 				content = readfile("HipHub/config.json")
 			elseif isfile("hiphub_config.json") then
 				content = readfile("hiphub_config.json")
@@ -2714,7 +2613,3 @@ local success, err = pcall(function()
 		end)
 	end
 end)
-
-if not success then
-	warn("CAB UI Main Wire Init Error: " .. tostring(err))
-end

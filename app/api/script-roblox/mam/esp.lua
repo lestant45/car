@@ -29,6 +29,8 @@ local function initESP()
 
 	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals, updateSizeDropdownVisuals
 
+
+
 	if refs.addTab then
 		local espTabFrame = refs.addTab("ESP", "", 2)
 		local tabLayout = refs.applyListLayout(espTabFrame, 10)
@@ -83,63 +85,14 @@ local function initESP()
 		espSub.TextXAlignment = Enum.TextXAlignment.Left
 		espSub.Parent = espCard
 
-		-- 🔽 Crystal Rarity Filter Dropdown Card (Above Toggles)
-		local filterCard = Instance.new("Frame")
-		filterCard.Size = UDim2.new(1, 0, 0, 44)
-		filterCard.BackgroundColor3 = COLORS.glassCard
-		filterCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-		filterCard.BorderSizePixel = 0
-		filterCard.ClipsDescendants = true
-		filterCard.Parent = espTabFrame
+		-- Collapsible Filter Section
+		local filterSection = refs.createCollapsibleSection(espTabFrame, "Filters", 3)
+		refs.applyPadding(filterSection.Content, 2, 2, 2, 2)
 
-		refs.applyGlass(filterCard, {
-			corner = refs.CORNER.medium,
-			stroke = true,
-			strokeColor = COLORS.borderGlass,
-			strokeThickness = 1,
-			strokeTransparency = 0.7
-		})
-
-		local filterTitle = Instance.new("TextLabel")
-		filterTitle.Size = UDim2.new(0.5, 0, 0, 44)
-		filterTitle.Position = UDim2.new(0, 12, 0, 0)
-		filterTitle.BackgroundTransparency = 1
-		filterTitle.Text = "Crystal Rarity Filter"
-		filterTitle.TextColor3 = COLORS.textPrimary
-		filterTitle.Font = Enum.Font.GothamMedium
-		filterTitle.TextSize = 12
-		filterTitle.TextXAlignment = Enum.TextXAlignment.Left
-		filterTitle.Parent = filterCard
-
-		local dropBtn = Instance.new("TextButton")
-		dropBtn.Size = UDim2.new(0, 140, 0, 26)
-		dropBtn.Position = UDim2.new(1, -152, 0, 9)
-		dropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
-		dropBtn.Text = (state.selectedCrystalRarity or "All") .. "  ▼"
-		dropBtn.TextColor3 = COLORS.accentCyan
-		dropBtn.Font = Enum.Font.GothamBold
-		dropBtn.TextSize = 10
-		dropBtn.Parent = filterCard
-
-		local dropCorner = Instance.new("UICorner")
-		dropCorner.CornerRadius = refs.CORNER.small
-		dropCorner.Parent = dropBtn
-
-		local dropStroke = Instance.new("UIStroke")
-		dropStroke.Color = COLORS.borderGlass
-		dropStroke.Thickness = 1
-		dropStroke.Transparency = 0.5
-		dropStroke.Parent = dropBtn
-
-		local menuFrame = Instance.new("Frame")
-		menuFrame.Size = UDim2.new(0, 140, 0, 190)
-		menuFrame.Position = UDim2.new(1, -152, 0, 40)
-		menuFrame.BackgroundTransparency = 1
-		menuFrame.Visible = false
-		menuFrame.ClipsDescendants = true
-		menuFrame.Parent = filterCard
-
-		refs.applyListLayout(menuFrame, 3)
+		-- 🔽 Crystal Rarity Filter Dropdown Card
+		local filterCard, filterBtn, filterLabel, filterMenu, filterSearch, filterScroll = refs.createGlassDropdown(
+			filterSection.Content, "Crystal Rarity Filter", (state.selectedCrystalRarity or "All"), 1
+		)
 
 		local rarities = {
 			"All",
@@ -150,126 +103,28 @@ local function initESP()
 			"Legendary",
 			"Mythical"
 		}
-		local isOpen = false
+		refs.registerDropdownMenu(filterBtn, filterMenu)
+		local rarityBinder = refs.bindDropdown(
+			filterBtn, filterMenu, filterSearch, filterScroll, rarities,
+			function() return state.selectedCrystalRarity or "All" end,
+			function(val)
+				state.selectedCrystalRarity = val
+				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
+			end,
+			function()
+				filterLabel.Text = state.selectedCrystalRarity or "All"
+			end
+		)
 
 		updateDropdownVisuals = function()
-			dropBtn.Text = (state.selectedCrystalRarity or "All") .. (isOpen and "  ▲" or "  ▼")
-			for _, child in ipairs(menuFrame:GetChildren()) do
-				if child:IsA("TextButton") then
-					local isSel = (child.Text == state.selectedCrystalRarity)
-					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
-				end
-			end
+			filterLabel.Text = state.selectedCrystalRarity or "All"
+			rarityBinder.updateOptionVisuals()
 		end
 
-		for _, rName in ipairs(rarities) do
-			local itemBtn = Instance.new("TextButton")
-			itemBtn.Size = UDim2.new(1, 0, 0, 24)
-			itemBtn.BackgroundColor3 = (state.selectedCrystalRarity == rName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-			itemBtn.BackgroundTransparency = 0.15
-			itemBtn.Text = rName
-			itemBtn.TextColor3 = (state.selectedCrystalRarity == rName) and COLORS.accentCyan or COLORS.textSecondary
-			itemBtn.Font = Enum.Font.GothamMedium
-			itemBtn.TextSize = 10
-			itemBtn.Parent = menuFrame
-
-			local itemCorner = Instance.new("UICorner")
-			itemCorner.CornerRadius = UDim.new(0, 5)
-			itemCorner.Parent = itemBtn
-
-			itemBtn.MouseButton1Click:Connect(function()
-				state.selectedCrystalRarity = rName
-				isOpen = false
-				updateDropdownVisuals()
-
-				local slideTween = TweenService:Create(filterCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 44) })
-				slideTween:Play()
-				slideTween.Completed:Connect(function()
-					if not isOpen then menuFrame.Visible = false end
-				end)
-
-				updateTabCanvas()
-				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
-				if saveConfig then pcall(saveConfig) end
-			end)
-		end
-
-		dropBtn.MouseButton1Click:Connect(function()
-			isOpen = not isOpen
-			if isOpen then menuFrame.Visible = true end
-			updateDropdownVisuals()
-
-			local targetHeight = isOpen and (44 + 192) or 44
-			local slideTween = TweenService:Create(filterCard, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, targetHeight) })
-			slideTween:Play()
-
-			if not isOpen then
-				slideTween.Completed:Connect(function()
-					if not isOpen then menuFrame.Visible = false end
-				end)
-			end
-
-			updateTabCanvas()
-		end)
-
-		-- 🔽 Crystal Size Filter Dropdown Card (Below Rarity Filter)
-		local sizeFilterCard = Instance.new("Frame")
-		sizeFilterCard.Size = UDim2.new(1, 0, 0, 44)
-		sizeFilterCard.BackgroundColor3 = COLORS.glassCard
-		sizeFilterCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-		sizeFilterCard.BorderSizePixel = 0
-		sizeFilterCard.ClipsDescendants = true
-		sizeFilterCard.Parent = espTabFrame
-
-		refs.applyGlass(sizeFilterCard, {
-			corner = refs.CORNER.medium,
-			stroke = true,
-			strokeColor = COLORS.borderGlass,
-			strokeThickness = 1,
-			strokeTransparency = 0.7
-		})
-
-		local sizeFilterTitle = Instance.new("TextLabel")
-		sizeFilterTitle.Size = UDim2.new(0.5, 0, 0, 44)
-		sizeFilterTitle.Position = UDim2.new(0, 12, 0, 0)
-		sizeFilterTitle.BackgroundTransparency = 1
-		sizeFilterTitle.Text = "Crystal Size Filter"
-		sizeFilterTitle.TextColor3 = COLORS.textPrimary
-		sizeFilterTitle.Font = Enum.Font.GothamMedium
-		sizeFilterTitle.TextSize = 12
-		sizeFilterTitle.TextXAlignment = Enum.TextXAlignment.Left
-		sizeFilterTitle.Parent = sizeFilterCard
-
-		local sizeDropBtn = Instance.new("TextButton")
-		sizeDropBtn.Size = UDim2.new(0, 140, 0, 26)
-		sizeDropBtn.Position = UDim2.new(1, -152, 0, 9)
-		sizeDropBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 50)
-		sizeDropBtn.Text = (state.selectedCrystalSize or "All") .. "  ▼"
-		sizeDropBtn.TextColor3 = COLORS.accentCyan
-		sizeDropBtn.Font = Enum.Font.GothamBold
-		sizeDropBtn.TextSize = 10
-		sizeDropBtn.Parent = sizeFilterCard
-
-		local sizeDropCorner = Instance.new("UICorner")
-		sizeDropCorner.CornerRadius = refs.CORNER.small
-		sizeDropCorner.Parent = sizeDropBtn
-
-		local sizeDropStroke = Instance.new("UIStroke")
-		sizeDropStroke.Color = COLORS.borderGlass
-		sizeDropStroke.Thickness = 1
-		sizeDropStroke.Transparency = 0.5
-		sizeDropStroke.Parent = sizeDropBtn
-
-		local sizeMenuFrame = Instance.new("Frame")
-		sizeMenuFrame.Size = UDim2.new(0, 140, 0, 165)
-		sizeMenuFrame.Position = UDim2.new(1, -152, 0, 40)
-		sizeMenuFrame.BackgroundTransparency = 1
-		sizeMenuFrame.Visible = false
-		sizeMenuFrame.ClipsDescendants = true
-		sizeMenuFrame.Parent = sizeFilterCard
-
-		refs.applyListLayout(sizeMenuFrame, 3)
+		-- 🔽 Crystal Size Filter Dropdown Card
+		local sizeFilterCard, sizeDropBtn, sizeDropLabel, sizeMenuFrame, sizeSearch, sizeScroll = refs.createGlassDropdown(
+			filterSection.Content, "Crystal Size Filter", (state.selectedCrystalSize or "All"), 2
+		)
 
 		local sizes = {
 			"All",
@@ -279,68 +134,27 @@ local function initESP()
 			"Titan",
 			"Colossal"
 		}
-		local isSizeOpen = false
+		refs.registerDropdownMenu(sizeDropBtn, sizeMenuFrame)
+		local sizeBinder = refs.bindDropdown(
+			sizeDropBtn, sizeMenuFrame, sizeSearch, sizeScroll, sizes,
+			function() return state.selectedCrystalSize or "All" end,
+			function(val)
+				state.selectedCrystalSize = val
+				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
+			end,
+			function()
+				sizeDropLabel.Text = state.selectedCrystalSize or "All"
+			end
+		)
 
 		updateSizeDropdownVisuals = function()
-			sizeDropBtn.Text = (state.selectedCrystalSize or "All") .. (isSizeOpen and "  ▲" or "  ▼")
-			for _, child in ipairs(sizeMenuFrame:GetChildren()) do
-				if child:IsA("TextButton") then
-					local isSel = (child.Text == state.selectedCrystalSize)
-					child.BackgroundColor3 = isSel and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-					child.TextColor3 = isSel and COLORS.accentCyan or COLORS.textSecondary
-				end
-			end
+			sizeDropLabel.Text = state.selectedCrystalSize or "All"
+			sizeBinder.updateOptionVisuals()
 		end
 
-		for _, sName in ipairs(sizes) do
-			local itemBtn = Instance.new("TextButton")
-			itemBtn.Size = UDim2.new(1, 0, 0, 24)
-			itemBtn.BackgroundColor3 = (state.selectedCrystalSize == sName) and Color3.fromRGB(36, 44, 72) or Color3.fromRGB(18, 22, 38)
-			itemBtn.BackgroundTransparency = 0.15
-			itemBtn.Text = sName
-			itemBtn.TextColor3 = (state.selectedCrystalSize == sName) and COLORS.accentCyan or COLORS.textSecondary
-			itemBtn.Font = Enum.Font.GothamMedium
-			itemBtn.TextSize = 10
-			itemBtn.Parent = sizeMenuFrame
-
-			local itemCorner = Instance.new("UICorner")
-			itemCorner.CornerRadius = UDim.new(0, 5)
-			itemCorner.Parent = itemBtn
-
-			itemBtn.MouseButton1Click:Connect(function()
-				state.selectedCrystalSize = sName
-				isSizeOpen = false
-				updateSizeDropdownVisuals()
-
-				local slideTween = TweenService:Create(sizeFilterCard, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 44) })
-				slideTween:Play()
-				slideTween.Completed:Connect(function()
-					if not isSizeOpen then sizeMenuFrame.Visible = false end
-				end)
-
-				updateTabCanvas()
-				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
-				if saveConfig then pcall(saveConfig) end
-			end)
-		end
-
-		sizeDropBtn.MouseButton1Click:Connect(function()
-			isSizeOpen = not isSizeOpen
-			if isSizeOpen then sizeMenuFrame.Visible = true end
-			updateSizeDropdownVisuals()
-
-			local targetHeight = isSizeOpen and (44 + 168) or 44
-			local slideTween = TweenService:Create(sizeFilterCard, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, targetHeight) })
-			slideTween:Play()
-
-			if not isSizeOpen then
-				slideTween.Completed:Connect(function()
-					if not isSizeOpen then sizeMenuFrame.Visible = false end
-				end)
-			end
-
-			updateTabCanvas()
-		end)
+		-- Collapsible Toggles Section
+		local toggleSection = refs.createCollapsibleSection(espTabFrame, "Toggles", 5)
+		refs.applyPadding(toggleSection.Content, 2, 2, 2, 2)
 
 		-- Toggles Card
 		local togglesCard = Instance.new("Frame")
@@ -348,7 +162,7 @@ local function initESP()
 		togglesCard.BackgroundColor3 = COLORS.glassCard
 		togglesCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		togglesCard.BorderSizePixel = 0
-		togglesCard.Parent = espTabFrame
+		togglesCard.Parent = toggleSection.Content
 
 		refs.applyGlass(togglesCard, {
 			corner = refs.CORNER.medium,

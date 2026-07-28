@@ -926,6 +926,278 @@ local success, err = pcall(function()
 		return card, track, thumb
 	end
 
+	local dropdownsList = {}
+	local function closeAllDropdowns()
+		for _, dd in ipairs(dropdownsList) do
+			dd.isOpen = false
+			local m = dd.menu
+			local tween = TweenService:Create(m, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Position = UDim2.new(1, 0, 0, 0)
+			})
+			tween.Completed:Connect(function()
+				if not dd.isOpen then m.Visible = false end
+			end)
+			tween:Play()
+		end
+	end
+
+	local function registerDropdownMenu(btn, menu)
+		local ddData = { btn = btn, menu = menu, isOpen = false }
+		table.insert(dropdownsList, ddData)
+
+		btn.MouseButton1Click:Connect(function()
+			local isOpen = ddData.isOpen
+			closeAllDropdowns()
+			if not isOpen then
+				ddData.isOpen = true
+				menu.Visible = true
+				local menuWidth = menu.Size.X.Offset
+				if menuWidth <= 0 then menuWidth = 160 end
+				TweenService:Create(menu, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Position = UDim2.new(1, -menuWidth, 0, 0)
+				}):Play()
+			end
+		end)
+	end
+
+	local function bindDropdown(btn, menu, searchBox, scroll, optionsList, getSelectedFunc, setSelectedFunc, updateLabelCallback)
+		local optionButtons = {}
+		local optionIndicators = {}
+
+		local function updateOptionVisuals()
+			for _, opt in ipairs(optionsList) do
+				local oBtn = optionButtons[opt]
+				local oInd = optionIndicators[opt]
+				if oBtn and oInd then
+					if getSelectedFunc(opt) then
+						oBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+						oBtn.BackgroundColor3 = Color3.fromRGB(34, 40, 68)
+						oInd.Visible = true
+					else
+						oBtn.TextColor3 = COLORS.textSecondary or Color3.fromRGB(140, 155, 185)
+						oBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 36)
+						oInd.Visible = false
+					end
+				end
+			end
+		end
+
+		local function rebuildMenu()
+			scroll:ClearAllChildren()
+			local listLayout = Instance.new("UIListLayout")
+			listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+			listLayout.Padding = UDim.new(0, 4)
+			listLayout.Parent = scroll
+
+			local padding = Instance.new("UIPadding")
+			padding.PaddingLeft = UDim.new(0, 8)
+			padding.PaddingRight = UDim.new(0, 8)
+			padding.PaddingTop = UDim.new(0, 4)
+			padding.Parent = scroll
+
+			for i, opt in ipairs(optionsList) do
+				local optBtn = Instance.new("TextButton")
+				optBtn.Size = UDim2.new(1, 0, 0, 26)
+				optBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 36)
+				optBtn.BorderSizePixel = 0
+				optBtn.Text = "     " .. opt
+				optBtn.TextColor3 = COLORS.textSecondary or Color3.fromRGB(140, 155, 185)
+				optBtn.Font = Enum.Font.GothamMedium
+				optBtn.TextSize = 11
+				optBtn.TextXAlignment = Enum.TextXAlignment.Left
+				optBtn.ZIndex = 102
+				optBtn.LayoutOrder = i
+				optBtn.Parent = scroll
+
+				local optCorner = Instance.new("UICorner")
+				optCorner.CornerRadius = UDim.new(0, 4)
+				optCorner.Parent = optBtn
+
+				local leftIndicator = Instance.new("Frame")
+				leftIndicator.Size = UDim2.new(0, 3, 0, 14)
+				leftIndicator.Position = UDim2.new(0, 3, 0.5, -7)
+				leftIndicator.BackgroundColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
+				leftIndicator.BorderSizePixel = 0
+				leftIndicator.Visible = false
+				leftIndicator.ZIndex = 103
+				leftIndicator.Parent = optBtn
+
+				optionButtons[opt] = optBtn
+				optionIndicators[opt] = leftIndicator
+
+				optBtn.MouseButton1Click:Connect(function()
+					setSelectedFunc(opt)
+					closeAllDropdowns()
+					updateOptionVisuals()
+					updateLabelCallback()
+					if _G.HipHubUI.saveConfig then pcall(_G.HipHubUI.saveConfig) end
+				end)
+			end
+			scroll.CanvasSize = UDim2.new(0, 0, 0, #optionsList * 30 + 10)
+		end
+
+		rebuildMenu()
+		updateOptionVisuals()
+
+		searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+			local query = searchBox.Text:lower():gsub("%s+", "")
+			for _, opt in ipairs(optionsList) do
+				local oBtn = optionButtons[opt]
+				if oBtn then
+					if query == "" or opt:lower():gsub("%s+", ""):find(query, 1, true) then
+						oBtn.Visible = true
+					else
+						oBtn.Visible = false
+					end
+				end
+			end
+		end)
+
+		return {
+			updateOptionVisuals = updateOptionVisuals,
+			rebuildMenu = rebuildMenu
+		}
+	end
+
+	local function createGlassDropdown(parent, labelText, defaultText, layoutOrder)
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, 0, 0, 32)
+		card.BackgroundColor3 = COLORS.glassCard
+		card.BackgroundTransparency = TRANSPARENCY.glassCard
+		card.BorderSizePixel = 0
+		card.LayoutOrder = layoutOrder or 0
+		card.ZIndex = 2
+		card.Parent = parent
+
+		applyGlass(card,
+			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
+
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(0.5, 0, 1, 0)
+		title.Position = UDim2.new(0, 12, 0, 0)
+		title.BackgroundTransparency = 1
+		title.Text = labelText
+		title.TextColor3 = COLORS.textSecondary
+		title.Font = Enum.Font.GothamMedium
+		title.TextSize = 13
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.ZIndex = 3
+		title.Parent = card
+
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(0, 140, 0, 24)
+		button.Position = UDim2.new(1, -150, 0.5, -12)
+		button.BackgroundColor3 = COLORS.glassPrimary
+		button.BackgroundTransparency = 0.2
+		button.BorderSizePixel = 0
+		button.Text = ""
+		button.ZIndex = 3
+		button.Parent = card
+
+		applyGlass(button,
+			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.accentCyan, strokeThickness = 1, strokeTransparency = 0.55 })
+
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(1, -30, 1, 0)
+		label.Position = UDim2.new(0, 8, 0, 0)
+		label.BackgroundTransparency = 1
+		label.Text = defaultText or "Select Options"
+		label.TextColor3 = COLORS.textPrimary
+		label.Font = Enum.Font.GothamMedium
+		label.TextSize = 12
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.TextTruncate = Enum.TextTruncate.AtEnd
+		label.ZIndex = 4
+		label.Parent = button
+
+		local arrow = Instance.new("TextLabel")
+		arrow.Size = UDim2.new(0, 20, 1, 0)
+		arrow.Position = UDim2.new(1, -20, 0, 0)
+		arrow.BackgroundTransparency = 1
+		arrow.Text = "v"
+		arrow.TextColor3 = COLORS.accentCyan
+		arrow.Font = Enum.Font.GothamBold
+		arrow.TextSize = 12
+		arrow.ZIndex = 4
+		arrow.Parent = button
+
+		-- Dropdown Menu Overlay
+		local menu = Instance.new("Frame")
+		menu.Size = UDim2.new(0, 160, 1, 0)
+		menu.Position = UDim2.new(1, 0, 0, 0)
+		menu.BackgroundColor3 = COLORS.glassSurface
+		menu.BackgroundTransparency = 0.05
+		menu.BorderSizePixel = 0
+		menu.Visible = false
+		menu.ZIndex = 100
+		menu.Parent = mainFrame
+
+		applyGlass(menu,
+			{ corner = CORNER.medium, stroke = true, strokeColor = COLORS.accentCyan, strokeThickness = 1, strokeTransparency = 0.45, gradient = true, gradientRotation = 180 })
+
+		local search = Instance.new("TextBox")
+		search.Size = UDim2.new(1, -16, 0, 28)
+		search.Position = UDim2.new(0, 8, 0, 8)
+		search.BackgroundColor3 = COLORS.glassPrimary
+		search.BackgroundTransparency = 0.15
+		search.BorderSizePixel = 0
+		search.Text = ""
+		search.PlaceholderText = "Search..."
+		search.PlaceholderColor3 = COLORS.textMuted
+		search.TextColor3 = COLORS.textWhite
+		search.Font = Enum.Font.GothamMedium
+		search.TextSize = 11
+		search.ClearTextOnFocus = false
+		search.ZIndex = 101
+		search.Parent = menu
+
+		applyGlass(search,
+			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.6 })
+
+		local scroll = Instance.new("ScrollingFrame")
+		scroll.Size = UDim2.new(1, 0, 1, -44)
+		scroll.Position = UDim2.new(0, 0, 0, 44)
+		scroll.BackgroundTransparency = 1
+		scroll.BorderSizePixel = 0
+		pcall(function()
+			scroll.ScrollBarThickness = 3
+			scroll.ScrollBarImageColor3 = COLORS.accentCyan
+			scroll.ScrollBarImageTransparency = 0.4
+		end)
+		scroll.ZIndex = 101
+		scroll.Parent = menu
+
+		applyListLayout(scroll, 4)
+		applyPadding(scroll, 8, 8, 4, 0)
+
+		return card, button, label, menu, search, scroll
+	end
+
+	-- Connect click outside to close dropdowns
+	UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			local mousePos = UserInputService:GetMouseLocation()
+			local inset = game:GetService("GuiService"):GetGuiInset()
+			local actualMousePos = mousePos - inset
+			local function inBounds(guiObj)
+				if not guiObj or not guiObj.Visible then return false end
+				local pos = guiObj.AbsolutePosition
+				local size = guiObj.AbsoluteSize
+				return actualMousePos.X >= pos.X and actualMousePos.X <= pos.X + size.X and
+					actualMousePos.Y >= pos.Y and actualMousePos.Y <= pos.Y + size.Y
+			end
+			local clickedInsideAny = false
+			for _, dd in ipairs(dropdownsList) do
+				if dd.isOpen then
+					if inBounds(dd.menu) or inBounds(dd.btn) then clickedInsideAny = true end
+				end
+			end
+			if not clickedInsideAny then
+				closeAllDropdowns()
+			end
+		end
+	end)
+
 	------------------------------------------------
 	-- ⚙️ SETTINGS TAB
 	------------------------------------------------
@@ -1214,6 +1486,11 @@ local success, err = pcall(function()
 		applyPadding = applyPadding,
 		applyListLayout = applyListLayout,
 		createGlassToggle = createGlassToggle,
+		createCollapsibleSection = createCollapsibleSection,
+		createGlassDropdown = createGlassDropdown,
+		registerDropdownMenu = registerDropdownMenu,
+		bindDropdown = bindDropdown,
+		closeAllDropdowns = closeAllDropdowns,
 
 		-- Main UI containers
 		gui = gui,
