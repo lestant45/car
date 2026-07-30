@@ -624,7 +624,7 @@ local success, err = pcall(function()
 		-- Expandable Header Click Button
 		local sellHeaderBtn = Instance.new("TextButton")
 		sellHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
-		sellHeaderBtn.BackgroundTransparency = 1
+		sellHeaderBtn.BackgroundTransparency = 0.999
 		sellHeaderBtn.Text = ""
 		sellHeaderBtn.ZIndex = 10
 		sellHeaderBtn.Active = true
@@ -671,7 +671,10 @@ local success, err = pcall(function()
 
 		refs.applyListLayout(sellContentContainer, 6)
 
-		sellHeaderBtn.MouseButton1Click:Connect(function()
+		local lastSellClick = 0
+		local function toggleSellSection()
+			if os.clock() - lastSellClick < 0.2 then return end
+			lastSellClick = os.clock()
 			isSellExpanded = not isSellExpanded
 			sellChevronLabel.Text = isSellExpanded and "v" or ">"
 			local targetHeight = isSellExpanded and 215 or 36
@@ -683,6 +686,13 @@ local success, err = pcall(function()
 			tween:Play()
 			tween.Completed:Connect(updateMainTabCanvas)
 			updateMainTabCanvas()
+		end
+
+		sellHeaderBtn.MouseButton1Click:Connect(toggleSellSection)
+		sellHeaderBtn.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				toggleSellSection()
+			end
 		end)
 
 		-- Helper to get Shop / Sell location CFrame in Mine Mountain
@@ -1575,8 +1585,10 @@ local success, err = pcall(function()
 		-- Expandable Header Click Button
 		local amHeaderBtn = Instance.new("TextButton")
 		amHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
-		amHeaderBtn.BackgroundTransparency = 1
+		amHeaderBtn.BackgroundTransparency = 0.999
 		amHeaderBtn.Text = ""
+		amHeaderBtn.ZIndex = 10
+		amHeaderBtn.Active = true
 		amHeaderBtn.Parent = autoMineCategoryCard
 
 		local amAccentBar = Instance.new("Frame")
@@ -1620,7 +1632,10 @@ local success, err = pcall(function()
 
 		refs.applyListLayout(amContentContainer, 6)
 
-		amHeaderBtn.MouseButton1Click:Connect(function()
+		local lastAmClick = 0
+		local function toggleAmSection()
+			if os.clock() - lastAmClick < 0.2 then return end
+			lastAmClick = os.clock()
 			isAutoMineCategoryExpanded = not isAutoMineCategoryExpanded
 			amChevronLabel.Text = isAutoMineCategoryExpanded and "v" or ">"
 			local targetHeight = isAutoMineCategoryExpanded and 310 or 36
@@ -1631,6 +1646,13 @@ local success, err = pcall(function()
 			tween:Play()
 			tween.Completed:Connect(updateMainTabCanvas)
 			updateMainTabCanvas()
+		end
+
+		amHeaderBtn.MouseButton1Click:Connect(toggleAmSection)
+		amHeaderBtn.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				toggleAmSection()
+			end
 		end)
 
 		-- 1. Auto Farm Crystals Toggle
@@ -1823,46 +1845,13 @@ local success, err = pcall(function()
 			amSizeBinder.updateOptionVisuals()
 		end
 
-		-- 7. Value Filter Mode Card (Above vs Below) inside Automation Mining
-		local autoFarmValueMode = "Above"
-		local amValModeCard, amValModeDropBtn, amValModeDropLabel, amValModeMenuFrame, amValModeSearch, amValModeScroll = refs.createGlassDropdown(
-			amContentContainer, "Value Mode", "Above (>=)", 7
-		)
-		amValModeCard.Size = UDim2.new(1, 0, 0, 32)
-
-		local amValModes = { "Above (>=)", "Below (<=)" }
-
-		refs.registerDropdownMenu(amValModeDropBtn, amValModeMenuFrame)
-		local amValModeBinder = refs.bindDropdown(
-			amValModeDropBtn, amValModeMenuFrame, amValModeSearch, amValModeScroll, amValModes,
-			function(opt)
-				if opt == "Below (<=)" then return autoFarmValueMode == "Below" end
-				return autoFarmValueMode == "Above"
-			end,
-			function(opt)
-				if string.find(opt, "Below") then
-					autoFarmValueMode = "Below"
-				else
-					autoFarmValueMode = "Above"
-				end
-			end,
-			function()
-				amValModeDropLabel.Text = autoFarmValueMode == "Below" and "Below (<=)" or "Above (>=)"
-			end
-		)
-
-		local function updateAmValModeVisuals()
-			amValModeDropLabel.Text = autoFarmValueMode == "Below" and "Below (<=)" or "Above (>=)"
-			amValModeBinder.updateOptionVisuals()
-		end
-
-		-- 8. Value Filter Input Box ($M, 0 for all) inside Automation Mining
+		-- 7. Value Filter Input Box ($M, 0 for all) inside Automation Mining
 		local amValCard = Instance.new("Frame")
 		amValCard.Size = UDim2.new(1, 0, 0, 32)
 		amValCard.BackgroundColor3 = COLORS.glassCard
 		amValCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		amValCard.BorderSizePixel = 0
-		amValCard.LayoutOrder = 8
+		amValCard.LayoutOrder = 7
 		amValCard.Parent = amContentContainer
 
 		refs.applyGlass(amValCard, {
@@ -2084,14 +2073,8 @@ local success, err = pcall(function()
 					end
 
 					local valInMillions = rawVal / 1000000
-					if autoFarmValueMode == "Below" then
-						if valInMillions > autoFarmMinValueMillions then
-							matchesValue = false
-						end
-					else
-						if valInMillions < autoFarmMinValueMillions then
-							matchesValue = false
-						end
+					if valInMillions < autoFarmMinValueMillions then
+						matchesValue = false
 					end
 				end
 
@@ -2786,9 +2769,22 @@ local success, err = pcall(function()
 						table.insert(offsets, Vector3.new(dx, 0, 0))
 					end
 
-					-- 2. Phase 2: Outer Perimeter Border (Fence Lines - as shown in user picture)
-					local borderDist = 15.5
-					local bSpacing = 2.8
+					-- 2. Phase 2: Outer Perimeter Border (Far Outer Fence Lines - near wooden fence boundary)
+					local borderDist = 35.0
+					pcall(function()
+						local p = player or game:GetService("Players").LocalPlayer
+						local things = workspace:FindFirstChild("Things")
+						local plots = things and things:FindFirstChild("Plots") or workspace:FindFirstChild("Plots")
+						local slots = plots and (plots:FindFirstChild("Slots") or plots)
+						local myPlot = slots and slots:FindFirstChild(p.Name)
+						local regionPart = myPlot and myPlot:FindFirstChild("Region")
+						if regionPart and regionPart:IsA("BasePart") then
+							local halfW = (regionPart.Size.X * 0.5) - 3.5
+							if halfW > 20 then borderDist = halfW end
+						end
+					end)
+
+					local bSpacing = 3.5
 
 					-- Bottom fence line
 					for dx = -borderDist, borderDist, bSpacing do
@@ -2807,9 +2803,9 @@ local success, err = pcall(function()
 						table.insert(offsets, Vector3.new(borderDist, 0, dz))
 					end
 
-					-- 3. Phase 3: Secondary Inner Perimeter Ring Rows (if player has more crystals in backpack)
-					local ringDist = 13.0
-					while #offsets < totalCount and ringDist > 3.0 do
+					-- 3. Phase 3: Secondary Inner Perimeter Ring Rows (stepping inward towards center)
+					local ringDist = borderDist - 5.0
+					while #offsets < totalCount and ringDist > 11.0 do
 						for dx = -ringDist, ringDist, bSpacing do
 							table.insert(offsets, Vector3.new(dx, 0, ringDist))
 						end
@@ -2822,7 +2818,7 @@ local success, err = pcall(function()
 						for dz = -ringDist + bSpacing, ringDist - bSpacing, bSpacing do
 							table.insert(offsets, Vector3.new(ringDist, 0, dz))
 						end
-						ringDist = ringDist - 2.5
+						ringDist = ringDist - 4.5
 					end
 
 					return offsets
