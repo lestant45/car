@@ -1699,35 +1699,55 @@ local success, err = pcall(function()
 		apActionCorner.CornerRadius = refs.CORNER.small
 		apActionCorner.Parent = apActionBtn
 
-		-- Core Placement Helpers & Logic
+		-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player].Region)
 		local function getPlayerPlotPosition()
 			local p = player or game:GetService("Players").LocalPlayer
-			if not p then return nil end
+			if not p then return nil, nil end
 
-			-- Search workspace for player's Plot / Base
-			local plots = workspace:FindFirstChild("Plots") or workspace:FindFirstChild("Bases") or workspace:FindFirstChild("PlayerBases") or workspace:FindFirstChild("PlotsFolder")
-			if plots then
-				for _, plot in ipairs(plots:GetChildren()) do
-					local ownerAttr = plot:GetAttribute("Owner") or plot:GetAttribute("Player") or plot:GetAttribute("UserId")
-					if tostring(ownerAttr) == tostring(p.Name) or tostring(ownerAttr) == tostring(p.UserId) or string.find(string.lower(plot.Name), string.lower(p.Name), 1, true) then
-						local floorPart = plot:FindFirstChild("Floor") or plot:FindFirstChild("Plot") or plot:FindFirstChild("Base") or plot.PrimaryPart or plot:FindFirstChildWhichIsA("BasePart", true)
-						if floorPart then return floorPart.Position end
+			-- 1. Direct path from Explorer: Workspace.Things.Plots.Slots[LocalPlayer.Name].Region
+			local things = workspace:FindFirstChild("Things")
+			local plotsFolder = things and things:FindFirstChild("Plots") or workspace:FindFirstChild("Plots")
+			if plotsFolder then
+				local slots = plotsFolder:FindFirstChild("Slots") or plotsFolder
+				local myPlot = slots:FindFirstChild(p.Name)
+				if not myPlot then
+					for _, slot in ipairs(slots:GetChildren()) do
+						if string.lower(slot.Name) == string.lower(p.Name) or slot:GetAttribute("Owner") == p.Name or slot:GetAttribute("UserId") == p.UserId then
+							myPlot = slot
+							break
+						end
+					end
+				end
+
+				if myPlot then
+					local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChild("Spawn") or myPlot.PrimaryPart or myPlot:FindFirstChildWhichIsA("BasePart", true)
+					if region and region:IsA("BasePart") then
+						return region.CFrame, region.Size
 					end
 				end
 			end
 
-			local myPlot = workspace:FindFirstChild(p.Name .. "'s Plot") or workspace:FindFirstChild(p.Name .. "Plot") or workspace:FindFirstChild("MyPlot")
-			if myPlot then
-				local floorPart = myPlot:FindFirstChild("Floor") or myPlot:FindFirstChild("Plot") or myPlot.PrimaryPart or myPlot:FindFirstChildWhichIsA("BasePart", true)
-				if floorPart then return floorPart.Position end
+			-- 2. Fallback search across workspace
+			for _, containerName in ipairs({ "Plots", "Bases", "PlayerBases", "Slots" }) do
+				local container = workspace:FindFirstChild(containerName)
+				if container then
+					local myPlot = container:FindFirstChild(p.Name) or (container:FindFirstChild("Slots") and container.Slots:FindFirstChild(p.Name))
+					if myPlot then
+						local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChildWhichIsA("BasePart", true)
+						if region and region:IsA("BasePart") then
+							return region.CFrame, region.Size
+						end
+					end
+				end
 			end
 
+			-- 3. Character fallback
 			local char = p.Character
 			local hrp = char and char:FindFirstChild("HumanoidRootPart")
 			if hrp then
-				return hrp.Position + Vector3.new(0, -1.5, 0)
+				return hrp.CFrame, Vector3.new(30, 1, 30)
 			end
-			return nil
+			return nil, nil
 		end
 
 		local function matchesPlaceRarity(tool)
@@ -1789,15 +1809,18 @@ local success, err = pcall(function()
 			local placeRem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("PlotPlaceRequest")
 			if not placeRem then return end
 
-			local basePos = getPlayerPlotPosition()
-			if not basePos then return end
+			local regionCFrame, regionSize = getPlayerPlotPosition()
+			if not regionCFrame then return end
 
 			local targetTools = {}
 			local function scanTools(container)
 				if not container then return end
 				for _, child in ipairs(container:GetChildren()) do
 					if child:IsA("Tool") then
-						local isCrystal = child:GetAttribute("Tier") ~= nil or child:GetAttribute("WeightKg") ~= nil or string.find(string.lower(child.Name), "crystal", 1, true) or string.find(string.lower(child.Name), "kg", 1, true)
+						local hasTier = child:GetAttribute("Tier") ~= nil
+						local wKg = child:GetAttribute("WeightKg")
+						local nameLower = string.lower(child.Name)
+						local isCrystal = hasTier or wKg ~= nil or string.find(nameLower, "crystal", 1, true) or string.find(nameLower, "kg", 1, true) or string.find(nameLower, "[m]", 1, true)
 						if isCrystal and matchesPlaceRarity(child) then
 							table.insert(targetTools, child)
 						end
@@ -1810,13 +1833,25 @@ local success, err = pcall(function()
 
 			if #targetTools == 0 then return end
 
-			local gridCols = 4
-			local spacing = 4.0
+			local surfaceY = (regionSize and regionSize.Y > 0) and (regionSize.Y / 2 + 0.5) or 1.0
+			local plotWidth = (regionSize and regionSize.X > 6) and (regionSize.X - 6) or 30
+			local plotDepth = (regionSize and regionSize.Z > 6) and (regionSize.Z - 6) or 30
+
+			local gridCols = 5
+			local spacingX = plotWidth / gridCols
+			local spacingZ = 4.5
+
 			for idx, tool in ipairs(targetTools) do
 				if not tool or not tool.Parent then continue end
+
 				local col = (idx - 1) % gridCols
 				local row = math.floor((idx - 1) / gridCols)
-				local placePos = basePos + Vector3.new((col - 1.5) * spacing, 0.5, (row - 1.5) * spacing)
+
+				local offsetX = (col - (gridCols - 1) / 2) * spacingX
+				local offsetZ = (row * spacingZ) - (plotDepth / 3)
+
+				local targetCFrame = regionCFrame * CFrame.new(offsetX, surfaceY, offsetZ)
+				local placePos = targetCFrame.Position
 
 				pcall(function()
 					placeRem:FireServer(
