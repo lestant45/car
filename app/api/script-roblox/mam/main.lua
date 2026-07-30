@@ -626,6 +626,8 @@ local success, err = pcall(function()
 		sellHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
 		sellHeaderBtn.BackgroundTransparency = 1
 		sellHeaderBtn.Text = ""
+		sellHeaderBtn.ZIndex = 10
+		sellHeaderBtn.Active = true
 		sellHeaderBtn.Parent = sellCard
 
 		local sellAccentBar = Instance.new("Frame")
@@ -1709,13 +1711,46 @@ local success, err = pcall(function()
 			amSizeBinder.updateOptionVisuals()
 		end
 
-		-- 7. Min Value Filter Input Box ($M) inside Automation Mining
+		-- 7. Value Filter Mode Card (Above vs Below) inside Automation Mining
+		local autoFarmValueMode = "Above"
+		local amValModeCard, amValModeDropBtn, amValModeDropLabel, amValModeMenuFrame, amValModeSearch, amValModeScroll = refs.createGlassDropdown(
+			amContentContainer, "Value Mode", "Above (>=)", 7
+		)
+		amValModeCard.Size = UDim2.new(1, 0, 0, 32)
+
+		local amValModes = { "Above (>=)", "Below (<=)" }
+
+		refs.registerDropdownMenu(amValModeDropBtn, amValModeMenuFrame)
+		local amValModeBinder = refs.bindDropdown(
+			amValModeDropBtn, amValModeMenuFrame, amValModeSearch, amValModeScroll, amValModes,
+			function(opt)
+				if opt == "Below (<=)" then return autoFarmValueMode == "Below" end
+				return autoFarmValueMode == "Above"
+			end,
+			function(opt)
+				if string.find(opt, "Below") then
+					autoFarmValueMode = "Below"
+				else
+					autoFarmValueMode = "Above"
+				end
+			end,
+			function()
+				amValModeDropLabel.Text = autoFarmValueMode == "Below" and "Below (<=)" or "Above (>=)"
+			end
+		)
+
+		local function updateAmValModeVisuals()
+			amValModeDropLabel.Text = autoFarmValueMode == "Below" and "Below (<=)" or "Above (>=)"
+			amValModeBinder.updateOptionVisuals()
+		end
+
+		-- 8. Value Filter Input Box ($M, 0 for all) inside Automation Mining
 		local amValCard = Instance.new("Frame")
 		amValCard.Size = UDim2.new(1, 0, 0, 32)
 		amValCard.BackgroundColor3 = COLORS.glassCard
 		amValCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		amValCard.BorderSizePixel = 0
-		amValCard.LayoutOrder = 7
+		amValCard.LayoutOrder = 8
 		amValCard.Parent = amContentContainer
 
 		refs.applyGlass(amValCard, {
@@ -1730,7 +1765,7 @@ local success, err = pcall(function()
 		amValLabel.Size = UDim2.new(0.5, -12, 1, 0)
 		amValLabel.Position = UDim2.new(0, 12, 0, 0)
 		amValLabel.BackgroundTransparency = 1
-		amValLabel.Text = "Min Value ($M)"
+		amValLabel.Text = "Filter Value ($M)"
 		amValLabel.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
 		amValLabel.Font = Enum.Font.GothamMedium
 		amValLabel.TextSize = 12
@@ -1760,7 +1795,7 @@ local success, err = pcall(function()
 		amValBox.Position = UDim2.new(0, 6, 0, 0)
 		amValBox.BackgroundTransparency = 1
 		amValBox.Text = "0"
-		amValBox.PlaceholderText = "Type Min $M..."
+		amValBox.PlaceholderText = "0 for All ($M)..."
 		amValBox.TextColor3 = COLORS.accentCyan
 		amValBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
 		amValBox.Font = Enum.Font.GothamBold
@@ -1937,8 +1972,14 @@ local success, err = pcall(function()
 					end
 
 					local valInMillions = rawVal / 1000000
-					if valInMillions < autoFarmMinValueMillions then
-						matchesValue = false
+					if autoFarmValueMode == "Below" then
+						if valInMillions > autoFarmMinValueMillions then
+							matchesValue = false
+						end
+					else
+						if valInMillions < autoFarmMinValueMillions then
+							matchesValue = false
+						end
 					end
 				end
 
@@ -2696,6 +2737,7 @@ local success, err = pcall(function()
 						autoSellOnFullEnabled = autoSellOnFullEnabled,
 						autoFarmRarityFilters = autoFarmRarityFilters,
 						autoFarmSizeFilters = autoFarmSizeFilters,
+						autoFarmValueMode = autoFarmValueMode,
 						autoFarmMinValueMillions = autoFarmMinValueMillions,
 					}
 				end,
@@ -2740,6 +2782,10 @@ local success, err = pcall(function()
 					elseif s.autoFarmSizeFilter ~= nil then
 						autoFarmSizeFilters = { [tostring(s.autoFarmSizeFilter)] = true }
 						updateAmSizeVisuals()
+					end
+					if s.autoFarmValueMode ~= nil then
+						autoFarmValueMode = tostring(s.autoFarmValueMode)
+						updateAmValModeVisuals()
 					end
 					if s.autoFarmMinValueMillions ~= nil then
 						autoFarmMinValueMillions = tonumber(s.autoFarmMinValueMillions) or 0
