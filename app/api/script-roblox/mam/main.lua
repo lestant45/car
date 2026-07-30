@@ -1625,7 +1625,7 @@ local success, err = pcall(function()
 
 		-- Content Container inside Automation Mining Card
 		local amContentContainer = Instance.new("Frame")
-		amContentContainer.Size = UDim2.new(1, -24, 0, 270)
+		amContentContainer.Size = UDim2.new(1, -24, 0, 230)
 		amContentContainer.Position = UDim2.new(0, 12, 0, 42)
 		amContentContainer.BackgroundTransparency = 1
 		amContentContainer.Parent = autoMineCategoryCard
@@ -1638,7 +1638,7 @@ local success, err = pcall(function()
 			lastAmClick = os.clock()
 			isAutoMineCategoryExpanded = not isAutoMineCategoryExpanded
 			amChevronLabel.Text = isAutoMineCategoryExpanded and "v" or ">"
-			local targetHeight = isAutoMineCategoryExpanded and 310 or 36
+			local targetHeight = isAutoMineCategoryExpanded and 270 or 36
 			local tween = TweenService:Create(autoMineCategoryCard,
 				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
@@ -1844,80 +1844,6 @@ local success, err = pcall(function()
 			amSzDropLabel.Text = getSelectedSizeLabelText()
 			amSizeBinder.updateOptionVisuals()
 		end
-
-		-- 7. Value Filter Input Box ($M, 0 for all) inside Automation Mining
-		local amValCard = Instance.new("Frame")
-		amValCard.Size = UDim2.new(1, 0, 0, 32)
-		amValCard.BackgroundColor3 = COLORS.glassCard
-		amValCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-		amValCard.BorderSizePixel = 0
-		amValCard.LayoutOrder = 7
-		amValCard.Parent = amContentContainer
-
-		refs.applyGlass(amValCard, {
-			corner = refs.CORNER.small,
-			stroke = true,
-			strokeColor = COLORS.borderGlass,
-			strokeThickness = 1,
-			strokeTransparency = 0.7
-		})
-
-		local amValLabel = Instance.new("TextLabel")
-		amValLabel.Size = UDim2.new(0.5, -12, 1, 0)
-		amValLabel.Position = UDim2.new(0, 12, 0, 0)
-		amValLabel.BackgroundTransparency = 1
-		amValLabel.Text = "Filter Value ($M)"
-		amValLabel.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
-		amValLabel.Font = Enum.Font.GothamMedium
-		amValLabel.TextSize = 12
-		amValLabel.TextXAlignment = Enum.TextXAlignment.Left
-		amValLabel.Parent = amValCard
-
-		local amValInputBg = Instance.new("Frame")
-		amValInputBg.Size = UDim2.new(0.5, -12, 0, 24)
-		amValInputBg.Position = UDim2.new(0.5, 0, 0.5, -12)
-		amValInputBg.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-		amValInputBg.BackgroundTransparency = 0.3
-		amValInputBg.BorderSizePixel = 0
-		amValInputBg.Parent = amValCard
-
-		local amValInputCorner = Instance.new("UICorner")
-		amValInputCorner.CornerRadius = UDim.new(0, 4)
-		amValInputCorner.Parent = amValInputBg
-
-		local amValInputStroke = Instance.new("UIStroke")
-		amValInputStroke.Color = COLORS.accentCyan
-		amValInputStroke.Thickness = 1
-		amValInputStroke.Transparency = 0.6
-		amValInputStroke.Parent = amValInputBg
-
-		local amValBox = Instance.new("TextBox")
-		amValBox.Size = UDim2.new(1, -12, 1, 0)
-		amValBox.Position = UDim2.new(0, 6, 0, 0)
-		amValBox.BackgroundTransparency = 1
-		amValBox.Text = "0"
-		amValBox.PlaceholderText = "0 for All ($M)..."
-		amValBox.TextColor3 = COLORS.accentCyan
-		amValBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
-		amValBox.Font = Enum.Font.GothamBold
-		amValBox.TextSize = 12
-		amValBox.TextXAlignment = Enum.TextXAlignment.Center
-		amValBox.ClearTextOnFocus = false
-		amValBox.Parent = amValInputBg
-
-		local function updateAmValVisuals()
-			amValBox.Text = tostring(autoFarmMinValueMillions)
-		end
-
-		amValBox.FocusLost:Connect(function()
-			local num = tonumber(amValBox.Text)
-			if num then
-				autoFarmMinValueMillions = math.max(0, num)
-			else
-				amValBox.Text = tostring(autoFarmMinValueMillions)
-			end
-			if refs.saveConfig then pcall(refs.saveConfig) end
-		end)
 
 		-- Dedicated Noclip Engine for Automation Mining
 		local amNoclipConnection = nil
@@ -2875,8 +2801,6 @@ local success, err = pcall(function()
 						autoSellOnFullEnabled = autoSellOnFullEnabled,
 						autoFarmRarityFilters = autoFarmRarityFilters,
 						autoFarmSizeFilters = autoFarmSizeFilters,
-						autoFarmValueMode = autoFarmValueMode,
-						autoFarmMinValueMillions = autoFarmMinValueMillions,
 					}
 				end,
 				setState = function(s)
@@ -2920,14 +2844,6 @@ local success, err = pcall(function()
 					elseif s.autoFarmSizeFilter ~= nil then
 						autoFarmSizeFilters = { [tostring(s.autoFarmSizeFilter)] = true }
 						updateAmSizeVisuals()
-					end
-					if s.autoFarmValueMode ~= nil then
-						autoFarmValueMode = tostring(s.autoFarmValueMode)
-						updateAmValModeVisuals()
-					end
-					if s.autoFarmMinValueMillions ~= nil then
-						autoFarmMinValueMillions = tonumber(s.autoFarmMinValueMillions) or 0
-						updateAmValVisuals()
 					end
 				end
 			}
