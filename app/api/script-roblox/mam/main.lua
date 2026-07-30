@@ -836,6 +836,9 @@ local success, err = pcall(function()
 		end)
 
 		-- 2. Toggle: Auto Sell All
+		local autoSellRarityFilters = { ["All"] = true }
+		local autoSellSizeFilters = { ["All"] = true }
+
 		local asRow, asTrack, asThumb = refs.createGlassToggle(sellContentContainer, "Auto Sell All", 2)
 		local updateAutoSellVisuals = function()
 			if autoSellEnabled then
@@ -855,6 +858,121 @@ local success, err = pcall(function()
 			if refs.saveConfig then pcall(refs.saveConfig) end
 		end)
 
+		-- 3. Sell Rarity Filter Dropdown
+		local asRarCard, asRarDropBtn, asRarDropLabel, asRarMenuFrame, asRarSearch, asRarScroll = refs.createGlassDropdown(
+			sellContentContainer, "Sell Rarity Filter", "All", 3
+		)
+		asRarCard.Size = UDim2.new(1, 0, 0, 32)
+
+		local function getSelectedSellRarityLabelText()
+			if autoSellRarityFilters["All"] or next(autoSellRarityFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
+				if autoSellRarityFilters[r] then table.insert(list, r) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
+		local asRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+		refs.registerDropdownMenu(asRarDropBtn, asRarMenuFrame)
+		local asRarityBinder = refs.bindDropdown(
+			asRarDropBtn, asRarMenuFrame, asRarSearch, asRarScroll, asRarities,
+			function(opt)
+				return autoSellRarityFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					autoSellRarityFilters = { ["All"] = true }
+				else
+					autoSellRarityFilters["All"] = nil
+					autoSellRarityFilters[opt] = not autoSellRarityFilters[opt]
+					local hasAny = false
+					for _, v in pairs(autoSellRarityFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then autoSellRarityFilters["All"] = true end
+				end
+			end,
+			function()
+				asRarDropLabel.Text = getSelectedSellRarityLabelText()
+			end
+		)
+
+		local function updateAsRarityVisuals()
+			asRarDropLabel.Text = getSelectedSellRarityLabelText()
+			asRarityBinder.updateOptionVisuals()
+		end
+
+		-- 4. Sell Size Filter Dropdown
+		local asSzCard, asSzDropBtn, asSzDropLabel, asSzMenuFrame, asSzSearch, asSzScroll = refs.createGlassDropdown(
+			sellContentContainer, "Sell Size Filter", "All", 4
+		)
+		asSzCard.Size = UDim2.new(1, 0, 0, 32)
+
+		local function getSelectedSellSizeLabelText()
+			if autoSellSizeFilters["All"] or next(autoSellSizeFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, s in ipairs({ "Small", "Medium", "Large", "Extra Large", "Giant", "Colossal", "Titan", "Leviathan", "Behemoth" }) do
+				if autoSellSizeFilters[s] then table.insert(list, s) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
+		local asSizes = { "All", "Small", "Medium", "Large", "Extra Large", "Giant", "Colossal", "Titan", "Leviathan", "Behemoth" }
+		refs.registerDropdownMenu(asSzDropBtn, asSzMenuFrame)
+		local asSizeBinder = refs.bindDropdown(
+			asSzDropBtn, asSzMenuFrame, asSzSearch, asSzScroll, asSizes,
+			function(opt)
+				return autoSellSizeFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					autoSellSizeFilters = { ["All"] = true }
+				else
+					autoSellSizeFilters["All"] = nil
+					autoSellSizeFilters[opt] = not autoSellSizeFilters[opt]
+					local hasAny = false
+					for _, v in pairs(autoSellSizeFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then autoSellSizeFilters["All"] = true end
+				end
+			end,
+			function()
+				asSzDropLabel.Text = getSelectedSellSizeLabelText()
+			end
+		)
+
+		local function updateAsSizeVisuals()
+			asSzDropLabel.Text = getSelectedSellSizeLabelText()
+			asSizeBinder.updateOptionVisuals()
+		end
+
+		-- Expand Automation Sell card container height to accommodate new filters
+		sellContentContainer.Size = UDim2.new(1, -24, 0, 180)
+		sellHeaderBtn.MouseButton1Click:Connect(function()
+			isSellExpanded = not isSellExpanded
+			sellChevronLabel.Text = isSellExpanded and "v" or ">"
+			local targetHeight = isSellExpanded and 225 or 36
+			local tween = TweenService:Create(sellCard,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.new(1, 0, 0, targetHeight)
+			})
+			tween:Play()
+			tween.Completed:Connect(updateMainTabCanvas)
+			updateMainTabCanvas()
+		end)
+
 		-- Auto Sell Loop
 		task.spawn(function()
 			while true do
@@ -867,12 +985,441 @@ local success, err = pcall(function()
 
 		_G.HipHubAutomationSell = {
 			getState = function()
-				return { autoSellEnabled = autoSellEnabled }
+				return {
+					autoSellEnabled = autoSellEnabled,
+					autoSellRarityFilters = autoSellRarityFilters,
+					autoSellSizeFilters = autoSellSizeFilters,
+				}
 			end,
 			setState = function(s)
-				if s and s.autoSellEnabled ~= nil then
+				if not s then return end
+				if s.autoSellEnabled ~= nil then
 					autoSellEnabled = (s.autoSellEnabled == true)
 					updateAutoSellVisuals()
+				end
+				if s.autoSellRarityFilters ~= nil then
+					if type(s.autoSellRarityFilters) == "table" then
+						autoSellRarityFilters = s.autoSellRarityFilters
+					elseif type(s.autoSellRarityFilters) == "string" then
+						autoSellRarityFilters = { [s.autoSellRarityFilters] = true }
+					end
+					updateAsRarityVisuals()
+				end
+				if s.autoSellSizeFilters ~= nil then
+					if type(s.autoSellSizeFilters) == "table" then
+						autoSellSizeFilters = s.autoSellSizeFilters
+					elseif type(s.autoSellSizeFilters) == "string" then
+						autoSellSizeFilters = { [s.autoSellSizeFilters] = true }
+					end
+					updateAsSizeVisuals()
+				end
+			end
+		}
+
+		------------------------------------------------
+		-- ⭐️ AUTOMATION FAVORITE CATEGORY SECTION
+		------------------------------------------------
+		local isFavCategoryExpanded = false
+		local autoFavoriteEnabled = false
+		local autoFavRarityFilters = { ["All"] = true }
+		local autoFavSizeFilters = { ["All"] = true }
+
+		local favCategoryCard = Instance.new("Frame")
+		favCategoryCard.Size = UDim2.new(1, 0, 0, 36)
+		favCategoryCard.BackgroundColor3 = COLORS.glassCard
+		favCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		favCategoryCard.BorderSizePixel = 0
+		favCategoryCard.ClipsDescendants = true
+		favCategoryCard.LayoutOrder = 3
+		favCategoryCard.Parent = mainFrameContent
+
+		refs.applyGlass(favCategoryCard, {
+			corner = refs.CORNER.medium,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		-- Expandable Header Click Button
+		local favHeaderBtn = Instance.new("TextButton")
+		favHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+		favHeaderBtn.BackgroundTransparency = 1
+		favHeaderBtn.Text = ""
+		favHeaderBtn.Parent = favCategoryCard
+
+		local favAccentBar = Instance.new("Frame")
+		favAccentBar.Size = UDim2.new(0, 3, 0, 18)
+		favAccentBar.Position = UDim2.new(0, 12, 0, 9)
+		favAccentBar.BackgroundColor3 = COLORS.accentCyan
+		favAccentBar.BorderSizePixel = 0
+		favAccentBar.Parent = favHeaderBtn
+
+		local favAccentCorner = Instance.new("UICorner")
+		favAccentCorner.CornerRadius = UDim.new(0, 2)
+		favAccentCorner.Parent = favAccentBar
+
+		local favTitle = Instance.new("TextLabel")
+		favTitle.Size = UDim2.new(1, -60, 1, 0)
+		favTitle.Position = UDim2.new(0, 24, 0, 0)
+		favTitle.BackgroundTransparency = 1
+		favTitle.Text = "Automation Favorite"
+		favTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		favTitle.Font = Enum.Font.GothamBold
+		favTitle.TextSize = 13
+		favTitle.TextXAlignment = Enum.TextXAlignment.Left
+		favTitle.Parent = favHeaderBtn
+
+		local favChevronLabel = Instance.new("TextLabel")
+		favChevronLabel.Size = UDim2.new(0, 24, 1, 0)
+		favChevronLabel.Position = UDim2.new(1, -30, 0, 0)
+		favChevronLabel.BackgroundTransparency = 1
+		favChevronLabel.Text = ">"
+		favChevronLabel.TextColor3 = COLORS.accentCyan
+		favChevronLabel.Font = Enum.Font.GothamBold
+		favChevronLabel.TextSize = 13
+		favChevronLabel.Parent = favHeaderBtn
+
+		-- Content Container inside Automation Favorite Card
+		local favContentContainer = Instance.new("Frame")
+		favContentContainer.Size = UDim2.new(1, -24, 0, 230)
+		favContentContainer.Position = UDim2.new(0, 12, 0, 42)
+		favContentContainer.BackgroundTransparency = 1
+		favContentContainer.Parent = favCategoryCard
+
+		refs.applyListLayout(favContentContainer, 6)
+
+		favHeaderBtn.MouseButton1Click:Connect(function()
+			isFavCategoryExpanded = not isFavCategoryExpanded
+			favChevronLabel.Text = isFavCategoryExpanded and "v" or ">"
+			local targetHeight = isFavCategoryExpanded and 275 or 36
+			local tween = TweenService:Create(favCategoryCard,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.new(1, 0, 0, targetHeight)
+			})
+			tween:Play()
+			tween.Completed:Connect(updateMainTabCanvas)
+			updateMainTabCanvas()
+		end)
+
+		-- 1. Toggle: Auto Favorite Crystals
+		local afRow, afTrack, afThumb = refs.createGlassToggle(favContentContainer, "Auto Favorite Crystals", 1)
+		local updateAutoFavVisuals = function()
+			if autoFavoriteEnabled then
+				TweenService:Create(afTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(afTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(afThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		updateAutoFavVisuals()
+
+		afTrack.MouseButton1Click:Connect(function()
+			autoFavoriteEnabled = not autoFavoriteEnabled
+			updateAutoFavVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- 2. Favorite Rarity Filter Dropdown
+		local favRarCard, favRarDropBtn, favRarDropLabel, favRarMenuFrame, favRarSearch, favRarScroll = refs.createGlassDropdown(
+			favContentContainer, "Favorite Rarity Filter", "All", 2
+		)
+		favRarCard.Size = UDim2.new(1, 0, 0, 32)
+
+		local function getSelectedFavRarityLabelText()
+			if autoFavRarityFilters["All"] or next(autoFavRarityFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
+				if autoFavRarityFilters[r] then table.insert(list, r) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
+		local favRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+		refs.registerDropdownMenu(favRarDropBtn, favRarMenuFrame)
+		local favRarityBinder = refs.bindDropdown(
+			favRarDropBtn, favRarMenuFrame, favRarSearch, favRarScroll, favRarities,
+			function(opt)
+				return autoFavRarityFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					autoFavRarityFilters = { ["All"] = true }
+				else
+					autoFavRarityFilters["All"] = nil
+					autoFavRarityFilters[opt] = not autoFavRarityFilters[opt]
+					local hasAny = false
+					for _, v in pairs(autoFavRarityFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then autoFavRarityFilters["All"] = true end
+				end
+			end,
+			function()
+				favRarDropLabel.Text = getSelectedFavRarityLabelText()
+			end
+		)
+
+		local function updateFavRarityVisuals()
+			favRarDropLabel.Text = getSelectedFavRarityLabelText()
+			favRarityBinder.updateOptionVisuals()
+		end
+
+		-- 3. Favorite Size Filter Dropdown
+		local favSzCard, favSzDropBtn, favSzDropLabel, favSzMenuFrame, favSzSearch, favSzScroll = refs.createGlassDropdown(
+			favContentContainer, "Favorite Size Filter", "All", 3
+		)
+		favSzCard.Size = UDim2.new(1, 0, 0, 32)
+
+		local function getSelectedFavSizeLabelText()
+			if autoFavSizeFilters["All"] or next(autoFavSizeFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, s in ipairs({ "Small", "Medium", "Large", "Extra Large", "Giant", "Colossal", "Titan", "Leviathan", "Behemoth" }) do
+				if autoFavSizeFilters[s] then table.insert(list, s) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
+		local favSizes = { "All", "Small", "Medium", "Large", "Extra Large", "Giant", "Colossal", "Titan", "Leviathan", "Behemoth" }
+		refs.registerDropdownMenu(favSzDropBtn, favSzMenuFrame)
+		local favSizeBinder = refs.bindDropdown(
+			favSzDropBtn, favSzMenuFrame, favSzSearch, favSzScroll, favSizes,
+			function(opt)
+				return autoFavSizeFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					autoFavSizeFilters = { ["All"] = true }
+				else
+					autoFavSizeFilters["All"] = nil
+					autoFavSizeFilters[opt] = not autoFavSizeFilters[opt]
+					local hasAny = false
+					for _, v in pairs(autoFavSizeFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then autoFavSizeFilters["All"] = true end
+				end
+			end,
+			function()
+				favSzDropLabel.Text = getSelectedFavSizeLabelText()
+			end
+		)
+
+		local function updateFavSizeVisuals()
+			favSzDropLabel.Text = getSelectedFavSizeLabelText()
+			favSizeBinder.updateOptionVisuals()
+		end
+
+		-- Action Buttons Row Container
+		local favBtnsRow = Instance.new("Frame")
+		favBtnsRow.Size = UDim2.new(1, 0, 0, 32)
+		favBtnsRow.BackgroundTransparency = 1
+		favBtnsRow.LayoutOrder = 4
+		favBtnsRow.Parent = favContentContainer
+
+		local favActionBtn = Instance.new("TextButton")
+		favActionBtn.Size = UDim2.new(0.485, 0, 1, 0)
+		favActionBtn.Position = UDim2.new(0, 0, 0, 0)
+		favActionBtn.BackgroundColor3 = COLORS.accentCyan
+		favActionBtn.BackgroundTransparency = 0.15
+		favActionBtn.Text = "★ Favorite Matching"
+		favActionBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+		favActionBtn.Font = Enum.Font.GothamBold
+		favActionBtn.TextSize = 10
+		favActionBtn.Parent = favBtnsRow
+
+		local favActionCorner = Instance.new("UICorner")
+		favActionCorner.CornerRadius = refs.CORNER.small
+		favActionCorner.Parent = favActionBtn
+
+		local unfavActionBtn = Instance.new("TextButton")
+		unfavActionBtn.Size = UDim2.new(0.485, 0, 1, 0)
+		unfavActionBtn.Position = UDim2.new(0.515, 0, 0, 0)
+		unfavActionBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+		unfavActionBtn.BackgroundTransparency = 0.15
+		unfavActionBtn.Text = "☆ Unfavorite Matching"
+		unfavActionBtn.TextColor3 = COLORS.textWhite
+		unfavActionBtn.Font = Enum.Font.GothamBold
+		unfavActionBtn.TextSize = 10
+		unfavActionBtn.Parent = favBtnsRow
+
+		local unfavActionCorner = Instance.new("UICorner")
+		unfavActionCorner.CornerRadius = refs.CORNER.small
+		unfavActionCorner.Parent = unfavActionBtn
+
+		-- Core Favorite / Unfavorite Remote Execution Logic
+		local function executeFavoriteCrystals(isFavState)
+			local p = player or game:GetService("Players").LocalPlayer
+			if not p then return end
+
+			local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+			local favRem = rems and rems:FindFirstChild("ToggleFavorite")
+			if not favRem then return end
+
+			local function matchesFavFilters(tool)
+				if not tool or not tool:IsA("Tool") then return false end
+
+				-- Check Rarity
+				local matchesR = false
+				if autoFavRarityFilters["All"] or next(autoFavRarityFilters) == nil then
+					matchesR = true
+				else
+					local tName = string.lower(tool.Name)
+					local attrStr = ""
+					pcall(function()
+						for aName, aVal in pairs(tool:GetAttributes()) do
+							attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+						end
+					end)
+					local text = tName .. " " .. attrStr
+
+					local filterMap = {
+						["common"] = { "_t1", "t1", "common", "tier1", "tier 1" },
+						["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2" },
+						["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3" },
+						["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4" },
+						["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
+						["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+						["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+					}
+
+					for selRarity, isSel in pairs(autoFavRarityFilters) do
+						if isSel == true then
+							local rLower = string.lower(tostring(selRarity))
+							local kws = filterMap[rLower]
+							if kws then
+								for _, kw in ipairs(kws) do
+									if string.find(text, kw, 1, true) then matchesR = true break end
+								end
+							end
+							if not matchesR and string.find(text, rLower, 1, true) then matchesR = true end
+							if matchesR then break end
+						end
+					end
+				end
+
+				-- Check Size
+				local matchesS = false
+				if autoFavSizeFilters["All"] or next(autoFavSizeFilters) == nil then
+					matchesS = true
+				else
+					local wKg = tool:GetAttribute("WeightKg") or tool:GetAttribute("Weight")
+					local tName = string.lower(tool.Name)
+					local attrStr = ""
+					pcall(function()
+						for aName, aVal in pairs(tool:GetAttributes()) do
+							attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+						end
+					end)
+					local text = tName .. " " .. attrStr
+
+					for selSize, isSel in pairs(autoFavSizeFilters) do
+						if isSel == true then
+							local sLower = string.lower(tostring(selSize))
+							local matched = false
+
+							if string.find(text, sLower, 1, true) then
+								matched = true
+							elseif sLower == "behemoth" and (wKg and wKg >= 25000) then matched = true
+							elseif sLower == "leviathan" and (wKg and wKg >= 8000 and wKg < 25000) then matched = true
+							elseif sLower == "titan" and (wKg and wKg >= 3000 and wKg < 8000) then matched = true
+							elseif sLower == "colossal" and (wKg and wKg >= 1000 and wKg < 3000) then matched = true
+							elseif sLower == "giant" and (wKg and wKg >= 200 and wKg < 1000) then matched = true
+							elseif (sLower == "extra large" or sLower == "xl") and (wKg and wKg >= 90 and wKg < 200) then matched = true
+							elseif (sLower == "large" or sLower == "l") and (wKg and wKg >= 30 and wKg < 90) then matched = true
+							elseif (sLower == "medium" or sLower == "m") and (wKg and wKg >= 8 and wKg < 30) then matched = true
+							elseif (sLower == "small" or sLower == "s") and (wKg and wKg < 8) then matched = true
+							end
+
+							if matched then matchesS = true break end
+						end
+					end
+				end
+
+				return matchesR and matchesS
+			end
+
+			local function scanAndToggle(container)
+				if not container then return end
+				for _, child in ipairs(container:GetChildren()) do
+					if child:IsA("Tool") then
+						local hasTier = child:GetAttribute("Tier") ~= nil
+						local wKg = child:GetAttribute("WeightKg")
+						local isCrystal = hasTier or wKg ~= nil or string.find(string.lower(child.Name), "crystal", 1, true) or string.find(string.lower(child.Name), "kg", 1, true) or string.find(string.lower(child.Name), "[m]", 1, true)
+						if isCrystal and matchesFavFilters(child) then
+							pcall(function()
+								favRem:FireServer(child, isFavState)
+							end)
+							task.wait(0.05)
+						end
+					end
+				end
+			end
+
+			scanAndToggle(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+			if p.Character then scanAndToggle(p.Character) end
+		end
+
+		favActionBtn.MouseButton1Click:Connect(function()
+			pcall(executeFavoriteCrystals, true)
+		end)
+
+		unfavActionBtn.MouseButton1Click:Connect(function()
+			pcall(executeFavoriteCrystals, false)
+		end)
+
+		-- Auto Favorite Loop
+		task.spawn(function()
+			while true do
+				task.wait(3.0)
+				if autoFavoriteEnabled then
+					pcall(executeFavoriteCrystals, true)
+				end
+			end
+		end)
+
+		_G.HipHubAutomationFavorite = {
+			getState = function()
+				return {
+					autoFavoriteEnabled = autoFavoriteEnabled,
+					autoFavRarityFilters = autoFavRarityFilters,
+					autoFavSizeFilters = autoFavSizeFilters,
+				}
+			end,
+			setState = function(s)
+				if not s then return end
+				if s.autoFavoriteEnabled ~= nil then
+					autoFavoriteEnabled = (s.autoFavoriteEnabled == true)
+					updateAutoFavVisuals()
+				end
+				if s.autoFavRarityFilters ~= nil then
+					if type(s.autoFavRarityFilters) == "table" then
+						autoFavRarityFilters = s.autoFavRarityFilters
+					elseif type(s.autoFavRarityFilters) == "string" then
+						autoFavRarityFilters = { [s.autoFavRarityFilters] = true }
+					end
+					updateFavRarityVisuals()
+				end
+				if s.autoFavSizeFilters ~= nil then
+					if type(s.autoFavSizeFilters) == "table" then
+						autoFavSizeFilters = s.autoFavSizeFilters
+					elseif type(s.autoFavSizeFilters) == "string" then
+						autoFavSizeFilters = { [s.autoFavSizeFilters] = true }
+					end
+					updateFavSizeVisuals()
 				end
 			end
 		}
@@ -3043,6 +3590,16 @@ local success, err = pcall(function()
 			if _G.HipHubAutomationSell and _G.HipHubAutomationSell.getState then
 				local sellState = _G.HipHubAutomationSell.getState()
 				data.autoSellEnabled = sellState.autoSellEnabled
+				data.autoSellRarityFilters = sellState.autoSellRarityFilters
+				data.autoSellSizeFilters = sellState.autoSellSizeFilters
+			end
+
+			-- Automation Favorite config state
+			if _G.HipHubAutomationFavorite and _G.HipHubAutomationFavorite.getState then
+				local favState = _G.HipHubAutomationFavorite.getState()
+				data.autoFavoriteEnabled = favState.autoFavoriteEnabled
+				data.autoFavRarityFilters = favState.autoFavRarityFilters
+				data.autoFavSizeFilters = favState.autoFavSizeFilters
 			end
 
 			-- Automation Mining config state
@@ -3122,6 +3679,16 @@ local success, err = pcall(function()
 				if _G.HipHubAutomationSell and _G.HipHubAutomationSell.setState then
 					_G.HipHubAutomationSell.setState({
 						autoSellEnabled = data.autoSellEnabled,
+						autoSellRarityFilters = data.autoSellRarityFilters,
+						autoSellSizeFilters = data.autoSellSizeFilters,
+					})
+				end
+
+				if _G.HipHubAutomationFavorite and _G.HipHubAutomationFavorite.setState then
+					_G.HipHubAutomationFavorite.setState({
+						autoFavoriteEnabled = data.autoFavoriteEnabled,
+						autoFavRarityFilters = data.autoFavRarityFilters,
+						autoFavSizeFilters = data.autoFavSizeFilters,
 					})
 				end
 
