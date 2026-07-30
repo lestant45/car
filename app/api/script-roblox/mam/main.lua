@@ -1119,138 +1119,161 @@ local success, err = pcall(function()
 			if not hrp then return nil end
 
 			local myPos = hrp.Position
-			local things = workspace:FindFirstChild("Things")
-			local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
-			local dcFolder = workspace:FindFirstChild("DroppedCrystals")
-
 			local bestObj = nil
 			local bestPart = nil
 			local shortestDist = math.huge
+			local evaluatedObjects = {}
 
-			local function evaluateFolder(folder)
-				if not folder then return end
-				for _, child in ipairs(folder:GetDescendants()) do
-					if child and child.Parent and (child:IsA("BasePart") or child:IsA("Model")) and not child:IsA("Accessory") then
-						local nameLower = string.lower(child.Name)
+			local filterMap = {
+				["common"] = { "_t1", "t1", "common", "tier1", "tier 1" },
+				["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2" },
+				["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3" },
+				["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4" },
+				["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
+				["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+				["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+			}
 
-						-- Multi-Select Rarity Check
-						local matchesRarity = false
-						if autoFarmRarityFilters["All"] or next(autoFarmRarityFilters) == nil then
-							matchesRarity = true
-						else
-							local filterMap = {
-								["common"] = { "_t1", "t1", "common", "tier1", "tier 1", "1" },
-								["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2", "2" },
-								["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3", "3" },
-								["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4", "4" },
-								["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5", "5" },
-								["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6" },
-								["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6", "6" },
-							}
-							for selRarity, isSel in pairs(autoFarmRarityFilters) do
-								if isSel then
-									local rarityLower = string.lower(selRarity)
-									local kws = filterMap[rarityLower]
-									if kws then
-										for _, kw in ipairs(kws) do
-											if string.find(nameLower, kw, 1, true) then
-												matchesRarity = true
-												break
-											end
-										end
-									end
-									if not matchesRarity and string.find(nameLower, rarityLower, 1, true) then
+			local function evaluateCandidate(child)
+				if not child or evaluatedObjects[child] then return end
+				evaluatedObjects[child] = true
+
+				if not (child:IsA("BasePart") or child:IsA("Model")) or child:IsA("Accessory") then return end
+
+				-- Build comprehensive search name & string from object, parent, and grandparent
+				local pName = child.Parent and child.Parent.Name or ""
+				local gpName = (child.Parent and child.Parent.Parent) and child.Parent.Parent.Name or ""
+				local fullName = string.lower(child.Name .. " " .. pName .. " " .. gpName)
+
+				-- Collect all attribute strings
+				local attrStr = ""
+				local function appendAttrs(inst)
+					if not inst then return end
+					pcall(function()
+						for aName, aVal in pairs(inst:GetAttributes()) do
+							attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+						end
+					end)
+				end
+				appendAttrs(child)
+				appendAttrs(child.Parent)
+
+				local combinedSearchText = fullName .. " " .. attrStr
+
+				-- Multi-Select Rarity Check
+				local matchesRarity = false
+				if autoFarmRarityFilters["All"] or next(autoFarmRarityFilters) == nil then
+					matchesRarity = true
+				else
+					for selRarity, isSel in pairs(autoFarmRarityFilters) do
+						if isSel then
+							local rarityLower = string.lower(selRarity)
+							local kws = filterMap[rarityLower]
+							if kws then
+								for _, kw in ipairs(kws) do
+									if string.find(combinedSearchText, kw, 1, true) then
 										matchesRarity = true
+										break
 									end
-									if not matchesRarity then
-										local attr = child:GetAttribute("Rarity") or child:GetAttribute("Tier") or
-										child:GetAttribute("rarity") or child:GetAttribute("tier")
-										if attr then
-											local attrStr = string.lower(tostring(attr))
-											if string.find(attrStr, rarityLower, 1, true) then
-												matchesRarity = true
-											elseif kws then
-												for _, kw in ipairs(kws) do
-													if string.find(attrStr, kw, 1, true) or attrStr == kw then
-														matchesRarity = true
-														break
-													end
-												end
-											end
-										end
-									end
-									if matchesRarity then break end
 								end
 							end
+							if not matchesRarity and string.find(combinedSearchText, rarityLower, 1, true) then
+								matchesRarity = true
+							end
+							if matchesRarity then break end
 						end
+					end
+				end
 
-						-- Multi-Select Size Check
-						local matchesSize = false
-						if autoFarmSizeFilters["All"] or next(autoFarmSizeFilters) == nil then
-							matchesSize = true
-						else
-							for selSize, isSel in pairs(autoFarmSizeFilters) do
-								if isSel then
-									local sizeLower = string.lower(selSize)
-									if string.find(nameLower, sizeLower, 1, true) then
+				-- Multi-Select Size Check
+				local matchesSize = false
+				if autoFarmSizeFilters["All"] or next(autoFarmSizeFilters) == nil then
+					matchesSize = true
+				else
+					for selSize, isSel in pairs(autoFarmSizeFilters) do
+						if isSel then
+							local sizeLower = string.lower(selSize)
+							if string.find(combinedSearchText, sizeLower, 1, true) then
+								matchesSize = true
+							else
+								local sizeVec = nil
+								if child:IsA("BasePart") then
+									sizeVec = child.Size
+								elseif child:IsA("Model") then
+									local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+									if primary then sizeVec = primary.Size end
+								end
+								if sizeVec then
+									local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
+									if sizeLower == "colossal" and maxDim >= 12 then
 										matchesSize = true
-									else
-										local attr = child:GetAttribute("Size") or child:GetAttribute("Category") or
-										child:GetAttribute("size") or child:GetAttribute("category")
-										if attr and string.find(string.lower(tostring(attr)), sizeLower, 1, true) then
-											matchesSize = true
-										else
-											local sizeVec = nil
-											if child:IsA("BasePart") then
-												sizeVec = child.Size
-											elseif child:IsA("Model") then
-												local primary = child.PrimaryPart or
-												child:FindFirstChildWhichIsA("BasePart")
-												if primary then sizeVec = primary.Size end
-											end
-											if sizeVec then
-												local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
-												if sizeLower == "colossal" and maxDim >= 12 then
-													matchesSize = true
-												elseif sizeLower == "titan" and (maxDim >= 7 and maxDim < 12) then
-													matchesSize = true
-												elseif sizeLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
-													matchesSize = true
-												elseif sizeLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
-													matchesSize = true
-												elseif sizeLower == "small" and maxDim < 1.8 then
-													matchesSize = true
-												end
-											end
-										end
+									elseif sizeLower == "titan" and (maxDim >= 7 and maxDim < 12) then
+										matchesSize = true
+									elseif sizeLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
+										matchesSize = true
+									elseif sizeLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
+										matchesSize = true
+									elseif sizeLower == "small" and maxDim < 1.8 then
+										matchesSize = true
 									end
-									if matchesSize then break end
 								end
 							end
+							if matchesSize then break end
 						end
+					end
+				end
 
-						if matchesRarity and matchesSize then
-							local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or
-							child:FindFirstChildWhichIsA("BasePart")
-							if targetPart then
-								local dist = (myPos - targetPart.Position).Magnitude
-								if dist < shortestDist then
-									shortestDist = dist
-									bestObj = child
-									bestPart = targetPart
-								end
-							end
+				if matchesRarity and matchesSize then
+					local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+					if targetPart then
+						local dist = (myPos - targetPart.Position).Magnitude
+						if dist < shortestDist then
+							shortestDist = dist
+							bestObj = child
+							bestPart = targetPart
 						end
 					end
 				end
 			end
 
-			evaluateFolder(crystalsFolder)
-			evaluateFolder(dcFolder)
+			local function evaluateFolder(folder)
+				if not folder then return end
+				for _, child in ipairs(folder:GetChildren()) do
+					evaluateCandidate(child)
+					if child:IsA("Model") or child:IsA("Folder") then
+						for _, sub in ipairs(child:GetChildren()) do
+							evaluateCandidate(sub)
+						end
+					end
+				end
+			end
+
+			-- Check ProximityPrompts across workspace to ensure no crystal with a prompt is missed
+			pcall(function()
+				for _, desc in ipairs(workspace:GetDescendants()) do
+					if desc:IsA("ProximityPrompt") then
+						local parentObj = desc.Parent
+						if parentObj then
+							local topObj = parentObj:IsA("Model") and parentObj or (parentObj.Parent and parentObj.Parent:IsA("Model") and parentObj.Parent or parentObj)
+							evaluateCandidate(topObj)
+						end
+					end
+				end
+			end)
+
+			-- Search known workspace folders
+			local things = workspace:FindFirstChild("Things")
+			evaluateFolder(workspace:FindFirstChild("Crystals"))
+			evaluateFolder(things and things:FindFirstChild("Crystals"))
+			evaluateFolder(workspace:FindFirstChild("DroppedCrystals"))
 			evaluateFolder(workspace:FindFirstChild("FrozenCaves"))
 			evaluateFolder(workspace:FindFirstChild("CaveZones"))
 			evaluateFolder(workspace:FindFirstChild("Rocks"))
 			evaluateFolder(things and things:FindFirstChild("MountainZones"))
+			evaluateFolder(workspace:FindFirstChild("Ores"))
+			evaluateFolder(things and things:FindFirstChild("Ores"))
+			evaluateFolder(workspace:FindFirstChild("Mines"))
+			evaluateFolder(workspace:FindFirstChild("Nodes"))
 
 			if bestObj and bestPart then
 				return { obj = bestObj, part = bestPart }
