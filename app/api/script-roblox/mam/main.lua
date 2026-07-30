@@ -1286,41 +1286,43 @@ local success, err = pcall(function()
 			local p = player or game:GetService("Players").LocalPlayer
 			if not p then return false end
 
-			-- 1. Check Player attributes
-			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or
-			p:GetAttribute("Capacity") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag")
-			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or
-			p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount")
+			-- 1. Check Player attributes for max and current capacity
+			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag") or p:GetAttribute("MaxBagCapacity") or p:GetAttribute("BagMax")
+			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount") or p:GetAttribute("Bag")
 
 			if typeof(maxCap) == "number" and typeof(currCap) == "number" and maxCap > 0 then
 				if currCap >= maxCap then return true end
+				return false
 			end
 
 			-- 2. Check leaderstats
 			local leaderstats = p:FindFirstChild("leaderstats")
 			if leaderstats then
-				local capVal = leaderstats:FindFirstChild("Capacity") or leaderstats:FindFirstChild("Storage") or
-				leaderstats:FindFirstChild("Backpack") or leaderstats:FindFirstChild("Bag")
-				local maxVal = leaderstats:FindFirstChild("MaxCapacity") or leaderstats:FindFirstChild("MaxStorage") or
-				leaderstats:FindFirstChild("MaxBackpack") or leaderstats:FindFirstChild("MaxBag")
+				local capVal = leaderstats:FindFirstChild("Capacity") or leaderstats:FindFirstChild("Storage") or leaderstats:FindFirstChild("Backpack") or leaderstats:FindFirstChild("Bag") or leaderstats:FindFirstChild("Crystals")
+				local maxVal = leaderstats:FindFirstChild("MaxCapacity") or leaderstats:FindFirstChild("MaxStorage") or leaderstats:FindFirstChild("MaxBackpack") or leaderstats:FindFirstChild("MaxBag") or leaderstats:FindFirstChild("MaxCrystals")
 				if capVal and maxVal and tonumber(capVal.Value) and tonumber(maxVal.Value) then
-					if tonumber(capVal.Value) >= tonumber(maxVal.Value) then return true end
+					local cVal = tonumber(capVal.Value)
+					local mVal = tonumber(maxVal.Value)
+					if mVal > 0 then
+						if cVal >= mVal then return true end
+						return false
+					end
 				end
 			end
 
-			-- 3. Check items in Backpack + Character tools
-			local bFolder = p:FindFirstChild("Backpack")
-			local bItems = bFolder and #bFolder:GetChildren() or 0
-			local charTools = 0
-			if p.Character then
-				for _, child in ipairs(p.Character:GetChildren()) do
-					if child:IsA("Tool") then charTools = charTools + 1 end
+			-- 3. Check items in Backpack + Character tools if maxCap is known
+			if typeof(maxCap) == "number" and maxCap > 0 then
+				local bFolder = p:FindFirstChild("Backpack")
+				local bItems = bFolder and #bFolder:GetChildren() or 0
+				local charTools = 0
+				if p.Character then
+					for _, child in ipairs(p.Character:GetChildren()) do
+						if child:IsA("Tool") then charTools = charTools + 1 end
+					end
 				end
-			end
-			local totalItems = bItems + charTools
-
-			if typeof(maxCap) == "number" and maxCap > 0 and totalItems >= maxCap then
-				return true
+				local totalItems = bItems + charTools
+				if totalItems >= maxCap then return true end
+				return false
 			end
 
 			-- 4. Check PlayerGui for Inventory Full popups / text
