@@ -679,7 +679,40 @@ local success, err = pcall(function()
 			updateMainTabCanvas()
 		end)
 
-		-- Sell All Execution Logic (Tween to Shop, Fire Remote, Return via Tween)
+		-- Helper to get Shop / Sell location CFrame in Mine Mountain
+		local function getShopCFrame()
+			-- 1. Check for Shop / Sell NPC / Merchant / Base in workspace
+			local shopObj = workspace:FindFirstChild("Shop") or workspace:FindFirstChild("Sell") or workspace:FindFirstChild("Merchant") or workspace:FindFirstChild("Base") or workspace:FindFirstChild("SpawnLocation")
+			if not shopObj then
+				local npcs = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Npcs")
+				if npcs then
+					shopObj = npcs:FindFirstChild("Sell") or npcs:FindFirstChild("Shop") or npcs:FindFirstChild("Merchant") or npcs:FindFirstChildWhichIsA("Model")
+				end
+			end
+
+			if shopObj then
+				if shopObj:IsA("BasePart") then
+					return shopObj.CFrame + Vector3.new(0, 3, 0)
+				elseif shopObj:IsA("Model") then
+					local primary = shopObj.PrimaryPart or shopObj:FindFirstChildWhichIsA("BasePart", true)
+					if primary then
+						return primary.CFrame + Vector3.new(0, 3, 0)
+					end
+				end
+			end
+
+			-- 2. Check SpawnLocation anywhere in workspace
+			for _, child in ipairs(workspace:GetChildren()) do
+				if child:IsA("SpawnLocation") or string.find(string.lower(child.Name), "spawn", 1, true) then
+					return child.CFrame + Vector3.new(0, 3, 0)
+				end
+			end
+
+			-- 3. Fixed Shop CFrame fallback in Mine Mountain
+			return CFrame.new(-41.4205513, 29.296978, 1066.81323)
+		end
+
+		-- Sell All Execution Logic (Tween to Shop, Fire Remotes & Prompts, Return via Tween)
 		local function executeSellAllTeleport()
 			if isSelling then return end
 			isSelling = true
@@ -718,32 +751,47 @@ local success, err = pcall(function()
 				task.wait(0.3)
 			end
 
-			pcall(function()
-				local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-				local goHomeRem = rems and rems:FindFirstChild("GoHome")
-				if goHomeRem then
-					goHomeRem:FireServer("sell")
-				else
-					local sellRem = rems and rems:FindFirstChild("SellRequest")
-					if sellRem then sellRem:FireServer("all") end
-				end
-			end)
+			local function triggerSellAllRemotes()
+				pcall(function()
+					local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+					if rems then
+						local goHomeRem = rems:FindFirstChild("GoHome")
+						if goHomeRem then goHomeRem:FireServer("sell") end
+
+						local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell")
+						if sellRem then sellRem:FireServer("all") end
+					end
+				end)
+
+				-- Fire any nearby ProximityPrompts at Shop NPC
+				pcall(function()
+					if shopCFrame and myHrp then
+						for _, desc in ipairs(workspace:GetDescendants()) do
+							if desc:IsA("ProximityPrompt") and desc.Parent then
+								local part = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart", true)
+								if part and (part.Position - myHrp.Position).Magnitude <= 20 then
+									desc.HoldDuration = 0
+									if fireproximityprompt then fireproximityprompt(desc) end
+								end
+							end
+						end
+					end
+				end)
+			end
+
+			triggerSellAllRemotes()
 
 			if shopCFrame then
 				task.wait(0.3)
 				-- Wait until server processes selling and clears crystal weight from backpack
 				if isBackpackFull then
 					local sellWaitStart = os.clock()
-					while isBackpackFull() and (os.clock() - sellWaitStart < 2.0) do
-						-- Fire sell remote again if server missed packet
-						pcall(function()
-							local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-							local goHomeRem = rems and rems:FindFirstChild("GoHome")
-							if goHomeRem then goHomeRem:FireServer("sell") end
-						end)
+					while isBackpackFull() and (os.clock() - sellWaitStart < 2.5) do
+						triggerSellAllRemotes()
 						task.wait(0.2)
 					end
 				end
+
 				if myHrp and myHrp.Parent then
 					-- Smooth tween back to last position
 					if tweenToTargetCFrame then
