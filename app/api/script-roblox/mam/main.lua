@@ -600,7 +600,11 @@ local success, err = pcall(function()
 		local isBackpackFull = nil
 		local tweenToTargetCFrame = nil
 
-		local sellCard = Instance.new("Frame")
+		------------------------------------------------
+		-- 💰 AUTOMATION SELL CATEGORY SECTION
+		------------------------------------------------
+		do
+			local sellCard = Instance.new("Frame")
 		sellCard.Size = UDim2.new(1, 0, 0, 36)
 		sellCard.BackgroundColor3 = COLORS.glassCard
 		sellCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
@@ -983,43 +987,45 @@ local success, err = pcall(function()
 			end
 		end)
 
-		_G.HipHubAutomationSell = {
-			getState = function()
-				return {
-					autoSellEnabled = autoSellEnabled,
-					autoSellRarityFilters = autoSellRarityFilters,
-					autoSellSizeFilters = autoSellSizeFilters,
-				}
-			end,
-			setState = function(s)
-				if not s then return end
-				if s.autoSellEnabled ~= nil then
-					autoSellEnabled = (s.autoSellEnabled == true)
-					updateAutoSellVisuals()
-				end
-				if s.autoSellRarityFilters ~= nil then
-					if type(s.autoSellRarityFilters) == "table" then
-						autoSellRarityFilters = s.autoSellRarityFilters
-					elseif type(s.autoSellRarityFilters) == "string" then
-						autoSellRarityFilters = { [s.autoSellRarityFilters] = true }
+			_G.HipHubAutomationSell = {
+				getState = function()
+					return {
+						autoSellEnabled = autoSellEnabled,
+						autoSellRarityFilters = autoSellRarityFilters,
+						autoSellSizeFilters = autoSellSizeFilters,
+					}
+				end,
+				setState = function(s)
+					if not s then return end
+					if s.autoSellEnabled ~= nil then
+						autoSellEnabled = (s.autoSellEnabled == true)
+						updateAutoSellVisuals()
 					end
-					updateAsRarityVisuals()
-				end
-				if s.autoSellSizeFilters ~= nil then
-					if type(s.autoSellSizeFilters) == "table" then
-						autoSellSizeFilters = s.autoSellSizeFilters
-					elseif type(s.autoSellSizeFilters) == "string" then
-						autoSellSizeFilters = { [s.autoSellSizeFilters] = true }
+					if s.autoSellRarityFilters ~= nil then
+						if type(s.autoSellRarityFilters) == "table" then
+							autoSellRarityFilters = s.autoSellRarityFilters
+						elseif type(s.autoSellRarityFilters) == "string" then
+							autoSellRarityFilters = { [s.autoSellRarityFilters] = true }
+						end
+						updateAsRarityVisuals()
 					end
-					updateAsSizeVisuals()
+					if s.autoSellSizeFilters ~= nil then
+						if type(s.autoSellSizeFilters) == "table" then
+							autoSellSizeFilters = s.autoSellSizeFilters
+						elseif type(s.autoSellSizeFilters) == "string" then
+							autoSellSizeFilters = { [s.autoSellSizeFilters] = true }
+						end
+						updateAsSizeVisuals()
+					end
 				end
-			end
-		}
+			}
+		end
 
 		------------------------------------------------
 		-- ⭐️ AUTOMATION FAVORITE CATEGORY SECTION
 		------------------------------------------------
-		local isFavCategoryExpanded = false
+		do
+			local isFavCategoryExpanded = false
 		local autoFavoriteEnabled = false
 		local autoFavRarityFilters = { ["All"] = true }
 		local autoFavSizeFilters = { ["All"] = true }
@@ -1391,43 +1397,45 @@ local success, err = pcall(function()
 			end
 		end)
 
-		_G.HipHubAutomationFavorite = {
-			getState = function()
-				return {
-					autoFavoriteEnabled = autoFavoriteEnabled,
-					autoFavRarityFilters = autoFavRarityFilters,
-					autoFavSizeFilters = autoFavSizeFilters,
-				}
-			end,
-			setState = function(s)
-				if not s then return end
-				if s.autoFavoriteEnabled ~= nil then
-					autoFavoriteEnabled = (s.autoFavoriteEnabled == true)
-					updateAutoFavVisuals()
-				end
-				if s.autoFavRarityFilters ~= nil then
-					if type(s.autoFavRarityFilters) == "table" then
-						autoFavRarityFilters = s.autoFavRarityFilters
-					elseif type(s.autoFavRarityFilters) == "string" then
-						autoFavRarityFilters = { [s.autoFavRarityFilters] = true }
+			_G.HipHubAutomationFavorite = {
+				getState = function()
+					return {
+						autoFavoriteEnabled = autoFavoriteEnabled,
+						autoFavRarityFilters = autoFavRarityFilters,
+						autoFavSizeFilters = autoFavSizeFilters,
+					}
+				end,
+				setState = function(s)
+					if not s then return end
+					if s.autoFavoriteEnabled ~= nil then
+						autoFavoriteEnabled = (s.autoFavoriteEnabled == true)
+						updateAutoFavVisuals()
 					end
-					updateFavRarityVisuals()
-				end
-				if s.autoFavSizeFilters ~= nil then
-					if type(s.autoFavSizeFilters) == "table" then
-						autoFavSizeFilters = s.autoFavSizeFilters
-					elseif type(s.autoFavSizeFilters) == "string" then
-						autoFavSizeFilters = { [s.autoFavSizeFilters] = true }
+					if s.autoFavRarityFilters ~= nil then
+						if type(s.autoFavRarityFilters) == "table" then
+							autoFavRarityFilters = s.autoFavRarityFilters
+						elseif type(s.autoFavRarityFilters) == "string" then
+							autoFavRarityFilters = { [s.autoFavRarityFilters] = true }
+						end
+						updateFavRarityVisuals()
 					end
-					updateFavSizeVisuals()
+					if s.autoFavSizeFilters ~= nil then
+						if type(s.autoFavSizeFilters) == "table" then
+							autoFavSizeFilters = s.autoFavSizeFilters
+						elseif type(s.autoFavSizeFilters) == "string" then
+							autoFavSizeFilters = { [s.autoFavSizeFilters] = true }
+						end
+						updateFavSizeVisuals()
+					end
 				end
-			end
-		}
+			}
+		end
 
 		------------------------------------------------
 		-- ⛏️ AUTOMATION MINING CATEGORY SECTION (MAIN TAB)
 		------------------------------------------------
-		local isAutoMineCategoryExpanded = false
+		do
+			local isAutoMineCategoryExpanded = false
 		local autoFarmCrystalsEnabled = false
 		local autoFarmNoclipEnabled = true
 		local autoFarmRarityFilter = "All"
@@ -2114,432 +2122,435 @@ local success, err = pcall(function()
 				end
 			end
 		end)
+		end
 
 		------------------------------------------------
 		-- 💎 AUTO PLACE CRYSTAL CARD & ENGINE
 		------------------------------------------------
-		local isAutoPlaceCategoryExpanded = false
-		local autoPlaceCategoryCard = Instance.new("Frame")
-		autoPlaceCategoryCard.Size = UDim2.new(1, 0, 0, 36)
-		autoPlaceCategoryCard.BackgroundColor3 = COLORS.glassCard
-		autoPlaceCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-		autoPlaceCategoryCard.BorderSizePixel = 0
-		autoPlaceCategoryCard.ClipsDescendants = true
-		autoPlaceCategoryCard.LayoutOrder = 4
-		autoPlaceCategoryCard.Parent = mainFrameContent
+		do
+			local isAutoPlaceCategoryExpanded = false
+			local autoPlaceCategoryCard = Instance.new("Frame")
+			autoPlaceCategoryCard.Size = UDim2.new(1, 0, 0, 36)
+			autoPlaceCategoryCard.BackgroundColor3 = COLORS.glassCard
+			autoPlaceCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			autoPlaceCategoryCard.BorderSizePixel = 0
+			autoPlaceCategoryCard.ClipsDescendants = true
+			autoPlaceCategoryCard.LayoutOrder = 4
+			autoPlaceCategoryCard.Parent = mainFrameContent
 
-		refs.applyGlass(autoPlaceCategoryCard, {
-			corner = refs.CORNER.medium,
-			stroke = true,
-			strokeColor = COLORS.borderGlass,
-			strokeThickness = 1,
-			strokeTransparency = 0.7
-		})
-
-		-- Expandable Header Click Button
-		local apHeaderBtn = Instance.new("TextButton")
-		apHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
-		apHeaderBtn.BackgroundTransparency = 1
-		apHeaderBtn.Text = ""
-		apHeaderBtn.Parent = autoPlaceCategoryCard
-
-		local apAccentBar = Instance.new("Frame")
-		apAccentBar.Size = UDim2.new(0, 3, 0, 18)
-		apAccentBar.Position = UDim2.new(0, 12, 0, 9)
-		apAccentBar.BackgroundColor3 = COLORS.accentCyan
-		apAccentBar.BorderSizePixel = 0
-		apAccentBar.Parent = apHeaderBtn
-
-		local apAccentCorner = Instance.new("UICorner")
-		apAccentCorner.CornerRadius = UDim.new(0, 2)
-		apAccentCorner.Parent = apAccentBar
-
-		local apTitle = Instance.new("TextLabel")
-		apTitle.Size = UDim2.new(1, -60, 1, 0)
-		apTitle.Position = UDim2.new(0, 24, 0, 0)
-		apTitle.BackgroundTransparency = 1
-		apTitle.Text = "Auto Place Crystal"
-		apTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
-		apTitle.Font = Enum.Font.GothamBold
-		apTitle.TextSize = 13
-		apTitle.TextXAlignment = Enum.TextXAlignment.Left
-		apTitle.Parent = apHeaderBtn
-
-		local apChevronLabel = Instance.new("TextLabel")
-		apChevronLabel.Size = UDim2.new(0, 24, 1, 0)
-		apChevronLabel.Position = UDim2.new(1, -30, 0, 0)
-		apChevronLabel.BackgroundTransparency = 1
-		apChevronLabel.Text = ">"
-		apChevronLabel.TextColor3 = COLORS.accentCyan
-		apChevronLabel.Font = Enum.Font.GothamBold
-		apChevronLabel.TextSize = 13
-		apChevronLabel.Parent = apHeaderBtn
-
-		-- Content Container inside Auto Place Crystal Card
-		local apContentContainer = Instance.new("Frame")
-		apContentContainer.Size = UDim2.new(1, -24, 0, 160)
-		apContentContainer.Position = UDim2.new(0, 12, 0, 42)
-		apContentContainer.BackgroundTransparency = 1
-		apContentContainer.Parent = autoPlaceCategoryCard
-
-		refs.applyListLayout(apContentContainer, 6)
-
-		apHeaderBtn.MouseButton1Click:Connect(function()
-			isAutoPlaceCategoryExpanded = not isAutoPlaceCategoryExpanded
-			apChevronLabel.Text = isAutoPlaceCategoryExpanded and "v" or ">"
-			local targetHeight = isAutoPlaceCategoryExpanded and 175 or 36
-			local tween = TweenService:Create(autoPlaceCategoryCard,
-				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-				Size = UDim2.new(1, 0, 0, targetHeight)
+			refs.applyGlass(autoPlaceCategoryCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7
 			})
-			tween:Play()
-			tween.Completed:Connect(updateMainTabCanvas)
-			updateMainTabCanvas()
-		end)
 
-		-- 1. Auto Place Crystals Toggle
-		local autoPlaceCrystalsEnabled = false
-		local apcRow, apcTrack, apcThumb = refs.createGlassToggle(apContentContainer, "Auto Place Crystals", 1)
-		local updateAutoPlaceVisuals = function()
-			if autoPlaceCrystalsEnabled then
-				TweenService:Create(apcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
-				TweenService:Create(apcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
-					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
-			else
-				TweenService:Create(apcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
-				TweenService:Create(apcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
-					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
-			end
-		end
-		updateAutoPlaceVisuals()
+			-- Expandable Header Click Button
+			local apHeaderBtn = Instance.new("TextButton")
+			apHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+			apHeaderBtn.BackgroundTransparency = 1
+			apHeaderBtn.Text = ""
+			apHeaderBtn.Parent = autoPlaceCategoryCard
 
-		apcTrack.MouseButton1Click:Connect(function()
-			autoPlaceCrystalsEnabled = not autoPlaceCrystalsEnabled
-			updateAutoPlaceVisuals()
-			if refs.saveConfig then pcall(refs.saveConfig) end
-		end)
+			local apAccentBar = Instance.new("Frame")
+			apAccentBar.Size = UDim2.new(0, 3, 0, 18)
+			apAccentBar.Position = UDim2.new(0, 12, 0, 9)
+			apAccentBar.BackgroundColor3 = COLORS.accentCyan
+			apAccentBar.BorderSizePixel = 0
+			apAccentBar.Parent = apHeaderBtn
 
-		-- 2. Place Rarity Filter Dropdown
-		local autoPlaceRarityFilters = { ["All"] = true }
-		local apRarCard, apRarDropBtn, apRarDropLabel, apRarMenuFrame, apRarSearch, apRarScroll = refs.createGlassDropdown(
-			apContentContainer, "Place Rarity Filter", "All", 2
-		)
-		apRarCard.Size = UDim2.new(1, 0, 0, 32)
+			local apAccentCorner = Instance.new("UICorner")
+			apAccentCorner.CornerRadius = UDim.new(0, 2)
+			apAccentCorner.Parent = apAccentBar
 
-		local function getSelectedPlaceRarityLabelText()
-			if autoPlaceRarityFilters["All"] or next(autoPlaceRarityFilters) == nil then
-				return "All"
-			end
-			local list = {}
-			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
-				if autoPlaceRarityFilters[r] then table.insert(list, r) end
-			end
-			if #list == 0 then return "All" end
-			if #list == 1 then return list[1] end
-			if #list == 2 then return list[1] .. ", " .. list[2] end
-			return tostring(#list) .. " Selected"
-		end
+			local apTitle = Instance.new("TextLabel")
+			apTitle.Size = UDim2.new(1, -60, 1, 0)
+			apTitle.Position = UDim2.new(0, 24, 0, 0)
+			apTitle.BackgroundTransparency = 1
+			apTitle.Text = "Auto Place Crystal"
+			apTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+			apTitle.Font = Enum.Font.GothamBold
+			apTitle.TextSize = 13
+			apTitle.TextXAlignment = Enum.TextXAlignment.Left
+			apTitle.Parent = apHeaderBtn
 
-		local apRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
-		refs.registerDropdownMenu(apRarDropBtn, apRarMenuFrame)
-		local apRarityBinder = refs.bindDropdown(
-			apRarDropBtn, apRarMenuFrame, apRarSearch, apRarScroll, apRarities,
-			function(opt)
-				return autoPlaceRarityFilters[opt] == true
-			end,
-			function(opt)
-				if opt == "All" then
-					autoPlaceRarityFilters = { ["All"] = true }
+			local apChevronLabel = Instance.new("TextLabel")
+			apChevronLabel.Size = UDim2.new(0, 24, 1, 0)
+			apChevronLabel.Position = UDim2.new(1, -30, 0, 0)
+			apChevronLabel.BackgroundTransparency = 1
+			apChevronLabel.Text = ">"
+			apChevronLabel.TextColor3 = COLORS.accentCyan
+			apChevronLabel.Font = Enum.Font.GothamBold
+			apChevronLabel.TextSize = 13
+			apChevronLabel.Parent = apHeaderBtn
+
+			-- Content Container inside Auto Place Crystal Card
+			local apContentContainer = Instance.new("Frame")
+			apContentContainer.Size = UDim2.new(1, -24, 0, 160)
+			apContentContainer.Position = UDim2.new(0, 12, 0, 42)
+			apContentContainer.BackgroundTransparency = 1
+			apContentContainer.Parent = autoPlaceCategoryCard
+
+			refs.applyListLayout(apContentContainer, 6)
+
+			apHeaderBtn.MouseButton1Click:Connect(function()
+				isAutoPlaceCategoryExpanded = not isAutoPlaceCategoryExpanded
+				apChevronLabel.Text = isAutoPlaceCategoryExpanded and "v" or ">"
+				local targetHeight = isAutoPlaceCategoryExpanded and 175 or 36
+				local tween = TweenService:Create(autoPlaceCategoryCard,
+					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+					Size = UDim2.new(1, 0, 0, targetHeight)
+				})
+				tween:Play()
+				tween.Completed:Connect(updateMainTabCanvas)
+				updateMainTabCanvas()
+			end)
+
+			-- 1. Auto Place Crystals Toggle
+			local autoPlaceCrystalsEnabled = false
+			local apcRow, apcTrack, apcThumb = refs.createGlassToggle(apContentContainer, "Auto Place Crystals", 1)
+			local updateAutoPlaceVisuals = function()
+				if autoPlaceCrystalsEnabled then
+					TweenService:Create(apcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+					TweenService:Create(apcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+						{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
 				else
-					autoPlaceRarityFilters["All"] = nil
-					autoPlaceRarityFilters[opt] = not autoPlaceRarityFilters[opt]
-					local hasAny = false
-					for _, v in pairs(autoPlaceRarityFilters) do
-						if v then hasAny = true break end
-					end
-					if not hasAny then autoPlaceRarityFilters["All"] = true end
+					TweenService:Create(apcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+					TweenService:Create(apcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+						{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 				end
-			end,
-			function()
-				apRarDropLabel.Text = getSelectedPlaceRarityLabelText()
 			end
-		)
+			updateAutoPlaceVisuals()
 
-		local function updateApRarityVisuals()
-			apRarDropLabel.Text = getSelectedPlaceRarityLabelText()
-			apRarityBinder.updateOptionVisuals()
-		end
+			apcTrack.MouseButton1Click:Connect(function()
+				autoPlaceCrystalsEnabled = not autoPlaceCrystalsEnabled
+				updateAutoPlaceVisuals()
+				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
 
-		-- 3. Action Button: Place Crystals Now
-		local apActionBtn = Instance.new("TextButton")
-		apActionBtn.Size = UDim2.new(1, 0, 0, 32)
-		apActionBtn.BackgroundColor3 = COLORS.accentCyan
-		apActionBtn.BackgroundTransparency = 0.15
-		apActionBtn.Text = "Place Selected Crystals Now"
-		apActionBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
-		apActionBtn.Font = Enum.Font.GothamBold
-		apActionBtn.TextSize = 12
-		apActionBtn.LayoutOrder = 3
-		apActionBtn.Parent = apContentContainer
+			-- 2. Place Rarity Filter Dropdown
+			local autoPlaceRarityFilters = { ["All"] = true }
+			local apRarCard, apRarDropBtn, apRarDropLabel, apRarMenuFrame, apRarSearch, apRarScroll = refs.createGlassDropdown(
+				apContentContainer, "Place Rarity Filter", "All", 2
+			)
+			apRarCard.Size = UDim2.new(1, 0, 0, 32)
 
-		local apActionCorner = Instance.new("UICorner")
-		apActionCorner.CornerRadius = refs.CORNER.small
-		apActionCorner.Parent = apActionBtn
+			local function getSelectedPlaceRarityLabelText()
+				if autoPlaceRarityFilters["All"] or next(autoPlaceRarityFilters) == nil then
+					return "All"
+				end
+				local list = {}
+				for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
+					if autoPlaceRarityFilters[r] then table.insert(list, r) end
+				end
+				if #list == 0 then return "All" end
+				if #list == 1 then return list[1] end
+				if #list == 2 then return list[1] .. ", " .. list[2] end
+				return tostring(#list) .. " Selected"
+			end
 
-		-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player].Region)
-		local function getPlayerPlotPosition()
-			local p = player or game:GetService("Players").LocalPlayer
-			if not p then return nil, nil end
+			local apRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+			refs.registerDropdownMenu(apRarDropBtn, apRarMenuFrame)
+			local apRarityBinder = refs.bindDropdown(
+				apRarDropBtn, apRarMenuFrame, apRarSearch, apRarScroll, apRarities,
+				function(opt)
+					return autoPlaceRarityFilters[opt] == true
+				end,
+				function(opt)
+					if opt == "All" then
+						autoPlaceRarityFilters = { ["All"] = true }
+					else
+						autoPlaceRarityFilters["All"] = nil
+						autoPlaceRarityFilters[opt] = not autoPlaceRarityFilters[opt]
+						local hasAny = false
+						for _, v in pairs(autoPlaceRarityFilters) do
+							if v then hasAny = true break end
+						end
+						if not hasAny then autoPlaceRarityFilters["All"] = true end
+					end
+				end,
+				function()
+					apRarDropLabel.Text = getSelectedPlaceRarityLabelText()
+				end
+			)
 
-			-- 1. Direct path from Explorer: Workspace.Things.Plots.Slots[LocalPlayer.Name].Region
-			local things = workspace:FindFirstChild("Things")
-			local plotsFolder = things and things:FindFirstChild("Plots") or workspace:FindFirstChild("Plots")
-			if plotsFolder then
-				local slots = plotsFolder:FindFirstChild("Slots") or plotsFolder
-				local myPlot = slots:FindFirstChild(p.Name)
-				if not myPlot then
-					for _, slot in ipairs(slots:GetChildren()) do
-						if string.lower(slot.Name) == string.lower(p.Name) or slot:GetAttribute("Owner") == p.Name or slot:GetAttribute("UserId") == p.UserId then
-							myPlot = slot
-							break
+			local function updateApRarityVisuals()
+				apRarDropLabel.Text = getSelectedPlaceRarityLabelText()
+				apRarityBinder.updateOptionVisuals()
+			end
+
+			-- 3. Action Button: Place Crystals Now
+			local apActionBtn = Instance.new("TextButton")
+			apActionBtn.Size = UDim2.new(1, 0, 0, 32)
+			apActionBtn.BackgroundColor3 = COLORS.accentCyan
+			apActionBtn.BackgroundTransparency = 0.15
+			apActionBtn.Text = "Place Selected Crystals Now"
+			apActionBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+			apActionBtn.Font = Enum.Font.GothamBold
+			apActionBtn.TextSize = 12
+			apActionBtn.LayoutOrder = 3
+			apActionBtn.Parent = apContentContainer
+
+			local apActionCorner = Instance.new("UICorner")
+			apActionCorner.CornerRadius = refs.CORNER.small
+			apActionCorner.Parent = apActionBtn
+
+			-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player].Region)
+			local function getPlayerPlotPosition()
+				local p = player or game:GetService("Players").LocalPlayer
+				if not p then return nil, nil end
+
+				-- 1. Direct path from Explorer: Workspace.Things.Plots.Slots[LocalPlayer.Name].Region
+				local things = workspace:FindFirstChild("Things")
+				local plotsFolder = things and things:FindFirstChild("Plots") or workspace:FindFirstChild("Plots")
+				if plotsFolder then
+					local slots = plotsFolder:FindFirstChild("Slots") or plotsFolder
+					local myPlot = slots:FindFirstChild(p.Name)
+					if not myPlot then
+						for _, slot in ipairs(slots:GetChildren()) do
+							if string.lower(slot.Name) == string.lower(p.Name) or slot:GetAttribute("Owner") == p.Name or slot:GetAttribute("UserId") == p.UserId then
+								myPlot = slot
+								break
+							end
 						end
 					end
-				end
 
-				if myPlot then
-					local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChild("Spawn") or myPlot.PrimaryPart or myPlot:FindFirstChildWhichIsA("BasePart", true)
-					if region and region:IsA("BasePart") then
-						return region.CFrame, region.Size
-					end
-				end
-			end
-
-			-- 2. Fallback search across workspace
-			for _, containerName in ipairs({ "Plots", "Bases", "PlayerBases", "Slots" }) do
-				local container = workspace:FindFirstChild(containerName)
-				if container then
-					local myPlot = container:FindFirstChild(p.Name) or (container:FindFirstChild("Slots") and container.Slots:FindFirstChild(p.Name))
 					if myPlot then
-						local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChildWhichIsA("BasePart", true)
+						local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChild("Spawn") or myPlot.PrimaryPart or myPlot:FindFirstChildWhichIsA("BasePart", true)
 						if region and region:IsA("BasePart") then
 							return region.CFrame, region.Size
 						end
 					end
 				end
-			end
 
-			-- 3. Character fallback
-			local char = p.Character
-			local hrp = char and char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				return hrp.CFrame, Vector3.new(30, 1, 30)
-			end
-			return nil, nil
-		end
-
-		local function matchesPlaceRarity(tool)
-			if not tool or not tool:IsA("Tool") then return false end
-
-			local hasAnyEnabled = false
-			if type(autoPlaceRarityFilters) == "table" then
-				for r, isSel in pairs(autoPlaceRarityFilters) do
-					if isSel == true then
-						hasAnyEnabled = true
-						break
+				-- 2. Fallback search across workspace
+				for _, containerName in ipairs({ "Plots", "Bases", "PlayerBases", "Slots" }) do
+					local container = workspace:FindFirstChild(containerName)
+					if container then
+						local myPlot = container:FindFirstChild(p.Name) or (container:FindFirstChild("Slots") and container.Slots:FindFirstChild(p.Name))
+						if myPlot then
+							local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChildWhichIsA("BasePart", true)
+							if region and region:IsA("BasePart") then
+								return region.CFrame, region.Size
+							end
+						end
 					end
+				end
+
+				-- 3. Character fallback
+				local char = p.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					return hrp.CFrame, Vector3.new(30, 1, 30)
+				end
+				return nil, nil
+			end
+
+			local function matchesPlaceRarity(tool)
+				if not tool or not tool:IsA("Tool") then return false end
+
+				local hasAnyEnabled = false
+				if type(autoPlaceRarityFilters) == "table" then
+					for r, isSel in pairs(autoPlaceRarityFilters) do
+						if isSel == true then
+							hasAnyEnabled = true
+							break
+						end
+					end
+				end
+
+				if not hasAnyEnabled or autoPlaceRarityFilters["All"] == true then
+					return true
+				end
+
+				local tName = string.lower(tool.Name)
+				local attrStr = ""
+				pcall(function()
+					for aName, aVal in pairs(tool:GetAttributes()) do
+						attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+					end
+				end)
+				local combinedText = tName .. " " .. attrStr
+
+				local filterMap = {
+					["common"] = { "_t1", "t1", "common", "tier1", "tier 1" },
+					["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2" },
+					["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3" },
+					["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4" },
+					["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
+					["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+					["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+				}
+
+				for selRarity, isSel in pairs(autoPlaceRarityFilters) do
+					if isSel == true then
+						local rarityLower = string.lower(tostring(selRarity))
+						local kws = filterMap[rarityLower]
+						if kws then
+							for _, kw in ipairs(kws) do
+								if string.find(combinedText, kw, 1, true) then return true end
+							end
+						end
+						if string.find(combinedText, rarityLower, 1, true) then return true end
+					end
+				end
+
+				return false
+			end
+
+			local function executeAutoPlaceCrystals()
+				local p = player or game:GetService("Players").LocalPlayer
+				if not p then return end
+
+				local placeRem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("PlotPlaceRequest")
+				if not placeRem then return end
+
+				local regionCFrame, regionSize = getPlayerPlotPosition()
+				if not regionCFrame then return end
+
+				local targetTools = {}
+				local function scanTools(container)
+					if not container then return end
+					for _, child in ipairs(container:GetChildren()) do
+						if child:IsA("Tool") then
+							local hasTier = child:GetAttribute("Tier") ~= nil
+							local wKg = child:GetAttribute("WeightKg")
+							local nameLower = string.lower(child.Name)
+							local isCrystal = hasTier or wKg ~= nil or string.find(nameLower, "crystal", 1, true) or string.find(nameLower, "kg", 1, true) or string.find(nameLower, "[m]", 1, true)
+							if isCrystal and matchesPlaceRarity(child) then
+								table.insert(targetTools, child)
+							end
+						end
+					end
+				end
+
+				scanTools(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+				if p.Character then scanTools(p.Character) end
+
+				if #targetTools == 0 then return end
+
+				local surfaceY = (regionSize and regionSize.Y > 0) and (regionSize.Y / 2 + 0.5) or 1.0
+				local plotWidth = (regionSize and regionSize.X > 6) and (regionSize.X - 6) or 30
+				local plotDepth = (regionSize and regionSize.Z > 6) and (regionSize.Z - 6) or 30
+
+				local gridCols = 5
+				local spacingX = plotWidth / gridCols
+				local spacingZ = 4.5
+
+				for idx, tool in ipairs(targetTools) do
+					if not tool or not tool.Parent then continue end
+
+					local col = (idx - 1) % gridCols
+					local row = math.floor((idx - 1) / gridCols)
+
+					local offsetX = (col - (gridCols - 1) / 2) * spacingX
+					local offsetZ = (row * spacingZ) - (plotDepth / 3)
+
+					local targetCFrame = regionCFrame * CFrame.new(offsetX, surfaceY, offsetZ)
+					local placePos = targetCFrame.Position
+
+					pcall(function()
+						placeRem:FireServer(
+							tool.Name,
+							placePos,
+							0,
+							tool
+						)
+					end)
+					task.wait(0.12)
 				end
 			end
 
-			if not hasAnyEnabled or autoPlaceRarityFilters["All"] == true then
-				return true
-			end
+			apActionBtn.MouseButton1Click:Connect(function()
+				pcall(executeAutoPlaceCrystals)
+			end)
 
-			local tName = string.lower(tool.Name)
-			local attrStr = ""
-			pcall(function()
-				for aName, aVal in pairs(tool:GetAttributes()) do
-					attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+			-- Loop for Auto Place Crystal
+			task.spawn(function()
+				while true do
+					task.wait(2.5)
+					if autoPlaceCrystalsEnabled then
+						pcall(executeAutoPlaceCrystals)
+					end
 				end
 			end)
-			local combinedText = tName .. " " .. attrStr
 
-			local filterMap = {
-				["common"] = { "_t1", "t1", "common", "tier1", "tier 1" },
-				["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2" },
-				["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3" },
-				["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4" },
-				["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
-				["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
-				["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+			_G.HipHubAutomationMining = {
+				getState = function()
+					return {
+						autoFarmCrystalsEnabled = autoFarmCrystalsEnabled,
+						autoFarmNoclipEnabled = autoFarmNoclipEnabled,
+						autoSellOnFullEnabled = autoSellOnFullEnabled,
+						autoFarmRarityFilters = autoFarmRarityFilters,
+						autoFarmSizeFilters = autoFarmSizeFilters,
+					}
+				end,
+				setState = function(s)
+					if not s then return end
+					if s.autoFarmCrystalsEnabled ~= nil then
+						autoFarmCrystalsEnabled = (s.autoFarmCrystalsEnabled == true)
+						updateAutoFarmVisuals()
+						updateAutomationNoclipEngine()
+					end
+					if s.autoFarmNoclipEnabled ~= nil then
+						autoFarmNoclipEnabled = (s.autoFarmNoclipEnabled == true)
+						updateAutoFarmNoclipVisuals()
+						updateAutomationNoclipEngine()
+					end
+					if s.autoSellOnFullEnabled ~= nil then
+						autoSellOnFullEnabled = (s.autoSellOnFullEnabled == true)
+						updateAutoSellFullVisuals()
+					end
+					if s.autoFarmRarityFilters ~= nil then
+						if type(s.autoFarmRarityFilters) == "table" then
+							autoFarmRarityFilters = s.autoFarmRarityFilters
+						elseif type(s.autoFarmRarityFilters) == "string" then
+							autoFarmRarityFilters = { [s.autoFarmRarityFilters] = true }
+						end
+						updateAmRarityVisuals()
+					elseif s.autoFarmRarityFilter ~= nil then
+						autoFarmRarityFilters = { [tostring(s.autoFarmRarityFilter)] = true }
+						updateAmRarityVisuals()
+					end
+					if s.autoFarmSizeFilters ~= nil then
+						if type(s.autoFarmSizeFilters) == "table" then
+							autoFarmSizeFilters = s.autoFarmSizeFilters
+						elseif type(s.autoFarmSizeFilters) == "string" then
+							autoFarmSizeFilters = { [s.autoFarmSizeFilters] = true }
+						end
+						updateAmSizeVisuals()
+					elseif s.autoFarmSizeFilter ~= nil then
+						autoFarmSizeFilters = { [tostring(s.autoFarmSizeFilter)] = true }
+						updateAmSizeVisuals()
+					end
+				end
 			}
 
-			for selRarity, isSel in pairs(autoPlaceRarityFilters) do
-				if isSel == true then
-					local rarityLower = string.lower(tostring(selRarity))
-					local kws = filterMap[rarityLower]
-					if kws then
-						for _, kw in ipairs(kws) do
-							if string.find(combinedText, kw, 1, true) then return true end
+			_G.HipHubAutoPlaceCrystal = {
+				getState = function()
+					return {
+						autoPlaceCrystalsEnabled = autoPlaceCrystalsEnabled,
+						autoPlaceRarityFilters = autoPlaceRarityFilters,
+					}
+				end,
+				setState = function(s)
+					if not s then return end
+					if s.autoPlaceCrystalsEnabled ~= nil then
+						autoPlaceCrystalsEnabled = (s.autoPlaceCrystalsEnabled == true)
+						updateAutoPlaceVisuals()
+					end
+					if s.autoPlaceRarityFilters ~= nil then
+						if type(s.autoPlaceRarityFilters) == "table" then
+							autoPlaceRarityFilters = s.autoPlaceRarityFilters
+						elseif type(s.autoPlaceRarityFilters) == "string" then
+							autoPlaceRarityFilters = { [s.autoPlaceRarityFilters] = true }
 						end
+						updateApRarityVisuals()
 					end
-					if string.find(combinedText, rarityLower, 1, true) then return true end
 				end
-			end
-
-			return false
+			}
 		end
-
-		local function executeAutoPlaceCrystals()
-			local p = player or game:GetService("Players").LocalPlayer
-			if not p then return end
-
-			local placeRem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("PlotPlaceRequest")
-			if not placeRem then return end
-
-			local regionCFrame, regionSize = getPlayerPlotPosition()
-			if not regionCFrame then return end
-
-			local targetTools = {}
-			local function scanTools(container)
-				if not container then return end
-				for _, child in ipairs(container:GetChildren()) do
-					if child:IsA("Tool") then
-						local hasTier = child:GetAttribute("Tier") ~= nil
-						local wKg = child:GetAttribute("WeightKg")
-						local nameLower = string.lower(child.Name)
-						local isCrystal = hasTier or wKg ~= nil or string.find(nameLower, "crystal", 1, true) or string.find(nameLower, "kg", 1, true) or string.find(nameLower, "[m]", 1, true)
-						if isCrystal and matchesPlaceRarity(child) then
-							table.insert(targetTools, child)
-						end
-					end
-				end
-			end
-
-			scanTools(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
-			if p.Character then scanTools(p.Character) end
-
-			if #targetTools == 0 then return end
-
-			local surfaceY = (regionSize and regionSize.Y > 0) and (regionSize.Y / 2 + 0.5) or 1.0
-			local plotWidth = (regionSize and regionSize.X > 6) and (regionSize.X - 6) or 30
-			local plotDepth = (regionSize and regionSize.Z > 6) and (regionSize.Z - 6) or 30
-
-			local gridCols = 5
-			local spacingX = plotWidth / gridCols
-			local spacingZ = 4.5
-
-			for idx, tool in ipairs(targetTools) do
-				if not tool or not tool.Parent then continue end
-
-				local col = (idx - 1) % gridCols
-				local row = math.floor((idx - 1) / gridCols)
-
-				local offsetX = (col - (gridCols - 1) / 2) * spacingX
-				local offsetZ = (row * spacingZ) - (plotDepth / 3)
-
-				local targetCFrame = regionCFrame * CFrame.new(offsetX, surfaceY, offsetZ)
-				local placePos = targetCFrame.Position
-
-				pcall(function()
-					placeRem:FireServer(
-						tool.Name,
-						placePos,
-						0,
-						tool
-					)
-				end)
-				task.wait(0.12)
-			end
-		end
-
-		apActionBtn.MouseButton1Click:Connect(function()
-			pcall(executeAutoPlaceCrystals)
-		end)
-
-		-- Loop for Auto Place Crystal
-		task.spawn(function()
-			while true do
-				task.wait(2.5)
-				if autoPlaceCrystalsEnabled then
-					pcall(executeAutoPlaceCrystals)
-				end
-			end
-		end)
-
-		_G.HipHubAutomationMining = {
-			getState = function()
-				return {
-					autoFarmCrystalsEnabled = autoFarmCrystalsEnabled,
-					autoFarmNoclipEnabled = autoFarmNoclipEnabled,
-					autoSellOnFullEnabled = autoSellOnFullEnabled,
-					autoFarmRarityFilters = autoFarmRarityFilters,
-					autoFarmSizeFilters = autoFarmSizeFilters,
-				}
-			end,
-			setState = function(s)
-				if not s then return end
-				if s.autoFarmCrystalsEnabled ~= nil then
-					autoFarmCrystalsEnabled = (s.autoFarmCrystalsEnabled == true)
-					updateAutoFarmVisuals()
-					updateAutomationNoclipEngine()
-				end
-				if s.autoFarmNoclipEnabled ~= nil then
-					autoFarmNoclipEnabled = (s.autoFarmNoclipEnabled == true)
-					updateAutoFarmNoclipVisuals()
-					updateAutomationNoclipEngine()
-				end
-				if s.autoSellOnFullEnabled ~= nil then
-					autoSellOnFullEnabled = (s.autoSellOnFullEnabled == true)
-					updateAutoSellFullVisuals()
-				end
-				if s.autoFarmRarityFilters ~= nil then
-					if type(s.autoFarmRarityFilters) == "table" then
-						autoFarmRarityFilters = s.autoFarmRarityFilters
-					elseif type(s.autoFarmRarityFilters) == "string" then
-						autoFarmRarityFilters = { [s.autoFarmRarityFilters] = true }
-					end
-					updateAmRarityVisuals()
-				elseif s.autoFarmRarityFilter ~= nil then
-					autoFarmRarityFilters = { [tostring(s.autoFarmRarityFilter)] = true }
-					updateAmRarityVisuals()
-				end
-				if s.autoFarmSizeFilters ~= nil then
-					if type(s.autoFarmSizeFilters) == "table" then
-						autoFarmSizeFilters = s.autoFarmSizeFilters
-					elseif type(s.autoFarmSizeFilters) == "string" then
-						autoFarmSizeFilters = { [s.autoFarmSizeFilters] = true }
-					end
-					updateAmSizeVisuals()
-				elseif s.autoFarmSizeFilter ~= nil then
-					autoFarmSizeFilters = { [tostring(s.autoFarmSizeFilter)] = true }
-					updateAmSizeVisuals()
-				end
-			end
-		}
-
-		_G.HipHubAutoPlaceCrystal = {
-			getState = function()
-				return {
-					autoPlaceCrystalsEnabled = autoPlaceCrystalsEnabled,
-					autoPlaceRarityFilters = autoPlaceRarityFilters,
-				}
-			end,
-			setState = function(s)
-				if not s then return end
-				if s.autoPlaceCrystalsEnabled ~= nil then
-					autoPlaceCrystalsEnabled = (s.autoPlaceCrystalsEnabled == true)
-					updateAutoPlaceVisuals()
-				end
-				if s.autoPlaceRarityFilters ~= nil then
-					if type(s.autoPlaceRarityFilters) == "table" then
-						autoPlaceRarityFilters = s.autoPlaceRarityFilters
-					elseif type(s.autoPlaceRarityFilters) == "string" then
-						autoPlaceRarityFilters = { [s.autoPlaceRarityFilters] = true }
-					end
-					updateApRarityVisuals()
-				end
-			end
-		}
 	end
 
 	------------------------------------------------
