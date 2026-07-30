@@ -2296,7 +2296,7 @@ local success, err = pcall(function()
 			apActionCorner.CornerRadius = refs.CORNER.small
 			apActionCorner.Parent = apActionBtn
 
-			-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player] Plot Floor)
+			-- Core Placement Helpers & Logic (Targets Dead Center of Workspace.Things.Plots.Slots[Player].Region)
 			local function getPlayerPlotCenter()
 				local p = player or game:GetService("Players").LocalPlayer
 				if not p then return nil end
@@ -2316,23 +2316,23 @@ local success, err = pcall(function()
 					end
 
 					if myPlot then
-						local spawnPart = myPlot:FindFirstChild("Spawn")
 						local regionPart = myPlot:FindFirstChild("Region")
-						local centerPos = nil
+						if regionPart and regionPart:IsA("BasePart") then
+							-- Region part is the exact center of the dirt field inside the fence
+							local topY = regionPart.Position.Y + (regionPart.Size.Y * 0.5)
+							return Vector3.new(regionPart.Position.X, topY, regionPart.Position.Z)
+						end
 
+						local spawnPart = myPlot:FindFirstChild("Spawn")
 						if spawnPart and spawnPart:IsA("BasePart") then
-							centerPos = spawnPart.Position
-						elseif regionPart and regionPart:IsA("BasePart") then
-							centerPos = regionPart.Position
-						else
-							pcall(function()
-								centerPos = myPlot:GetPivot().Position
-							end)
+							return spawnPart.Position
 						end
 
-						if centerPos then
-							return centerPos
-						end
+						local centerPos = nil
+						pcall(function()
+							centerPos = myPlot:GetPivot().Position
+						end)
+						if centerPos then return centerPos end
 					end
 				end
 
