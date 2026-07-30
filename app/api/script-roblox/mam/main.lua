@@ -2299,9 +2299,9 @@ local success, err = pcall(function()
 			-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player].Region)
 			local function getPlayerPlotPosition()
 				local p = player or game:GetService("Players").LocalPlayer
-				if not p then return nil, nil end
+				if not p then return nil, nil, nil end
 
-				-- 1. Direct path from Explorer: Workspace.Things.Plots.Slots[LocalPlayer.Name].Region
+				-- Exact path from game's PlotPlaceController: Workspace.Things.Plots.Slots[LocalPlayer.Name].Region
 				local things = workspace:FindFirstChild("Things")
 				local plotsFolder = things and things:FindFirstChild("Plots") or workspace:FindFirstChild("Plots")
 				if plotsFolder then
@@ -2319,12 +2319,12 @@ local success, err = pcall(function()
 					if myPlot then
 						local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChild("Spawn") or myPlot.PrimaryPart or myPlot:FindFirstChildWhichIsA("BasePart", true)
 						if region and region:IsA("BasePart") then
-							return region.CFrame, region.Size
+							return region.CFrame, region.Size, region
 						end
 					end
 				end
 
-				-- 2. Fallback search across workspace
+				-- Fallback search across workspace
 				for _, containerName in ipairs({ "Plots", "Bases", "PlayerBases", "Slots" }) do
 					local container = workspace:FindFirstChild(containerName)
 					if container then
@@ -2332,19 +2332,19 @@ local success, err = pcall(function()
 						if myPlot then
 							local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChildWhichIsA("BasePart", true)
 							if region and region:IsA("BasePart") then
-								return region.CFrame, region.Size
+								return region.CFrame, region.Size, region
 							end
 						end
 					end
 				end
 
-				-- 3. Character fallback
+				-- Character fallback
 				local char = p.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
 				if hrp then
-					return hrp.CFrame, Vector3.new(30, 1, 30)
+					return hrp.CFrame, Vector3.new(30, 1, 30), nil
 				end
-				return nil, nil
+				return nil, nil, nil
 			end
 
 			local function matchesPlaceRarity(tool)
@@ -2403,11 +2403,17 @@ local success, err = pcall(function()
 				local p = player or game:GetService("Players").LocalPlayer
 				if not p then return end
 
-				local placeRem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("PlotPlaceRequest")
+				local char = p.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if not hrp or not hum then return end
+
+				local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+				local placeRem = rems and rems:FindFirstChild("PlotPlaceRequest")
 				if not placeRem then return end
 
-				local regionCFrame, regionSize = getPlayerPlotPosition()
-				if not regionCFrame then return end
+				local regionCFrame, regionSize, regionPart = getPlayerPlotPosition()
+				if not regionCFrame or not regionSize then return end
 
 				local targetTools = {}
 				local function scanTools(container)
@@ -2417,7 +2423,7 @@ local success, err = pcall(function()
 							local hasTier = child:GetAttribute("Tier") ~= nil
 							local wKg = child:GetAttribute("WeightKg")
 							local nameLower = string.lower(child.Name)
-							local isCrystal = hasTier or wKg ~= nil or string.find(nameLower, "crystal", 1, true) or string.find(nameLower, "kg", 1, true) or string.find(nameLower, "[m]", 1, true)
+							local isCrystal = hasTier or wKg ~= nil or string.find(nameLower, "crystal", 1, true) or string.find(nameLower, "kg", 1, true) or string.find(nameLower, "[m]", 1, true) or string.find(nameLower, "[s]", 1, true) or string.find(nameLower, "[l]", 1, true)
 							if isCrystal and matchesPlaceRarity(child) then
 								table.insert(targetTools, child)
 							end
@@ -2426,13 +2432,20 @@ local success, err = pcall(function()
 				end
 
 				scanTools(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
-				if p.Character then scanTools(p.Character) end
+				scanTools(char)
 
 				if #targetTools == 0 then return end
 
-				local surfaceY = (regionSize and regionSize.Y > 0) and (regionSize.Y / 2 + 0.5) or 1.0
-				local plotWidth = (regionSize and regionSize.X > 6) and (regionSize.X - 6) or 30
-				local plotDepth = (regionSize and regionSize.Z > 6) and (regionSize.Z - 6) or 30
+				-- Move character to plot Region so isNearOwnPlot and distance <= 60 checks pass
+				local distToPlot = (hrp.Position - regionCFrame.Position).Magnitude
+				if distToPlot > 40 then
+					hrp.CFrame = regionCFrame + Vector3.new(0, 3, 0)
+					task.wait(0.2)
+				end
+
+				local surfaceY = regionSize.Y * 0.5
+				local plotWidth = math.max(regionSize.X - 6, 20)
+				local plotDepth = math.max(regionSize.Z - 6, 20)
 
 				local gridCols = 5
 				local spacingX = plotWidth / gridCols
@@ -2441,14 +2454,22 @@ local success, err = pcall(function()
 				for idx, tool in ipairs(targetTools) do
 					if not tool or not tool.Parent then continue end
 
+					-- Equip tool to Character (required by PlotPlaceController check)
+					if tool.Parent ~= char then
+						pcall(function()
+							hum:EquipTool(tool)
+						end)
+						task.wait(0.1)
+					end
+
 					local col = (idx - 1) % gridCols
 					local row = math.floor((idx - 1) / gridCols)
 
 					local offsetX = (col - (gridCols - 1) / 2) * spacingX
 					local offsetZ = (row * spacingZ) - (plotDepth / 3)
 
-					local targetCFrame = regionCFrame * CFrame.new(offsetX, surfaceY, offsetZ)
-					local placePos = targetCFrame.Position
+					local targetWorldCF = regionCFrame * CFrame.new(offsetX, surfaceY, offsetZ)
+					local placePos = targetWorldCF.Position
 
 					pcall(function()
 						placeRem:FireServer(
@@ -2458,7 +2479,7 @@ local success, err = pcall(function()
 							tool
 						)
 					end)
-					task.wait(0.12)
+					task.wait(0.18)
 				end
 			end
 
