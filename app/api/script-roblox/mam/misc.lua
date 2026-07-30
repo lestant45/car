@@ -146,7 +146,7 @@ local function initMisc()
 	-- 🖥️ MISC UI CARDS & TOGGLES
 	------------------------------------------------
 	-- Collapsible Section: Performance Optimizations
-	local perfCollapsible = refs.createCollapsibleSection(miscFrameContent, "⚡ Performance Optimizations", 1)
+	local perfCollapsible = refs.createCollapsibleSection(miscFrameContent, "Performance Optimizations", 1)
 	local perfContainer = perfCollapsible.Content
 
 	-- 1. FPS Boost Toggle (Remove Textures & Effects)
@@ -190,7 +190,7 @@ local function initMisc()
 	end)
 
 	-- 3. Black Screen Toggle (Disable 3D Rendering)
-	local bsCard, bsTrack, bsThumb = refs.createGlassToggle(perfContainer, "Black Screen (Disable 3D Rendering)", 3)
+	local bsCard, bsTrack, bsThumb = refs.createGlassToggle(perfContainer, "White Screen (Disable 3D Rendering)", 3)
 	local updateBlackScreenVisuals = function()
 		if blackScreenEnabled then
 			TweenService:Create(bsTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()

@@ -718,7 +718,91 @@ local success, err = pcall(function()
 			return CFrame.new(-41.4205513, 29.296978, 1066.81323)
 		end
 
-		-- Sell All Execution Logic (Tween to Shop, Fire Remotes & Prompts, Return via Tween)
+		-- Helper to check if tool matches sell rarity and size filters
+		local function matchesSellFilter(tool)
+			if not tool or not tool:IsA("Tool") then return false end
+
+			-- 1. Check Rarity Filter
+			local matchesRarity = false
+			local hasAnyRarity = false
+			if type(autoSellRarityFilters) == "table" then
+				for r, isSel in pairs(autoSellRarityFilters) do
+					if isSel == true then hasAnyRarity = true break end
+				end
+			end
+
+			if not hasAnyRarity or autoSellRarityFilters["All"] == true then
+				matchesRarity = true
+			else
+				local tName = string.lower(tool.Name)
+				local attrStr = ""
+				pcall(function()
+					for aName, aVal in pairs(tool:GetAttributes()) do
+						attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+					end
+				end)
+				local text = tName .. " " .. attrStr
+				local filterMap = {
+					["common"] = { "_t1", "t1", "common", "tier1", "tier 1" },
+					["uncommon"] = { "_t2", "t2", "uncommon", "tier2", "tier 2" },
+					["rare"] = { "_t3", "t3", "rare", "tier3", "tier 3" },
+					["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4" },
+					["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
+					["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+				}
+				for selRarity, isSel in pairs(autoSellRarityFilters) do
+					if isSel == true then
+						local rLower = string.lower(tostring(selRarity))
+						local kws = filterMap[rLower]
+						if kws then
+							for _, kw in ipairs(kws) do
+								if string.find(text, kw, 1, true) then matchesRarity = true break end
+							end
+						end
+						if string.find(text, rLower, 1, true) then matchesRarity = true end
+						if matchesRarity then break end
+					end
+				end
+			end
+
+			-- 2. Check Size Filter
+			local matchesSize = false
+			local hasAnySize = false
+			if type(autoSellSizeFilters) == "table" then
+				for s, isSel in pairs(autoSellSizeFilters) do
+					if isSel == true then hasAnySize = true break end
+				end
+			end
+
+			if not hasAnySize or autoSellSizeFilters["All"] == true then
+				matchesSize = true
+			else
+				local wKg = tool:GetAttribute("WeightKg") or tool:GetAttribute("Weight")
+				local tName = string.lower(tool.Name)
+				for selSize, isSel in pairs(autoSellSizeFilters) do
+					if isSel == true then
+						local sLower = string.lower(tostring(selSize))
+						if string.find(tName, sLower, 1, true) then
+							matchesSize = true
+							break
+						elseif sLower == "behemoth" and wKg and wKg >= 25000 then matchesSize = true break
+						elseif sLower == "leviathan" and wKg and wKg >= 8000 and wKg < 25000 then matchesSize = true break
+						elseif sLower == "titan" and wKg and wKg >= 3000 and wKg < 8000 then matchesSize = true break
+						elseif sLower == "colossal" and wKg and wKg >= 1000 and wKg < 3000 then matchesSize = true break
+						elseif sLower == "giant" and wKg and wKg >= 200 and wKg < 1000 then matchesSize = true break
+						elseif sLower == "extra large" and wKg and wKg >= 90 and wKg < 200 then matchesSize = true break
+						elseif sLower == "large" and wKg and wKg >= 30 and wKg < 90 then matchesSize = true break
+						elseif sLower == "medium" and wKg and wKg >= 8 and wKg < 30 then matchesSize = true break
+						elseif sLower == "small" and wKg and wKg < 8 then matchesSize = true break
+						end
+					end
+				end
+			end
+
+			return matchesRarity and matchesSize
+		end
+
+		-- Sell Execution Logic (Tween to Shop, Fire Remotes & Prompts, Return via Tween)
 		local function executeSellAllTeleport()
 			if isSelling then return end
 			isSelling = true
@@ -760,12 +844,40 @@ local success, err = pcall(function()
 			local function triggerSellAllRemotes()
 				pcall(function()
 					local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-					if rems then
-						local goHomeRem = rems:FindFirstChild("GoHome")
-						if goHomeRem then goHomeRem:FireServer("sell") end
+					local isAllRar = autoSellRarityFilters["All"] == true or next(autoSellRarityFilters) == nil
+					local isAllSz = autoSellSizeFilters["All"] == true or next(autoSellSizeFilters) == nil
 
-						local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell")
-						if sellRem then sellRem:FireServer("all") end
+					if isAllRar and isAllSz then
+						if rems then
+							local goHomeRem = rems:FindFirstChild("GoHome")
+							if goHomeRem then goHomeRem:FireServer("sell") end
+							local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell")
+							if sellRem then sellRem:FireServer("all") end
+						end
+					else
+						local sellTools = {}
+						local function scanCont(cont)
+							if not cont then return end
+							for _, child in ipairs(cont:GetChildren()) do
+								if child:IsA("Tool") and matchesSellFilter(child) then
+									table.insert(sellTools, child)
+								end
+							end
+						end
+						local p = player or game:GetService("Players").LocalPlayer
+						if p then
+							scanCont(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+							scanCont(p.Character)
+						end
+
+						if rems then
+							local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellItem") or rems:FindFirstChild("Sell")
+							for _, tool in ipairs(sellTools) do
+								if sellRem then
+									pcall(function() sellRem:FireServer(tool) end)
+								end
+							end
+						end
 					end
 				end)
 
@@ -2654,45 +2766,69 @@ local success, err = pcall(function()
 					task.wait(0.2)
 				end
 
-				-- Generate a big H-Shape pattern centered at plotCenter
-				local function generateHShapeOffsets(totalCount)
+				-- Generate placement sequence: Phase 1 Center H-Shape -> Phase 2 Outer Perimeter Fence Lines (picture style)
+				local function generatePlotPlacementOffsets(totalCount)
 					local offsets = {}
-					local spacing = 3.5
-					local barX = 7.0 -- Distance of left/right vertical legs from center
+					local hSpacing = 3.5
+					local barX = 7.0 -- Center H-Shape
 
-					-- Left vertical bar of the "H"
-					for dz = -10.5, 10.5, spacing do
+					-- 1. Phase 1: Center H-Shape (17 points)
+					-- Left vertical leg
+					for dz = -10.5, 10.5, hSpacing do
 						table.insert(offsets, Vector3.new(-barX, 0, dz))
 					end
-					-- Right vertical bar of the "H"
-					for dz = -10.5, 10.5, spacing do
+					-- Right vertical leg
+					for dz = -10.5, 10.5, hSpacing do
 						table.insert(offsets, Vector3.new(barX, 0, dz))
 					end
-					-- Horizontal crossbar of the "H"
-					for dx = -barX + spacing, barX - spacing, spacing do
+					-- Center crossbar
+					for dx = -barX + hSpacing, barX - hSpacing, hSpacing do
 						table.insert(offsets, Vector3.new(dx, 0, 0))
 					end
 
-					-- If more crystals than standard H, expand the H thickness outwards
-					local layer = 1
-					while #offsets < totalCount do
-						layer = layer + 1
-						local offsetLayerX = barX + (layer - 1) * spacing
-						for dz = -10.5, 10.5, spacing do
-							table.insert(offsets, Vector3.new(-offsetLayerX, 0, dz))
+					-- 2. Phase 2: Outer Perimeter Border (Fence Lines - as shown in user picture)
+					local borderDist = 15.5
+					local bSpacing = 2.8
+
+					-- Bottom fence line
+					for dx = -borderDist, borderDist, bSpacing do
+						table.insert(offsets, Vector3.new(dx, 0, borderDist))
+					end
+					-- Top fence line
+					for dx = -borderDist, borderDist, bSpacing do
+						table.insert(offsets, Vector3.new(dx, 0, -borderDist))
+					end
+					-- Left fence line
+					for dz = -borderDist + bSpacing, borderDist - bSpacing, bSpacing do
+						table.insert(offsets, Vector3.new(-borderDist, 0, dz))
+					end
+					-- Right fence line
+					for dz = -borderDist + bSpacing, borderDist - bSpacing, bSpacing do
+						table.insert(offsets, Vector3.new(borderDist, 0, dz))
+					end
+
+					-- 3. Phase 3: Secondary Inner Perimeter Ring Rows (if player has more crystals in backpack)
+					local ringDist = 13.0
+					while #offsets < totalCount and ringDist > 3.0 do
+						for dx = -ringDist, ringDist, bSpacing do
+							table.insert(offsets, Vector3.new(dx, 0, ringDist))
 						end
-						for dz = -10.5, 10.5, spacing do
-							table.insert(offsets, Vector3.new(offsetLayerX, 0, dz))
+						for dx = -ringDist, ringDist, bSpacing do
+							table.insert(offsets, Vector3.new(dx, 0, -ringDist))
 						end
-						for dx = -offsetLayerX + spacing, offsetLayerX - spacing, spacing do
-							table.insert(offsets, Vector3.new(dx, 0, (layer % 2 == 0 and spacing or -spacing)))
+						for dz = -ringDist + bSpacing, ringDist - bSpacing, bSpacing do
+							table.insert(offsets, Vector3.new(-ringDist, 0, dz))
 						end
+						for dz = -ringDist + bSpacing, ringDist - bSpacing, bSpacing do
+							table.insert(offsets, Vector3.new(ringDist, 0, dz))
+						end
+						ringDist = ringDist - 2.5
 					end
 
 					return offsets
 				end
 
-				local hOffsets = generateHShapeOffsets(#targetTools)
+				local placeOffsets = generatePlotPlacementOffsets(#targetTools)
 
 				for idx, tool in ipairs(targetTools) do
 					if not tool or not tool.Parent then continue end
@@ -2705,7 +2841,7 @@ local success, err = pcall(function()
 						task.wait(0.12)
 					end
 
-					local offset = hOffsets[idx] or Vector3.new(0, 0, 0)
+					local offset = placeOffsets[idx] or Vector3.new(0, 0, 0)
 					local placePos = Vector3.new(plotCenter.X + offset.X, plotCenter.Y + 0.1, plotCenter.Z + offset.Z)
 
 					pcall(function()
