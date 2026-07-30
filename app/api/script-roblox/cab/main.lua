@@ -585,6 +585,7 @@ local success, err = pcall(function()
 		local isSellExpanded = false
 		local autoSellEnabled = false
 		local isSelling = false
+		local isBackpackFull = nil
 
 		local sellCard = Instance.new("Frame")
 		sellCard.Size = UDim2.new(1, 0, 0, 36)
@@ -693,6 +694,13 @@ local success, err = pcall(function()
 
 			if shopCFrame then
 				task.wait(0.3)
+				-- Wait until backpack is cleared by server so it doesn't get stuck in a sell loop
+				if isBackpackFull then
+					local sellWaitStart = os.clock()
+					while isBackpackFull() and (os.clock() - sellWaitStart < 1.5) do
+						task.wait(0.1)
+					end
+				end
 				if myHrp and myHrp.Parent then
 					myHrp.CFrame = lastCFrame
 				end
@@ -1341,7 +1349,7 @@ local success, err = pcall(function()
 		end
 
 		-- Helper to check if player backpack/inventory is full
-		local function isBackpackFull()
+		isBackpackFull = function()
 			local p = player or game:GetService("Players").LocalPlayer
 			if not p then return false end
 
@@ -1433,13 +1441,13 @@ local success, err = pcall(function()
 			pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 		end
 
-		-- Auto Farm Loop with Levitating / Flying Stay Engine & Fast Speed Movement
+		-- Auto Farm Loop with Levitating / Flying Stay Engine & Fast Speed Movement (Continuous Mining & Selling Loop)
 		task.spawn(function()
 			while true do
 				task.wait(0.1)
 				if autoFarmCrystalsEnabled then
-					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return)
-					if autoSellOnFullEnabled and isBackpackFull() then
+					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return, and immediately resume mining)
+					if autoSellOnFullEnabled and isBackpackFull and isBackpackFull() then
 						local myChar = player and player.Character
 						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
 						if myHrp then
@@ -1448,7 +1456,7 @@ local success, err = pcall(function()
 						end
 
 						pcall(executeSellAllTeleport)
-						task.wait(0.5)
+						task.wait(0.2)
 					end
 
 					local target = getClosestFilteredCrystal()
@@ -1483,10 +1491,14 @@ local success, err = pcall(function()
 								end)
 							end
 
-							-- Stay flying in place while mining until crystal breaks (no repeated CFrame teleporting)
+							-- Stay flying in place while mining until crystal breaks (or until backpack fills up)
 							local startTime = os.clock()
 							while autoFarmCrystalsEnabled and obj and obj.Parent and (os.clock() - startTime < 2.5) do
 								task.wait(0.15)
+								-- Check if backpack becomes full mid-mining to auto-sell immediately
+								if autoSellOnFullEnabled and isBackpackFull and isBackpackFull() then
+									break
+								end
 								if prompt and prompt.Parent then
 									pcall(function()
 										if fireproximityprompt then
