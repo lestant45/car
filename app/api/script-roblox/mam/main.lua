@@ -598,6 +598,7 @@ local success, err = pcall(function()
 		local autoSellEnabled = false
 		local isSelling = false
 		local isBackpackFull = nil
+		local tweenToTargetCFrame = nil
 
 		local sellCard = Instance.new("Frame")
 		sellCard.Size = UDim2.new(1, 0, 0, 36)
@@ -678,7 +679,7 @@ local success, err = pcall(function()
 			updateMainTabCanvas()
 		end)
 
-		-- Sell All Execution Logic (Teleport to Shop, Fire Remote, Return to Original Position)
+		-- Sell All Execution Logic (Tween to Shop, Fire Remote, Return via Tween)
 		local function executeSellAllTeleport()
 			if isSelling then return end
 			isSelling = true
@@ -694,8 +695,27 @@ local success, err = pcall(function()
 			local shopCFrame = getShopCFrame()
 
 			if shopCFrame then
-				myHrp.CFrame = shopCFrame
-				task.wait(0.4)
+				-- Attach hover flight during sell travel
+				local flyHold = myHrp:FindFirstChild("HipHubFarmFly")
+				if not flyHold then
+					flyHold = Instance.new("BodyVelocity")
+					flyHold.Name = "HipHubFarmFly"
+					flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+					flyHold.Velocity = Vector3.zero
+					flyHold.Parent = myHrp
+				end
+
+				-- Smooth tween to shop instead of instant teleporting
+				if tweenToTargetCFrame then
+					tweenToTargetCFrame(myHrp, shopCFrame, 350)
+				else
+					local dist = (myHrp.Position - shopCFrame.Position).Magnitude
+					local duration = math.clamp(dist / 350, 0.1, 3.0)
+					local tween = TweenService:Create(myHrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = shopCFrame })
+					tween:Play()
+					tween.Completed:Wait()
+				end
+				task.wait(0.3)
 			end
 
 			pcall(function()
@@ -716,7 +736,16 @@ local success, err = pcall(function()
 					end
 				end
 				if myHrp and myHrp.Parent then
-					myHrp.CFrame = lastCFrame
+					-- Smooth tween back to last position
+					if tweenToTargetCFrame then
+						tweenToTargetCFrame(myHrp, lastCFrame, 350)
+					else
+						local dist = (myHrp.Position - lastCFrame.Position).Magnitude
+						local duration = math.clamp(dist / 350, 0.1, 3.0)
+						local tween = TweenService:Create(myHrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = lastCFrame })
+						tween:Play()
+						tween.Completed:Wait()
+					end
 				end
 			end
 
@@ -1293,7 +1322,7 @@ local success, err = pcall(function()
 
 		-- Smooth Fast Tween Helper for Automation Mining (Glide with fast speed)
 		local activeFarmTween = nil
-		local function tweenToTargetCFrame(myHrp, targetCFrame, speed)
+		tweenToTargetCFrame = function(myHrp, targetCFrame, speed)
 			if not myHrp or not targetCFrame then return end
 			local spd = speed or 350
 			local dist = (myHrp.Position - targetCFrame.Position).Magnitude
@@ -1303,7 +1332,7 @@ local success, err = pcall(function()
 				return
 			end
 
-			local duration = math.clamp(dist / spd, 0.05, 1.5)
+			local duration = math.clamp(dist / spd, 0.08, 4.0)
 			if activeFarmTween then
 				pcall(function() activeFarmTween:Cancel() end)
 				activeFarmTween = nil
