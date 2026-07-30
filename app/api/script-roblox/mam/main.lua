@@ -2527,6 +2527,14 @@ local success, err = pcall(function()
 				data.autoFarmSizeFilters = amState.autoFarmSizeFilters
 			end
 
+			-- Misc config state
+			if _G.HipHubMisc and _G.HipHubMisc.getState then
+				local miscState = _G.HipHubMisc.getState()
+				data.fpsBoostEnabled = miscState.fpsBoostEnabled
+				data.blackScreenEnabled = miscState.blackScreenEnabled
+				data.capFpsEnabled = miscState.capFpsEnabled
+			end
+
 			writefile(configPath, game:GetService("HttpService"):JSONEncode(data))
 		end)
 	end
@@ -2589,6 +2597,14 @@ local success, err = pcall(function()
 						autoSellOnFullEnabled = data.autoSellOnFullEnabled,
 						autoFarmRarityFilters = data.autoFarmRarityFilters or data.autoFarmRarityFilter,
 						autoFarmSizeFilters = data.autoFarmSizeFilters or data.autoFarmSizeFilter,
+					})
+				end
+
+				if _G.HipHubMisc and _G.HipHubMisc.setState then
+					_G.HipHubMisc.setState({
+						fpsBoostEnabled = data.fpsBoostEnabled,
+						blackScreenEnabled = data.blackScreenEnabled,
+						capFpsEnabled = data.capFpsEnabled,
 					})
 				end
 

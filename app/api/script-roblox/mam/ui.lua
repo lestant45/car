@@ -855,6 +855,7 @@ local success, err = pcall(function()
 
 	-- Add Core Tabs
 	addTab("Main", "", 1)
+	addTab("Misc", "", 50)
 	addTab("Settings", "", 99)
 
 	------------------------------------------------
@@ -1515,6 +1516,9 @@ local success, err = pcall(function()
 
 		-- Main tab specific elements
 		mainFrameContent = mainFrameContent,
+
+		-- Misc tab specific elements
+		miscFrameContent = tabs["Misc"] and tabs["Misc"].Frame,
 
 		-- Settings tab elements
 		settingsFrame = settingsFrame,
