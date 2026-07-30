@@ -662,7 +662,7 @@ local success, err = pcall(function()
 
 		-- Content Container inside Automation Sell Card
 		local sellContentContainer = Instance.new("Frame")
-		sellContentContainer.Size = UDim2.new(1, -24, 0, 80)
+		sellContentContainer.Size = UDim2.new(1, -24, 0, 180)
 		sellContentContainer.Position = UDim2.new(0, 12, 0, 42)
 		sellContentContainer.BackgroundTransparency = 1
 		sellContentContainer.Parent = sellCard
@@ -672,7 +672,7 @@ local success, err = pcall(function()
 		sellHeaderBtn.MouseButton1Click:Connect(function()
 			isSellExpanded = not isSellExpanded
 			sellChevronLabel.Text = isSellExpanded and "v" or ">"
-			local targetHeight = isSellExpanded and 130 or 36
+			local targetHeight = isSellExpanded and 215 or 36
 
 			local tween = TweenService:Create(sellCard,
 				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
@@ -1499,7 +1499,7 @@ local success, err = pcall(function()
 
 		-- Content Container inside Automation Mining Card
 		local amContentContainer = Instance.new("Frame")
-		amContentContainer.Size = UDim2.new(1, -24, 0, 360)
+		amContentContainer.Size = UDim2.new(1, -24, 0, 270)
 		amContentContainer.Position = UDim2.new(0, 12, 0, 42)
 		amContentContainer.BackgroundTransparency = 1
 		amContentContainer.Parent = autoMineCategoryCard
@@ -1509,7 +1509,7 @@ local success, err = pcall(function()
 		amHeaderBtn.MouseButton1Click:Connect(function()
 			isAutoMineCategoryExpanded = not isAutoMineCategoryExpanded
 			amChevronLabel.Text = isAutoMineCategoryExpanded and "v" or ">"
-			local targetHeight = isAutoMineCategoryExpanded and 265 or 36
+			local targetHeight = isAutoMineCategoryExpanded and 310 or 36
 			local tween = TweenService:Create(autoMineCategoryCard,
 				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
@@ -1533,8 +1533,30 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 2. Auto Farm Noclip Toggle
-		local afnRow, afnTrack, afnThumb = refs.createGlassToggle(amContentContainer, "Auto Farm Noclip", 2)
+		-- 2. Auto Mine Runes Toggle
+		local autoFarmRunesEnabled = false
+		local afrRow, afrTrack, afrThumb = refs.createGlassToggle(amContentContainer, "Auto Mine Runes", 2)
+		local updateAutoMineRunesVisuals = function()
+			if autoFarmRunesEnabled then
+				TweenService:Create(afrTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(afrThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(afrTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(afrThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		updateAutoMineRunesVisuals()
+
+		afrTrack.MouseButton1Click:Connect(function()
+			autoFarmRunesEnabled = not autoFarmRunesEnabled
+			updateAutoMineRunesVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- 3. Auto Farm Noclip Toggle
+		local afnRow, afnTrack, afnThumb = refs.createGlassToggle(amContentContainer, "Auto Farm Noclip", 3)
 		local updateAutoFarmNoclipVisuals = function()
 			if autoFarmNoclipEnabled then
 				TweenService:Create(afnTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
@@ -1548,9 +1570,9 @@ local success, err = pcall(function()
 		end
 		updateAutoFarmNoclipVisuals()
 
-		-- 3. Auto Sell When Full Toggle
+		-- 4. Auto Sell When Full Toggle
 		local autoSellOnFullEnabled = true
-		local asfRow, asfTrack, asfThumb = refs.createGlassToggle(amContentContainer, "Auto Sell When Full", 3)
+		local asfRow, asfTrack, asfThumb = refs.createGlassToggle(amContentContainer, "Auto Sell When Full", 4)
 		local updateAutoSellFullVisuals = function()
 			if autoSellOnFullEnabled then
 				TweenService:Create(asfTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
@@ -1570,15 +1592,16 @@ local success, err = pcall(function()
 			if refs.saveConfig then pcall(refs.saveConfig) end
 		end)
 
-		-- 4. Target Rarity Filter Card inside Automation Mining
+		-- 5. Target Rarity Filter Card inside Automation Mining
 		local amRarCard, amRarDropBtn, amRarDropLabel, amRarMenuFrame, amRarSearch, amRarScroll = refs
 		.createGlassDropdown(
-			amContentContainer, "Target Rarity", "All", 4
+			amContentContainer, "Target Rarity", "All", 5
 		)
 		amRarCard.Size = UDim2.new(1, 0, 0, 32)
 
 		local autoFarmRarityFilters = { ["All"] = true }
 		local autoFarmSizeFilters = { ["All"] = true }
+		local autoFarmMinValueMillions = 0
 
 		local function getSelectedRarityLabelText()
 			if autoFarmRarityFilters["All"] or next(autoFarmRarityFilters) == nil then
@@ -1644,9 +1667,9 @@ local success, err = pcall(function()
 			amRarityBinder.updateOptionVisuals()
 		end
 
-		-- 5. Target Size Filter Card inside Automation Mining
+		-- 6. Target Size Filter Card inside Automation Mining
 		local amSzCard, amSzDropBtn, amSzDropLabel, amSzMenuFrame, amSzSearch, amSzScroll = refs.createGlassDropdown(
-			amContentContainer, "Target Size", "All", 5
+			amContentContainer, "Target Size", "All", 6
 		)
 		amSzCard.Size = UDim2.new(1, 0, 0, 32)
 
@@ -1685,6 +1708,80 @@ local success, err = pcall(function()
 			amSzDropLabel.Text = getSelectedSizeLabelText()
 			amSizeBinder.updateOptionVisuals()
 		end
+
+		-- 7. Min Value Filter Input Box ($M) inside Automation Mining
+		local amValCard = Instance.new("Frame")
+		amValCard.Size = UDim2.new(1, 0, 0, 32)
+		amValCard.BackgroundColor3 = COLORS.glassCard
+		amValCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+		amValCard.BorderSizePixel = 0
+		amValCard.LayoutOrder = 7
+		amValCard.Parent = amContentContainer
+
+		refs.applyGlass(amValCard, {
+			corner = refs.CORNER.small,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		local amValLabel = Instance.new("TextLabel")
+		amValLabel.Size = UDim2.new(0.5, -12, 1, 0)
+		amValLabel.Position = UDim2.new(0, 12, 0, 0)
+		amValLabel.BackgroundTransparency = 1
+		amValLabel.Text = "Min Value ($M)"
+		amValLabel.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		amValLabel.Font = Enum.Font.GothamMedium
+		amValLabel.TextSize = 12
+		amValLabel.TextXAlignment = Enum.TextXAlignment.Left
+		amValLabel.Parent = amValCard
+
+		local amValInputBg = Instance.new("Frame")
+		amValInputBg.Size = UDim2.new(0.5, -12, 0, 24)
+		amValInputBg.Position = UDim2.new(0.5, 0, 0.5, -12)
+		amValInputBg.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+		amValInputBg.BackgroundTransparency = 0.3
+		amValInputBg.BorderSizePixel = 0
+		amValInputBg.Parent = amValCard
+
+		local amValInputCorner = Instance.new("UICorner")
+		amValInputCorner.CornerRadius = UDim.new(0, 4)
+		amValInputCorner.Parent = amValInputBg
+
+		local amValInputStroke = Instance.new("UIStroke")
+		amValInputStroke.Color = COLORS.accentCyan
+		amValInputStroke.Thickness = 1
+		amValInputStroke.Transparency = 0.6
+		amValInputStroke.Parent = amValInputBg
+
+		local amValBox = Instance.new("TextBox")
+		amValBox.Size = UDim2.new(1, -12, 1, 0)
+		amValBox.Position = UDim2.new(0, 6, 0, 0)
+		amValBox.BackgroundTransparency = 1
+		amValBox.Text = "0"
+		amValBox.PlaceholderText = "Type Min $M..."
+		amValBox.TextColor3 = COLORS.accentCyan
+		amValBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
+		amValBox.Font = Enum.Font.GothamBold
+		amValBox.TextSize = 12
+		amValBox.TextXAlignment = Enum.TextXAlignment.Center
+		amValBox.ClearTextOnFocus = false
+		amValBox.Parent = amValInputBg
+
+		local function updateAmValVisuals()
+			amValBox.Text = tostring(autoFarmMinValueMillions)
+		end
+
+		amValBox.FocusLost:Connect(function()
+			local num = tonumber(amValBox.Text)
+			if num then
+				autoFarmMinValueMillions = math.max(0, num)
+			else
+				amValBox.Text = tostring(autoFarmMinValueMillions)
+			end
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
 
 		-- Dedicated Noclip Engine for Automation Mining
 		local amNoclipConnection = nil
@@ -1794,6 +1891,57 @@ local success, err = pcall(function()
 
 				local combinedSearchText = fullName .. " " .. attrStr
 
+				-- Rune vs Crystal Type Check
+				local isRune = string.find(combinedSearchText, "rune", 1, true) ~= nil
+				local isCrystal = not isRune and (string.find(combinedSearchText, "crystal", 1, true) ~= nil or child:GetAttribute("Tier") ~= nil or child:GetAttribute("WeightKg") ~= nil or string.find(combinedSearchText, "kg", 1, true))
+
+				if isRune and not autoFarmRunesEnabled then
+					return
+				end
+				if isCrystal and not autoFarmCrystalsEnabled then
+					return
+				end
+
+				-- Min Value Filter Check ($M)
+				local matchesValue = true
+				if autoFarmMinValueMillions > 0 then
+					local rawVal = 0
+					pcall(function()
+						local vAttr = child:GetAttribute("Value") or child:GetAttribute("Worth") or child:GetAttribute("Price") or child:GetAttribute("SellValue") or child:GetAttribute("EstimatedValue")
+						if typeof(vAttr) == "number" then
+							rawVal = vAttr
+						elseif typeof(vAttr) == "string" then
+							local n = tonumber(string.match(vAttr, "%d+%.?%d*")) or 0
+							if string.find(string.lower(vAttr), "b", 1, true) then n = n * 1000000000
+							elseif string.find(string.lower(vAttr), "m", 1, true) then n = n * 1000000
+							elseif string.find(string.lower(vAttr), "k", 1, true) then n = n * 1000 end
+							rawVal = n
+						end
+					end)
+
+					if rawVal <= 0 then
+						pcall(function()
+							for _, desc in ipairs(child:GetDescendants()) do
+								if desc:IsA("TextLabel") then
+									local txt = string.lower(desc.Text)
+									if string.find(txt, "val", 1, true) or string.find(txt, "$", 1, true) or string.find(txt, "m", 1, true) or string.find(txt, "b", 1, true) then
+										local n = tonumber(string.match(txt, "%d+%.?%d*")) or 0
+										if string.find(txt, "b", 1, true) then n = n * 1000000000
+										elseif string.find(txt, "m", 1, true) then n = n * 1000000
+										elseif string.find(txt, "k", 1, true) then n = n * 1000 end
+										if n > rawVal then rawVal = n end
+									end
+								end
+							end
+						end)
+					end
+
+					local valInMillions = rawVal / 1000000
+					if valInMillions < autoFarmMinValueMillions then
+						matchesValue = false
+					end
+				end
+
 				-- Multi-Select Rarity Check
 				local matchesRarity = false
 				if not hasAnyEnabledRarity or autoFarmRarityFilters["All"] == true then
@@ -1875,7 +2023,7 @@ local success, err = pcall(function()
 					end
 				end
 
-				if matchesRarity and matchesSize then
+				if matchesRarity and matchesSize and matchesValue then
 					local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 					if targetPart then
 						local dist = (myPos - targetPart.Position).Magnitude
@@ -1913,8 +2061,10 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- Search known workspace folders
+			-- Search known workspace folders (including Runes)
 			local things = workspace:FindFirstChild("Things")
+			evaluateFolder(workspace:FindFirstChild("Runes"))
+			evaluateFolder(things and things:FindFirstChild("Runes"))
 			evaluateFolder(workspace:FindFirstChild("Crystals"))
 			evaluateFolder(things and things:FindFirstChild("Crystals"))
 			evaluateFolder(workspace:FindFirstChild("DroppedCrystals"))
@@ -2070,8 +2220,8 @@ local success, err = pcall(function()
 								flyHold.Parent = myHrp
 							end
 
-							-- TWEEN WITH FAST SPEED to the target crystal instead of instant teleporting
-							local farmTargetCFrame = part.CFrame + Vector3.new(0, 2.5, 0)
+							-- Fly & levitate 6.5 studs above the target crystal while picking it up
+							local farmTargetCFrame = part.CFrame + Vector3.new(0, 6.5, 0)
 							tweenToTargetCFrame(myHrp, farmTargetCFrame, 350)
 
 							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -2084,14 +2234,25 @@ local success, err = pcall(function()
 								end)
 							end
 
-							-- Stay flying in place while mining until crystal breaks (or until backpack fills up)
+							-- Stay flying levitated in mid-air while picking up crystal until breaks or backpack full
 							local startTime = os.clock()
 							while autoFarmCrystalsEnabled and obj and obj.Parent and (os.clock() - startTime < 2.5) do
-								task.wait(0.15)
+								task.wait(0.12)
+
+								-- Ensure flying BodyVelocity stays attached while picking up
+								if myHrp and not myHrp:FindFirstChild("HipHubFarmFly") then
+									local fh = Instance.new("BodyVelocity")
+									fh.Name = "HipHubFarmFly"
+									fh.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+									fh.Velocity = Vector3.zero
+									fh.Parent = myHrp
+								end
+
 								-- Check if backpack becomes full mid-mining to auto-sell immediately
 								if autoSellOnFullEnabled and isBackpackFull and isBackpackFull() then
 									break
 								end
+
 								if prompt and prompt.Parent then
 									pcall(function()
 										if fireproximityprompt then
@@ -2530,10 +2691,12 @@ local success, err = pcall(function()
 				getState = function()
 					return {
 						autoFarmCrystalsEnabled = autoFarmCrystalsEnabled,
+						autoFarmRunesEnabled = autoFarmRunesEnabled,
 						autoFarmNoclipEnabled = autoFarmNoclipEnabled,
 						autoSellOnFullEnabled = autoSellOnFullEnabled,
 						autoFarmRarityFilters = autoFarmRarityFilters,
 						autoFarmSizeFilters = autoFarmSizeFilters,
+						autoFarmMinValueMillions = autoFarmMinValueMillions,
 					}
 				end,
 				setState = function(s)
@@ -2542,6 +2705,10 @@ local success, err = pcall(function()
 						autoFarmCrystalsEnabled = (s.autoFarmCrystalsEnabled == true)
 						updateAutoFarmVisuals()
 						updateAutomationNoclipEngine()
+					end
+					if s.autoFarmRunesEnabled ~= nil then
+						autoFarmRunesEnabled = (s.autoFarmRunesEnabled == true)
+						updateAutoMineRunesVisuals()
 					end
 					if s.autoFarmNoclipEnabled ~= nil then
 						autoFarmNoclipEnabled = (s.autoFarmNoclipEnabled == true)
@@ -2573,6 +2740,10 @@ local success, err = pcall(function()
 					elseif s.autoFarmSizeFilter ~= nil then
 						autoFarmSizeFilters = { [tostring(s.autoFarmSizeFilter)] = true }
 						updateAmSizeVisuals()
+					end
+					if s.autoFarmMinValueMillions ~= nil then
+						autoFarmMinValueMillions = tonumber(s.autoFarmMinValueMillions) or 0
+						updateAmValVisuals()
 					end
 				end
 			}
