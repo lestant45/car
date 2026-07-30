@@ -2437,8 +2437,45 @@ local success, err = pcall(function()
 					task.wait(0.2)
 				end
 
-				local gridCols = 4
-				local spacing = 3.5
+				-- Generate a big H-Shape pattern centered at plotCenter
+				local function generateHShapeOffsets(totalCount)
+					local offsets = {}
+					local spacing = 3.5
+					local barX = 7.0 -- Distance of left/right vertical legs from center
+
+					-- Left vertical bar of the "H"
+					for dz = -10.5, 10.5, spacing do
+						table.insert(offsets, Vector3.new(-barX, 0, dz))
+					end
+					-- Right vertical bar of the "H"
+					for dz = -10.5, 10.5, spacing do
+						table.insert(offsets, Vector3.new(barX, 0, dz))
+					end
+					-- Horizontal crossbar of the "H"
+					for dx = -barX + spacing, barX - spacing, spacing do
+						table.insert(offsets, Vector3.new(dx, 0, 0))
+					end
+
+					-- If more crystals than standard H, expand the H thickness outwards
+					local layer = 1
+					while #offsets < totalCount do
+						layer = layer + 1
+						local offsetLayerX = barX + (layer - 1) * spacing
+						for dz = -10.5, 10.5, spacing do
+							table.insert(offsets, Vector3.new(-offsetLayerX, 0, dz))
+						end
+						for dz = -10.5, 10.5, spacing do
+							table.insert(offsets, Vector3.new(offsetLayerX, 0, dz))
+						end
+						for dx = -offsetLayerX + spacing, offsetLayerX - spacing, spacing do
+							table.insert(offsets, Vector3.new(dx, 0, (layer % 2 == 0 and spacing or -spacing)))
+						end
+					end
+
+					return offsets
+				end
+
+				local hOffsets = generateHShapeOffsets(#targetTools)
 
 				for idx, tool in ipairs(targetTools) do
 					if not tool or not tool.Parent then continue end
@@ -2451,13 +2488,8 @@ local success, err = pcall(function()
 						task.wait(0.12)
 					end
 
-					local col = (idx - 1) % gridCols
-					local row = math.floor((idx - 1) / gridCols)
-
-					local offsetX = (col - 1.5) * spacing
-					local offsetZ = (row - 1.5) * spacing
-
-					local placePos = Vector3.new(plotCenter.X + offsetX, plotCenter.Y + 0.5, plotCenter.Z + offsetZ)
+					local offset = hOffsets[idx] or Vector3.new(0, 0, 0)
+					local placePos = Vector3.new(plotCenter.X + offset.X, plotCenter.Y + 0.5, plotCenter.Z + offset.Z)
 
 					pcall(function()
 						placeRem:FireServer(
