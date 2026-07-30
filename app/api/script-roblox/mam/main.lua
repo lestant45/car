@@ -1044,7 +1044,7 @@ local success, err = pcall(function()
 				return "All"
 			end
 			local list = {}
-			for _, s in ipairs({ "Small", "Medium", "Large", "Titan", "Colossal" }) do
+			for _, s in ipairs({ "Small", "Medium", "Large", "Extra Large", "Giant", "Colossal", "Titan", "Leviathan", "Behemoth" }) do
 				if autoFarmSizeFilters[s] then table.insert(list, s) end
 			end
 			if #list == 0 then return "All" end
@@ -1095,7 +1095,7 @@ local success, err = pcall(function()
 		)
 		amSzCard.Size = UDim2.new(1, 0, 0, 32)
 
-		local amSizes = { "All", "Small", "Medium", "Large", "Titan", "Colossal" }
+		local amSizes = { "All", "Small", "Medium", "Large", "Extra Large", "Giant", "Colossal", "Titan", "Leviathan", "Behemoth" }
 
 		refs.registerDropdownMenu(amSzDropBtn, amSzMenuFrame)
 		local amSizeBinder = refs.bindDropdown(
@@ -1242,40 +1242,52 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Multi-Select Size Check
+				-- Multi-Select Size Check using game's exact CrystalConfig thresholds
 				local matchesSize = false
-				if autoFarmSizeFilters["All"] or next(autoFarmSizeFilters) == nil then
+				if not hasAnyEnabledSize or autoFarmSizeFilters["All"] == true then
 					matchesSize = true
 				else
+					local wKg = child:GetAttribute("WeightKg") or child:GetAttribute("Weight") or (child.Parent and child.Parent:GetAttribute("WeightKg")) or (child.Parent and child.Parent:GetAttribute("Weight"))
+					local sizeVec = nil
+					if child:IsA("BasePart") then
+						sizeVec = child.Size
+					elseif child:IsA("Model") then
+						local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+						if primary then sizeVec = primary.Size end
+					end
+					local maxDim = sizeVec and math.max(sizeVec.X, sizeVec.Y, sizeVec.Z) or 0
+
 					for selSize, isSel in pairs(autoFarmSizeFilters) do
-						if isSel then
-							local sizeLower = string.lower(selSize)
-							if string.find(combinedSearchText, sizeLower, 1, true) then
-								matchesSize = true
-							else
-								local sizeVec = nil
-								if child:IsA("BasePart") then
-									sizeVec = child.Size
-								elseif child:IsA("Model") then
-									local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-									if primary then sizeVec = primary.Size end
-								end
-								if sizeVec then
-									local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
-									if sizeLower == "colossal" and maxDim >= 12 then
-										matchesSize = true
-									elseif sizeLower == "titan" and (maxDim >= 7 and maxDim < 12) then
-										matchesSize = true
-									elseif sizeLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
-										matchesSize = true
-									elseif sizeLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
-										matchesSize = true
-									elseif sizeLower == "small" and maxDim < 1.8 then
-										matchesSize = true
-									end
-								end
+						if isSel == true then
+							local sLower = string.lower(tostring(selSize))
+							local matched = false
+
+							if string.find(combinedSearchText, sLower, 1, true) then
+								matched = true
+							elseif sLower == "behemoth" then
+								if (wKg and wKg >= 25000) or maxDim >= 50 then matched = true end
+							elseif sLower == "leviathan" then
+								if (wKg and wKg >= 8000 and wKg < 25000) or (maxDim >= 35 and maxDim < 50) then matched = true end
+							elseif sLower == "titan" then
+								if (wKg and wKg >= 3000 and wKg < 8000) or (maxDim >= 22 and maxDim < 35) then matched = true end
+							elseif sLower == "colossal" then
+								if (wKg and wKg >= 1000 and wKg < 3000) or (maxDim >= 15 and maxDim < 22) then matched = true end
+							elseif sLower == "giant" then
+								if (wKg and wKg >= 200 and wKg < 1000) or (maxDim >= 10 and maxDim < 15) then matched = true end
+							elseif sLower == "extra large" or sLower == "xl" then
+								if (wKg and wKg >= 90 and wKg < 200) or (maxDim >= 7 and maxDim < 10) then matched = true end
+							elseif sLower == "large" or sLower == "l" then
+								if (wKg and wKg >= 30 and wKg < 90) or (maxDim >= 4.5 and maxDim < 7) then matched = true end
+							elseif sLower == "medium" or sLower == "m" then
+								if (wKg and wKg >= 8 and wKg < 30) or (maxDim >= 1.8 and maxDim < 4.5) then matched = true end
+							elseif sLower == "small" or sLower == "s" then
+								if (wKg and wKg < 8) or (maxDim > 0 and maxDim < 1.8) then matched = true end
 							end
-							if matchesSize then break end
+
+							if matched then
+								matchesSize = true
+								break
+							end
 						end
 					end
 				end
