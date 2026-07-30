@@ -98,7 +98,7 @@ ${result}
   return finalCode;
 }
 
-function obfuscateLuaXor(code: string, licenseKey: string): string {
+function obfuscateLuaXor(code: string, licenseKey = "KEYLESS"): string {
   // 1. Scramble all strings inside the script using a random key
   const decName = makeId(8);
   const encryptionKey = Math.floor(Math.random() * 254) + 1;
@@ -329,18 +329,12 @@ pcall(function()
     topBarCorner.CornerRadius = UDim.new(0, 12)
     topBarCorner.Parent = topBar
     
-    local topBarStroke = Instance.new("UIStroke")
-    topBarStroke.Color = COLORS.borderGlass
-    topBarStroke.Thickness = 1
-    topBarStroke.Transparency = 0.75
-    topBarStroke.Parent = topBar
-
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -40, 1, 0)
     title.Position = UDim2.new(0, 16, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "HIPHUB ACCESS DENIED"
-    title.TextColor3 = Color3.fromRGB(255, 100, 100) -- Red warning
+    title.Text = "HIPHUB ERROR"
+    title.TextColor3 = Color3.fromRGB(255, 100, 100)
     title.Font = Enum.Font.GothamBold
     title.TextSize = 10
     title.TextXAlignment = Enum.TextXAlignment.Left
@@ -355,13 +349,6 @@ pcall(function()
     closeButton.Font = Enum.Font.GothamBold
     closeButton.TextSize = 12
     closeButton.Parent = topBar
-    
-    closeButton.MouseEnter:Connect(function()
-        TweenService:Create(closeButton, TweenInfo.new(0.15), {TextColor3 = Color3.fromRGB(255, 80, 80)}):Play()
-    end)
-    closeButton.MouseLeave:Connect(function()
-        TweenService:Create(closeButton, TweenInfo.new(0.15), {TextColor3 = COLORS.textSecondary}):Play()
-    end)
     
     closeButton.MouseButton1Click:Connect(function()
         errGui:Destroy()
@@ -379,48 +366,6 @@ pcall(function()
     body.TextXAlignment = Enum.TextXAlignment.Left
     body.TextYAlignment = Enum.TextYAlignment.Top
     body.Parent = frame
-
-    local actionButton = Instance.new("TextButton")
-    actionButton.Size = UDim2.new(1, -32, 0, 36)
-    actionButton.Position = UDim2.new(0, 16, 1, -52)
-    actionButton.BackgroundColor3 = COLORS.accentViolet
-    actionButton.BackgroundTransparency = 0.15
-    actionButton.BorderSizePixel = 0
-    actionButton.Text = "GET KEY (CLICK TO COPY LINK)"
-    actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    actionButton.Font = Enum.Font.GothamBold
-    actionButton.TextSize = 10
-    actionButton.Parent = frame
-
-    local actionCorner = Instance.new("UICorner")
-    actionCorner.CornerRadius = UDim.new(0, 6)
-    actionCorner.Parent = actionButton
-    
-    local actionStroke = Instance.new("UIStroke")
-    actionStroke.Color = COLORS.accentViolet
-    actionStroke.Thickness = 1
-    actionStroke.Transparency = 0.4
-    actionStroke.Parent = actionButton
-
-    actionButton.MouseEnter:Connect(function()
-        TweenService:Create(actionButton, TweenInfo.new(0.2), {BackgroundTransparency = 0.05}):Play()
-    end)
-    actionButton.MouseLeave:Connect(function()
-        TweenService:Create(actionButton, TweenInfo.new(0.2), {BackgroundTransparency = 0.15}):Play()
-    end)
-
-    actionButton.MouseButton1Click:Connect(function()
-        pcall(function()
-            if setclipboard then
-                setclipboard(${JSON.stringify(keyUrl)})
-                actionButton.Text = "COPIED LINK TO CLIPBOARD!"
-                task.wait(2)
-                actionButton.Text = "GET KEY (CLICK TO COPY LINK)"
-            else
-                actionButton.Text = "YOUR EXECUTOR DOESN'T SUPPORT SETCLIPBOARD!"
-            end
-        end)
-    end)
 end)
 `;
 }
@@ -456,46 +401,32 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const key = searchParams.get("key");
-    const hwid = searchParams.get("hwid");
+    const isPayload = searchParams.get("payload") === "true";
     const gameId = searchParams.get("gameId");
     const placeId = searchParams.get("placeId");
 
-    // Enforce lock on main script payload
-    if (key) {
-      const allowedPlaceIds = [
-        "125927821145949"
-      ];
-      if (!allowedPlaceIds.includes(String(gameId)) && !allowedPlaceIds.includes(String(placeId))) {
-        const errScript = getErrorGuiLua(
-          "Access Denied: This script is locked and can only be executed in authorized games.",
-          "https://hiphub.cloud/"
-        );
-        return new NextResponse(errScript, {
-          headers: {
-            "Content-Type": "text/plain",
-            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-          },
-        });
-      }
+    const host = request.headers.get("host") || "hiphub.cloud";
+    const proto = host.includes("localhost") ? "http" : "https";
+    const baseUrl = `${proto}://${host}`;
+
+    // Place ID check
+    const allowedPlaceIds = ["125927821145949"];
+    if ((gameId || placeId) && !allowedPlaceIds.includes(String(gameId)) && !allowedPlaceIds.includes(String(placeId))) {
+      const errScript = getErrorGuiLua(
+        "Access Denied: This script is locked and can only be executed in authorized games.",
+        "https://hiphub.cloud/"
+      );
+      return new NextResponse(errScript, {
+        headers: {
+          "Content-Type": "text/plain",
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      });
     }
 
-    // Detect client IP address from proxy headers
-    const forwarded = request.headers.get("x-forwarded-for");
-    const _ip = forwarded ? forwarded.split(",")[0].trim() : "127.0.0.1";
-
-    // If key is missing, handle based on User-Agent
-    if (!key) {
-      const host = request.headers.get("host") || "hiphub.cloud";
-      const proto = host.includes("localhost") ? "http" : "https";
-      const baseUrl = `${proto}://${host}`;
-
-      const userAgent = request.headers.get("user-agent") || "";
-      const isRoblox = userAgent.toLowerCase().includes("roblox");
-
-      if (isRoblox) {
-        // Serve the client-side loader bootstrapper script to Roblox executors
-        const loaderScript = `-- HipHub Loader Bootstrapper
+    // Serve loader bootstrapper script if payload is not requested yet
+    if (!isPayload) {
+      const loaderScript = `-- HipHub Keyless Loader Bootstrapper
 repeat task.wait() until game:IsLoaded()
 
 local allowedPlaceIds = {
@@ -537,18 +468,34 @@ if gui then
     return
 end
 
-local key = _G.hiphub_key or (shared and shared.hiphub_key) or (getgenv and getgenv().hiphub_key) or hiphub_key
-if not key and isfile and readfile then
-    if isfile("HipHub/key.txt") then
-        local saved = readfile("HipHub/key.txt")
-        if saved and saved ~= "" then
-            key = saved:gsub("%s+", "")
-        end
-    elseif isfile("hiphub_key.txt") then
-        local saved = readfile("hiphub_key.txt")
-        if saved and saved ~= "" then
-            key = saved:gsub("%s+", "")
-        end
+local hwid = "unknown"
+local playername = "unknown"
+local executor = "unknown"
+pcall(function()
+    hwid = (gethwid and gethwid()) or game:GetService("RbxAnalyticsService"):GetClientId() or "unknown"
+    playername = game:GetService("Players").LocalPlayer.Name or "unknown"
+    local execName = identifyexecutor or getexecutorname
+    if execName then
+        executor = execName()
+    end
+end)
+
+local encodedExecutor = "unknown"
+pcall(function()
+    encodedExecutor = game:GetService("HttpService"):UrlEncode(executor)
+end)
+
+local url = "${baseUrl}/api/script-roblox/mam?payload=true&hwid=" .. tostring(hwid) .. "&username=" .. tostring(playername) .. "&gameId=" .. tostring(game.GameId) .. "&placeId=" .. tostring(game.PlaceId) .. "&executor=" .. tostring(encodedExecutor) .. "&cb=" .. tostring(math.random(100000, 999999))
+local success, content
+for i = 1, 3 do
+    success, content = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if success then
+        break
+    end
+    if i < 3 then
+        task.wait(1.5)
     end
 end
 
@@ -585,7 +532,6 @@ local function showLocalError(errorMessage)
         
         local TweenService = game:GetService("TweenService")
         
-        -- Design tokens
         local COLORS = {
             glassSurface  = Color3.fromRGB(16, 20, 36),
             glassCard     = Color3.fromRGB(20, 24, 44),
@@ -626,18 +572,12 @@ local function showLocalError(errorMessage)
         topBarCorner.CornerRadius = UDim.new(0, 12)
         topBarCorner.Parent = topBar
         
-        local topBarStroke = Instance.new("UIStroke")
-        topBarStroke.Color = COLORS.borderGlass
-        topBarStroke.Thickness = 1
-        topBarStroke.Transparency = 0.75
-        topBarStroke.Parent = topBar
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -40, 1, 0)
         title.Position = UDim2.new(0, 16, 0, 0)
         title.BackgroundTransparency = 1
-        title.Text = "HIPHUB ACCESS DENIED"
-        title.TextColor3 = Color3.fromRGB(255, 100, 100) -- Red warning
+        title.Text = "HIPHUB ERROR"
+        title.TextColor3 = Color3.fromRGB(255, 100, 100)
         title.Font = Enum.Font.GothamBold
         title.TextSize = 10
         title.TextXAlignment = Enum.TextXAlignment.Left
@@ -652,13 +592,6 @@ local function showLocalError(errorMessage)
         closeButton.Font = Enum.Font.GothamBold
         closeButton.TextSize = 12
         closeButton.Parent = topBar
-        
-        closeButton.MouseEnter:Connect(function()
-            TweenService:Create(closeButton, TweenInfo.new(0.15), {TextColor3 = Color3.fromRGB(255, 80, 80)}):Play()
-        end)
-        closeButton.MouseLeave:Connect(function()
-            TweenService:Create(closeButton, TweenInfo.new(0.15), {TextColor3 = COLORS.textSecondary}):Play()
-        end)
         
         closeButton.MouseButton1Click:Connect(function()
             errGui:Destroy()
@@ -676,88 +609,7 @@ local function showLocalError(errorMessage)
         body.TextXAlignment = Enum.TextXAlignment.Left
         body.TextYAlignment = Enum.TextYAlignment.Top
         body.Parent = frame
-
-        local actionButton = Instance.new("TextButton")
-        actionButton.Size = UDim2.new(1, -32, 0, 36)
-        actionButton.Position = UDim2.new(0, 16, 1, -52)
-        actionButton.BackgroundColor3 = COLORS.accentViolet
-        actionButton.BackgroundTransparency = 0.15
-        actionButton.Text = "BUY PREMIUM KEY (CLICK TO COPY LINK)"
-        actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-        actionButton.Font = Enum.Font.GothamBold
-        actionButton.TextSize = 10
-        actionButton.Parent = frame
-
-        local actionCorner = Instance.new("UICorner")
-        actionCorner.CornerRadius = UDim.new(0, 6)
-        actionCorner.Parent = actionButton
-        
-        local actionStroke = Instance.new("UIStroke")
-        actionStroke.Color = COLORS.accentViolet
-        actionStroke.Thickness = 1
-        actionStroke.Transparency = 0.4
-        actionStroke.Parent = actionButton
-
-        actionButton.MouseEnter:Connect(function()
-            TweenService:Create(actionButton, TweenInfo.new(0.2), {BackgroundTransparency = 0.05}):Play()
-        end)
-        actionButton.MouseLeave:Connect(function()
-            TweenService:Create(actionButton, TweenInfo.new(0.2), {BackgroundTransparency = 0.15}):Play()
-        end)
-
-        actionButton.MouseButton1Click:Connect(function()
-            pcall(function()
-                if setclipboard then
-                    setclipboard("${baseUrl}/")
-                    actionButton.Text = "COPIED LINK TO CLIPBOARD!"
-                    task.wait(2)
-                    actionButton.Text = "BUY PREMIUM KEY (CLICK TO COPY LINK)"
-                else
-                    actionButton.Text = "YOUR EXECUTOR DOESN'T SUPPORT SETCLIPBOARD!"
-                end
-            end)
-        end)
     end)
-end
-
-if not key then
-    warn("HipHub Access Denied: Key is missing. Checked _G.hiphub_key, shared.hiphub_key, getgenv().hiphub_key, and files.")
-    showLocalError("Access Denied. Please set _G.hiphub_key before executing! Purchase a premium key at ${baseUrl}/")
-    return
-end
-
-_G.hiphub_key = key
-if getgenv then getgenv().hiphub_key = key end
-
-local hwid = "unknown"
-local playername = "unknown"
-local executor = "unknown"
-pcall(function()
-    hwid = (gethwid and gethwid()) or game:GetService("RbxAnalyticsService"):GetClientId() or "unknown"
-    playername = game:GetService("Players").LocalPlayer.Name or "unknown"
-    local execName = identifyexecutor or getexecutorname
-    if execName then
-        executor = execName()
-    end
-end)
-
-local encodedExecutor = "unknown"
-pcall(function()
-    encodedExecutor = game:GetService("HttpService"):UrlEncode(executor)
-end)
-
-local url = "${baseUrl}/api/script-roblox/mam?key=" .. tostring(key) .. "&hwid=" .. tostring(hwid) .. "&username=" .. tostring(playername) .. "&gameId=" .. tostring(game.GameId) .. "&placeId=" .. tostring(game.PlaceId) .. "&executor=" .. tostring(encodedExecutor) .. "&cb=" .. tostring(math.random(100000, 999999))
-local success, content
-for i = 1, 3 do
-    success, content = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if success then
-        break
-    end
-    if i < 3 then
-        task.wait(1.5)
-    end
 end
 
 if not success then
@@ -776,36 +628,7 @@ end
 func()
 `;
 
-        return new NextResponse(loaderScript, {
-          headers: {
-            "Content-Type": "text/plain",
-            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-          },
-        });
-      } else {
-        // Deny direct browser/curl access
-        return new NextResponse(
-          `error("HipHub Error: Access Denied. Please use the loader bootstrapper with a valid key! Purchase a key at ${baseUrl}/")`,
-          {
-            headers: {
-              "Content-Type": "text/plain",
-              "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-            },
-          }
-        );
-      }
-    }
-
-    // Query database for key record
-    const selectQuery = "SELECT * FROM keys WHERE key = $1 LIMIT 1;";
-    const res = await pool.query(selectQuery, [key.trim()]);
-
-    if (res.rows.length === 0) {
-      const errScript = getErrorGuiLua(
-        "Invalid Key. Key not found. Purchase a premium key at https://hiphub.cloud/",
-        "https://hiphub.cloud/"
-      );
-      return new NextResponse(errScript, {
+      return new NextResponse(loaderScript, {
         headers: {
           "Content-Type": "text/plain",
           "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
@@ -813,162 +636,15 @@ func()
       });
     }
 
-    const keyRecord = res.rows[0];
-
-    // Persist client HWID if provided
-    if (hwid) {
-      try {
-        let hwidsList: string[] = [];
-        if (keyRecord.hwids) {
-          if (Array.isArray(keyRecord.hwids)) {
-            hwidsList = keyRecord.hwids;
-          } else if (typeof keyRecord.hwids === "string") {
-            try {
-              hwidsList = JSON.parse(keyRecord.hwids);
-            } catch (e) {
-              hwidsList = [];
-            }
-          }
-        }
-
-        const keyRole = keyRecord.role || "free";
-        const cleanHwid = hwid.trim().toLowerCase();
-        const includesHwid = hwidsList.some(h => typeof h === "string" && h.trim().toLowerCase() === cleanHwid);
-
-        // HWID limits per role (fallback if max_hwid is not set in DB)
-        const hwidLimits: Record<string, number> = {
-          free: 1,
-          premium: 5,
-        };
-        const maxHwids = (keyRecord.max_hwid !== null && keyRecord.max_hwid !== undefined)
-          ? keyRecord.max_hwid
-          : (hwidLimits[keyRole] ?? 1);
-
-        // If the user has reached their HWID limit and the incoming HWID is new, block execution
-        if (hwidsList.length >= maxHwids && !includesHwid) {
-          const msg =
-            keyRecord.max_hwid !== null && keyRecord.max_hwid !== undefined
-              ? `HWID is max. This key is locked to ${maxHwids} device${maxHwids === 1 ? "" : "s"}.`
-              : keyRole === "free"
-              ? "HWID limit reached. Free keys are disabled. Please purchase a premium key."
-              : `HWID limit reached. Premium keys are locked to ${maxHwids} devices. Please contact support to reset your HWIDs.`;
-          const errScript = getErrorGuiLua(msg, "https://hiphub.cloud/");
-          return new NextResponse(errScript, {
-            headers: {
-              "Content-Type": "text/plain",
-              "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-            },
-          });
-        }
-
-        // Add the HWID if it's not already in the list
-        if (!includesHwid) {
-          hwidsList.push(hwid.trim());
-          const updateHwidQuery = "UPDATE keys SET hwids = $1 WHERE id = $2;";
-          await pool.query(updateHwidQuery, [JSON.stringify(hwidsList), keyRecord.id]);
-        }
-      } catch (err) {
-        console.error("Error updating key HWID list in DB:", err);
-      }
-    }
-
-    // Persist client username if provided
-    const usernameParam = searchParams.get("username");
-    if (usernameParam) {
-      try {
-        let usernamesList: string[] = [];
-        if (keyRecord.usernames) {
-          if (Array.isArray(keyRecord.usernames)) {
-            usernamesList = keyRecord.usernames;
-          } else if (typeof keyRecord.usernames === "string") {
-            try {
-              usernamesList = JSON.parse(keyRecord.usernames);
-            } catch (e) {
-              usernamesList = [];
-            }
-          }
-        }
-
-        const cleanUser = usernameParam.trim();
-        const includesUser = usernamesList.some(
-          u => typeof u === "string" && u.trim().toLowerCase() === cleanUser.toLowerCase()
-        );
-
-        if (!includesUser) {
-          usernamesList.push(cleanUser);
-          const updateUsersQuery = "UPDATE keys SET usernames = $1 WHERE id = $2;";
-          await pool.query(updateUsersQuery, [JSON.stringify(usernamesList), keyRecord.id]);
-        }
-
-        // Log active session immediately on script load
-        const placeIdParam = searchParams.get("placeId");
-        const parsedPlaceId = placeIdParam ? parseInt(placeIdParam, 10) : null;
-        const upsertSessionQuery = `
-          INSERT INTO active_sessions (key, username, place_id, last_ping)
-          VALUES ($1, $2, $3, NOW())
-          ON CONFLICT (key, username)
-          DO UPDATE SET place_id = EXCLUDED.place_id, last_ping = NOW();
-        `;
-        await pool.query(upsertSessionQuery, [
-          keyRecord.key, 
-          cleanUser, 
-          (parsedPlaceId && !isNaN(parsedPlaceId)) ? parsedPlaceId : null
-        ]);
-      } catch (err) {
-        console.error("Error updating key usernames list in DB:", err);
-      }
-    }
-
-    const now = new Date();
-    const expiresAt = new Date(keyRecord.expires_at);
-
-    // 1. Expiration check
-    if (now > expiresAt) {
-      const errScript = getErrorGuiLua(
-        "Key Expired. Please purchase a premium key at https://hiphub.cloud/",
-        "https://hiphub.cloud/"
-      );
-      return new NextResponse(errScript, {
-        headers: {
-          "Content-Type": "text/plain",
-          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        },
-      });
-    }
-
-    // Read the Roblox script files and serve them concatenated
-    const uiPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/ui.lua"
-    );
-    const espPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/esp.lua"
-    );
-    const shopPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/shop.lua"
-    );
-    const webhookPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/webhook.lua"
-    );
-    const miscPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/misc.lua"
-    );
-    const tradePath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/trade.lua"
-    );
-    const settingsPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/settings.lua"
-    );
-    const mainPath = path.join(
-      process.cwd(),
-      "app/api/script-roblox/mam/main.lua"
-    );
+    // Serving main script payload (Keyless)
+    const uiPath = path.join(process.cwd(), "app/api/script-roblox/mam/ui.lua");
+    const espPath = path.join(process.cwd(), "app/api/script-roblox/mam/esp.lua");
+    const shopPath = path.join(process.cwd(), "app/api/script-roblox/mam/shop.lua");
+    const webhookPath = path.join(process.cwd(), "app/api/script-roblox/mam/webhook.lua");
+    const miscPath = path.join(process.cwd(), "app/api/script-roblox/mam/misc.lua");
+    const tradePath = path.join(process.cwd(), "app/api/script-roblox/mam/trade.lua");
+    const settingsPath = path.join(process.cwd(), "app/api/script-roblox/mam/settings.lua");
+    const mainPath = path.join(process.cwd(), "app/api/script-roblox/mam/main.lua");
 
     if (!fs.existsSync(uiPath)) {
       const errScript = getErrorGuiLua(
@@ -983,54 +659,17 @@ func()
       });
     }
 
-    const userRole = keyRecord.role || "free";
-    const host = request.headers.get("host") || "hiphub.cloud";
-    const proto = host.includes("localhost") ? "http" : "https";
-    const baseUrl = `${proto}://${host}`;
-    let luaScript = `_G.hiphub_key = "${key.trim()}"\n_G.hiphub_role = "${userRole}"\n_G.hiphub_url = "${baseUrl}"\nif getgenv then getgenv().hiphub_key = "${key.trim()}" end\nif getgenv then getgenv().hiphub_role = "${userRole}" end\nif getgenv then getgenv().hiphub_url = "${baseUrl}" end\n`;
+    const userRole = "free";
+    let luaScript = `_G.hiphub_key = "KEYLESS"\n_G.hiphub_role = "${userRole}"\n_G.hiphub_url = "${baseUrl}"\nif getgenv then getgenv().hiphub_key = "KEYLESS" end\nif getgenv then getgenv().hiphub_role = "${userRole}" end\nif getgenv then getgenv().hiphub_url = "${baseUrl}" end\n`;
     luaScript += fs.readFileSync(uiPath, "utf8");
 
-    // Append esp.lua if it exists
-    if (fs.existsSync(espPath)) {
-      const espScript = fs.readFileSync(espPath, "utf8");
-      luaScript += "\n" + espScript;
-    }
-
-    // Append shop.lua if it exists
-    if (fs.existsSync(shopPath)) {
-      const shopScript = fs.readFileSync(shopPath, "utf8");
-      luaScript += "\n" + shopScript;
-    }
-
-    // Append webhook.lua if it exists
-    if (fs.existsSync(webhookPath)) {
-      const webhookScript = fs.readFileSync(webhookPath, "utf8");
-      luaScript += "\n" + webhookScript;
-    }
-
-    // Append misc.lua if it exists
-    if (fs.existsSync(miscPath)) {
-      const miscScript = fs.readFileSync(miscPath, "utf8");
-      luaScript += "\n" + miscScript;
-    }
-
-    // Append trade.lua if it exists
-    if (fs.existsSync(tradePath)) {
-      const tradeScript = fs.readFileSync(tradePath, "utf8");
-      luaScript += "\n" + tradeScript;
-    }
-
-    // Append settings.lua if it exists
-    if (fs.existsSync(settingsPath)) {
-      const settingsScript = fs.readFileSync(settingsPath, "utf8");
-      luaScript += "\n" + settingsScript;
-    }
-
-    // Append main.lua if it exists
-    if (fs.existsSync(mainPath)) {
-      const mainScript = fs.readFileSync(mainPath, "utf8");
-      luaScript += "\n" + mainScript;
-    }
+    if (fs.existsSync(espPath)) luaScript += "\n" + fs.readFileSync(espPath, "utf8");
+    if (fs.existsSync(shopPath)) luaScript += "\n" + fs.readFileSync(shopPath, "utf8");
+    if (fs.existsSync(webhookPath)) luaScript += "\n" + fs.readFileSync(webhookPath, "utf8");
+    if (fs.existsSync(miscPath)) luaScript += "\n" + fs.readFileSync(miscPath, "utf8");
+    if (fs.existsSync(tradePath)) luaScript += "\n" + fs.readFileSync(tradePath, "utf8");
+    if (fs.existsSync(settingsPath)) luaScript += "\n" + fs.readFileSync(settingsPath, "utf8");
+    if (fs.existsSync(mainPath)) luaScript += "\n" + fs.readFileSync(mainPath, "utf8");
 
     const executor = (searchParams.get("executor") || "").toLowerCase();
     const isArceus = executor.includes("arceus");
@@ -1047,10 +686,8 @@ func()
     const disableLuraph = process.env.DISABLE_LURAPH === "true" || isArceus;
     const obfuscationType = disableLuraph ? "xor" : "luraph";
 
-    // Cache lookup by script hash and obfuscation type to prevent collision
     const sourceHash = crypto.createHash("sha256").update(luaScript + "_" + obfuscationType).digest("hex");
 
-    // 1. Try serving from memory cache
     if (globalCache && globalCache.sourceHash === sourceHash) {
       return new NextResponse(globalCache.obfuscatedCode, {
         headers: {
@@ -1060,7 +697,6 @@ func()
       });
     }
 
-    // 2. Try serving from database cache
     try {
       const cacheRes = await pool.query(
         "SELECT obfuscated_code FROM script_cache WHERE source_hash = $1 LIMIT 1;",
@@ -1068,7 +704,6 @@ func()
       );
       if (cacheRes.rows.length > 0) {
         const cachedCode = cacheRes.rows[0].obfuscated_code;
-        // Warm up in-memory cache
         globalCache = { sourceHash, obfuscatedCode: cachedCode };
         return new NextResponse(cachedCode, {
           headers: {
@@ -1081,13 +716,9 @@ func()
       console.warn("Database cache lookup failed:", dbCacheErr);
     }
 
-    // 3. Cache miss: Obfuscate Lua script (using Luraph or local XOR fallback)
     let finalScript: string;
-
     if (disableLuraph) {
-      console.log("Luraph is disabled via env config, using local XOR obfuscation");
-      finalScript = obfuscateLuaXor(luaScript, key.trim());
-      // Save local XOR to cache to prevent overhead on subsequent requests
+      finalScript = obfuscateLuaXor(luaScript, "KEYLESS");
       try {
         await pool.query(
           `INSERT INTO script_cache (source_hash, obfuscated_code) 
@@ -1103,8 +734,6 @@ func()
     } else {
       try {
         finalScript = await obfuscateLua(luaScript);
-
-        // Save successful Luraph obfuscation to cache
         try {
           await pool.query(
             `INSERT INTO script_cache (source_hash, obfuscated_code) 
@@ -1119,8 +748,7 @@ func()
         }
       } catch (luraphErr) {
         console.error("Luraph obfuscation failed, falling back to local XOR:", luraphErr);
-        // Fallback to local XOR and cache it so we do not hit the failing API sequentially
-        finalScript = obfuscateLuaXor(luaScript, key.trim());
+        finalScript = obfuscateLuaXor(luaScript, "KEYLESS");
         try {
           await pool.query(
             `INSERT INTO script_cache (source_hash, obfuscated_code) 
@@ -1136,7 +764,6 @@ func()
       }
     }
 
-    // Serve the obfuscated Lua script with no-cache headers to prevent executor caching
     return new NextResponse(finalScript, {
       headers: {
         "Content-Type": "text/plain",
@@ -1161,9 +788,6 @@ func()
 
 export async function POST(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const key = searchParams.get("key") || "";
-
     const userAgent = (request.headers.get("user-agent") || "").toLowerCase();
     const isRoblox =
       userAgent.includes("roblox") ||
@@ -1183,13 +807,6 @@ export async function POST(request: NextRequest) {
 
     if (!isRoblox) {
       return NextResponse.json({ error: "Access Denied" }, { status: 403 });
-    }
-
-    // Verify key
-    const selectQuery = "SELECT id FROM keys WHERE key = $1 LIMIT 1;";
-    const res = await pool.query(selectQuery, [key.trim()]);
-    if (res.rows.length === 0) {
-      return NextResponse.json({ error: "Invalid Key" }, { status: 401 });
     }
 
     // Parse body
@@ -1214,4 +831,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Server Error" }, { status: 500 });
   }
 }
-
