@@ -2296,7 +2296,7 @@ local success, err = pcall(function()
 			apActionCorner.CornerRadius = refs.CORNER.small
 			apActionCorner.Parent = apActionBtn
 
-			-- Core Placement Helpers & Logic (Targets Dead Center of Workspace.Things.Plots.Slots[Player].Region)
+			-- Core Placement Helpers & Logic (Targets Dead Center Ground Floor of Workspace.Things.Plots.Slots[Player].Region)
 			local function getPlayerPlotCenter()
 				local p = player or game:GetService("Players").LocalPlayer
 				if not p then return nil end
@@ -2318,9 +2318,18 @@ local success, err = pcall(function()
 					if myPlot then
 						local regionPart = myPlot:FindFirstChild("Region")
 						if regionPart and regionPart:IsA("BasePart") then
-							-- Region part is the exact center of the dirt field inside the fence
-							local topY = regionPart.Position.Y + (regionPart.Size.Y * 0.5)
-							return Vector3.new(regionPart.Position.X, topY, regionPart.Position.Z)
+							-- Raycast down to find exact dirt floor height
+							local rayParams = RaycastParams.new()
+							rayParams.FilterType = Enum.RaycastFilterType.Exclude
+							local filterList = { regionPart }
+							if p.Character then table.insert(filterList, p.Character) end
+							rayParams.FilterDescendantsInstances = filterList
+
+							local rayStart = Vector3.new(regionPart.Position.X, regionPart.Position.Y + 50, regionPart.Position.Z)
+							local rayHit = workspace:Raycast(rayStart, Vector3.new(0, -300, 0), rayParams)
+							local groundY = rayHit and rayHit.Position.Y or (regionPart.Position.Y - (regionPart.Size.Y * 0.5))
+
+							return Vector3.new(regionPart.Position.X, groundY, regionPart.Position.Z)
 						end
 
 						local spawnPart = myPlot:FindFirstChild("Spawn")
@@ -2431,7 +2440,7 @@ local success, err = pcall(function()
 				if #targetTools == 0 then return end
 
 				-- Stand directly in the middle of your plot floor
-				local targetStandCF = CFrame.new(plotCenter.X, plotCenter.Y + 3.5, plotCenter.Z)
+				local targetStandCF = CFrame.new(plotCenter.X, plotCenter.Y + 3.0, plotCenter.Z)
 				if (hrp.Position - plotCenter).Magnitude > 12 then
 					hrp.CFrame = targetStandCF
 					task.wait(0.2)
@@ -2489,7 +2498,7 @@ local success, err = pcall(function()
 					end
 
 					local offset = hOffsets[idx] or Vector3.new(0, 0, 0)
-					local placePos = Vector3.new(plotCenter.X + offset.X, plotCenter.Y + 0.5, plotCenter.Z + offset.Z)
+					local placePos = Vector3.new(plotCenter.X + offset.X, plotCenter.Y + 0.1, plotCenter.Z + offset.Z)
 
 					pcall(function()
 						placeRem:FireServer(
