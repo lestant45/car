@@ -719,20 +719,29 @@ local success, err = pcall(function()
 			end
 
 			pcall(function()
-				local rem = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and
-				game:GetService("ReplicatedStorage").Remotes:FindFirstChild("SellRequest")
-				if rem then
-					rem:FireServer("all")
+				local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+				local goHomeRem = rems and rems:FindFirstChild("GoHome")
+				if goHomeRem then
+					goHomeRem:FireServer("sell")
+				else
+					local sellRem = rems and rems:FindFirstChild("SellRequest")
+					if sellRem then sellRem:FireServer("all") end
 				end
 			end)
 
 			if shopCFrame then
 				task.wait(0.3)
-				-- Wait until backpack is cleared by server so it doesn't get stuck in a sell loop
+				-- Wait until server processes selling and clears crystal weight from backpack
 				if isBackpackFull then
 					local sellWaitStart = os.clock()
-					while isBackpackFull() and (os.clock() - sellWaitStart < 1.5) do
-						task.wait(0.1)
+					while isBackpackFull() and (os.clock() - sellWaitStart < 2.0) do
+						-- Fire sell remote again if server missed packet
+						pcall(function()
+							local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+							local goHomeRem = rems and rems:FindFirstChild("GoHome")
+							if goHomeRem then goHomeRem:FireServer("sell") end
+						end)
+						task.wait(0.2)
 					end
 				end
 				if myHrp and myHrp.Parent then
@@ -1281,21 +1290,58 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Helper to check if player backpack/inventory is full
+		-- Helper to check if player backpack/inventory is full based on game's CarryWeight vs sum of crystal WeightKg
 		isBackpackFull = function()
 			local p = player or game:GetService("Players").LocalPlayer
 			if not p then return false end
 
-			-- 1. Check Player attributes for max and current capacity
-			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag") or p:GetAttribute("MaxBagCapacity") or p:GetAttribute("BagMax")
-			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount") or p:GetAttribute("Bag")
+			-- 1. Check game's exact capacity logic (PlayerData.RealStats.CarryWeight)
+			local carryCap = 10
+			pcall(function()
+				local pd = p:FindFirstChild("PlayerData")
+				local rs = pd and pd:FindFirstChild("RealStats")
+				local cw = rs and rs:FindFirstChild("CarryWeight")
+				if cw and typeof(cw.Value) == "number" and cw.Value > 0 then
+					carryCap = cw.Value
+				end
+			end)
 
-			if typeof(maxCap) == "number" and typeof(currCap) == "number" and maxCap > 0 then
-				if currCap >= maxCap then return true end
-				return false
+			-- Sum weight of all crystal tools in Backpack + Character
+			local totalWeight = 0
+			local crystalCount = 0
+
+			local function scanContainer(container)
+				if not container then return end
+				for _, child in ipairs(container:GetChildren()) do
+					if child:IsA("Tool") then
+						local hasTier = child:GetAttribute("Tier") ~= nil
+						local wKg = child:GetAttribute("WeightKg")
+						if hasTier or wKg ~= nil then
+							crystalCount = crystalCount + 1
+							totalWeight = totalWeight + (wKg or 0)
+						end
+					end
+				end
 			end
 
-			-- 2. Check leaderstats
+			scanContainer(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+			if p.Character then
+				scanContainer(p.Character)
+			end
+
+			-- If total weight exceeds or equals CarryWeight capacity, or if crystalCount > 0 and weight is at limit
+			if carryCap > 0 and totalWeight >= carryCap then
+				return true
+			end
+
+			-- Fallback: Check Player attributes
+			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag")
+			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount")
+			if typeof(maxCap) == "number" and typeof(currCap) == "number" and maxCap > 0 then
+				if currCap >= maxCap then return true end
+			end
+
+			-- Fallback: Check leaderstats
 			local leaderstats = p:FindFirstChild("leaderstats")
 			if leaderstats then
 				local capVal = leaderstats:FindFirstChild("Capacity") or leaderstats:FindFirstChild("Storage") or leaderstats:FindFirstChild("Backpack") or leaderstats:FindFirstChild("Bag") or leaderstats:FindFirstChild("Crystals")
@@ -1303,42 +1349,7 @@ local success, err = pcall(function()
 				if capVal and maxVal and tonumber(capVal.Value) and tonumber(maxVal.Value) then
 					local cVal = tonumber(capVal.Value)
 					local mVal = tonumber(maxVal.Value)
-					if mVal > 0 then
-						if cVal >= mVal then return true end
-						return false
-					end
-				end
-			end
-
-			-- 3. Check items in Backpack + Character tools if maxCap is known
-			if typeof(maxCap) == "number" and maxCap > 0 then
-				local bFolder = p:FindFirstChild("Backpack")
-				local bItems = bFolder and #bFolder:GetChildren() or 0
-				local charTools = 0
-				if p.Character then
-					for _, child in ipairs(p.Character:GetChildren()) do
-						if child:IsA("Tool") then charTools = charTools + 1 end
-					end
-				end
-				local totalItems = bItems + charTools
-				if totalItems >= maxCap then return true end
-				return false
-			end
-
-			-- 4. Check PlayerGui for Inventory Full popups / text
-			local pGui = p:FindFirstChild("PlayerGui")
-			if pGui then
-				for _, gui in ipairs(pGui:GetChildren()) do
-					if gui:IsA("ScreenGui") and gui.Enabled then
-						for _, label in ipairs(gui:GetDescendants()) do
-							if label:IsA("TextLabel") and label.Visible then
-								local txt = string.lower(label.Text or "")
-								if string.find(txt, "inventory full", 1, true) or string.find(txt, "backpack full", 1, true) or string.find(txt, "bag full", 1, true) or string.find(txt, "storage full", 1, true) or string.find(txt, "max capacity", 1, true) then
-									return true
-								end
-							end
-						end
-					end
+					if mVal > 0 and cVal >= mVal then return true end
 				end
 			end
 
