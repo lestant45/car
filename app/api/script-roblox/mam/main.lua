@@ -2064,6 +2064,12 @@ local success, err = pcall(function()
 					end
 				end
 
+				-- Runes bypass crystal-specific rarity and size filters
+				if isRune then
+					matchesRarity = true
+					matchesSize = true
+				end
+
 				if matchesRarity and matchesSize and matchesValue then
 					local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 					if targetPart then
