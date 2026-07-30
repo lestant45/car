@@ -1191,8 +1191,30 @@ local success, err = pcall(function()
 				["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
 			}
 
+			-- Check if any rarity is explicitly enabled
+			local hasAnyEnabledRarity = false
+			if type(autoFarmRarityFilters) == "table" then
+				for r, isSel in pairs(autoFarmRarityFilters) do
+					if isSel == true then
+						hasAnyEnabledRarity = true
+						break
+					end
+				end
+			end
+
+			-- Check if any size is explicitly enabled
+			local hasAnyEnabledSize = false
+			if type(autoFarmSizeFilters) == "table" then
+				for s, isSel in pairs(autoFarmSizeFilters) do
+					if isSel == true then
+						hasAnyEnabledSize = true
+						break
+					end
+				end
+			end
+
 			local function evaluateCandidate(child)
-				if not child or evaluatedObjects[child] then return end
+				if not child or not child.Parent or evaluatedObjects[child] then return end
 				evaluatedObjects[child] = true
 
 				if not (child:IsA("BasePart") or child:IsA("Model")) or child:IsA("Accessory") then return end
@@ -1204,27 +1226,27 @@ local success, err = pcall(function()
 
 				-- Collect all attribute strings
 				local attrStr = ""
-				local function appendAttrs(inst)
-					if not inst then return end
-					pcall(function()
-						for aName, aVal in pairs(inst:GetAttributes()) do
+				pcall(function()
+					for aName, aVal in pairs(child:GetAttributes()) do
+						attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+					end
+					if child.Parent then
+						for aName, aVal in pairs(child.Parent:GetAttributes()) do
 							attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
 						end
-					end)
-				end
-				appendAttrs(child)
-				appendAttrs(child.Parent)
+					end
+				end)
 
 				local combinedSearchText = fullName .. " " .. attrStr
 
 				-- Multi-Select Rarity Check
 				local matchesRarity = false
-				if autoFarmRarityFilters["All"] or next(autoFarmRarityFilters) == nil then
+				if not hasAnyEnabledRarity or autoFarmRarityFilters["All"] == true then
 					matchesRarity = true
 				else
 					for selRarity, isSel in pairs(autoFarmRarityFilters) do
-						if isSel then
-							local rarityLower = string.lower(selRarity)
+						if isSel == true then
+							local rarityLower = string.lower(tostring(selRarity))
 							local kws = filterMap[rarityLower]
 							if kws then
 								for _, kw in ipairs(kws) do
@@ -1252,8 +1274,14 @@ local success, err = pcall(function()
 					if child:IsA("BasePart") then
 						sizeVec = child.Size
 					elseif child:IsA("Model") then
-						local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
-						if primary then sizeVec = primary.Size end
+						pcall(function()
+							local _, sz = child:GetBoundingBox()
+							sizeVec = sz
+						end)
+						if not sizeVec then
+							local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+							if primary then sizeVec = primary.Size end
+						end
 					end
 					local maxDim = sizeVec and math.max(sizeVec.X, sizeVec.Y, sizeVec.Z) or 0
 
