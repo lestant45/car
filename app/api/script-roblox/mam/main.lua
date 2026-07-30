@@ -2296,12 +2296,11 @@ local success, err = pcall(function()
 			apActionCorner.CornerRadius = refs.CORNER.small
 			apActionCorner.Parent = apActionBtn
 
-			-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player].Region)
-			local function getPlayerPlotPosition()
+			-- Core Placement Helpers & Logic (Targets Workspace.Things.Plots.Slots[Player] Plot Floor)
+			local function getPlayerPlotCenter()
 				local p = player or game:GetService("Players").LocalPlayer
-				if not p then return nil, nil, nil end
+				if not p then return nil end
 
-				-- Exact path from game's PlotPlaceController: Workspace.Things.Plots.Slots[LocalPlayer.Name].Region
 				local things = workspace:FindFirstChild("Things")
 				local plotsFolder = things and things:FindFirstChild("Plots") or workspace:FindFirstChild("Plots")
 				if plotsFolder then
@@ -2317,34 +2316,29 @@ local success, err = pcall(function()
 					end
 
 					if myPlot then
-						local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChild("Spawn") or myPlot.PrimaryPart or myPlot:FindFirstChildWhichIsA("BasePart", true)
-						if region and region:IsA("BasePart") then
-							return region.CFrame, region.Size, region
+						local spawnPart = myPlot:FindFirstChild("Spawn")
+						local regionPart = myPlot:FindFirstChild("Region")
+						local centerPos = nil
+
+						if spawnPart and spawnPart:IsA("BasePart") then
+							centerPos = spawnPart.Position
+						elseif regionPart and regionPart:IsA("BasePart") then
+							centerPos = regionPart.Position
+						else
+							pcall(function()
+								centerPos = myPlot:GetPivot().Position
+							end)
+						end
+
+						if centerPos then
+							return centerPos
 						end
 					end
 				end
 
-				-- Fallback search across workspace
-				for _, containerName in ipairs({ "Plots", "Bases", "PlayerBases", "Slots" }) do
-					local container = workspace:FindFirstChild(containerName)
-					if container then
-						local myPlot = container:FindFirstChild(p.Name) or (container:FindFirstChild("Slots") and container.Slots:FindFirstChild(p.Name))
-						if myPlot then
-							local region = myPlot:FindFirstChild("Region") or myPlot:FindFirstChildWhichIsA("BasePart", true)
-							if region and region:IsA("BasePart") then
-								return region.CFrame, region.Size, region
-							end
-						end
-					end
-				end
-
-				-- Character fallback
 				local char = p.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
-				if hrp then
-					return hrp.CFrame, Vector3.new(30, 1, 30), nil
-				end
-				return nil, nil, nil
+				return hrp and hrp.Position or nil
 			end
 
 			local function matchesPlaceRarity(tool)
@@ -2412,8 +2406,8 @@ local success, err = pcall(function()
 				local placeRem = rems and rems:FindFirstChild("PlotPlaceRequest")
 				if not placeRem then return end
 
-				local regionCFrame, regionSize, regionPart = getPlayerPlotPosition()
-				if not regionCFrame or not regionSize then return end
+				local plotCenter = getPlayerPlotCenter()
+				if not plotCenter then return end
 
 				local targetTools = {}
 				local function scanTools(container)
@@ -2436,40 +2430,34 @@ local success, err = pcall(function()
 
 				if #targetTools == 0 then return end
 
-				-- Move character to plot Region so isNearOwnPlot and distance <= 60 checks pass
-				local distToPlot = (hrp.Position - regionCFrame.Position).Magnitude
-				if distToPlot > 40 then
-					hrp.CFrame = regionCFrame + Vector3.new(0, 3, 0)
+				-- Stand directly in the middle of your plot floor
+				local targetStandCF = CFrame.new(plotCenter.X, plotCenter.Y + 3.5, plotCenter.Z)
+				if (hrp.Position - plotCenter).Magnitude > 12 then
+					hrp.CFrame = targetStandCF
 					task.wait(0.2)
 				end
 
-				local surfaceY = regionSize.Y * 0.5
-				local plotWidth = math.max(regionSize.X - 6, 20)
-				local plotDepth = math.max(regionSize.Z - 6, 20)
-
-				local gridCols = 5
-				local spacingX = plotWidth / gridCols
-				local spacingZ = 4.5
+				local gridCols = 4
+				local spacing = 3.5
 
 				for idx, tool in ipairs(targetTools) do
 					if not tool or not tool.Parent then continue end
 
-					-- Equip tool to Character (required by PlotPlaceController check)
+					-- Equip tool to Character
 					if tool.Parent ~= char then
 						pcall(function()
 							hum:EquipTool(tool)
 						end)
-						task.wait(0.1)
+						task.wait(0.12)
 					end
 
 					local col = (idx - 1) % gridCols
 					local row = math.floor((idx - 1) / gridCols)
 
-					local offsetX = (col - (gridCols - 1) / 2) * spacingX
-					local offsetZ = (row * spacingZ) - (plotDepth / 3)
+					local offsetX = (col - 1.5) * spacing
+					local offsetZ = (row - 1.5) * spacing
 
-					local targetWorldCF = regionCFrame * CFrame.new(offsetX, surfaceY, offsetZ)
-					local placePos = targetWorldCF.Position
+					local placePos = Vector3.new(plotCenter.X + offsetX, plotCenter.Y + 0.5, plotCenter.Z + offsetZ)
 
 					pcall(function()
 						placeRem:FireServer(
@@ -2479,7 +2467,7 @@ local success, err = pcall(function()
 							tool
 						)
 					end)
-					task.wait(0.18)
+					task.wait(0.2)
 				end
 			end
 
