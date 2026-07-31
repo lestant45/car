@@ -2886,51 +2886,83 @@ local success, err = pcall(function()
 					posUnderFeet = downRayHit.Position
 				end
 
-				-- Fire Remote DigRequest (exact game contract without spaces in pickaxe name)
-				pcall(function()
-					local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
-					if digEvent then
-						local cleanPickaxe = string.gsub(selectedDigPickaxe or "VolcanoBasalt", "%s+", "")
-						digEvent:FireServer(cleanPickaxe, posUnderFeet)
-					end
-				end)
+			local PICKAXE_REMOTE_NAME_MAP = {
+				["RustyScrapper"] = "Rusty Scrapper",
+				["WeatheredWood"] = "Weathered Wood",
+				["ChippedStone"] = "Chipped Stone",
+				["HardenedIron"] = "Hardened Iron",
+				["CopperPick"] = "Copper Pick",
+				["ReinforcedSteel"] = "Reinforced Steel",
+				["TitaniumSpike"] = "Titanium Spike",
+				["FrostbitePick"] = "Frostbite Pick",
+				["EmeraldCarver"] = "Emerald Carver",
+				["VolcanoBasalt"] = "Volcano Basalt",
+				["ObsidianEdge"] = "Obsidian Edge",
+				["TempestPick"] = "Tempest Pick",
+				["CelestialApex"] = "Celestial Apex",
+				["AstralRend"] = "Astral Rend",
+				["EclipseFang"] = "Eclipse Fang",
+				["NebularThrone"] = "Nebular Throne",
+				["Voidreign"] = "Voidreign",
+				["Singularity"] = "Singularity",
+				["TheTerminus"] = "The Terminus",
+				["SharkPickaxe"] = "Shark Pickaxe",
+				["DiamondPickaxe"] = "Diamond Pickaxe",
+			}
+
+			local function getFormattedPickaxeName(name)
+				if not name or name == "" then return "Volcano Basalt" end
+				if PICKAXE_REMOTE_NAME_MAP[name] then
+					return PICKAXE_REMOTE_NAME_MAP[name]
+				end
+				return name
 			end
 
-			-- Pure Remote Paced Digging loop (0.15s interval)
-			task.spawn(function()
-				while true do
-					task.wait(0.15)
-					if autoDigEnabled then
-						pcall(function()
-							local char = player and player.Character
-							local hrp = char and char:FindFirstChild("HumanoidRootPart")
-							if hrp then
-								local posUnderFeet = Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 1.5, 5), hrp.Position.Z)
-
-								local downRayParams = RaycastParams.new()
-								downRayParams.FilterType = Enum.RaycastFilterType.Exclude
-								local excList = {}
-								if char then table.insert(excList, char) end
-								local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
-								if boxPart then table.insert(excList, boxPart) end
-								downRayParams.FilterDescendantsInstances = excList
-								downRayParams.IgnoreWater = true
-
-								local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -6, 0), downRayParams)
-								if hit then
-									posUnderFeet = hit.Position
-								end
-
-								local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
-								if digEvent then
-									local cleanPickaxe = string.gsub(selectedDigPickaxe or "VolcanoBasalt", "%s+", "")
-									digEvent:FireServer(cleanPickaxe, posUnderFeet)
-								end
-							end
-						end)
-					end
+			-- Fire Remote DigRequest (exact game contract with spaced pickaxe name)
+			pcall(function()
+				local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
+				if digEvent then
+					local formattedPickaxe = getFormattedPickaxeName(selectedDigPickaxe)
+					digEvent:FireServer(formattedPickaxe, posUnderFeet)
 				end
 			end)
+		end
+
+		-- Pure Remote Paced Digging loop (0.15s interval)
+		task.spawn(function()
+			while true do
+				task.wait(0.15)
+				if autoDigEnabled then
+					pcall(function()
+						local char = player and player.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local posUnderFeet = Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 1.5, 5), hrp.Position.Z)
+
+							local downRayParams = RaycastParams.new()
+							downRayParams.FilterType = Enum.RaycastFilterType.Exclude
+							local excList = {}
+							if char then table.insert(excList, char) end
+							local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+							if boxPart then table.insert(excList, boxPart) end
+							downRayParams.FilterDescendantsInstances = excList
+							downRayParams.IgnoreWater = true
+
+							local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -6, 0), downRayParams)
+							if hit then
+								posUnderFeet = hit.Position
+							end
+
+							local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
+							if digEvent then
+								local formattedPickaxe = getFormattedPickaxeName(selectedDigPickaxe)
+								digEvent:FireServer(formattedPickaxe, posUnderFeet)
+							end
+						end
+					end)
+				end
+			end
+		end)
 
 			task.spawn(function()
 				while true do
