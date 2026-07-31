@@ -2869,7 +2869,7 @@ local success, err = pcall(function()
 				-- Brief wait to ensure player position replicates to server
 				task.wait(0.05)
 
-				-- Derive target dig position DIRECTLY BELOW character's current position (modify Y coordinate)
+				-- Calculate target position directly under character's current position
 				local posUnderFeet = Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 1.5, 5), hrp.Position.Z)
 
 				local downRayParams = RaycastParams.new()
@@ -2886,17 +2886,16 @@ local success, err = pcall(function()
 					posUnderFeet = downRayHit.Position
 				end
 
-				-- Fire Remote DigRequest directly without calling tool:Activate() or relying on camera
-				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-				local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
-				if digRem then
-					pcall(function()
-						digRem:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
-					end)
-				end
+				-- Fire Remote DigRequest (exact game contract: game:GetService("ReplicatedStorage").Remotes.DigRequest:FireServer(pickaxeName, Vector3Pos))
+				pcall(function()
+					local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
+					if digEvent then
+						digEvent:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
+					end
+				end)
 			end
 
-			-- Paced Pure Remote Digging loop (0.15s interval)
+			-- Pure Remote Paced Digging loop (0.15s interval)
 			task.spawn(function()
 				while true do
 					task.wait(0.15)
@@ -2921,10 +2920,9 @@ local success, err = pcall(function()
 									posUnderFeet = hit.Position
 								end
 
-								local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-								local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
-								if digRem then
-									digRem:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
+								local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
+								if digEvent then
+									digEvent:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
 								end
 							end
 						end)
