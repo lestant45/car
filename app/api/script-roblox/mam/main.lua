@@ -2614,39 +2614,11 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- 3D Visual Red Bounding Box Adornment (50 Studs) for Auto Digging Zone
+			-- 3D Visual Box Helper (Cleaned - No visual adornment on screen)
 			local function updateDigBoxVisuals()
 				pcall(function()
 					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
-					if autoDigEnabled then
-						local centerPos = customDigCenterPos or Vector3.new(31.16444001, 92.108505, 867.584838)
-						local boxSize = Vector3.new(50, 220, 50)
-						local boxCenterY = math.max(centerPos.Y, 110)
-
-						if not boxPart then
-							boxPart = Instance.new("Part")
-							boxPart.Name = "HipHubDigBoxPart"
-							boxPart.Anchored = true
-							boxPart.CanCollide = false
-							boxPart.Transparency = 1
-							boxPart.CastShadow = false
-							boxPart.Parent = workspace
-
-							local selBox = Instance.new("SelectionBox")
-							selBox.Name = "HipHubDigSelectionBox"
-							selBox.Color3 = Color3.fromRGB(255, 45, 45)
-							selBox.LineThickness = 0.08
-							selBox.SurfaceColor3 = Color3.fromRGB(255, 30, 30)
-							selBox.SurfaceTransparency = 0.88
-							selBox.Adornee = boxPart
-							selBox.Parent = boxPart
-						end
-
-						boxPart.Size = boxSize
-						boxPart.CFrame = CFrame.new(centerPos.X, boxCenterY, centerPos.Z)
-					else
-						if boxPart then boxPart:Destroy() end
-					end
+					if boxPart then boxPart:Destroy() end
 				end)
 			end
 
@@ -2675,7 +2647,7 @@ local success, err = pcall(function()
 				syncAutoDigFlyMode()
 			end)
 
-			-- Auto-Digging Loop Engine inside 50-Stud Box Facing DIRECTLY DOWNWARDS
+			-- Auto-Digging Loop Engine inside Equal Cube (150x150x150 Studs) with Speed = 16
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
 				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil", "slate"
@@ -2687,41 +2659,39 @@ local success, err = pcall(function()
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				local moveSpeed = 8 -- Smooth move speed = 8 studs/sec
+				local moveSpeed = 16 -- Custom move speed = 16 studs/sec
 				local centerPos = customDigCenterPos or Vector3.new(31.16444001, 92.108505, 867.584838)
-				local rangeStuds = 25 -- 50 Studs Box Radius
+				local rangeStuds = 75 -- Equal Cube Side Radius (150 x 150 x 150 Studs)
 
 				updateDigBoxVisuals()
 				syncAutoDigFlyMode()
 
-				-- Helper to find diggable Terrain surface or material block strictly INSIDE 50-stud box
+				-- Helper to find diggable Terrain surface or material block strictly INSIDE 150x150x150 cube
 				local function findOutermostDigTarget(pos, targetMatFilter)
 					local candidates = {}
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
-					-- 1. Scan Workspace.Terrain using Raycasts inside 50-stud box
+					-- 1. Scan Workspace.Terrain using Raycasts inside equal cube
 					local rayParams = RaycastParams.new()
 					rayParams.FilterType = Enum.RaycastFilterType.Exclude
 					local filterList = {}
 					if char then table.insert(filterList, char) end
-					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
-					if boxPart then table.insert(filterList, boxPart) end
 					rayParams.FilterDescendantsInstances = filterList
 					rayParams.IgnoreWater = true
 
-					local step = 5
+					local step = 8
 
 					for offsetZ = -rangeStuds, rangeStuds, step do
 						for offsetX = -rangeStuds, rangeStuds, step do
-							local rayOrigin = Vector3.new(centerPos.X + offsetX, 350, centerPos.Z + offsetZ)
-							local rayDirection = Vector3.new(0, -400, 0)
+							local rayOrigin = Vector3.new(centerPos.X + offsetX, centerPos.Y + rangeStuds, centerPos.Z + offsetZ)
+							local rayDirection = Vector3.new(0, -(rangeStuds * 2), 0)
 							local rayResult = workspace:Raycast(rayOrigin, rayDirection, rayParams)
 
 							if rayResult and (rayResult.Instance == workspace.Terrain or rayResult.Instance:IsA("Terrain")) then
 								local hitPos = rayResult.Position
 								local hitMatName = string.lower(tostring(rayResult.Material.Name))
 
-								if hitPos.Y >= 10 then
+								if math.abs(hitPos.Y - centerPos.Y) <= rangeStuds and hitPos.Y >= 5 then
 									local isMatch = false
 									if not filterLower then
 										isMatch = true
@@ -2739,7 +2709,7 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 2. Scan folders for any dig BaseParts inside 50-stud box
+					-- 2. Scan folders for any dig BaseParts inside 150x150x150 cube
 					local folders = {
 						workspace:FindFirstChild("RealisticMaterials"),
 						workspace:FindFirstChild("Materials"),
@@ -2757,9 +2727,10 @@ local success, err = pcall(function()
 							for _, obj in ipairs(folder:GetDescendants()) do
 								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
 									local dx = math.abs(obj.Position.X - centerPos.X)
+									local dy = math.abs(obj.Position.Y - centerPos.Y)
 									local dz = math.abs(obj.Position.Z - centerPos.Z)
 
-									if dx <= rangeStuds and dz <= rangeStuds and obj.Position.Y >= 10 then
+									if dx <= rangeStuds and dy <= rangeStuds and dz <= rangeStuds and obj.Position.Y >= 5 then
 										local nameLower = string.lower(obj.Name)
 										local matName = string.lower(tostring(obj.Material))
 										local inRealisticFolder = false
@@ -2835,11 +2806,11 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Search for highest & outermost Terrain / Material target inside 50-stud box
+				-- Search for highest & outermost Terrain / Material target inside 150x150x150 cube
 				local targetDigPos = findOutermostDigTarget(hrp.Position, selectedDigMaterial)
 
 				if not targetDigPos then
-					local fallbackRay = workspace:Raycast(Vector3.new(centerPos.X, 350, centerPos.Z), Vector3.new(0, -400, 0), rayParams)
+					local fallbackRay = workspace:Raycast(Vector3.new(centerPos.X, centerPos.Y + rangeStuds, centerPos.Z), Vector3.new(0, -(rangeStuds * 2), 0), rayParams)
 					if fallbackRay then
 						targetDigPos = fallbackRay.Position
 					else
