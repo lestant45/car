@@ -2029,12 +2029,21 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Multi-Select Size Check using game's exact CrystalConfig thresholds
+				-- Multi-Select Size Check using game's exact CrystalConfig thresholds & bracket tag matching
 				local matchesSize = false
 				if not hasAnyEnabledSize or autoFarmSizeFilters["All"] == true then
 					matchesSize = true
 				else
 					local wKg = child:GetAttribute("WeightKg") or child:GetAttribute("Weight") or (child.Parent and child.Parent:GetAttribute("WeightKg")) or (child.Parent and child.Parent:GetAttribute("Weight"))
+
+					-- Try parsing weight from string (e.g. "[0.9kg]" or "24.4kg") if attribute is missing
+					if not wKg then
+						local kgMatch = string.match(combinedSearchText, "(%d+%.?%d*)%s*kg")
+						if kgMatch then
+							wKg = tonumber(kgMatch)
+						end
+					end
+
 					local sizeVec = nil
 					if child:IsA("BasePart") then
 						sizeVec = child.Size
@@ -2050,34 +2059,54 @@ local success, err = pcall(function()
 					end
 					local maxDim = sizeVec and math.max(sizeVec.X, sizeVec.Y, sizeVec.Z) or 0
 
+					-- Detect crystal size category strictly (1. Name Tag -> 2. Weight -> 3. Dimensions)
+					local detectedSize = nil
+					if string.find(combinedSearchText, "%[behemoth%]", 1, true) or string.find(combinedSearchText, "behemoth", 1, true) then
+						detectedSize = "behemoth"
+					elseif string.find(combinedSearchText, "%[leviathan%]", 1, true) or string.find(combinedSearchText, "leviathan", 1, true) then
+						detectedSize = "leviathan"
+					elseif string.find(combinedSearchText, "%[titan%]", 1, true) or string.find(combinedSearchText, "titan", 1, true) then
+						detectedSize = "titan"
+					elseif string.find(combinedSearchText, "%[colossal%]", 1, true) or string.find(combinedSearchText, "colossal", 1, true) then
+						detectedSize = "colossal"
+					elseif string.find(combinedSearchText, "%[giant%]", 1, true) or string.find(combinedSearchText, "giant", 1, true) then
+						detectedSize = "giant"
+					elseif string.find(combinedSearchText, "%[xl%]", 1, true) or string.find(combinedSearchText, "%[extra large%]", 1, true) or string.find(combinedSearchText, "extra large", 1, true) then
+						detectedSize = "extra large"
+					elseif string.find(combinedSearchText, "%[l%]", 1, true) or string.find(combinedSearchText, "%[large%]", 1, true) or string.find(combinedSearchText, "large", 1, true) then
+						detectedSize = "large"
+					elseif string.find(combinedSearchText, "%[m%]", 1, true) or string.find(combinedSearchText, "%[medium%]", 1, true) or string.find(combinedSearchText, "medium", 1, true) then
+						detectedSize = "medium"
+					elseif string.find(combinedSearchText, "%[s%]", 1, true) or string.find(combinedSearchText, "%[small%]", 1, true) or string.find(combinedSearchText, "small", 1, true) then
+						detectedSize = "small"
+					elseif wKg then
+						if wKg >= 25000 then detectedSize = "behemoth"
+						elseif wKg >= 8000 then detectedSize = "leviathan"
+						elseif wKg >= 3000 then detectedSize = "titan"
+						elseif wKg >= 1000 then detectedSize = "colossal"
+						elseif wKg >= 200 then detectedSize = "giant"
+						elseif wKg >= 90 then detectedSize = "extra large"
+						elseif wKg >= 30 then detectedSize = "large"
+						elseif wKg >= 8 then detectedSize = "medium"
+						else detectedSize = "small"
+						end
+					elseif maxDim > 0 then
+						if maxDim >= 50 then detectedSize = "behemoth"
+						elseif maxDim >= 35 then detectedSize = "leviathan"
+						elseif maxDim >= 22 then detectedSize = "titan"
+						elseif maxDim >= 15 then detectedSize = "colossal"
+						elseif maxDim >= 10 then detectedSize = "giant"
+						elseif maxDim >= 7 then detectedSize = "extra large"
+						elseif maxDim >= 4.5 then detectedSize = "large"
+						elseif maxDim >= 1.8 then detectedSize = "medium"
+						else detectedSize = "small"
+						end
+					end
+
 					for selSize, isSel in pairs(autoFarmSizeFilters) do
 						if isSel == true then
 							local sLower = string.lower(tostring(selSize))
-							local matched = false
-
-							if string.find(combinedSearchText, sLower, 1, true) then
-								matched = true
-							elseif sLower == "behemoth" then
-								if (wKg and wKg >= 25000) or maxDim >= 50 then matched = true end
-							elseif sLower == "leviathan" then
-								if (wKg and wKg >= 8000 and wKg < 25000) or (maxDim >= 35 and maxDim < 50) then matched = true end
-							elseif sLower == "titan" then
-								if (wKg and wKg >= 3000 and wKg < 8000) or (maxDim >= 22 and maxDim < 35) then matched = true end
-							elseif sLower == "colossal" then
-								if (wKg and wKg >= 1000 and wKg < 3000) or (maxDim >= 15 and maxDim < 22) then matched = true end
-							elseif sLower == "giant" then
-								if (wKg and wKg >= 200 and wKg < 1000) or (maxDim >= 10 and maxDim < 15) then matched = true end
-							elseif sLower == "extra large" or sLower == "xl" then
-								if (wKg and wKg >= 90 and wKg < 200) or (maxDim >= 7 and maxDim < 10) then matched = true end
-							elseif sLower == "large" or sLower == "l" then
-								if (wKg and wKg >= 30 and wKg < 90) or (maxDim >= 4.5 and maxDim < 7) then matched = true end
-							elseif sLower == "medium" or sLower == "m" then
-								if (wKg and wKg >= 8 and wKg < 30) or (maxDim >= 1.8 and maxDim < 4.5) then matched = true end
-							elseif sLower == "small" or sLower == "s" then
-								if (wKg and wKg < 8) or (maxDim > 0 and maxDim < 1.8) then matched = true end
-							end
-
-							if matched then
+							if detectedSize and (sLower == detectedSize or (sLower == "xl" and detectedSize == "extra large") or (sLower == "l" and detectedSize == "large") or (sLower == "m" and detectedSize == "medium") or (sLower == "s" and detectedSize == "small")) then
 								matchesSize = true
 								break
 							end
@@ -2122,8 +2151,21 @@ local success, err = pcall(function()
 					if desc:IsA("ProximityPrompt") then
 						local parentObj = desc.Parent
 						if parentObj then
-							local topObj = parentObj:IsA("Model") and parentObj or (parentObj.Parent and parentObj.Parent:IsA("Model") and parentObj.Parent or parentObj)
-							evaluateCandidate(topObj)
+							local candidateObj = parentObj
+							if parentObj:IsA("BasePart") and parentObj.Parent and parentObj.Parent:IsA("Model") and not parentObj.Parent:IsA("Workspace") then
+								local pModel = parentObj.Parent
+								local isGlobalContainer = string.find(string.lower(pModel.Name), "crystals", 1, true)
+									or string.find(string.lower(pModel.Name), "folder", 1, true)
+									or string.find(string.lower(pModel.Name), "zone", 1, true)
+									or string.find(string.lower(pModel.Name), "things", 1, true)
+									or string.find(string.lower(pModel.Name), "ores", 1, true)
+									or string.find(string.lower(pModel.Name), "mines", 1, true)
+									or #pModel:GetChildren() > 15
+								if not isGlobalContainer then
+									candidateObj = pModel
+								end
+							end
+							evaluateCandidate(candidateObj)
 						end
 					end
 				end
