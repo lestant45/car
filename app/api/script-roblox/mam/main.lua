@@ -2599,122 +2599,42 @@ local success, err = pcall(function()
 				matBinder.updateOptionVisuals()
 			end
 
-			-- Dropdown Row 4: Select Dig Range (Studs)
-			local rangeOptions = {
-				"25 Studs",
-				"50 Studs",
-				"75 Studs",
-				"100 Studs",
-				"150 Studs",
-				"200 Studs",
-				"300 Studs",
-				"500 Studs"
-			}
-
-			local rangeDropCard, rangeDropBtn, rangeDropLabel, rangeMenuFrame, rangeSearch, rangeScroll = refs.createGlassDropdown(
-				autoDigContainer, "Select Dig Range (Studs)", selectedDigRangeText, 4
-			)
-
-			refs.registerDropdownMenu(rangeDropBtn, rangeMenuFrame)
-			local rangeBinder = refs.bindDropdown(
-				rangeDropBtn, rangeMenuFrame, rangeSearch, rangeScroll, rangeOptions,
-				function(opt) return selectedDigRangeText == opt end,
-				function(val)
-					selectedDigRangeText = val
-					rangeDropLabel.Text = val
-					local num = tonumber(string.match(val, "%d+"))
-					if num then selectedDigRange = num end
-					if saveConfig then pcall(saveConfig) end
-				end,
-				function()
-					rangeDropLabel.Text = selectedDigRangeText
-				end
-			)
-
-			local updateRangeDropdownVisuals = function()
-				rangeDropLabel.Text = selectedDigRangeText
-				rangeBinder.updateOptionVisuals()
-			end
-
-			-- Auto-Digging Loop Engine with Square Area Centered at (31.16444, 92.1085, 867.5848)
+			-- Auto-Digging Loop Engine based on Outermost Part / Terrain (Top-Down & Outermost First)
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
-				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil"
+				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil", "slate"
 			}
 
-			local centerDigPos = Vector3.new(31.1644400100708008, 92.10850524902344, 867.5848388671875)
-			local squareStepIndex = 1
+			local mountainCenterPos = Vector3.new(31.1644400100708008, 92.10850524902344, 867.5848388671875)
 
-			-- 3D Visual Red Bounding Box Adornment for Auto Digging Zone
-			local function updateDigBoxVisuals()
-				pcall(function()
-					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
-					if autoDigEnabled then
-						local rangeStuds = selectedDigRange or 50
-						local boxHeight = 220
-						local boxCenterY = math.max(centerDigPos.Y, 110)
-
-						if not boxPart then
-							boxPart = Instance.new("Part")
-							boxPart.Name = "HipHubDigBoxPart"
-							boxPart.Anchored = true
-							boxPart.CanCollide = false
-							boxPart.Transparency = 1
-							boxPart.CastShadow = false
-							boxPart.Parent = workspace
-
-							local selBox = Instance.new("SelectionBox")
-							selBox.Name = "HipHubDigSelectionBox"
-							selBox.Color3 = Color3.fromRGB(255, 45, 45)
-							selBox.LineThickness = 0.08
-							selBox.SurfaceColor3 = Color3.fromRGB(255, 30, 30)
-							selBox.SurfaceTransparency = 0.88
-							selBox.Adornee = boxPart
-							selBox.Parent = boxPart
-						end
-
-						boxPart.Size = Vector3.new(rangeStuds * 2, boxHeight, rangeStuds * 2)
-						boxPart.CFrame = CFrame.new(centerDigPos.X, boxCenterY, centerDigPos.Z)
-					else
-						if boxPart then boxPart:Destroy() end
-					end
-				end)
-			end
-
-			adToggleTrack.MouseButton1Click:Connect(function()
-				updateDigBoxVisuals()
-			end)
-
-			local function performSmartSquareAutoDig(getIsActiveFunc, pickaxeName)
+			local function performOutermostAutoDig(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				local rangeStuds = selectedDigRange or 50
-				local moveSpeed = 8 -- Custom move speed = 8 studs/sec
-				updateDigBoxVisuals()
+				local moveSpeed = 8 -- Smooth move speed = 8 studs/sec
 
-				-- Helper to find diggable Terrain surface or material block strictly INSIDE the square box
-				local function findDigTargetInSquare(pos, targetMatFilter)
+				-- Helper to find diggable Terrain surface or material block, prioritized by HIGHEST Y position and OUTERMOST Part first
+				local function findOutermostDigTarget(pos, targetMatFilter)
 					local candidates = {}
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
-					-- 1. Scan Workspace.Terrain using Raycasts across square grid matrix
-					local step = math.max(4, math.floor(rangeStuds / 10))
+					-- 1. Scan Workspace.Terrain using Raycasts across mountain area
 					local rayParams = RaycastParams.new()
 					rayParams.FilterType = Enum.RaycastFilterType.Exclude
 					local filterList = {}
 					if char then table.insert(filterList, char) end
-					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
-					if boxPart then table.insert(filterList, boxPart) end
 					rayParams.FilterDescendantsInstances = filterList
 					rayParams.IgnoreWater = true
 
-					for offsetZ = -rangeStuds, rangeStuds, step do
-						for offsetX = -rangeStuds, rangeStuds, step do
-							local rayOrigin = Vector3.new(centerDigPos.X + offsetX, 300, centerDigPos.Z + offsetZ)
-							local rayDirection = Vector3.new(0, -350, 0)
+					local scanRadius = 180
+					local step = 12
+
+					for offsetZ = -scanRadius, scanRadius, step do
+						for offsetX = -scanRadius, scanRadius, step do
+							local rayOrigin = Vector3.new(mountainCenterPos.X + offsetX, 350, mountainCenterPos.Z + offsetZ)
+							local rayDirection = Vector3.new(0, -400, 0)
 							local rayResult = workspace:Raycast(rayOrigin, rayDirection, rayParams)
 
 							if rayResult and (rayResult.Instance == workspace.Terrain or rayResult.Instance:IsA("Terrain")) then
@@ -2756,10 +2676,7 @@ local success, err = pcall(function()
 						if folder then
 							for _, obj in ipairs(folder:GetDescendants()) do
 								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
-									local dx = math.abs(obj.Position.X - centerDigPos.X)
-									local dz = math.abs(obj.Position.Z - centerDigPos.Z)
-
-									if dx <= rangeStuds and dz <= rangeStuds and obj.Position.Y >= 10 then
+									if obj.Position.Y >= 10 then
 										local nameLower = string.lower(obj.Name)
 										local matName = string.lower(tostring(obj.Material))
 										local inRealisticFolder = false
@@ -2800,17 +2717,17 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Sort candidates: Highest Y position -> Outermost perimeter -> Closest distance
+					-- 3. Sort candidates: Highest Y position -> Outermost Part distance -> Closest distance
 					if #candidates > 0 then
 						table.sort(candidates, function(a, b)
 							local posA, posB = a.Position, b.Position
 							if math.abs(posA.Y - posB.Y) > 1.5 then
 								return posA.Y > posB.Y
 							end
-							local distA = math.max(math.abs(posA.X - centerDigPos.X), math.abs(posA.Z - centerDigPos.Z))
-							local distB = math.max(math.abs(posB.X - centerDigPos.X), math.abs(posB.Z - centerDigPos.Z))
-							if math.abs(distA - distB) > 0.5 then
-								return distA > distB
+							local dist2DA = (Vector2.new(posA.X, posA.Z) - Vector2.new(mountainCenterPos.X, mountainCenterPos.Z)).Magnitude
+							local dist2DB = (Vector2.new(posB.X, posB.Z) - Vector2.new(mountainCenterPos.X, mountainCenterPos.Z)).Magnitude
+							if math.abs(dist2DA - dist2DB) > 1.0 then
+								return dist2DA > dist2DB -- Outermost Part First!
 							end
 							return (posA - pos).Magnitude < (posB - pos).Magnitude
 						end)
@@ -2835,26 +2752,11 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Search for highest & outermost Terrain / Material target inside square area
-				local targetDigPos = findDigTargetInSquare(hrp.Position, selectedDigMaterial)
+				-- Search for highest & outermost Terrain / Material target
+				local targetDigPos = findOutermostDigTarget(hrp.Position, selectedDigMaterial)
 
 				if not targetDigPos then
-					-- Systematically sweep square grid of points centered at centerDigPos from highest Y down
-					local gridPoints = {}
-					local step = math.max(6, math.floor(rangeStuds / 8))
-					for offsetZ = -rangeStuds, rangeStuds, step do
-						for offsetX = -rangeStuds, rangeStuds, step do
-							table.insert(gridPoints, Vector3.new(centerDigPos.X + offsetX, math.max(centerDigPos.Y, 10), centerDigPos.Z + offsetZ))
-						end
-					end
-
-					if #gridPoints > 0 then
-						if squareStepIndex > #gridPoints then squareStepIndex = 1 end
-						targetDigPos = gridPoints[squareStepIndex]
-						squareStepIndex = squareStepIndex + 1
-					else
-						targetDigPos = centerDigPos
-					end
+					targetDigPos = hrp.Position + (hrp.CFrame.LookVector * 4)
 				end
 
 				if targetDigPos.Y < 10 then
@@ -2942,7 +2844,7 @@ local success, err = pcall(function()
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
 							local ok, err = pcall(function()
-								performSmartSquareAutoDig(function() return autoDigEnabled end, selectedDigPickaxe)
+								performOutermostAutoDig(function() return autoDigEnabled end, selectedDigPickaxe)
 							end)
 							if not ok and err then
 								warn("[HipHub AutoDig Error]:", err)
@@ -2950,7 +2852,6 @@ local success, err = pcall(function()
 						end
 					else
 						-- Clean up flying hover when disabled
-						updateDigBoxVisuals()
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
@@ -4664,7 +4565,6 @@ local success, err = pcall(function()
 				data.autoDigEnabled = adState.autoDigEnabled
 				data.selectedDigPickaxe = adState.selectedDigPickaxe
 				data.selectedDigMaterial = adState.selectedDigMaterial
-				data.selectedDigRangeText = adState.selectedDigRangeText
 			end
 
 			-- Auto Place Crystal config state
@@ -4774,7 +4674,6 @@ local success, err = pcall(function()
 						autoDigEnabled = data.autoDigEnabled,
 						selectedDigPickaxe = data.selectedDigPickaxe,
 						selectedDigMaterial = data.selectedDigMaterial,
-						selectedDigRangeText = data.selectedDigRangeText,
 					})
 				end
 
