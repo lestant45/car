@@ -2687,10 +2687,10 @@ local success, err = pcall(function()
 				if not hrp or not hum then return end
 
 				local rangeStuds = selectedDigRange or 50
-				local moveSpeed = 16 -- Standard walk speed (16 studs/sec)
+				local moveSpeed = 8 -- Custom move speed = 8 studs/sec
 				updateDigBoxVisuals()
 
-				-- Helper to find diggable material block strictly INSIDE the square box, prioritized by HIGHEST Y position first
+				-- Helper to find diggable material block strictly INSIDE the square box, prioritized by HIGHEST Y position and OUTERMOST perimeter first
 				local function findDigMaterialPartInSquare(pos, targetMatFilter)
 					local candidates = {}
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
@@ -2762,7 +2762,13 @@ local success, err = pcall(function()
 							if math.abs(a.Position.Y - b.Position.Y) > 1.5 then
 								return a.Position.Y > b.Position.Y
 							end
-							-- Secondary sort: Closest to character
+							-- Secondary sort: Outermost perimeter of the square first!
+							local distA = math.max(math.abs(a.Position.X - centerDigPos.X), math.abs(a.Position.Z - centerDigPos.Z))
+							local distB = math.max(math.abs(b.Position.X - centerDigPos.X), math.abs(b.Position.Z - centerDigPos.Z))
+							if math.abs(distA - distB) > 0.5 then
+								return distA > distB
+							end
+							-- Tertiary sort: Closest to character
 							return (a.Position - pos).Magnitude < (b.Position - pos).Magnitude
 						end)
 						return candidates[1]
