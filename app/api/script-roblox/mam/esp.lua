@@ -254,6 +254,7 @@ local function initESP()
 		cTrack.MouseButton1Click:Connect(function()
 			state.crystalEspEnabled = not state.crystalEspEnabled
 			updateCrystalEspVisuals()
+			if _G.HipHubESP and _G.HipHubESP.updateVisuals then pcall(_G.HipHubESP.updateVisuals) end
 			if saveConfig then pcall(saveConfig) end
 		end)
 
@@ -271,6 +272,7 @@ local function initESP()
 		bTrack.MouseButton1Click:Connect(function()
 			state.boulderEspEnabled = not state.boulderEspEnabled
 			updateBoulderEspVisuals()
+			if _G.HipHubESP and _G.HipHubESP.updateVisuals then pcall(_G.HipHubESP.updateVisuals) end
 			if saveConfig then pcall(saveConfig) end
 		end)
 
@@ -288,6 +290,7 @@ local function initESP()
 		dcTrack.MouseButton1Click:Connect(function()
 			state.droppedCrystalEspEnabled = not state.droppedCrystalEspEnabled
 			updateDroppedCrystalEspVisuals()
+			if _G.HipHubESP and _G.HipHubESP.updateVisuals then pcall(_G.HipHubESP.updateVisuals) end
 			if saveConfig then pcall(saveConfig) end
 		end)
 
@@ -305,6 +308,7 @@ local function initESP()
 		drTrack.MouseButton1Click:Connect(function()
 			state.droppedRuneEspEnabled = not state.droppedRuneEspEnabled
 			updateDroppedRuneEspVisuals()
+			if _G.HipHubESP and _G.HipHubESP.updateVisuals then pcall(_G.HipHubESP.updateVisuals) end
 			if saveConfig then pcall(saveConfig) end
 		end)
 
@@ -322,6 +326,7 @@ local function initESP()
 		pTrack.MouseButton1Click:Connect(function()
 			state.playerEspEnabled = not state.playerEspEnabled
 			updatePlayerEspVisuals()
+			if _G.HipHubESP and _G.HipHubESP.updateVisuals then pcall(_G.HipHubESP.updateVisuals) end
 			if saveConfig then pcall(saveConfig) end
 		end)
 
@@ -344,7 +349,7 @@ local function initESP()
 			return obj
 		elseif obj:IsA("Model") then
 			if obj.PrimaryPart then return obj.PrimaryPart end
-			return obj:FindFirstChildWhichIsA("BasePart")
+			return obj:FindFirstChildWhichIsA("BasePart", true)
 		end
 		return nil
 	end
@@ -486,13 +491,15 @@ local function initESP()
 
 	local function boulderMatchesRarity(boulderObj)
 		local filter = state.selectedBoulderRarity or "All"
-		if filter == "All" or filter == "" then return true end
+		if filter == "All" or filter == "" or string.lower(filter) == "all" then return true end
 
 		local nameLower = string.lower(boulderObj.Name)
+		local parentLower = boulderObj.Parent and string.lower(boulderObj.Parent.Name) or ""
 		local filterLower = string.lower(filter)
 
 		for bName, bData in pairs(BOULDER_CONFIG) do
-			if string.find(nameLower, string.lower(bName), 1, true) then
+			local bNameLower = string.lower(bName)
+			if string.find(nameLower, bNameLower, 1, true) or string.find(parentLower, bNameLower, 1, true) then
 				if string.lower(bData.rarity) == filterLower then
 					return true
 				end
@@ -500,6 +507,7 @@ local function initESP()
 		end
 
 		local attr = boulderObj:GetAttribute("Rarity") or boulderObj:GetAttribute("rarity")
+			or (boulderObj.Parent and (boulderObj.Parent:GetAttribute("Rarity") or boulderObj.Parent:GetAttribute("rarity")))
 		if attr and string.lower(tostring(attr)) == filterLower then
 			return true
 		end
@@ -815,44 +823,91 @@ local function initESP()
 		-- 5. Boulder ESP Scan
 		if state.boulderEspEnabled then
 			local things = workspace:FindFirstChild("Things")
+			local mapFolder = workspace:FindFirstChild("Map")
 			local foldersToScan = {
 				workspace:FindFirstChild("Boulders"),
-				workspace:FindFirstChild("Map"),
-				workspace:FindFirstChild("CaveZones"),
+				workspace:FindFirstChild("RenderedBoulders"),
+				workspace:FindFirstChild("ActiveBoulders"),
 				things and things:FindFirstChild("Boulders"),
+				things and things:FindFirstChild("RenderedBoulders"),
+				mapFolder and mapFolder:FindFirstChild("Boulders"),
+				mapFolder and mapFolder:FindFirstChild("Nodes"),
+				workspace:FindFirstChild("CaveZones"),
 				workspace:FindFirstChild("FrozenCaves"),
+				workspace:FindFirstChild("Spawns"),
+				workspace:FindFirstChild("Ores"),
+				workspace:FindFirstChild("Mine"),
+				workspace:FindFirstChild("Nodes"),
+				workspace:FindFirstChild("World"),
 			}
+
+			-- Fallback: If standard folders aren't found, scan workspace children
+			if not workspace:FindFirstChild("Boulders") and not (things and things:FindFirstChild("Boulders")) then
+				for _, child in ipairs(workspace:GetChildren()) do
+					if child ~= player.Character and not child:IsA("Terrain") and child.Name ~= "HipHubESP" then
+						table.insert(foldersToScan, child)
+					end
+				end
+			end
 
 			local scannedBoulders = {}
 			for _, folder in ipairs(foldersToScan) do
 				if folder then
 					for _, bObj in ipairs(folder:GetDescendants()) do
-						if not scannedBoulders[bObj] and (bObj:IsA("Model") or bObj:IsA("BasePart")) then
+						if (bObj:IsA("Model") or bObj:IsA("BasePart")) and not bObj:IsA("Accessory") then
 							local nameLower = string.lower(bObj.Name)
+							local parentLower = bObj.Parent and string.lower(bObj.Parent.Name) or ""
+
 							local isBoulder = string.find(nameLower, "boulder", 1, true)
+								or string.find(parentLower, "boulder", 1, true)
 								or BOULDER_CONFIG[bObj.Name] ~= nil
 								or string.find(nameLower, "mossite", 1, true)
 								or string.find(nameLower, "voltite", 1, true)
 								or string.find(nameLower, "gildrite", 1, true)
 								or string.find(nameLower, "rimeveil", 1, true)
 								or string.find(nameLower, "nocturnite", 1, true)
+								or bObj:GetAttribute("MinPickaxe") ~= nil
+								or bObj:GetAttribute("Swings") ~= nil
+								or bObj:GetAttribute("SwingsAtGate") ~= nil
+								or bObj:GetAttribute("Boulder") ~= nil
+								or bObj:GetAttribute("Type") == "Boulder"
+
+							if not isBoulder then
+								for bName in pairs(BOULDER_CONFIG) do
+									if string.find(nameLower, string.lower(bName), 1, true) then
+										isBoulder = true
+										break
+									end
+								end
+							end
 
 							if isBoulder then
-								scannedBoulders[bObj] = true
-								if boulderMatchesRarity(bObj) then
-									if not activeESPs[bObj] then
-										local boulderData = nil
-										for bName, bData in pairs(BOULDER_CONFIG) do
-											if string.find(nameLower, string.lower(bName), 1, true) then
-												boulderData = bData
-												break
-											end
-										end
-										local colorHex = boulderData and boulderData.color or "#00c8ff"
-										createBillboardForObject(bObj, bObj.Name, "boulder", colorHex)
+								local targetObj = bObj
+								if bObj:IsA("BasePart") and bObj.Parent and (bObj.Parent:IsA("Model") or bObj.Parent:IsA("Folder")) then
+									local pNameLower = string.lower(bObj.Parent.Name)
+									if string.find(pNameLower, "boulder", 1, true) or BOULDER_CONFIG[bObj.Parent.Name] ~= nil then
+										targetObj = bObj.Parent
 									end
-								else
-									removeBillboardForObject(bObj)
+								end
+
+								if not scannedBoulders[targetObj] then
+									scannedBoulders[targetObj] = true
+									if boulderMatchesRarity(targetObj) then
+										if not activeESPs[targetObj] then
+											local boulderData = nil
+											local targetNameLower = string.lower(targetObj.Name)
+											for bName, bData in pairs(BOULDER_CONFIG) do
+												if string.find(targetNameLower, string.lower(bName), 1, true) then
+													boulderData = bData
+													break
+												end
+											end
+											local colorHex = boulderData and boulderData.color or "#00c8ff"
+											createBillboardForObject(targetObj, targetObj.Name, "boulder", colorHex)
+										end
+									else
+										removeBillboardForObject(targetObj)
+									end
 								end
 							end
 						end
@@ -909,8 +964,8 @@ local function initESP()
 		local caveZones = workspace:FindFirstChild("CaveZones")
 		if caveZones then hookFolderEvents(caveZones, "crystal", true) end
 
-		local bouldersFolder = workspace:FindFirstChild("Boulders") or (things and things:FindFirstChild("Boulders"))
-		if bouldersFolder then hookFolderEvents(bouldersFolder, "boulder", false) end
+		local bFolder = workspace:FindFirstChild("Boulders") or workspace:FindFirstChild("RenderedBoulders") or workspace:FindFirstChild("ActiveBoulders") or (things and (things:FindFirstChild("Boulders") or things:FindFirstChild("RenderedBoulders")))
+		if bFolder then hookFolderEvents(bFolder, "boulder", false) end
 
 		local dcFolder = workspace:WaitForChild("DroppedCrystals", 5)
 		if dcFolder then hookFolderEvents(dcFolder, "dropped_crystal", true) end
