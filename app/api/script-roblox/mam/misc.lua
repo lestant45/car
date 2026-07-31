@@ -1,5 +1,5 @@
 -- 🌀 CAB Misc Tab Module
--- Misc features (FPS Booster / Texture Remover, Black Screen, Cap FPS)
+-- Misc features (FPS Booster / Texture Remover, Black Screen, Cap FPS, Movement: WalkSpeed & Fly)
 -- Loaded by ui.lua via _G.HipHubUI shared references
 
 local function initMisc()
@@ -32,6 +32,8 @@ local function initMisc()
 	local fpsBoostEnabled = false
 	local blackScreenEnabled = false
 	local capFpsEnabled = false
+	local walkSpeedValue = 16
+	local flyEnabled = false
 
 	------------------------------------------------
 	-- ⚡ FPS BOOST ENGINE (Texture & Material Remover)
@@ -143,10 +145,215 @@ local function initMisc()
 	end
 
 	------------------------------------------------
-	-- 🖥️ MISC UI CARDS & TOGGLES
+	-- 🚀 FLYING & MOVEMENT ENGINE
 	------------------------------------------------
-	-- Collapsible Section: Performance Optimizations
-	local perfCollapsible = refs.createCollapsibleSection(miscFrameContent, "Performance Optimizations", 1)
+	local flyBv = nil
+	local flyBg = nil
+	local flyConnection = nil
+
+	local function startFlying()
+		pcall(function()
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if not hrp or not hum then return end
+
+			if not flyBv or not flyBv.Parent then
+				flyBv = Instance.new("BodyVelocity")
+				flyBv.Name = "HipHubUserFlyBV"
+				flyBv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+				flyBv.Velocity = Vector3.zero
+				flyBv.Parent = hrp
+			end
+
+			if not flyBg or not flyBg.Parent then
+				flyBg = Instance.new("BodyGyro")
+				flyBg.Name = "HipHubUserFlyBG"
+				flyBg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+				flyBg.P = 9000
+				flyBg.CFrame = hrp.CFrame
+				flyBg.Parent = hrp
+			end
+
+			hum.PlatformStand = true
+
+			if not flyConnection then
+				flyConnection = RunService.RenderStepped:Connect(function()
+					if not flyEnabled then return end
+					local cChar = player.Character
+					local cHrp = cChar and cChar:FindFirstChild("HumanoidRootPart")
+					local cHum = cChar and cChar:FindFirstChildOfClass("Humanoid")
+					if not cHrp or not cHum then return end
+
+					local cam = Workspace.CurrentCamera
+					if not cam then return end
+
+					cHum.PlatformStand = true
+
+					local moveDir = Vector3.zero
+					if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+						moveDir = moveDir + cam.CFrame.LookVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+						moveDir = moveDir - cam.CFrame.LookVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+						moveDir = moveDir - cam.CFrame.RightVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+						moveDir = moveDir + cam.CFrame.RightVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.E) then
+						moveDir = moveDir + Vector3.new(0, 1, 0)
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+						moveDir = moveDir - Vector3.new(0, 1, 0)
+					end
+
+					if moveDir.Magnitude > 0 then
+						moveDir = moveDir.Unit
+					end
+
+					local flySpeed = math.max(walkSpeedValue, 40)
+					if flyBv and flyBv.Parent then
+						flyBv.Velocity = moveDir * flySpeed
+					end
+					if flyBg and flyBg.Parent then
+						flyBg.CFrame = cam.CFrame
+					end
+				end)
+			end
+		end)
+	end
+
+	local function stopFlying()
+		pcall(function()
+			if flyConnection then
+				flyConnection:Disconnect()
+				flyConnection = nil
+			end
+			if flyBv then
+				pcall(function() flyBv:Destroy() end)
+				flyBv = nil
+			end
+			if flyBg then
+				pcall(function() flyBg:Destroy() end)
+				flyBg = nil
+			end
+
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum.PlatformStand = false
+			end
+		end)
+	end
+
+	-- Walk Speed Loop
+	task.spawn(function()
+		while true do
+			task.wait(0.1)
+			pcall(function()
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum and walkSpeedValue and walkSpeedValue > 0 and hum.WalkSpeed ~= walkSpeedValue then
+					hum.WalkSpeed = walkSpeedValue
+				end
+			end)
+		end
+	end)
+
+	------------------------------------------------
+	-- 🏃 MOVEMENT SECTION UI
+	------------------------------------------------
+	local moveCollapsible = refs.createCollapsibleSection(miscFrameContent, "Movement", 1)
+	local moveContainer = moveCollapsible.Content
+
+	-- 1. Walk Speed Textfield Card
+	local wsCard = Instance.new("Frame")
+	wsCard.Size = UDim2.new(1, 0, 0, 32)
+	wsCard.BackgroundColor3 = COLORS.glassCard
+	wsCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+	wsCard.BorderSizePixel = 0
+	wsCard.LayoutOrder = 1
+	wsCard.Parent = moveContainer
+
+	refs.applyGlass(wsCard, {
+		corner = refs.CORNER.small,
+		stroke = true,
+		strokeColor = COLORS.borderGlass,
+		strokeThickness = 1,
+		strokeTransparency = 0.75
+	})
+
+	local wsTitle = Instance.new("TextLabel")
+	wsTitle.Size = UDim2.new(0.5, 0, 1, 0)
+	wsTitle.Position = UDim2.new(0, 12, 0, 0)
+	wsTitle.BackgroundTransparency = 1
+	wsTitle.Text = "Walk Speed"
+	wsTitle.TextColor3 = COLORS.textPrimary or Color3.fromRGB(225, 235, 255)
+	wsTitle.Font = Enum.Font.GothamMedium
+	wsTitle.TextSize = 13
+	wsTitle.TextXAlignment = Enum.TextXAlignment.Left
+	wsTitle.Parent = wsCard
+
+	local wsBox = Instance.new("TextBox")
+	wsBox.Size = UDim2.new(0, 80, 0, 22)
+	wsBox.Position = UDim2.new(1, -92, 0.5, -11)
+	wsBox.BackgroundColor3 = COLORS.glassPrimary or Color3.fromRGB(20, 24, 44)
+	wsBox.BackgroundTransparency = 0.2
+	wsBox.BorderSizePixel = 0
+	wsBox.Text = tostring(walkSpeedValue)
+	wsBox.PlaceholderText = "16"
+	wsBox.TextColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
+	wsBox.Font = Enum.Font.GothamBold
+	wsBox.TextSize = 12
+	wsBox.ClearTextOnFocus = false
+	wsBox.Parent = wsCard
+
+	refs.applyGlass(wsBox, {
+		corner = refs.CORNER.small,
+		stroke = true,
+		strokeColor = COLORS.accentCyan,
+		strokeThickness = 1,
+		strokeTransparency = 0.55
+	})
+
+	wsBox.FocusLost:Connect(function()
+		local num = tonumber(wsBox.Text)
+		if num and num > 0 then
+			walkSpeedValue = num
+		else
+			wsBox.Text = tostring(walkSpeedValue)
+		end
+		if refs.saveConfig then pcall(refs.saveConfig) end
+	end)
+
+	-- 2. Fly Toggle (Below Walk Speed)
+	local flyCard, flyTrack, flyThumb = refs.createGlassToggle(moveContainer, "Fly (Fly Mode)", 2)
+	local updateFlyVisuals = function()
+		if flyEnabled then
+			TweenService:Create(flyTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+			TweenService:Create(flyThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			startFlying()
+		else
+			TweenService:Create(flyTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+			TweenService:Create(flyThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			stopFlying()
+		end
+	end
+	updateFlyVisuals()
+
+	flyTrack.MouseButton1Click:Connect(function()
+		flyEnabled = not flyEnabled
+		updateFlyVisuals()
+		if refs.saveConfig then pcall(refs.saveConfig) end
+	end)
+
+	------------------------------------------------
+	-- 🖥️ PERFORMANCE OPTIMIZATIONS SECTION
+	------------------------------------------------
+	local perfCollapsible = refs.createCollapsibleSection(miscFrameContent, "Performance Optimizations", 2)
 	local perfContainer = perfCollapsible.Content
 
 	-- 1. FPS Boost Toggle (Remove Textures & Effects)
@@ -209,12 +416,17 @@ local function initMisc()
 		if refs.saveConfig then pcall(refs.saveConfig) end
 	end)
 
+	------------------------------------------------
+	-- 📤 EXPOSE STATE TO _G
+	------------------------------------------------
 	_G.HipHubMisc = {
 		getState = function()
 			return {
 				fpsBoostEnabled = fpsBoostEnabled,
 				capFpsEnabled = capFpsEnabled,
 				blackScreenEnabled = blackScreenEnabled,
+				walkSpeedValue = walkSpeedValue,
+				flyEnabled = flyEnabled,
 			}
 		end,
 		setState = function(s)
@@ -230,6 +442,14 @@ local function initMisc()
 			if s.blackScreenEnabled ~= nil then
 				blackScreenEnabled = (s.blackScreenEnabled == true)
 				updateBlackScreenVisuals()
+			end
+			if s.walkSpeedValue ~= nil and tonumber(s.walkSpeedValue) then
+				walkSpeedValue = tonumber(s.walkSpeedValue)
+				wsBox.Text = tostring(walkSpeedValue)
+			end
+			if s.flyEnabled ~= nil then
+				flyEnabled = (s.flyEnabled == true)
+				updateFlyVisuals()
 			end
 		end
 	}

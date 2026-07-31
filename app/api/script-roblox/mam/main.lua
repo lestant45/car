@@ -2447,6 +2447,234 @@ local success, err = pcall(function()
 		end
 
 		------------------------------------------------
+		-- ⛏️ AUTOMATION DIGGING CARD & ENGINE
+		------------------------------------------------
+		do
+			local autoDigEnabled = false
+			local selectedDigPickaxe = "VolcanoBasalt"
+
+			local isAutoDigCategoryExpanded = false
+			local autoDigCategoryCard = Instance.new("Frame")
+			autoDigCategoryCard.Size = UDim2.new(1, 0, 0, 36)
+			autoDigCategoryCard.BackgroundColor3 = COLORS.glassCard
+			autoDigCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			autoDigCategoryCard.BorderSizePixel = 0
+			autoDigCategoryCard.ClipsDescendants = true
+			autoDigCategoryCard.LayoutOrder = 3.5
+			autoDigCategoryCard.Parent = mainFrameContent
+
+			refs.applyGlass(autoDigCategoryCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7
+			})
+
+			-- Header Button
+			local adHeaderBtn = Instance.new("TextButton")
+			adHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+			adHeaderBtn.BackgroundTransparency = 1
+			adHeaderBtn.Text = ""
+			adHeaderBtn.Parent = autoDigCategoryCard
+
+			local adCategoryTitle = Instance.new("TextLabel")
+			adCategoryTitle.Size = UDim2.new(1, -50, 0, 36)
+			adCategoryTitle.Position = UDim2.new(0, 12, 0, 0)
+			adCategoryTitle.BackgroundTransparency = 1
+			adCategoryTitle.Text = "Automation Digging"
+			adCategoryTitle.TextColor3 = COLORS.textPrimary or Color3.fromRGB(225, 235, 255)
+			adCategoryTitle.Font = Enum.Font.GothamBold
+			adCategoryTitle.TextSize = 14
+			adCategoryTitle.TextXAlignment = Enum.TextXAlignment.Left
+			adCategoryTitle.Parent = adHeaderBtn
+
+			local adCategoryIcon = Instance.new("TextLabel")
+			adCategoryIcon.Size = UDim2.new(0, 24, 0, 36)
+			adCategoryIcon.Position = UDim2.new(1, -32, 0, 0)
+			adCategoryIcon.BackgroundTransparency = 1
+			adCategoryIcon.Text = "▼"
+			adCategoryIcon.TextColor3 = COLORS.textSecondary or Color3.fromRGB(150, 165, 195)
+			adCategoryIcon.Font = Enum.Font.GothamBold
+			adCategoryIcon.TextSize = 11
+			adCategoryIcon.Parent = adHeaderBtn
+
+			-- Content Container
+			local adContentFrame = Instance.new("Frame")
+			adContentFrame.Size = UDim2.new(1, 0, 0, 0)
+			adContentFrame.Position = UDim2.new(0, 0, 0, 36)
+			adContentFrame.BackgroundTransparency = 1
+			adContentFrame.Parent = autoDigCategoryCard
+
+			refs.applyListLayout(adContentFrame, 8)
+			refs.applyPadding(adContentFrame, 8, 10, 10, 10)
+
+			-- Toggle Row 1: Enable Auto Digging
+			local adToggleRow, adToggleTrack, adToggleThumb = refs.createGlassToggle(adContentFrame, "Auto Digging", 1)
+
+			local updateAutoDigVisuals = function()
+				if autoDigEnabled then
+					TweenService:Create(adToggleTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+					TweenService:Create(adToggleThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				else
+					TweenService:Create(adToggleTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+					TweenService:Create(adToggleThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				end
+			end
+
+			adToggleTrack.MouseButton1Click:Connect(function()
+				autoDigEnabled = not autoDigEnabled
+				updateAutoDigVisuals()
+				if saveConfig then pcall(saveConfig) end
+			end)
+
+			-- Dropdown Row 2: Select Pickaxe
+			local pickaxeOptions = {
+				"RustyScrapper",
+				"WeatheredWood",
+				"ChippedStone",
+				"HardenedIron",
+				"CopperPick",
+				"ReinforcedSteel",
+				"TitaniumSpike",
+				"FrostbitePick",
+				"EmeraldCarver",
+				"VolcanoBasalt",
+				"ObsidianEdge",
+				"TempestPick",
+				"CelestialApex",
+				"AstralRend",
+				"EclipseFang",
+				"NebularThrone",
+				"Voidreign",
+				"Singularity",
+				"TheTerminus",
+				"SharkPickaxe",
+				"DiamondPickaxe"
+			}
+
+			local pickDropCard, pickDropBtn, pickDropLabel, pickMenuFrame, pickSearch, pickScroll = refs.createGlassDropdown(
+				adContentFrame, "Select Pickaxe for Digging", selectedDigPickaxe, 2
+			)
+
+			refs.registerDropdownMenu(pickDropBtn, pickMenuFrame)
+			local pickBinder = refs.bindDropdown(
+				pickDropBtn, pickMenuFrame, pickSearch, pickScroll, pickaxeOptions,
+				function() return selectedDigPickaxe end,
+				function(val)
+					selectedDigPickaxe = val
+					pickDropLabel.Text = val
+					if saveConfig then pcall(saveConfig) end
+				end,
+				function()
+					pickDropLabel.Text = selectedDigPickaxe
+				end
+			)
+
+			local updatePickDropdownVisuals = function()
+				pickDropLabel.Text = selectedDigPickaxe
+				pickBinder.updateOptionVisuals()
+			end
+
+			-- Toggle Expand / Collapse Card Height
+			local function updateAutoDigCardSize()
+				local targetHeight = isAutoDigCategoryExpanded and 150 or 36
+				local targetRotation = isAutoDigCategoryExpanded and 180 or 0
+
+				TweenService:Create(autoDigCategoryCard, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Size = UDim2.new(1, 0, 0, targetHeight)
+				}):Play()
+
+				TweenService:Create(adCategoryIcon, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Rotation = targetRotation
+				}):Play()
+
+				task.delay(0.26, updateMainCanvas)
+			end
+
+			adHeaderBtn.MouseButton1Click:Connect(function()
+				isAutoDigCategoryExpanded = not isAutoDigCategoryExpanded
+				updateAutoDigCardSize()
+			end)
+
+			-- Auto-Digging Loop Engine
+			task.spawn(function()
+				local digIndex = 0
+				local cubeRadius = 10 -- Generates a 20x20x20 cube of digging points around player
+
+				while true do
+					task.wait(0.15)
+					if autoDigEnabled then
+						local char = player and player.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+						if hrp and hum then
+							-- 1. Ensure Player is holding a Pickaxe tool
+							local heldTool = char:FindFirstChildWhichIsA("Tool")
+							if not heldTool or (not string.find(string.lower(heldTool.Name), "pick") and not string.find(string.lower(heldTool.Name), "scrapper") and not string.find(string.lower(heldTool.Name), "wood") and not string.find(string.lower(heldTool.Name), "stone") and not string.find(string.lower(heldTool.Name), "edge") and not string.find(string.lower(heldTool.Name), "rend") and not string.find(string.lower(heldTool.Name), "fang") and not string.find(string.lower(heldTool.Name), "throne") and not string.find(string.lower(heldTool.Name), "singularity") and not string.find(string.lower(heldTool.Name), "terminus") and not string.find(string.lower(heldTool.Name), "basalt") and not string.find(string.lower(heldTool.Name), "carver") and not string.find(string.lower(heldTool.Name), "spike")) then
+								-- Find any pickaxe in backpack and equip it
+								local backpack = player:FindFirstChild("Backpack")
+								if backpack then
+									local pickaxeTool = nil
+									for _, tool in ipairs(backpack:GetChildren()) do
+										if tool:IsA("Tool") then
+											local nameLower = string.lower(tool.Name)
+											if string.find(nameLower, "pick") or string.find(nameLower, "scrapper") or string.find(nameLower, "wood") or string.find(nameLower, "stone") or string.find(nameLower, "edge") or string.find(nameLower, "rend") or string.find(nameLower, "fang") or string.find(nameLower, "throne") or string.find(nameLower, "singularity") or string.find(nameLower, "terminus") or string.find(nameLower, "basalt") or string.find(nameLower, "carver") or string.find(nameLower, "spike") then
+												pickaxeTool = tool
+												break
+											end
+										end
+									end
+									if pickaxeTool then
+										hum:EquipTool(pickaxeTool)
+										task.wait(0.1)
+									end
+								end
+							end
+
+							-- 2. Generate random digging coordinate in a cube around player position
+							local rx = math.random(-cubeRadius, cubeRadius)
+							local ry = math.random(-cubeRadius, cubeRadius)
+							local rz = math.random(-cubeRadius, cubeRadius)
+							local digPos = hrp.Position + Vector3.new(rx, ry, rz)
+
+							-- 3. Fire DigRequest Remote
+							pcall(function()
+								local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+								local digRem = remotes and remotes:FindFirstChild("DigRequest")
+								if digRem then
+									digRem:FireServer(selectedDigPickaxe, digPos)
+								end
+							end)
+						end
+					end
+				end
+			end)
+
+			-- State Interface
+			_G.HipHubAutomationDigging = {
+				getState = function()
+					return {
+						autoDigEnabled = autoDigEnabled,
+						selectedDigPickaxe = selectedDigPickaxe,
+					}
+				end,
+				setState = function(s)
+					if not s then return end
+					if s.autoDigEnabled ~= nil then
+						autoDigEnabled = (s.autoDigEnabled == true)
+						updateAutoDigVisuals()
+					end
+					if s.selectedDigPickaxe ~= nil and tostring(s.selectedDigPickaxe) ~= "" then
+						selectedDigPickaxe = tostring(s.selectedDigPickaxe)
+						updatePickDropdownVisuals()
+					end
+				end
+			}
+		end
+
+		------------------------------------------------
 		-- 💎 AUTO PLACE CRYSTAL CARD & ENGINE
 		------------------------------------------------
 		do
@@ -4108,6 +4336,13 @@ local success, err = pcall(function()
 				data.autoFarmSizeFilters = amState.autoFarmSizeFilters
 			end
 
+			-- Automation Digging config state
+			if _G.HipHubAutomationDigging and _G.HipHubAutomationDigging.getState then
+				local adState = _G.HipHubAutomationDigging.getState()
+				data.autoDigEnabled = adState.autoDigEnabled
+				data.selectedDigPickaxe = adState.selectedDigPickaxe
+			end
+
 			-- Auto Place Crystal config state
 			if _G.HipHubAutoPlaceCrystal and _G.HipHubAutoPlaceCrystal.getState then
 				local apState = _G.HipHubAutoPlaceCrystal.getState()
@@ -4129,6 +4364,8 @@ local success, err = pcall(function()
 				data.fpsBoostEnabled = miscState.fpsBoostEnabled
 				data.blackScreenEnabled = miscState.blackScreenEnabled
 				data.capFpsEnabled = miscState.capFpsEnabled
+				data.walkSpeedValue = miscState.walkSpeedValue
+				data.flyEnabled = miscState.flyEnabled
 			end
 
 			writefile(configPath, game:GetService("HttpService"):JSONEncode(data))
@@ -4208,6 +4445,13 @@ local success, err = pcall(function()
 					})
 				end
 
+				if _G.HipHubAutomationDigging and _G.HipHubAutomationDigging.setState then
+					_G.HipHubAutomationDigging.setState({
+						autoDigEnabled = data.autoDigEnabled,
+						selectedDigPickaxe = data.selectedDigPickaxe,
+					})
+				end
+
 				if _G.HipHubAutoPlaceCrystal and _G.HipHubAutoPlaceCrystal.setState then
 					_G.HipHubAutoPlaceCrystal.setState({
 						autoPlaceCrystalsEnabled = data.autoPlaceCrystalsEnabled,
@@ -4228,6 +4472,8 @@ local success, err = pcall(function()
 						fpsBoostEnabled = data.fpsBoostEnabled,
 						blackScreenEnabled = data.blackScreenEnabled,
 						capFpsEnabled = data.capFpsEnabled,
+						walkSpeedValue = data.walkSpeedValue,
+						flyEnabled = data.flyEnabled,
 					})
 				end
 
