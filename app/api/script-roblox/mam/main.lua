@@ -2846,9 +2846,9 @@ local success, err = pcall(function()
 					targetDigPos = Vector3.new(targetDigPos.X, 10, targetDigPos.Z)
 				end
 
-				-- Position character 2.5 studs DIRECTLY ABOVE target block & orient facing STRAIGHT DOWNWARDS
+				-- Position character 2.5 studs DIRECTLY ABOVE target mountain block & orient facing STRAIGHT DOWNWARDS
 				local targetHover = Vector3.new(targetDigPos.X, math.max(targetDigPos.Y + 2.5, 10), targetDigPos.Z)
-				local downCFrame = CFrame.lookAt(targetHover, targetDigPos)
+				local downCFrame = CFrame.lookAt(targetHover, Vector3.new(targetHover.X, targetHover.Y - 10, targetHover.Z))
 
 				local dist = (hrp.Position - targetHover).Magnitude
 				if dist > 1.0 then
@@ -2864,6 +2864,19 @@ local success, err = pcall(function()
 
 				-- Brief wait to ensure player position and downward orientation replicate to server
 				task.wait(0.06)
+
+				-- Perform downward raycast to get exact target point DIRECTLY UNDER character's feet
+				local downRayParams = RaycastParams.new()
+				downRayParams.FilterType = Enum.RaycastFilterType.Exclude
+				local excList = {}
+				if char then table.insert(excList, char) end
+				local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+				if boxPart then table.insert(excList, boxPart) end
+				downRayParams.FilterDescendantsInstances = excList
+				downRayParams.IgnoreWater = true
+
+				local downRayHit = workspace:Raycast(hrp.Position, Vector3.new(0, -30, 0), downRayParams)
+				local digPosUnderFeet = downRayHit and downRayHit.Position or Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 2.5, 10), hrp.Position.Z)
 
 				-- Perform Auto Click / Tool Swing while facing directly down
 				pcall(function()
@@ -2881,12 +2894,12 @@ local success, err = pcall(function()
 					end
 				end)
 
-				-- Fire Dig remote to ReplicatedStorage.Remotes.DigRequest with Terrain Vector3 Target
+				-- Fire Dig remote to ReplicatedStorage.Remotes.DigRequest targeting position directly under character
 				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 				local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
 				if digRem then
 					pcall(function()
-						digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", targetDigPos)
+						digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", digPosUnderFeet)
 					end)
 				end
 			end
@@ -2898,6 +2911,7 @@ local success, err = pcall(function()
 					if autoDigEnabled then
 						pcall(function()
 							local char = player and player.Character
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
 							local tool = char and char:FindFirstChildWhichIsA("Tool")
 							if tool then
 								tool:Activate()
@@ -2906,6 +2920,26 @@ local success, err = pcall(function()
 							if vu then
 								vu:CaptureController()
 								vu:ClickButton1(Vector2.new(0, 0))
+							end
+
+							if hrp then
+								local downRayParams = RaycastParams.new()
+								downRayParams.FilterType = Enum.RaycastFilterType.Exclude
+								local excList = {}
+								if char then table.insert(excList, char) end
+								local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+								if boxPart then table.insert(excList, boxPart) end
+								downRayParams.FilterDescendantsInstances = excList
+								downRayParams.IgnoreWater = true
+
+								local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -30, 0), downRayParams)
+								local posUnderFeet = hit and hit.Position or Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 2.5, 10), hrp.Position.Z)
+
+								local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+								local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
+								if digRem then
+									digRem:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
+								end
 							end
 						end)
 					end
