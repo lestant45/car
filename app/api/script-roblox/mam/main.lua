@@ -2533,6 +2533,45 @@ local success, err = pcall(function()
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
+				-- Helper to detect nearest Mud / Dirt / Ground block part near target position
+				local function findNearbyMudPart(pos, maxDist)
+					maxDist = maxDist or 25
+					local bestPart = nil
+					local bestDist = maxDist
+
+					local folders = {
+						workspace:FindFirstChild("Mud"),
+						workspace:FindFirstChild("Dirt"),
+						workspace:FindFirstChild("CaveZones"),
+						workspace:FindFirstChild("Things"),
+						workspace:FindFirstChild("Map"),
+						workspace:FindFirstChild("Nodes"),
+						workspace:FindFirstChild("Rocks"),
+						workspace
+					}
+
+					for _, folder in ipairs(folders) do
+						if folder then
+							for _, obj in ipairs(folder:GetDescendants()) do
+								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
+									local nameLower = string.lower(obj.Name)
+									local matName = string.lower(tostring(obj.Material))
+									local isMud = string.find(nameLower, "mud") or string.find(nameLower, "dirt") or string.find(nameLower, "dig") or string.find(nameLower, "ground") or string.find(nameLower, "rock") or string.find(matName, "mud") or string.find(matName, "ground") or string.find(matName, "dirt")
+									if isMud then
+										local dist = (obj.Position - pos).Magnitude
+										if dist < bestDist then
+											bestDist = dist
+											bestPart = obj
+										end
+									end
+								end
+							end
+						end
+					end
+
+					return bestPart
+				end
+
 				-- Helper to attach/maintain hover flight and move rapidly to target position
 				local function moveToPositionAndHover(targetPos)
 					if not hrp or not hrp.Parent then return end
@@ -2579,10 +2618,18 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Helper to perform rapid-fire dig at position
+				-- Helper to perform rapid-fire dig at position with Mud detection
 				local function performDigAtPos(targetPos, digTimes)
 					if not getIsActiveFunc() then return end
-					moveToPositionAndHover(targetPos)
+
+					-- Check if a Mud / Dirt block exists near targetPos
+					local actualDigPos = targetPos
+					local mudObj = findNearbyMudPart(targetPos, 25)
+					if mudObj and mudObj.Parent then
+						actualDigPos = mudObj.Position
+					end
+
+					moveToPositionAndHover(actualDigPos)
 					ensurePickaxeEquipped()
 
 					local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
@@ -2592,7 +2639,7 @@ local success, err = pcall(function()
 						if not getIsActiveFunc() then break end
 						if digRem then
 							pcall(function()
-								digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", targetPos)
+								digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", actualDigPos)
 							end)
 						end
 						task.wait(0.04)
@@ -2608,9 +2655,9 @@ local success, err = pcall(function()
 					currentPos = currentPos + Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 2: Then advance X position by 7 (forward) and dig twice
+				-- Phase 2: Then advance Z position by 7 (forward) and dig twice
 				if not getIsActiveFunc() then return end
-				currentPos = currentPos + Vector3.new(7, 0, 0)
+				currentPos = currentPos + Vector3.new(0, 0, 7)
 				performDigAtPos(currentPos, 2)
 
 				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
@@ -2620,9 +2667,9 @@ local success, err = pcall(function()
 					currentPos = currentPos - Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 4: Then, advance X position by 7 (forward) and dig twice
+				-- Phase 4: Then, advance Z position by 7 (forward) and dig twice
 				if not getIsActiveFunc() then return end
-				currentPos = currentPos + Vector3.new(7, 0, 0)
+				currentPos = currentPos + Vector3.new(0, 0, 7)
 				performDigAtPos(currentPos, 2)
 			end
 
