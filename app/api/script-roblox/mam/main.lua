@@ -2771,19 +2771,30 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Sort candidates:
-					-- Layer 1: Top-Down in 3-stud height bands
-					-- Layer 2: Outermost perimeter shell band from center (Chebyshev distance)
-					-- Layer 3: Nearest neighbor distance to player (Smooth sequential digging without far jumps!)
+					-- 3. Strict Layer-by-Layer Top-Down Selection:
+					-- Find maximum Y position among candidates (top Y level layer)
 					if #candidates > 0 then
-						table.sort(candidates, function(a, b)
-							local posA, posB = a.Position, b.Position
-							local tierA = math.floor(posA.Y / 3)
-							local tierB = math.floor(posB.Y / 3)
-							if tierA ~= tierB then
-								return tierA > tierB
+						local maxY = -99999
+						for _, item in ipairs(candidates) do
+							if item.Position.Y > maxY then
+								maxY = item.Position.Y
 							end
+						end
 
+						-- Keep ONLY candidates on the current top Y layer (within 2.5 studs of maxY)
+						local topLayerCandidates = {}
+						local layerThreshold = 2.5
+						for _, item in ipairs(candidates) do
+							if (maxY - item.Position.Y) <= layerThreshold then
+								table.insert(topLayerCandidates, item)
+							end
+						end
+
+						-- Sort current top Y layer:
+						-- 1. Outermost perimeter shell band from center
+						-- 2. Nearest neighbor distance to player (Smooth sequential digging on current Y layer!)
+						table.sort(topLayerCandidates, function(a, b)
+							local posA, posB = a.Position, b.Position
 							local shellA = math.max(math.abs(posA.X - centerPos.X), math.abs(posA.Z - centerPos.Z))
 							local shellB = math.max(math.abs(posB.X - centerPos.X), math.abs(posB.Z - centerPos.Z))
 							local shellTierA = math.floor(shellA / 4)
@@ -2794,7 +2805,8 @@ local success, err = pcall(function()
 
 							return (posA - pos).Magnitude < (posB - pos).Magnitude
 						end)
-						return candidates[1].Position
+
+						return topLayerCandidates[1].Position
 					end
 
 					return nil
