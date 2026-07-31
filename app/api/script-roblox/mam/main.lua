@@ -2886,11 +2886,12 @@ local success, err = pcall(function()
 					posUnderFeet = downRayHit.Position
 				end
 
-				-- Fire Remote DigRequest (exact game contract: game:GetService("ReplicatedStorage").Remotes.DigRequest:FireServer(pickaxeName, Vector3Pos))
+				-- Fire Remote DigRequest (exact game contract without spaces in pickaxe name)
 				pcall(function()
 					local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
 					if digEvent then
-						digEvent:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
+						local cleanPickaxe = string.gsub(selectedDigPickaxe or "VolcanoBasalt", "%s+", "")
+						digEvent:FireServer(cleanPickaxe, posUnderFeet)
 					end
 				end)
 			end
@@ -2922,7 +2923,8 @@ local success, err = pcall(function()
 
 								local digEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("DigRequest")
 								if digEvent then
-									digEvent:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
+									local cleanPickaxe = string.gsub(selectedDigPickaxe or "VolcanoBasalt", "%s+", "")
+									digEvent:FireServer(cleanPickaxe, posUnderFeet)
 								end
 							end
 						end)
