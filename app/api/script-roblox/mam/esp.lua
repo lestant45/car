@@ -829,9 +829,11 @@ local function initESP()
 
 		-- 5. Boulder ESP Scan
 		if state.boulderEspEnabled then
+			local mountainDeco = workspace:FindFirstChild("MountainDecorations")
 			local things = workspace:FindFirstChild("Things")
 			local mapFolder = workspace:FindFirstChild("Map")
 			local foldersToScan = {
+				mountainDeco and mountainDeco:FindFirstChild("Boulders"),
 				workspace:FindFirstChild("Boulders"),
 				workspace:FindFirstChild("RenderedBoulders"),
 				workspace:FindFirstChild("ActiveBoulders"),
@@ -959,9 +961,14 @@ local function initESP()
 					end
 				end
 			elseif category == "boulder" and state.boulderEspEnabled then
-				if boulderMatchesRarity(child) then
+				local targetObj = child
+				if child:IsA("BasePart") and child.Parent and child.Parent:IsA("Model") and child.Parent ~= workspace then
+					targetObj = child.Parent
+				end
+
+				if boulderMatchesRarity(targetObj) then
 					local boulderData = nil
-					local nameLower = string.lower(child.Name)
+					local nameLower = string.lower(targetObj.Name)
 					for bName, bData in pairs(BOULDER_CONFIG) do
 						if string.find(nameLower, string.lower(bName), 1, true) then
 							boulderData = bData
@@ -969,7 +976,7 @@ local function initESP()
 						end
 					end
 					local colorHex = boulderData and boulderData.color or "#00c8ff"
-					createBillboardForObject(child, child.Name, "boulder", colorHex)
+					createBillboardForObject(targetObj, targetObj.Name, "boulder", colorHex)
 				end
 			elseif category == "dropped_rune" and state.droppedRuneEspEnabled then
 				createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
@@ -983,6 +990,8 @@ local function initESP()
 
 	task.spawn(function()
 		local things = workspace:WaitForChild("Things", 5)
+		local mountainDeco = workspace:FindFirstChild("MountainDecorations") or workspace:WaitForChild("MountainDecorations", 3)
+
 		local crystalsFolder = workspace:FindFirstChild("Crystals") or (things and things:FindFirstChild("Crystals"))
 		if crystalsFolder then hookFolderEvents(crystalsFolder, "crystal", true) end
 
@@ -992,7 +1001,11 @@ local function initESP()
 		local caveZones = workspace:FindFirstChild("CaveZones")
 		if caveZones then hookFolderEvents(caveZones, "crystal", true) end
 
-		local bFolder = workspace:FindFirstChild("Boulders") or workspace:FindFirstChild("RenderedBoulders") or workspace:FindFirstChild("ActiveBoulders") or (things and (things:FindFirstChild("Boulders") or things:FindFirstChild("RenderedBoulders")))
+		local bFolder = (mountainDeco and mountainDeco:FindFirstChild("Boulders")) 
+			or workspace:FindFirstChild("Boulders") 
+			or workspace:FindFirstChild("RenderedBoulders") 
+			or workspace:FindFirstChild("ActiveBoulders") 
+			or (things and (things:FindFirstChild("Boulders") or things:FindFirstChild("RenderedBoulders")))
 		if bFolder then hookFolderEvents(bFolder, "boulder", false) end
 
 		local dcFolder = workspace:WaitForChild("DroppedCrystals", 5)
