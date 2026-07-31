@@ -2524,78 +2524,108 @@ local success, err = pcall(function()
 				pickBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine
-			task.spawn(function()
-				local cubeRadius = 12
-				local lastTeleportTime = 0
+			-- Auto-Digging Loop Engine with Structured Grid Pattern & Flying Tween
+			local startDigPos = Vector3.new(17.36946868688964844, 40.940834045410156, 949.3936767578125)
 
-				local function teleportToRandomMountainPos(hrp)
-					local rx = math.random(-100, 100) + 35
-					local ry = math.random(180, 260)
-					local rz = math.random(-100, 100) + 715
-					local randomPos = Vector3.new(rx, ry, rz)
+			local function executeGridDiggingPattern(getIsActiveFunc, pickaxeName)
+				local char = player and player.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if not hrp or not hum then return end
 
-					pcall(function()
-						hrp.CFrame = CFrame.new(randomPos)
-					end)
-					task.wait(0.2)
+				-- Helper to attach/maintain hover flight at target position
+				local function moveToPositionAndHover(targetPos)
+					if not hrp or not hrp.Parent then return end
+					local flyHold = hrp:FindFirstChild("HipHubFarmFly")
+					if not flyHold then
+						flyHold = Instance.new("BodyVelocity")
+						flyHold.Name = "HipHubFarmFly"
+						flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+						flyHold.Velocity = Vector3.zero
+						flyHold.Parent = hrp
+					end
+					tweenToTargetCFrame(hrp, CFrame.new(targetPos), 350)
 				end
 
+				-- Helper to ensure pickaxe is equipped
+				local function ensurePickaxeEquipped()
+					local heldTool = char:FindFirstChildWhichIsA("Tool")
+					if not heldTool and player:FindFirstChild("Backpack") then
+						for _, tool in ipairs(player.Backpack:GetChildren()) do
+							if tool:IsA("Tool") then
+								hum:EquipTool(tool)
+								break
+							end
+						end
+					end
+				end
+
+				-- Helper to perform dig at position
+				local function performDigAtPos(targetPos, digTimes)
+					if not getIsActiveFunc() then return end
+					moveToPositionAndHover(targetPos)
+					ensurePickaxeEquipped()
+
+					local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+					local digRem = remotes and remotes:FindFirstChild("DigRequest")
+
+					for i = 1, (digTimes or 2) do
+						if not getIsActiveFunc() then break end
+						if digRem then
+							pcall(function()
+								digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", targetPos)
+							end)
+						end
+						task.wait(0.12)
+					end
+				end
+
+				local currentPos = startDigPos
+
+				-- Phase 1: Dig twice, then raise the Y position by 3, repeat 5 times
+				for step = 1, 5 do
+					if not getIsActiveFunc() then return end
+					performDigAtPos(currentPos, 2)
+					currentPos = currentPos + Vector3.new(0, 3, 0)
+				end
+
+				-- Phase 2: Then raise the Z position by 3 and dig twice
+				if not getIsActiveFunc() then return end
+				currentPos = currentPos + Vector3.new(0, 0, 3)
+				performDigAtPos(currentPos, 2)
+
+				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
+				for step = 1, 5 do
+					if not getIsActiveFunc() then return end
+					performDigAtPos(currentPos, 2)
+					currentPos = currentPos - Vector3.new(0, 3, 0)
+				end
+
+				-- Phase 4: Then, raise the Z position by 3 and dig twice
+				if not getIsActiveFunc() then return end
+				currentPos = currentPos + Vector3.new(0, 0, 3)
+				performDigAtPos(currentPos, 2)
+			end
+
+			task.spawn(function()
 				while true do
-					task.wait(0.15)
+					task.wait(0.2)
 					if autoDigEnabled then
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
-						local hum = char and char:FindFirstChildOfClass("Humanoid")
-
-						if hrp and hum then
-							-- Teleport to a random position on the mountain on start and every 12 seconds
-							local now = os.clock()
-							if now - lastTeleportTime > 12 then
-								lastTeleportTime = now
-								teleportToRandomMountainPos(hrp)
-							end
-
-							-- 1. Ensure Player is holding a Pickaxe tool
-							local heldTool = char:FindFirstChildWhichIsA("Tool")
-							if not heldTool or (not string.find(string.lower(heldTool.Name), "pick") and not string.find(string.lower(heldTool.Name), "scrapper") and not string.find(string.lower(heldTool.Name), "wood") and not string.find(string.lower(heldTool.Name), "stone") and not string.find(string.lower(heldTool.Name), "edge") and not string.find(string.lower(heldTool.Name), "rend") and not string.find(string.lower(heldTool.Name), "fang") and not string.find(string.lower(heldTool.Name), "throne") and not string.find(string.lower(heldTool.Name), "singularity") and not string.find(string.lower(heldTool.Name), "terminus") and not string.find(string.lower(heldTool.Name), "basalt") and not string.find(string.lower(heldTool.Name), "carver") and not string.find(string.lower(heldTool.Name), "spike")) then
-								-- Find any pickaxe in backpack and equip it
-								local backpack = player:FindFirstChild("Backpack")
-								if backpack then
-									local pickaxeTool = nil
-									for _, tool in ipairs(backpack:GetChildren()) do
-										if tool:IsA("Tool") then
-											local nameLower = string.lower(tool.Name)
-											if string.find(nameLower, "pick") or string.find(nameLower, "scrapper") or string.find(nameLower, "wood") or string.find(nameLower, "stone") or string.find(nameLower, "edge") or string.find(nameLower, "rend") or string.find(nameLower, "fang") or string.find(nameLower, "throne") or string.find(nameLower, "singularity") or string.find(nameLower, "terminus") or string.find(nameLower, "basalt") or string.find(nameLower, "carver") or string.find(nameLower, "spike") then
-												pickaxeTool = tool
-												break
-											end
-										end
-									end
-									if pickaxeTool then
-										hum:EquipTool(pickaxeTool)
-										task.wait(0.1)
-									end
-								end
-							end
-
-							-- 2. Generate random digging coordinate in a cube around player position
-							local rx = math.random(-cubeRadius, cubeRadius)
-							local ry = math.random(-cubeRadius, cubeRadius)
-							local rz = math.random(-cubeRadius, cubeRadius)
-							local digPos = hrp.Position + Vector3.new(rx, ry, rz)
-
-							-- 3. Fire DigRequest Remote
+						if hrp then
 							pcall(function()
-								local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-								local digRem = remotes and remotes:FindFirstChild("DigRequest")
-								if digRem then
-									digRem:FireServer(selectedDigPickaxe, digPos)
-								end
+								executeGridDiggingPattern(function() return autoDigEnabled end, selectedDigPickaxe)
 							end)
 						end
 					else
-						lastTeleportTime = 0
+						-- Clean up flying hover when disabled
+						local char = player and player.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							local flyHold = hrp:FindFirstChild("HipHubFarmFly")
+							if flyHold then flyHold:Destroy() end
+						end
 					end
 				end
 			end)
