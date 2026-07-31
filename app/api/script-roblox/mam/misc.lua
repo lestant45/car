@@ -32,6 +32,7 @@ local function initMisc()
 	local fpsBoostEnabled = false
 	local blackScreenEnabled = false
 	local capFpsEnabled = false
+	local walkSpeedEnabled = false
 	local walkSpeedValue = 16
 	local flyEnabled = false
 
@@ -249,17 +250,45 @@ local function initMisc()
 		end)
 	end
 
-	-- Walk Speed Loop
-	task.spawn(function()
-		while true do
-			task.wait(0.1)
-			pcall(function()
-				local char = player.Character
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				if hum and walkSpeedValue and walkSpeedValue > 0 and hum.WalkSpeed ~= walkSpeedValue then
+	-- Multi-layer Robust Walk Speed Engine
+	local walkSpeedConn = nil
+	local function applyWalkSpeed(char)
+		if not char then return end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum then return end
+
+		if walkSpeedConn then
+			pcall(function() walkSpeedConn:Disconnect() end)
+			walkSpeedConn = nil
+		end
+
+		walkSpeedConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+			if walkSpeedEnabled and walkSpeedValue and walkSpeedValue > 0 then
+				if hum.WalkSpeed ~= walkSpeedValue then
 					hum.WalkSpeed = walkSpeedValue
 				end
-			end)
+			end
+		end)
+
+		if walkSpeedEnabled and walkSpeedValue and walkSpeedValue > 0 then
+			hum.WalkSpeed = walkSpeedValue
+		end
+	end
+
+	if player.Character then
+		task.spawn(function() applyWalkSpeed(player.Character) end)
+	end
+	player.CharacterAdded:Connect(function(char)
+		task.spawn(function() applyWalkSpeed(char) end)
+	end)
+
+	RunService.Stepped:Connect(function()
+		if walkSpeedEnabled and walkSpeedValue and walkSpeedValue > 0 then
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.WalkSpeed ~= walkSpeedValue then
+				hum.WalkSpeed = walkSpeedValue
+			end
 		end
 	end)
 
@@ -269,13 +298,38 @@ local function initMisc()
 	local moveCollapsible = refs.createCollapsibleSection(miscFrameContent, "Movement", 1)
 	local moveContainer = moveCollapsible.Content
 
-	-- 1. Walk Speed Textfield Card
+	-- 1. Enable Custom Walk Speed Toggle
+	local wsToggleCard, wsToggleTrack, wsToggleThumb = refs.createGlassToggle(moveContainer, "Enable Custom WalkSpeed", 1)
+	local updateWalkSpeedVisuals = function()
+		if walkSpeedEnabled then
+			TweenService:Create(wsToggleTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+			TweenService:Create(wsToggleThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.WalkSpeed = walkSpeedValue end
+		else
+			TweenService:Create(wsToggleTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+			TweenService:Create(wsToggleThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.WalkSpeed = 16 end
+		end
+	end
+	updateWalkSpeedVisuals()
+
+	wsToggleTrack.MouseButton1Click:Connect(function()
+		walkSpeedEnabled = not walkSpeedEnabled
+		updateWalkSpeedVisuals()
+		if refs.saveConfig then pcall(refs.saveConfig) end
+	end)
+
+	-- 2. Walk Speed Textfield Card
 	local wsCard = Instance.new("Frame")
 	wsCard.Size = UDim2.new(1, 0, 0, 32)
 	wsCard.BackgroundColor3 = COLORS.glassCard
 	wsCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 	wsCard.BorderSizePixel = 0
-	wsCard.LayoutOrder = 1
+	wsCard.LayoutOrder = 2
 	wsCard.Parent = moveContainer
 
 	refs.applyGlass(wsCard, {
@@ -290,7 +344,7 @@ local function initMisc()
 	wsTitle.Size = UDim2.new(0.5, 0, 1, 0)
 	wsTitle.Position = UDim2.new(0, 12, 0, 0)
 	wsTitle.BackgroundTransparency = 1
-	wsTitle.Text = "Walk Speed"
+	wsTitle.Text = "Walk Speed Value"
 	wsTitle.TextColor3 = COLORS.textPrimary or Color3.fromRGB(225, 235, 255)
 	wsTitle.Font = Enum.Font.GothamMedium
 	wsTitle.TextSize = 13
@@ -318,6 +372,18 @@ local function initMisc()
 		strokeThickness = 1,
 		strokeTransparency = 0.55
 	})
+
+	wsBox:GetPropertyChangedSignal("Text"):Connect(function()
+		local num = tonumber(wsBox.Text)
+		if num and num > 0 then
+			walkSpeedValue = num
+			if walkSpeedEnabled then
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum then hum.WalkSpeed = num end
+			end
+		end
+	end)
 
 	wsBox.FocusLost:Connect(function()
 		local num = tonumber(wsBox.Text)
@@ -425,6 +491,7 @@ local function initMisc()
 				fpsBoostEnabled = fpsBoostEnabled,
 				capFpsEnabled = capFpsEnabled,
 				blackScreenEnabled = blackScreenEnabled,
+				walkSpeedEnabled = walkSpeedEnabled,
 				walkSpeedValue = walkSpeedValue,
 				flyEnabled = flyEnabled,
 			}
@@ -442,6 +509,10 @@ local function initMisc()
 			if s.blackScreenEnabled ~= nil then
 				blackScreenEnabled = (s.blackScreenEnabled == true)
 				updateBlackScreenVisuals()
+			end
+			if s.walkSpeedEnabled ~= nil then
+				walkSpeedEnabled = (s.walkSpeedEnabled == true)
+				updateWalkSpeedVisuals()
 			end
 			if s.walkSpeedValue ~= nil and tonumber(s.walkSpeedValue) then
 				walkSpeedValue = tonumber(s.walkSpeedValue)
