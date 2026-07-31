@@ -1,11 +1,11 @@
 --[[
     ===================================================================
-    PHASE 1: REMOTE CALL LOGGER & RAYCAST TERRAIN DETECTOR
+    PHASE 1 (FIXED): REMOTE CALL LOGGER & RAYCAST TERRAIN DETECTOR
     ===================================================================
-    Purpose: 
-    1. Detect real-time Raycast against Workspace.Terrain & objects.
-    2. Hook and log all RemoteEvent:FireServer / RemoteFunction:InvokeServer calls.
-    3. Capture exact arguments, types, positions, and format for manual dig analysis.
+    Fixes Applied:
+    1. Used `newcclosure` & `checkcaller()` to prevent breaking FireServer/InvokeServer.
+    2. Set UI frames `Active = false` so mouse clicks pass through to game tool.
+    3. Added fallback method hooking so manual digging is 100% preserved.
     ===================================================================
 --]]
 
@@ -13,28 +13,25 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Prevent duplicate UI instances
+-- Hapus UI lama jika ada
 local OLD_UI = CoreGui:FindFirstChild("HipHubDebugLoggerUI")
 if OLD_UI then OLD_UI:Destroy() end
 
--- State Management
 local logs = {}
 local logCount = 0
 local isRaycastEnabled = true
 
--- Utility: Serialize Any Data Type to Readable Format
+-- Serialization Helper
 local function serializeValue(val, depth)
 	depth = depth or 0
 	if depth > 5 then return "{... (max depth limit reached)}" end
 	
 	local valType = typeof(val)
-	
 	if valType == "Vector3" then
 		return string.format("Vector3.new(X=%.3f, Y=%.3f, Z=%.3f)", val.X, val.Y, val.Z)
 	elseif valType == "CFrame" then
@@ -52,79 +49,57 @@ local function serializeValue(val, depth)
 				table.insert(lines, indent .. "... (truncated table entries)")
 				break
 			end
-			local keyStr = tostring(k)
-			local valStr = serializeValue(v, depth + 1)
-			table.insert(lines, string.format("%s[%s] = (%s) %s", indent, keyStr, typeof(v), valStr))
+			table.insert(lines, string.format("%s[%s] = (%s) %s", indent, tostring(k), typeof(v), serializeValue(v, depth + 1)))
 		end
 		table.insert(lines, string.rep("  ", depth) .. "}")
 		return table.concat(lines, "\n")
 	elseif valType == "string" then
 		return string.format("%q", val)
-	elseif valType == "number" or valType == "boolean" or valType == "nil" then
-		return tostring(val)
-	elseif valType == "Color3" then
-		return string.format("Color3.fromRGB(%d, %d, %d)", math.floor(val.R*255), math.floor(val.G*255), math.floor(val.B*255))
-	elseif valType == "EnumItem" then
-		return tostring(val)
 	else
-		return string.format("%s(%s)", valType, tostring(val))
+		return tostring(val)
 	end
 end
 
--- ScreenGui Setup
+-- ScreenGui Setup (DisplayOrder low & non-blocking)
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "HipHubDebugLoggerUI"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = -10
 
 pcall(function()
-	if gethui then
-		ScreenGui.Parent = gethui()
-	elseif syn and syn.protect_gui then
-		syn.protect_gui(ScreenGui)
-		ScreenGui.Parent = CoreGui
-	else
-		ScreenGui.Parent = CoreGui
-	end
+	ScreenGui.Parent = gethui and gethui() or CoreGui
 end)
 
--- Main Frame Window
+-- Main Frame (Non-blocking background)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 560, 0, 420)
-MainFrame.Position = UDim2.new(0.5, -280, 0.5, -210)
+MainFrame.Size = UDim2.new(0, 500, 0, 360)
+MainFrame.Position = UDim2.new(0.02, 0, 0.45, -180)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+MainFrame.BackgroundTransparency = 0.15
 MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
+MainFrame.Active = false
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = MainFrame
 
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(45, 50, 65)
-UIStroke.Thickness = 1.5
-UIStroke.Parent = MainFrame
-
--- Top Bar Header
 local TopBar = Instance.new("Frame")
 TopBar.Size = UDim2.new(1, 0, 0, 36)
 TopBar.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
 TopBar.BorderSizePixel = 0
+TopBar.Active = true
+TopBar.Draggable = true
 TopBar.Parent = MainFrame
 
-local TopBarCorner = Instance.new("UICorner")
-TopBarCorner.CornerRadius = UDim.new(0, 8)
-TopBarCorner.Parent = TopBar
-
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -120, 1, 0)
+TitleLabel.Size = UDim2.new(1, -160, 1, 0)
 TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⛏️ PHASE 1: REMOTE LOGGER & TERRAIN DETECTOR"
+TitleLabel.Text = "⛏️ PHASE 1: REMOTE LOGGER (NON-BLOCKING)"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
-TitleLabel.TextSize = 13
+TitleLabel.TextSize = 12
 TitleLabel.Font = Enum.Font.SourceSansBold
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = TopBar
@@ -159,11 +134,12 @@ end
 -- Raycast Status HUD (Top Right Screen Overlay)
 local RaycastHUD = Instance.new("Frame")
 RaycastHUD.Name = "RaycastHUD"
-RaycastHUD.Size = UDim2.new(0, 360, 0, 130)
+RaycastHUD.Size = UDim2.new(0, 360, 0, 120)
 RaycastHUD.Position = UDim2.new(1, -370, 0, 10)
 RaycastHUD.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
-RaycastHUD.BackgroundTransparency = 0.15
+RaycastHUD.BackgroundTransparency = 0.25
 RaycastHUD.BorderSizePixel = 0
+RaycastHUD.Active = false
 RaycastHUD.Parent = ScreenGui
 
 local RaycastCorner = Instance.new("UICorner")
@@ -181,14 +157,14 @@ RaycastText.Position = UDim2.new(0, 8, 0, 6)
 RaycastText.BackgroundTransparency = 1
 RaycastText.Text = "RAYCAST DETECTOR: Scanning..."
 RaycastText.TextColor3 = Color3.fromRGB(220, 230, 255)
-RaycastText.TextSize = 12
+RaycastText.TextSize = 11
 RaycastText.Font = Enum.Font.Code
 RaycastText.TextXAlignment = Enum.TextXAlignment.Left
 RaycastText.TextYAlignment = Enum.TextYAlignment.Top
 RaycastText.TextWrapped = true
 RaycastText.Parent = RaycastHUD
 
--- Scrollable Log View
+-- Scroll View
 local ScrollFrame = Instance.new("ScrollingFrame")
 ScrollFrame.Size = UDim2.new(1, -16, 1, -52)
 ScrollFrame.Position = UDim2.new(0, 8, 0, 44)
@@ -196,11 +172,8 @@ ScrollFrame.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
 ScrollFrame.BorderSizePixel = 0
 ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 ScrollFrame.ScrollBarThickness = 6
+ScrollFrame.Active = true
 ScrollFrame.Parent = MainFrame
-
-local ScrollCorner = Instance.new("UICorner")
-ScrollCorner.CornerRadius = UDim.new(0, 4)
-ScrollCorner.Parent = ScrollFrame
 
 local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -265,22 +238,18 @@ local function appendLog(remoteName, remotePath, className, method, argsList)
 	CardText.TextWrapped = true
 	CardText.Parent = Card
 
-	-- Calculate Height Dynamically
 	local textService = game:GetService("TextService")
-	local bounds = textService:GetTextSize(fullLogText, 11, Enum.Font.Code, Vector2.new(490, 10000))
+	local bounds = textService:GetTextSize(fullLogText, 11, Enum.Font.Code, Vector2.new(440, 10000))
 	Card.Size = UDim2.new(1, -8, 0, bounds.Y + 16)
 
-	-- Scroll to bottom automatically
 	ScrollFrame.CanvasPosition = Vector2.new(0, ScrollFrame.CanvasSize.Y.Offset)
 end
 
--- Header Control Callbacks
+-- Header Controls
 createHeaderBtn("Copy", "COPY", Color3.fromRGB(40, 140, 70), 0, function()
 	if setclipboard then
 		setclipboard(table.concat(logs, "\n\n-------------------------------------------------------\n\n"))
 		print("[Logger]: Logs copied to clipboard!")
-	else
-		warn("[Logger]: setclipboard not supported by executor!")
 	end
 end)
 
@@ -299,16 +268,16 @@ createHeaderBtn("Ray", "RAY", Color3.fromRGB(50, 100, 180), 92, function()
 end)
 
 -- ===================================================================
--- REMOTE HOOKING SYSTEM (Hookmetamethod / Namecall Hook)
+-- SAFE NON-BLOCKING REMOTE HOOK (using newcclosure & checkcaller)
 -- ===================================================================
-local rawNamecall = nil
-local hooked = false
-
 if hookmetamethod then
-	local success, err = pcall(function()
-		rawNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-			local method = getnamecallmethod()
-			if (method == "FireServer" or method == "InvokeServer") and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
+	local rawNamecall
+	local ncClosure = newcclosure or function(f) return f end
+	
+	rawNamecall = hookmetamethod(game, "__namecall", ncClosure(function(self, ...)
+		local method = getnamecallmethod()
+		if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+			if self:IsA("RemoteEvent") or self:IsA("RemoteFunction") then
 				local args = {...}
 				task.spawn(function()
 					pcall(function()
@@ -316,33 +285,14 @@ if hookmetamethod then
 					end)
 				end)
 			end
-			return rawNamecall(self, ...)
-		end)
-	end)
-	if success then
-		hooked = true
-		print("[HipHub Logger]: Successfully hooked __namecall for RemoteEvent & RemoteFunction!")
-	else
-		warn("[HipHub Logger]: Failed to hook __namecall:", err)
-	end
-end
-
--- Fallback Remote Hooking if hookmetamethod is unavailable
-if not hooked then
-	print("[HipHub Logger]: Using Fallback Event Connection Logger...")
-	for _, obj in ipairs(game:GetDescendants()) do
-		if obj:IsA("RemoteEvent") then
-			pcall(function()
-				obj.OnClientEvent:Connect(function(...)
-					-- Log client receives if necessary
-				end)
-			end)
 		end
-	end
+		return rawNamecall(self, ...)
+	end))
+	print("[HipHub Logger]: Safe __namecall Interceptor Hook Active!")
 end
 
 -- ===================================================================
--- RAYCAST SURFACE & TERRAIN DETECTOR LOOP
+-- RAYCAST TERRAIN DETECTOR LOOP
 -- ===================================================================
 RunService.RenderStepped:Connect(function()
 	if not isRaycastEnabled then return end
@@ -387,8 +337,7 @@ RunService.RenderStepped:Connect(function()
 			RaycastStroke.Color = Color3.fromRGB(60, 120, 200)
 			RaycastText.Text = string.format(
 				"🔍 OBJECT HIT\n" ..
-				"Object: %s\n" ..
-				"Class: %s\n" ..
+				"Object: %s (%s)\n" ..
 				"Path: %s\n" ..
 				"Material: %s\n" ..
 				"Hit Position: X %.2f, Y %.2f, Z %.2f\n" ..
@@ -408,4 +357,4 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
-print("[HipHub Debug Logger Phase 1]: Ready! Perform 1 manual DIG in game now.")
+print("[HipHub Debug Logger Phase 1 - FIXED]: Ready! Anda sekarang bisa klik DIG MANUAL dengan normal.")

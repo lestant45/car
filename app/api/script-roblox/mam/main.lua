@@ -2559,6 +2559,13 @@ local success, err = pcall(function()
 			-- Dropdown Row 3: Select Material for Digging
 			local materialOptions = {
 				"All",
+				"Slate",
+				"Ground",
+				"Rock",
+				"Sand",
+				"Grass",
+				"Mud",
+				"Dirt",
 				"Asphalt",
 				"Brick",
 				"Cobblestone",
@@ -2566,9 +2573,7 @@ local success, err = pcall(function()
 				"Ice",
 				"LeafyGrass",
 				"Pavement",
-				"Salt",
-				"Mud",
-				"Dirt"
+				"Salt"
 			}
 
 			local matDropCard, matDropBtn, matDropLabel, matMenuFrame, matSearch, matScroll = refs.createGlassDropdown(
@@ -2690,11 +2695,51 @@ local success, err = pcall(function()
 				local moveSpeed = 8 -- Custom move speed = 8 studs/sec
 				updateDigBoxVisuals()
 
-				-- Helper to find diggable material block strictly INSIDE the square box, prioritized by HIGHEST Y position and OUTERMOST perimeter first
-				local function findDigMaterialPartInSquare(pos, targetMatFilter)
+				-- Helper to find diggable Terrain surface or material block strictly INSIDE the square box
+				local function findDigTargetInSquare(pos, targetMatFilter)
 					local candidates = {}
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
+					-- 1. Scan Workspace.Terrain using Raycasts across square grid matrix
+					local step = math.max(4, math.floor(rangeStuds / 10))
+					local rayParams = RaycastParams.new()
+					rayParams.FilterType = Enum.RaycastFilterType.Exclude
+					local filterList = {}
+					if char then table.insert(filterList, char) end
+					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+					if boxPart then table.insert(filterList, boxPart) end
+					rayParams.FilterDescendantsInstances = filterList
+					rayParams.IgnoreWater = true
+
+					for offsetZ = -rangeStuds, rangeStuds, step do
+						for offsetX = -rangeStuds, rangeStuds, step do
+							local rayOrigin = Vector3.new(centerDigPos.X + offsetX, 300, centerDigPos.Z + offsetZ)
+							local rayDirection = Vector3.new(0, -350, 0)
+							local rayResult = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+
+							if rayResult and (rayResult.Instance == workspace.Terrain or rayResult.Instance:IsA("Terrain")) then
+								local hitPos = rayResult.Position
+								local hitMatName = string.lower(tostring(rayResult.Material.Name))
+
+								if hitPos.Y >= 10 then
+									local isMatch = false
+									if not filterLower then
+										isMatch = true
+									else
+										if string.find(hitMatName, filterLower, 1, true) then
+											isMatch = true
+										end
+									end
+
+									if isMatch then
+										table.insert(candidates, { Position = hitPos, Instance = rayResult.Instance })
+									end
+								end
+							end
+						end
+					end
+
+					-- 2. Scan folders for any dig BaseParts
 					local folders = {
 						workspace:FindFirstChild("RealisticMaterials"),
 						workspace:FindFirstChild("Materials"),
@@ -2711,7 +2756,6 @@ local success, err = pcall(function()
 						if folder then
 							for _, obj in ipairs(folder:GetDescendants()) do
 								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
-									-- Strict Square Check: abs(X - center.X) <= R and abs(Z - center.Z) <= R
 									local dx = math.abs(obj.Position.X - centerDigPos.X)
 									local dz = math.abs(obj.Position.Z - centerDigPos.Z)
 
@@ -2748,7 +2792,7 @@ local success, err = pcall(function()
 										end
 
 										if isMatch then
-											table.insert(candidates, obj)
+											table.insert(candidates, { Position = obj.Position, Instance = obj })
 										end
 									end
 								end
@@ -2756,22 +2800,21 @@ local success, err = pcall(function()
 						end
 					end
 
+					-- 3. Sort candidates: Highest Y position -> Outermost perimeter -> Closest distance
 					if #candidates > 0 then
 						table.sort(candidates, function(a, b)
-							-- Primary sort: Highest Y position first!
-							if math.abs(a.Position.Y - b.Position.Y) > 1.5 then
-								return a.Position.Y > b.Position.Y
+							local posA, posB = a.Position, b.Position
+							if math.abs(posA.Y - posB.Y) > 1.5 then
+								return posA.Y > posB.Y
 							end
-							-- Secondary sort: Outermost perimeter of the square first!
-							local distA = math.max(math.abs(a.Position.X - centerDigPos.X), math.abs(a.Position.Z - centerDigPos.Z))
-							local distB = math.max(math.abs(b.Position.X - centerDigPos.X), math.abs(b.Position.Z - centerDigPos.Z))
+							local distA = math.max(math.abs(posA.X - centerDigPos.X), math.abs(posA.Z - centerDigPos.Z))
+							local distB = math.max(math.abs(posB.X - centerDigPos.X), math.abs(posB.Z - centerDigPos.Z))
 							if math.abs(distA - distB) > 0.5 then
 								return distA > distB
 							end
-							-- Tertiary sort: Closest to character
-							return (a.Position - pos).Magnitude < (b.Position - pos).Magnitude
+							return (posA - pos).Magnitude < (posB - pos).Magnitude
 						end)
-						return candidates[1]
+						return candidates[1].Position
 					end
 
 					return nil
@@ -2792,13 +2835,10 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Search for highest matching material block inside square area
-				local matObj = findDigMaterialPartInSquare(hrp.Position, selectedDigMaterial)
-				local actualDigPos = nil
+				-- Search for highest & outermost Terrain / Material target inside square area
+				local targetDigPos = findDigTargetInSquare(hrp.Position, selectedDigMaterial)
 
-				if matObj and matObj.Parent then
-					actualDigPos = matObj.Position
-				else
+				if not targetDigPos then
 					-- Systematically sweep square grid of points centered at centerDigPos from highest Y down
 					local gridPoints = {}
 					local step = math.max(6, math.floor(rangeStuds / 8))
@@ -2810,19 +2850,19 @@ local success, err = pcall(function()
 
 					if #gridPoints > 0 then
 						if squareStepIndex > #gridPoints then squareStepIndex = 1 end
-						actualDigPos = gridPoints[squareStepIndex]
+						targetDigPos = gridPoints[squareStepIndex]
 						squareStepIndex = squareStepIndex + 1
 					else
-						actualDigPos = centerDigPos
+						targetDigPos = centerDigPos
 					end
 				end
 
-				if actualDigPos.Y < 10 then
-					actualDigPos = Vector3.new(actualDigPos.X, 10, actualDigPos.Z)
+				if targetDigPos.Y < 10 then
+					targetDigPos = Vector3.new(targetDigPos.X, 10, targetDigPos.Z)
 				end
 
 				-- Hover character safely right on/near target position (+0.5 studs so server accepts dig distance)
-				local targetHover = Vector3.new(actualDigPos.X, math.max(actualDigPos.Y + 0.5, 10), actualDigPos.Z)
+				local targetHover = Vector3.new(targetDigPos.X, math.max(targetDigPos.Y + 0.5, 10), targetDigPos.Z)
 				local flyHold = hrp:FindFirstChild("HipHubFarmFly")
 				if not flyHold then
 					flyHold = Instance.new("BodyVelocity")
@@ -2863,12 +2903,12 @@ local success, err = pcall(function()
 					end
 				end)
 
-				-- Fire Dig remote
+				-- Fire Dig remote to ReplicatedStorage.Remotes.DigRequest with Terrain Vector3 Target
 				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 				local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
 				if digRem then
 					pcall(function()
-						digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", actualDigPos)
+						digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", targetDigPos)
 					end)
 				end
 			end
