@@ -854,38 +854,34 @@ local success, err = pcall(function()
 			local function triggerSellAllRemotes()
 				pcall(function()
 					local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-					local isAllRar = autoSellRarityFilters["All"] == true or next(autoSellRarityFilters) == nil
-					local isAllSz = autoSellSizeFilters["All"] == true or next(autoSellSizeFilters) == nil
+					if rems then
+						local goHomeRem = rems:FindFirstChild("GoHome")
+						if goHomeRem then pcall(function() goHomeRem:FireServer("sell") end) end
+						local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell")
+						if sellRem then pcall(function() sellRem:FireServer("all") end) end
+					end
 
-					if isAllRar and isAllSz then
-						if rems then
-							local goHomeRem = rems:FindFirstChild("GoHome")
-							if goHomeRem then goHomeRem:FireServer("sell") end
-							local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell")
-							if sellRem then sellRem:FireServer("all") end
-						end
-					else
-						local sellTools = {}
-						local function scanCont(cont)
-							if not cont then return end
-							for _, child in ipairs(cont:GetChildren()) do
-								if child:IsA("Tool") and matchesSellFilter(child) then
-									table.insert(sellTools, child)
-								end
+					-- Also scan and fire sell for each individual tool as backup
+					local sellTools = {}
+					local function scanCont(cont)
+						if not cont then return end
+						for _, child in ipairs(cont:GetChildren()) do
+							if child:IsA("Tool") then
+								table.insert(sellTools, child)
 							end
 						end
-						local p = player or game:GetService("Players").LocalPlayer
-						if p then
-							scanCont(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
-							scanCont(p.Character)
-						end
+					end
+					local p = player or game:GetService("Players").LocalPlayer
+					if p then
+						scanCont(p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+						scanCont(p.Character)
+					end
 
-						if rems then
-							local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellItem") or rems:FindFirstChild("Sell")
-							for _, tool in ipairs(sellTools) do
-								if sellRem then
-									pcall(function() sellRem:FireServer(tool) end)
-								end
+					if rems then
+						local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellItem") or rems:FindFirstChild("Sell")
+						for _, tool in ipairs(sellTools) do
+							if sellRem then
+								pcall(function() sellRem:FireServer(tool) end)
 							end
 						end
 					end
@@ -2344,8 +2340,8 @@ local success, err = pcall(function()
 			while true do
 				task.wait(0.1)
 				if autoFarmCrystalsEnabled then
-					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return, and immediately resume mining)
-					if autoSellOnFullEnabled and isBackpackFull and isBackpackFull() then
+					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return, and resume mining)
+					if isBackpackFull and isBackpackFull() then
 						local myChar = player and player.Character
 						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
 						if myHrp then
@@ -2354,8 +2350,25 @@ local success, err = pcall(function()
 						end
 
 						pcall(executeSellAllTeleport)
-						task.wait(0.2)
-					end
+						task.wait(0.3)
+
+						-- Backup: Force fire direct sell remotes if still full
+						if isBackpackFull() then
+							pcall(function()
+								local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+								local sellRem = rems and (rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell"))
+								if sellRem then pcall(function() sellRem:FireServer("all") end) end
+								local goHomeRem = rems and rems:FindFirstChild("GoHome")
+								if goHomeRem then pcall(function() goHomeRem:FireServer("sell") end) end
+							end)
+							task.wait(0.3)
+						end
+
+						-- If backpack is still full, pause mining completely until inventory opens up
+						if isBackpackFull() then
+							task.wait(0.5)
+						end
+					else
 
 					local target = getClosestFilteredCrystal()
 					if target and target.obj and target.obj.Parent and target.part and target.part.Parent then
@@ -2404,7 +2417,7 @@ local success, err = pcall(function()
 								end
 
 								-- Check if backpack becomes full mid-mining to auto-sell immediately
-								if autoSellOnFullEnabled and isBackpackFull and isBackpackFull() then
+								if isBackpackFull and isBackpackFull() then
 									break
 								end
 
@@ -2426,6 +2439,7 @@ local success, err = pcall(function()
 							if flyHold then flyHold:Destroy() end
 						end
 						task.wait(0.4)
+					end
 					end
 				else
 					-- Clean up flying hover when auto farm is turned OFF
