@@ -2653,9 +2653,9 @@ local success, err = pcall(function()
 					currentDigPos = currentDigPos + Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 2: Then advance Z position by 7 (forward) and dig twice
+				-- Phase 2: Then decrement Z position by 7 (forward into mountain) and dig twice
 				if not getIsActiveFunc() then return end
-				currentDigPos = currentDigPos + Vector3.new(0, 0, 7)
+				currentDigPos = currentDigPos - Vector3.new(0, 0, 7)
 				performDigAtPos(currentDigPos, 2)
 
 				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
@@ -2665,9 +2665,9 @@ local success, err = pcall(function()
 					currentDigPos = currentDigPos - Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 4: Then, advance Z position by 7 (forward) and dig twice
+				-- Phase 4: Then, decrement Z position by 7 (forward into mountain) and dig twice
 				if not getIsActiveFunc() then return end
-				currentDigPos = currentDigPos + Vector3.new(0, 0, 7)
+				currentDigPos = currentDigPos - Vector3.new(0, 0, 7)
 				performDigAtPos(currentDigPos, 2)
 			end
 
