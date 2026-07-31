@@ -2508,7 +2508,7 @@ local success, err = pcall(function()
 			refs.registerDropdownMenu(pickDropBtn, pickMenuFrame)
 			local pickBinder = refs.bindDropdown(
 				pickDropBtn, pickMenuFrame, pickSearch, pickScroll, pickaxeOptions,
-				function() return selectedDigPickaxe end,
+				function(opt) return selectedDigPickaxe == opt end,
 				function(val)
 					selectedDigPickaxe = val
 					pickDropLabel.Text = val
