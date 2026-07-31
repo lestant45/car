@@ -2485,7 +2485,7 @@ local success, err = pcall(function()
 			local selectedDigTweenSpeedText = "350 (Fast)"
 
 			-- Preference UI Collapsible Section
-			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 3.5)
+			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 4.8)
 			local autoDigContainer = autoDigSection.Content
 
 			-- Toggle Row 1: Enable Auto Digging

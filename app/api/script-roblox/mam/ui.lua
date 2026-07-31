@@ -1175,6 +1175,47 @@ local success, err = pcall(function()
 		return card, button, label, menu, search, scroll
 	end
 
+	local function createGlassButton(parent, labelText, layoutOrder)
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, 0, 0, 32)
+		card.BackgroundColor3 = COLORS.glassCard
+		card.BackgroundTransparency = TRANSPARENCY.glassCard
+		card.BorderSizePixel = 0
+		card.LayoutOrder = layoutOrder or 0
+		card.ZIndex = 2
+		card.Parent = parent
+
+		applyGlass(card,
+			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.75 })
+
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(1, -16, 0, 24)
+		button.Position = UDim2.new(0, 8, 0.5, -12)
+		button.BackgroundColor3 = COLORS.glassPrimary
+		button.BackgroundTransparency = 0.2
+		button.BorderSizePixel = 0
+		button.Text = labelText or "Button"
+		button.TextColor3 = COLORS.accentCyan
+		button.Font = Enum.Font.GothamBold
+		button.TextSize = 11
+		button.ZIndex = 3
+		button.Parent = card
+
+		applyGlass(button,
+			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.accentCyan, strokeThickness = 1, strokeTransparency = 0.55 })
+
+		pcall(function()
+			button.MouseEnter:Connect(function()
+				TweenService:Create(button, TweenInfo.new(0.15), { BackgroundTransparency = 0.05, TextColor3 = COLORS.textWhite }):Play()
+			end)
+			button.MouseLeave:Connect(function()
+				TweenService:Create(button, TweenInfo.new(0.15), { BackgroundTransparency = 0.2, TextColor3 = COLORS.accentCyan }):Play()
+			end)
+		end)
+
+		return card, button
+	end
+
 	-- Connect click outside to close dropdowns
 	UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1488,6 +1529,7 @@ local success, err = pcall(function()
 		applyPadding = applyPadding,
 		applyListLayout = applyListLayout,
 		createGlassToggle = createGlassToggle,
+		createGlassButton = createGlassButton,
 		createCollapsibleSection = createCollapsibleSection,
 		createGlassDropdown = createGlassDropdown,
 		registerDropdownMenu = registerDropdownMenu,
