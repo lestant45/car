@@ -2851,26 +2851,27 @@ local success, err = pcall(function()
 					targetDigPos = Vector3.new(targetDigPos.X, 5, targetDigPos.Z)
 				end
 
-				-- Position character 1.2 studs DIRECTLY ABOVE target mountain block & orient facing STRAIGHT DOWNWARDS
+				-- Position character 1.2 studs DIRECTLY ABOVE target mountain block
 				local targetHover = Vector3.new(targetDigPos.X, targetDigPos.Y + 1.2, targetDigPos.Z)
-				local downCFrame = CFrame.lookAt(targetHover, Vector3.new(targetHover.X, targetHover.Y - 10, targetHover.Z))
 
 				local dist = (hrp.Position - targetHover).Magnitude
 				if dist > 1.0 then
 					local timeToMove = math.clamp(dist / moveSpeed, 0.05, 3.0)
 					local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
-						CFrame = downCFrame
+						CFrame = CFrame.new(targetHover)
 					})
 					tw:Play()
 					tw.Completed:Wait()
 				else
-					hrp.CFrame = downCFrame
+					hrp.CFrame = CFrame.new(targetHover)
 				end
 
-				-- Brief wait to ensure player position and downward orientation replicate to server
+				-- Brief wait to ensure player position replicates to server
 				task.wait(0.05)
 
-				-- Calculate exact position directly below character's current position
+				-- Derive target dig position DIRECTLY BELOW character's current position (modify Y coordinate)
+				local posUnderFeet = Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 1.5, 5), hrp.Position.Z)
+
 				local downRayParams = RaycastParams.new()
 				downRayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local excList = {}
@@ -2880,40 +2881,32 @@ local success, err = pcall(function()
 				downRayParams.FilterDescendantsInstances = excList
 				downRayParams.IgnoreWater = true
 
-				local downRayHit = workspace:Raycast(hrp.Position, Vector3.new(0, -15, 0), downRayParams)
-				local digPosUnderFeet = downRayHit and downRayHit.Position or targetDigPos
+				local downRayHit = workspace:Raycast(hrp.Position, Vector3.new(0, -6, 0), downRayParams)
+				if downRayHit then
+					posUnderFeet = downRayHit.Position
+				end
 
-				-- Activate tool swing & fire Dig remote to ReplicatedStorage.Remotes.DigRequest
-				pcall(function()
-					local equippedTool = char:FindFirstChildWhichIsA("Tool")
-					if equippedTool then
-						equippedTool:Activate()
-					end
-				end)
-
+				-- Fire Remote DigRequest directly without calling tool:Activate() or relying on camera
 				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 				local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
 				if digRem then
 					pcall(function()
-						digRem:FireServer(selectedDigPickaxe or "VolcanoBasalt", digPosUnderFeet)
+						digRem:FireServer(selectedDigPickaxe or "VolcanoBasalt", posUnderFeet)
 					end)
 				end
 			end
 
-			-- Paced Remote Digging loop (0.20s interval)
+			-- Paced Pure Remote Digging loop (0.15s interval)
 			task.spawn(function()
 				while true do
-					task.wait(0.20)
+					task.wait(0.15)
 					if autoDigEnabled then
 						pcall(function()
 							local char = player and player.Character
 							local hrp = char and char:FindFirstChild("HumanoidRootPart")
-							local tool = char and char:FindFirstChildWhichIsA("Tool")
-							if tool then
-								tool:Activate()
-							end
-
 							if hrp then
+								local posUnderFeet = Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 1.5, 5), hrp.Position.Z)
+
 								local downRayParams = RaycastParams.new()
 								downRayParams.FilterType = Enum.RaycastFilterType.Exclude
 								local excList = {}
@@ -2923,8 +2916,10 @@ local success, err = pcall(function()
 								downRayParams.FilterDescendantsInstances = excList
 								downRayParams.IgnoreWater = true
 
-								local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -15, 0), downRayParams)
-								local posUnderFeet = hit and hit.Position or Vector3.new(hrp.Position.X, hrp.Position.Y - 1.2, hrp.Position.Z)
+								local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -6, 0), downRayParams)
+								if hit then
+									posUnderFeet = hit.Position
+								end
 
 								local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 								local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
