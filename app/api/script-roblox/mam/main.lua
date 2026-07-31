@@ -2453,64 +2453,12 @@ local success, err = pcall(function()
 			local autoDigEnabled = false
 			local selectedDigPickaxe = "VolcanoBasalt"
 
-			local isAutoDigCategoryExpanded = false
-			local autoDigCategoryCard = Instance.new("Frame")
-			autoDigCategoryCard.Size = UDim2.new(1, 0, 0, 36)
-			autoDigCategoryCard.BackgroundColor3 = COLORS.glassCard
-			autoDigCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
-			autoDigCategoryCard.BorderSizePixel = 0
-			autoDigCategoryCard.ClipsDescendants = true
-			autoDigCategoryCard.LayoutOrder = 3.5
-			autoDigCategoryCard.Parent = mainFrameContent
-
-			refs.applyGlass(autoDigCategoryCard, {
-				corner = refs.CORNER.medium,
-				stroke = true,
-				strokeColor = COLORS.borderGlass,
-				strokeThickness = 1,
-				strokeTransparency = 0.7
-			})
-
-			-- Header Button
-			local adHeaderBtn = Instance.new("TextButton")
-			adHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
-			adHeaderBtn.BackgroundTransparency = 1
-			adHeaderBtn.Text = ""
-			adHeaderBtn.Parent = autoDigCategoryCard
-
-			local adCategoryTitle = Instance.new("TextLabel")
-			adCategoryTitle.Size = UDim2.new(1, -50, 0, 36)
-			adCategoryTitle.Position = UDim2.new(0, 12, 0, 0)
-			adCategoryTitle.BackgroundTransparency = 1
-			adCategoryTitle.Text = "Automation Digging"
-			adCategoryTitle.TextColor3 = COLORS.textPrimary or Color3.fromRGB(225, 235, 255)
-			adCategoryTitle.Font = Enum.Font.GothamBold
-			adCategoryTitle.TextSize = 14
-			adCategoryTitle.TextXAlignment = Enum.TextXAlignment.Left
-			adCategoryTitle.Parent = adHeaderBtn
-
-			local adCategoryIcon = Instance.new("TextLabel")
-			adCategoryIcon.Size = UDim2.new(0, 24, 0, 36)
-			adCategoryIcon.Position = UDim2.new(1, -32, 0, 0)
-			adCategoryIcon.BackgroundTransparency = 1
-			adCategoryIcon.Text = "▼"
-			adCategoryIcon.TextColor3 = COLORS.textSecondary or Color3.fromRGB(150, 165, 195)
-			adCategoryIcon.Font = Enum.Font.GothamBold
-			adCategoryIcon.TextSize = 11
-			adCategoryIcon.Parent = adHeaderBtn
-
-			-- Content Container
-			local adContentFrame = Instance.new("Frame")
-			adContentFrame.Size = UDim2.new(1, 0, 0, 0)
-			adContentFrame.Position = UDim2.new(0, 0, 0, 36)
-			adContentFrame.BackgroundTransparency = 1
-			adContentFrame.Parent = autoDigCategoryCard
-
-			refs.applyListLayout(adContentFrame, 8)
-			refs.applyPadding(adContentFrame, 8, 10, 10, 10)
+			-- Preference UI Collapsible Section
+			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 3.5)
+			local autoDigContainer = autoDigSection.Content
 
 			-- Toggle Row 1: Enable Auto Digging
-			local adToggleRow, adToggleTrack, adToggleThumb = refs.createGlassToggle(adContentFrame, "Auto Digging", 1)
+			local adToggleRow, adToggleTrack, adToggleThumb = refs.createGlassToggle(autoDigContainer, "Auto Digging", 1)
 
 			local updateAutoDigVisuals = function()
 				if autoDigEnabled then
@@ -2554,7 +2502,7 @@ local success, err = pcall(function()
 			}
 
 			local pickDropCard, pickDropBtn, pickDropLabel, pickMenuFrame, pickSearch, pickScroll = refs.createGlassDropdown(
-				adContentFrame, "Select Pickaxe for Digging", selectedDigPickaxe, 2
+				autoDigContainer, "Select Pickaxe for Digging", selectedDigPickaxe, 2
 			)
 
 			refs.registerDropdownMenu(pickDropBtn, pickMenuFrame)
@@ -2575,27 +2523,6 @@ local success, err = pcall(function()
 				pickDropLabel.Text = selectedDigPickaxe
 				pickBinder.updateOptionVisuals()
 			end
-
-			-- Toggle Expand / Collapse Card Height
-			local function updateAutoDigCardSize()
-				local targetHeight = isAutoDigCategoryExpanded and 150 or 36
-				local targetRotation = isAutoDigCategoryExpanded and 180 or 0
-
-				TweenService:Create(autoDigCategoryCard, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Size = UDim2.new(1, 0, 0, targetHeight)
-				}):Play()
-
-				TweenService:Create(adCategoryIcon, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Rotation = targetRotation
-				}):Play()
-
-				task.delay(0.26, updateMainCanvas)
-			end
-
-			adHeaderBtn.MouseButton1Click:Connect(function()
-				isAutoDigCategoryExpanded = not isAutoDigCategoryExpanded
-				updateAutoDigCardSize()
-			end)
 
 			-- Auto-Digging Loop Engine
 			task.spawn(function()
