@@ -2533,9 +2533,11 @@ local success, err = pcall(function()
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				-- Helper to attach/maintain hover flight at target position
+				-- Helper to attach/maintain hover flight and move smoothly to target position
 				local function moveToPositionAndHover(targetPos)
 					if not hrp or not hrp.Parent then return end
+
+					-- Ensure BodyVelocity hover is attached
 					local flyHold = hrp:FindFirstChild("HipHubFarmFly")
 					if not flyHold then
 						flyHold = Instance.new("BodyVelocity")
@@ -2544,17 +2546,34 @@ local success, err = pcall(function()
 						flyHold.Velocity = Vector3.zero
 						flyHold.Parent = hrp
 					end
-					tweenToTargetCFrame(hrp, CFrame.new(targetPos), 350)
+
+					-- Move character to target position smoothly
+					local dist = (hrp.Position - targetPos).Magnitude
+					if dist > 1.5 then
+						local timeToMove = math.clamp(dist / 120, 0.05, 1.5)
+						local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
+							CFrame = CFrame.new(targetPos)
+						})
+						tw:Play()
+						tw.Completed:Wait()
+					else
+						hrp.CFrame = CFrame.new(targetPos)
+					end
 				end
 
 				-- Helper to ensure pickaxe is equipped
 				local function ensurePickaxeEquipped()
+					if not char or not char.Parent then return end
 					local heldTool = char:FindFirstChildWhichIsA("Tool")
-					if not heldTool and player:FindFirstChild("Backpack") then
-						for _, tool in ipairs(player.Backpack:GetChildren()) do
-							if tool:IsA("Tool") then
-								hum:EquipTool(tool)
-								break
+					if not heldTool then
+						local backpack = player and player:FindFirstChild("Backpack")
+						if backpack then
+							for _, tool in ipairs(backpack:GetChildren()) do
+								if tool:IsA("Tool") then
+									hum:EquipTool(tool)
+									task.wait(0.1)
+									break
+								end
 							end
 						end
 					end
@@ -2567,7 +2586,7 @@ local success, err = pcall(function()
 					ensurePickaxeEquipped()
 
 					local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-					local digRem = remotes and remotes:FindFirstChild("DigRequest")
+					local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
 
 					for i = 1, (digTimes or 2) do
 						if not getIsActiveFunc() then break end
@@ -2576,7 +2595,7 @@ local success, err = pcall(function()
 								digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", targetPos)
 							end)
 						end
-						task.wait(0.12)
+						task.wait(0.15)
 					end
 				end
 
@@ -2614,9 +2633,12 @@ local success, err = pcall(function()
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
-							pcall(function()
+							local ok, err = pcall(function()
 								executeGridDiggingPattern(function() return autoDigEnabled end, selectedDigPickaxe)
 							end)
+							if not ok and err then
+								warn("[HipHub AutoDig Error]:", err)
+							end
 						end
 					else
 						-- Clean up flying hover when disabled
