@@ -2479,6 +2479,8 @@ local success, err = pcall(function()
 			local autoDigEnabled = false
 			local selectedDigPickaxe = "VolcanoBasalt"
 			local selectedDigMaterial = "All"
+			local selectedDigRange = 50
+			local selectedDigRangeText = "50 Studs"
 
 			-- Preference UI Collapsible Section
 			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 3.5)
@@ -2590,23 +2592,64 @@ local success, err = pcall(function()
 				matBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine with Material Detection & Stationary Hover
+			-- Dropdown Row 4: Select Dig Range (Studs)
+			local rangeOptions = {
+				"25 Studs",
+				"50 Studs",
+				"75 Studs",
+				"100 Studs",
+				"150 Studs",
+				"200 Studs",
+				"300 Studs",
+				"500 Studs"
+			}
+
+			local rangeDropCard, rangeDropBtn, rangeDropLabel, rangeMenuFrame, rangeSearch, rangeScroll = refs.createGlassDropdown(
+				autoDigContainer, "Select Dig Range (Studs)", selectedDigRangeText, 4
+			)
+
+			refs.registerDropdownMenu(rangeDropBtn, rangeMenuFrame)
+			local rangeBinder = refs.bindDropdown(
+				rangeDropBtn, rangeMenuFrame, rangeSearch, rangeScroll, rangeOptions,
+				function(opt) return selectedDigRangeText == opt end,
+				function(val)
+					selectedDigRangeText = val
+					rangeDropLabel.Text = val
+					local num = tonumber(string.match(val, "%d+"))
+					if num then selectedDigRange = num end
+					if saveConfig then pcall(saveConfig) end
+				end,
+				function()
+					rangeDropLabel.Text = selectedDigRangeText
+				end
+			)
+
+			local updateRangeDropdownVisuals = function()
+				rangeDropLabel.Text = selectedDigRangeText
+				rangeBinder.updateOptionVisuals()
+			end
+
+			-- Auto-Digging Loop Engine with Square Area Centered at (31.16444, 92.1085, 867.5848)
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
 				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil"
 			}
 
-			local function performSmartAutoDig(getIsActiveFunc, pickaxeName)
+			local centerDigPos = Vector3.new(31.1644400100708008, 92.10850524902344, 867.5848388671875)
+			local squareStepIndex = 1
+
+			local function performSmartSquareAutoDig(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				-- Helper to detect nearest diggable material part (RealisticMaterials, Asphalt, Brick, Pavement, Salt, etc.)
-				local function findNearbyDigMaterialPart(pos, maxDist, targetMatFilter)
-					maxDist = maxDist or 150
+				local rangeStuds = selectedDigRange or 50
+
+				-- Helper to find diggable material block strictly INSIDE the square box centered at centerDigPos
+				local function findDigMaterialPartInSquare(pos, targetMatFilter)
 					local bestPart = nil
-					local bestDist = maxDist
+					local bestDist = math.huge
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
 					local folders = {
@@ -2625,42 +2668,48 @@ local success, err = pcall(function()
 						if folder then
 							for _, obj in ipairs(folder:GetDescendants()) do
 								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
-									local nameLower = string.lower(obj.Name)
-									local matName = string.lower(tostring(obj.Material))
-									local inRealisticFolder = false
-									local p = obj.Parent
-									while p and p ~= workspace do
-										local pName = string.lower(p.Name)
-										if string.find(pName, "realisticmaterials", 1, true) or string.find(pName, "materials", 1, true) then
-											inRealisticFolder = true
-											break
-										end
-										p = p.Parent
-									end
+									-- Strict Square Check: abs(X - center.X) <= R and abs(Z - center.Z) <= R
+									local dx = math.abs(obj.Position.X - centerDigPos.X)
+									local dz = math.abs(obj.Position.Z - centerDigPos.Z)
 
-									local isMatch = false
-									if filterLower then
-										if string.find(nameLower, filterLower, 1, true) or string.find(matName, filterLower, 1, true) then
-											isMatch = true
+									if dx <= rangeStuds and dz <= rangeStuds and obj.Position.Y >= 10 then
+										local nameLower = string.lower(obj.Name)
+										local matName = string.lower(tostring(obj.Material))
+										local inRealisticFolder = false
+										local p = obj.Parent
+										while p and p ~= workspace do
+											local pName = string.lower(p.Name)
+											if string.find(pName, "realisticmaterials", 1, true) or string.find(pName, "materials", 1, true) then
+												inRealisticFolder = true
+												break
+											end
+											p = p.Parent
 										end
-									else
-										if inRealisticFolder then
-											isMatch = true
+
+										local isMatch = false
+										if filterLower then
+											if string.find(nameLower, filterLower, 1, true) or string.find(matName, filterLower, 1, true) then
+												isMatch = true
+											end
 										else
-											for _, kw in ipairs(DIGGABLE_MATERIAL_KEYWORDS) do
-												if string.find(nameLower, kw, 1, true) or string.find(matName, kw, 1, true) then
-													isMatch = true
-													break
+											if inRealisticFolder then
+												isMatch = true
+											else
+												for _, kw in ipairs(DIGGABLE_MATERIAL_KEYWORDS) do
+													if string.find(nameLower, kw, 1, true) or string.find(matName, kw, 1, true) then
+														isMatch = true
+														break
+													end
 												end
 											end
 										end
-									end
 
-									if isMatch and obj.Position.Y >= 10 then
-										local dist = (obj.Position - pos).Magnitude
-										if dist < bestDist then
-											bestDist = dist
-											bestPart = obj
+										if isMatch then
+											local dist = (obj.Position - pos).Magnitude
+											if dist < bestDist then
+												bestDist = dist
+												bestPart = obj
+											end
 										end
 									end
 								end
@@ -2686,42 +2735,56 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Search for closest matching material block near character
-				local matObj = findNearbyDigMaterialPart(hrp.Position, 150, selectedDigMaterial)
+				-- Search for closest matching material block inside square area
+				local matObj = findDigMaterialPartInSquare(hrp.Position, selectedDigMaterial)
 				local actualDigPos = nil
 
 				if matObj and matObj.Parent then
 					actualDigPos = matObj.Position
-					local targetHover = Vector3.new(actualDigPos.X, math.max(actualDigPos.Y + 2.5, 10), actualDigPos.Z)
-
-					-- Attach BodyVelocity hover to keep player position steady near target block
-					local flyHold = hrp:FindFirstChild("HipHubFarmFly")
-					if not flyHold then
-						flyHold = Instance.new("BodyVelocity")
-						flyHold.Name = "HipHubFarmFly"
-						flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-						flyHold.Velocity = Vector3.zero
-						flyHold.Parent = hrp
-					end
-
-					local dist = (hrp.Position - targetHover).Magnitude
-					if dist > 1.0 then
-						local timeToMove = math.clamp(dist / 350, 0.01, 0.3)
-						local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
-							CFrame = CFrame.new(targetHover)
-						})
-						tw:Play()
-						tw.Completed:Wait()
-					else
-						hrp.CFrame = CFrame.new(targetHover)
-					end
 				else
-					-- Fallback: Dig right in front of character facing position without drifting
-					actualDigPos = hrp.Position + (hrp.CFrame.LookVector * 4)
+					-- Systematically sweep square grid of points centered at centerDigPos
+					local gridPoints = {}
+					local step = math.max(6, math.floor(rangeStuds / 8))
+					for offsetZ = -rangeStuds, rangeStuds, step do
+						for offsetX = -rangeStuds, rangeStuds, step do
+							table.insert(gridPoints, Vector3.new(centerDigPos.X + offsetX, math.max(centerDigPos.Y, 10), centerDigPos.Z + offsetZ))
+						end
+					end
+
+					if #gridPoints > 0 then
+						if squareStepIndex > #gridPoints then squareStepIndex = 1 end
+						actualDigPos = gridPoints[squareStepIndex]
+						squareStepIndex = squareStepIndex + 1
+					else
+						actualDigPos = centerDigPos
+					end
 				end
 
 				if actualDigPos.Y < 10 then
 					actualDigPos = Vector3.new(actualDigPos.X, 10, actualDigPos.Z)
+				end
+
+				-- Hover character safely near target position
+				local targetHover = Vector3.new(actualDigPos.X, math.max(actualDigPos.Y + 2.5, 10), actualDigPos.Z)
+				local flyHold = hrp:FindFirstChild("HipHubFarmFly")
+				if not flyHold then
+					flyHold = Instance.new("BodyVelocity")
+					flyHold.Name = "HipHubFarmFly"
+					flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+					flyHold.Velocity = Vector3.zero
+					flyHold.Parent = hrp
+				end
+
+				local dist = (hrp.Position - targetHover).Magnitude
+				if dist > 1.0 then
+					local timeToMove = math.clamp(dist / 350, 0.01, 0.3)
+					local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
+						CFrame = CFrame.new(targetHover)
+					})
+					tw:Play()
+					tw.Completed:Wait()
+				else
+					hrp.CFrame = CFrame.new(targetHover)
 				end
 
 				-- Fire Dig remote
@@ -2742,7 +2805,7 @@ local success, err = pcall(function()
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
 							local ok, err = pcall(function()
-								performSmartAutoDig(function() return autoDigEnabled end, selectedDigPickaxe)
+								performSmartSquareAutoDig(function() return autoDigEnabled end, selectedDigPickaxe)
 							end)
 							if not ok and err then
 								warn("[HipHub AutoDig Error]:", err)
@@ -2767,6 +2830,8 @@ local success, err = pcall(function()
 						autoDigEnabled = autoDigEnabled,
 						selectedDigPickaxe = selectedDigPickaxe,
 						selectedDigMaterial = selectedDigMaterial,
+						selectedDigRange = selectedDigRange,
+						selectedDigRangeText = selectedDigRangeText,
 					}
 				end,
 				setState = function(s)
@@ -2782,6 +2847,12 @@ local success, err = pcall(function()
 					if s.selectedDigMaterial ~= nil and tostring(s.selectedDigMaterial) ~= "" then
 						selectedDigMaterial = tostring(s.selectedDigMaterial)
 						updateMatDropdownVisuals()
+					end
+					if s.selectedDigRangeText ~= nil and tostring(s.selectedDigRangeText) ~= "" then
+						selectedDigRangeText = tostring(s.selectedDigRangeText)
+						local num = tonumber(string.match(selectedDigRangeText, "%d+"))
+						if num then selectedDigRange = num end
+						updateRangeDropdownVisuals()
 					end
 				end
 			}
@@ -4455,6 +4526,7 @@ local success, err = pcall(function()
 				data.autoDigEnabled = adState.autoDigEnabled
 				data.selectedDigPickaxe = adState.selectedDigPickaxe
 				data.selectedDigMaterial = adState.selectedDigMaterial
+				data.selectedDigRangeText = adState.selectedDigRangeText
 			end
 
 			-- Auto Place Crystal config state
@@ -4564,6 +4636,7 @@ local success, err = pcall(function()
 						autoDigEnabled = data.autoDigEnabled,
 						selectedDigPickaxe = data.selectedDigPickaxe,
 						selectedDigMaterial = data.selectedDigMaterial,
+						selectedDigRangeText = data.selectedDigRangeText,
 					})
 				end
 
