@@ -2676,6 +2676,46 @@ local success, err = pcall(function()
 			local centerDigPos = Vector3.new(31.1644400100708008, 92.10850524902344, 867.5848388671875)
 			local squareStepIndex = 1
 
+			-- 3D Visual Red Bounding Box Adornment for Auto Digging Zone
+			local function updateDigBoxVisuals()
+				pcall(function()
+					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+					if autoDigEnabled then
+						local rangeStuds = selectedDigRange or 50
+						local boxHeight = 220
+						local boxCenterY = math.max(centerDigPos.Y, 110)
+
+						if not boxPart then
+							boxPart = Instance.new("Part")
+							boxPart.Name = "HipHubDigBoxPart"
+							boxPart.Anchored = true
+							boxPart.CanCollide = false
+							boxPart.Transparency = 1
+							boxPart.CastShadow = false
+							boxPart.Parent = workspace
+
+							local selBox = Instance.new("SelectionBox")
+							selBox.Name = "HipHubDigSelectionBox"
+							selBox.Color3 = Color3.fromRGB(255, 45, 45)
+							selBox.LineThickness = 0.08
+							selBox.SurfaceColor3 = Color3.fromRGB(255, 30, 30)
+							selBox.SurfaceTransparency = 0.88
+							selBox.Adornee = boxPart
+							selBox.Parent = boxPart
+						end
+
+						boxPart.Size = Vector3.new(rangeStuds * 2, boxHeight, rangeStuds * 2)
+						boxPart.CFrame = CFrame.new(centerDigPos.X, boxCenterY, centerDigPos.Z)
+					else
+						if boxPart then boxPart:Destroy() end
+					end
+				end)
+			end
+
+			adToggleTrack.MouseButton1Click:Connect(function()
+				updateDigBoxVisuals()
+			end)
+
 			local function performSmartSquareAutoDig(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2684,11 +2724,11 @@ local success, err = pcall(function()
 
 				local rangeStuds = selectedDigRange or 50
 				local moveSpeed = selectedDigTweenSpeed or 350
+				updateDigBoxVisuals()
 
-				-- Helper to find diggable material block strictly INSIDE the square box centered at centerDigPos
+				-- Helper to find diggable material block strictly INSIDE the square box, prioritized by HIGHEST Y position first
 				local function findDigMaterialPartInSquare(pos, targetMatFilter)
-					local bestPart = nil
-					local bestDist = math.huge
+					local candidates = {}
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
 					local folders = {
@@ -2744,11 +2784,7 @@ local success, err = pcall(function()
 										end
 
 										if isMatch then
-											local dist = (obj.Position - pos).Magnitude
-											if dist < bestDist then
-												bestDist = dist
-												bestPart = obj
-											end
+											table.insert(candidates, obj)
 										end
 									end
 								end
@@ -2756,7 +2792,19 @@ local success, err = pcall(function()
 						end
 					end
 
-					return bestPart
+					if #candidates > 0 then
+						table.sort(candidates, function(a, b)
+							-- Primary sort: Highest Y position first!
+							if math.abs(a.Position.Y - b.Position.Y) > 1.5 then
+								return a.Position.Y > b.Position.Y
+							end
+							-- Secondary sort: Closest to character
+							return (a.Position - pos).Magnitude < (b.Position - pos).Magnitude
+						end)
+						return candidates[1]
+					end
+
+					return nil
 				end
 
 				-- Ensure pickaxe tool is equipped
@@ -2774,14 +2822,14 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Search for closest matching material block inside square area
+				-- Search for highest matching material block inside square area
 				local matObj = findDigMaterialPartInSquare(hrp.Position, selectedDigMaterial)
 				local actualDigPos = nil
 
 				if matObj and matObj.Parent then
 					actualDigPos = matObj.Position
 				else
-					-- Systematically sweep square grid of points centered at centerDigPos
+					-- Systematically sweep square grid of points centered at centerDigPos from highest Y down
 					local gridPoints = {}
 					local step = math.max(6, math.floor(rangeStuds / 8))
 					for offsetZ = -rangeStuds, rangeStuds, step do
@@ -2803,8 +2851,8 @@ local success, err = pcall(function()
 					actualDigPos = Vector3.new(actualDigPos.X, 10, actualDigPos.Z)
 				end
 
-				-- Hover character safely near target position
-				local targetHover = Vector3.new(actualDigPos.X, math.max(actualDigPos.Y + 2.5, 10), actualDigPos.Z)
+				-- Hover character safely right on/near target position (+0.5 studs so server accepts dig distance)
+				local targetHover = Vector3.new(actualDigPos.X, math.max(actualDigPos.Y + 0.5, 10), actualDigPos.Z)
 				local flyHold = hrp:FindFirstChild("HipHubFarmFly")
 				if not flyHold then
 					flyHold = Instance.new("BodyVelocity")
@@ -2829,6 +2877,9 @@ local success, err = pcall(function()
 				else
 					hrp.CFrame = CFrame.new(targetHover)
 				end
+
+				-- Brief wait to ensure player position has replicated to server before clicking/digging
+				task.wait(0.06)
 
 				-- Perform Auto Click / Tool Swing
 				pcall(function()
@@ -2856,10 +2907,10 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Dedicated rapid auto-click loop while Auto Digging is active
+			-- Paced auto-click loop while Auto Digging is active (0.20s interval)
 			task.spawn(function()
 				while true do
-					task.wait(0.05)
+					task.wait(0.20)
 					if autoDigEnabled then
 						pcall(function()
 							local char = player and player.Character
@@ -2879,7 +2930,7 @@ local success, err = pcall(function()
 
 			task.spawn(function()
 				while true do
-					task.wait(0.08)
+					task.wait(0.25)
 					if autoDigEnabled then
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2893,6 +2944,7 @@ local success, err = pcall(function()
 						end
 					else
 						-- Clean up flying hover when disabled
+						updateDigBoxVisuals()
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
