@@ -1677,6 +1677,7 @@ local success, err = pcall(function()
 		afrTrack.MouseButton1Click:Connect(function()
 			autoFarmRunesEnabled = not autoFarmRunesEnabled
 			updateAutoMineRunesVisuals()
+			if updateAutomationNoclipEngine then updateAutomationNoclipEngine() end
 			if refs.saveConfig then pcall(refs.saveConfig) end
 		end)
 
@@ -1944,6 +1945,18 @@ local success, err = pcall(function()
 
 				-- Rune vs Crystal Type Check
 				local isRune = string.find(combinedSearchText, "rune", 1, true) ~= nil
+					or (child.Parent and string.find(string.lower(child.Parent.Name), "rune", 1, true) ~= nil)
+					or string.find(combinedSearchText, "luck", 1, true) ~= nil
+					or string.find(combinedSearchText, "haste", 1, true) ~= nil
+					or string.find(combinedSearchText, "storm", 1, true) ~= nil
+					or string.find(combinedSearchText, "weight", 1, true) ~= nil
+					or string.find(combinedSearchText, "fortune", 1, true) ~= nil
+					or string.find(combinedSearchText, "detonation", 1, true) ~= nil
+					or string.find(combinedSearchText, "preservation", 1, true) ~= nil
+					or string.find(combinedSearchText, "warmth", 1, true) ~= nil
+					or string.find(combinedSearchText, "excavator", 1, true) ~= nil
+					or string.find(combinedSearchText, "colossus", 1, true) ~= nil
+
 				local isCrystal = not isRune and (string.find(combinedSearchText, "crystal", 1, true) ~= nil or child:GetAttribute("Tier") ~= nil or child:GetAttribute("WeightKg") ~= nil or string.find(combinedSearchText, "kg", 1, true))
 
 				if isRune and not autoFarmRunesEnabled then
@@ -2112,8 +2125,8 @@ local success, err = pcall(function()
 				if matchesRarity and matchesSize and matchesValue then
 					local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 					if targetPart then
-						-- Ignore any crystal under Y position 10
-						if targetPart.Position.Y >= 10 then
+						-- Allow runes at any Y position; crystals require Y >= 10
+						if isRune or targetPart.Position.Y >= 10 then
 							local dist = (myPos - targetPart.Position).Magnitude
 							if dist < shortestDist then
 								shortestDist = dist
@@ -2163,10 +2176,12 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- Search known workspace folders (including Runes)
+			-- Search known workspace folders (including Runes & DroppedRunes)
 			local things = workspace:FindFirstChild("Things")
 			evaluateFolder(workspace:FindFirstChild("Runes"))
 			evaluateFolder(things and things:FindFirstChild("Runes"))
+			evaluateFolder(workspace:FindFirstChild("DroppedRunes"))
+			evaluateFolder(things and things:FindFirstChild("DroppedRunes"))
 			evaluateFolder(workspace:FindFirstChild("Crystals"))
 			evaluateFolder(things and things:FindFirstChild("Crystals"))
 			evaluateFolder(workspace:FindFirstChild("DroppedCrystals"))
@@ -2301,10 +2316,9 @@ local success, err = pcall(function()
 		tweenToTargetCFrame = function(myHrp, targetCFrame, speed)
 			if not myHrp or not targetCFrame then return end
 
-			-- Clamp target Y position so movement never goes below Y = 10
+			-- Don't tween if target Y position < 10
 			if targetCFrame.Position.Y < 10 then
-				local pos = targetCFrame.Position
-				targetCFrame = CFrame.new(pos.X, 10, pos.Z) * (targetCFrame - pos)
+				return
 			end
 			local spd = speed or 350
 			local dist = (myHrp.Position - targetCFrame.Position).Magnitude
@@ -2325,7 +2339,7 @@ local success, err = pcall(function()
 			activeFarmTween:Play()
 
 			local startT = os.clock()
-			while activeFarmTween and (os.clock() - startT < duration + 0.05) and autoFarmCrystalsEnabled do
+			while activeFarmTween and (os.clock() - startT < duration + 0.05) and (autoFarmCrystalsEnabled or autoFarmRunesEnabled) do
 				task.wait(0.02)
 				pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 			end
@@ -2341,7 +2355,7 @@ local success, err = pcall(function()
 		task.spawn(function()
 			while true do
 				task.wait(0.1)
-				if autoFarmCrystalsEnabled then
+				if autoFarmCrystalsEnabled or autoFarmRunesEnabled then
 					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return, and resume mining)
 					if isBackpackFull and isBackpackFull() then
 						local myChar = player and player.Character
@@ -2390,25 +2404,24 @@ local success, err = pcall(function()
 								flyHold.Parent = myHrp
 							end
 
-							-- Fly & levitate 6.5 studs above the target crystal while picking it up (ensuring minimum Y is 10)
+							-- Fly & levitate 6.5 studs above the target crystal while picking it up
 							local farmTargetPos = part.Position + Vector3.new(0, 6.5, 0)
-							if farmTargetPos.Y < 10 then
-								farmTargetPos = Vector3.new(farmTargetPos.X, 10, farmTargetPos.Z)
-							end
 							local farmTargetCFrame = CFrame.new(farmTargetPos)
 
-							-- Tween first to middle top of mountain (x=35, y=225, z=715) if starting from base/shop or far away (> 75 studs)
-							local currentDist = (myHrp.Position - farmTargetCFrame.Position).Magnitude
-							if currentDist > 75 then
-								local targetY = part.Position.Y
-								local highY = math.max(targetY + 80, 225)
-								local mountainMiddleUp = CFrame.new(35, highY, 715)
+							-- Only tween if target Y position >= 10
+							if part.Position.Y >= 10 and farmTargetPos.Y >= 10 then
+								local currentDist = (myHrp.Position - farmTargetCFrame.Position).Magnitude
+								if currentDist > 75 then
+									local targetY = part.Position.Y
+									local highY = math.max(targetY + 80, 225)
+									local mountainMiddleUp = CFrame.new(35, highY, 715)
 
-								tweenToTargetCFrame(myHrp, mountainMiddleUp, 380)
-								task.wait(0.1)
+									tweenToTargetCFrame(myHrp, mountainMiddleUp, 380)
+									task.wait(0.1)
+								end
+
+								tweenToTargetCFrame(myHrp, farmTargetCFrame, 350)
 							end
-
-							tweenToTargetCFrame(myHrp, farmTargetCFrame, 350)
 
 							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
 							if prompt then
