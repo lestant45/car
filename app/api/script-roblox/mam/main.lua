@@ -2526,8 +2526,20 @@ local success, err = pcall(function()
 
 			-- Auto-Digging Loop Engine
 			task.spawn(function()
-				local digIndex = 0
-				local cubeRadius = 10 -- Generates a 20x20x20 cube of digging points around player
+				local cubeRadius = 12
+				local lastTeleportTime = 0
+
+				local function teleportToRandomMountainPos(hrp)
+					local rx = math.random(-100, 100) + 35
+					local ry = math.random(180, 260)
+					local rz = math.random(-100, 100) + 715
+					local randomPos = Vector3.new(rx, ry, rz)
+
+					pcall(function()
+						hrp.CFrame = CFrame.new(randomPos)
+					end)
+					task.wait(0.2)
+				end
 
 				while true do
 					task.wait(0.15)
@@ -2537,6 +2549,13 @@ local success, err = pcall(function()
 						local hum = char and char:FindFirstChildOfClass("Humanoid")
 
 						if hrp and hum then
+							-- Teleport to a random position on the mountain on start and every 12 seconds
+							local now = os.clock()
+							if now - lastTeleportTime > 12 then
+								lastTeleportTime = now
+								teleportToRandomMountainPos(hrp)
+							end
+
 							-- 1. Ensure Player is holding a Pickaxe tool
 							local heldTool = char:FindFirstChildWhichIsA("Tool")
 							if not heldTool or (not string.find(string.lower(heldTool.Name), "pick") and not string.find(string.lower(heldTool.Name), "scrapper") and not string.find(string.lower(heldTool.Name), "wood") and not string.find(string.lower(heldTool.Name), "stone") and not string.find(string.lower(heldTool.Name), "edge") and not string.find(string.lower(heldTool.Name), "rend") and not string.find(string.lower(heldTool.Name), "fang") and not string.find(string.lower(heldTool.Name), "throne") and not string.find(string.lower(heldTool.Name), "singularity") and not string.find(string.lower(heldTool.Name), "terminus") and not string.find(string.lower(heldTool.Name), "basalt") and not string.find(string.lower(heldTool.Name), "carver") and not string.find(string.lower(heldTool.Name), "spike")) then
@@ -2575,6 +2594,8 @@ local success, err = pcall(function()
 								end
 							end)
 						end
+					else
+						lastTeleportTime = 0
 					end
 				end
 			end)
