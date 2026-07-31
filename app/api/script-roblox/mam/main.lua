@@ -2524,7 +2524,7 @@ local success, err = pcall(function()
 				pickBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine with Structured Grid Pattern & Flying Tween
+			-- Auto-Digging Loop Engine with Structured Grid Pattern & Fast Flying Tween
 			local startDigPos = Vector3.new(17.36946868688964844, 40.940834045410156, 949.3936767578125)
 
 			local function executeGridDiggingPattern(getIsActiveFunc, pickaxeName)
@@ -2533,7 +2533,7 @@ local success, err = pcall(function()
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				-- Helper to attach/maintain hover flight and move smoothly to target position
+				-- Helper to attach/maintain hover flight and move rapidly to target position
 				local function moveToPositionAndHover(targetPos)
 					if not hrp or not hrp.Parent then return end
 
@@ -2547,10 +2547,10 @@ local success, err = pcall(function()
 						flyHold.Parent = hrp
 					end
 
-					-- Move character to target position smoothly
+					-- Move character to target position at ultra-high speed (450 studs/sec)
 					local dist = (hrp.Position - targetPos).Magnitude
-					if dist > 1.5 then
-						local timeToMove = math.clamp(dist / 120, 0.05, 1.5)
+					if dist > 0.5 then
+						local timeToMove = math.clamp(dist / 450, 0.01, 0.2)
 						local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
 							CFrame = CFrame.new(targetPos)
 						})
@@ -2571,7 +2571,7 @@ local success, err = pcall(function()
 							for _, tool in ipairs(backpack:GetChildren()) do
 								if tool:IsA("Tool") then
 									hum:EquipTool(tool)
-									task.wait(0.1)
+									task.wait(0.05)
 									break
 								end
 							end
@@ -2579,7 +2579,7 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Helper to perform dig at position
+				-- Helper to perform rapid-fire dig at position
 				local function performDigAtPos(targetPos, digTimes)
 					if not getIsActiveFunc() then return end
 					moveToPositionAndHover(targetPos)
@@ -2595,7 +2595,7 @@ local success, err = pcall(function()
 								digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", targetPos)
 							end)
 						end
-						task.wait(0.15)
+						task.wait(0.04)
 					end
 				end
 
@@ -2608,9 +2608,9 @@ local success, err = pcall(function()
 					currentPos = currentPos + Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 2: Then raise the Z position by 3 and dig twice
+				-- Phase 2: Then advance X position by 7 (forward) and dig twice
 				if not getIsActiveFunc() then return end
-				currentPos = currentPos + Vector3.new(0, 0, 3)
+				currentPos = currentPos + Vector3.new(7, 0, 0)
 				performDigAtPos(currentPos, 2)
 
 				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
@@ -2620,15 +2620,15 @@ local success, err = pcall(function()
 					currentPos = currentPos - Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 4: Then, raise the Z position by 3 and dig twice
+				-- Phase 4: Then, advance X position by 7 (forward) and dig twice
 				if not getIsActiveFunc() then return end
-				currentPos = currentPos + Vector3.new(0, 0, 3)
+				currentPos = currentPos + Vector3.new(7, 0, 0)
 				performDigAtPos(currentPos, 2)
 			end
 
 			task.spawn(function()
 				while true do
-					task.wait(0.2)
+					task.wait(0.05)
 					if autoDigEnabled then
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
