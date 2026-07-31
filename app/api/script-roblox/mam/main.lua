@@ -2599,13 +2599,87 @@ local success, err = pcall(function()
 				matBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine based on Outermost Part / Terrain (Top-Down & Outermost First)
+			-- Button Row 4: Set Current Center Position
+			local customDigCenterPos = Vector3.new(31.1644400100708008, 92.10850524902344, 867.5848388671875)
+
+			local setPosCard, setPosBtn = refs.createGlassButton(autoDigContainer, "Set Current Center Pos (50 Studs Box)", 4)
+			setPosBtn.MouseButton1Click:Connect(function()
+				local char = player and player.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					customDigCenterPos = hrp.Position
+					setPosBtn.Text = string.format("Center Set: (%.1f, %.1f, %.1f)", hrp.Position.X, hrp.Position.Y, hrp.Position.Z)
+					updateDigBoxVisuals()
+					if saveConfig then pcall(saveConfig) end
+				end
+			end)
+
+			-- 3D Visual Red Bounding Box Adornment (50 Studs) for Auto Digging Zone
+			local function updateDigBoxVisuals()
+				pcall(function()
+					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+					if autoDigEnabled then
+						local centerPos = customDigCenterPos or Vector3.new(31.16444001, 92.108505, 867.584838)
+						local boxSize = Vector3.new(50, 220, 50)
+						local boxCenterY = math.max(centerPos.Y, 110)
+
+						if not boxPart then
+							boxPart = Instance.new("Part")
+							boxPart.Name = "HipHubDigBoxPart"
+							boxPart.Anchored = true
+							boxPart.CanCollide = false
+							boxPart.Transparency = 1
+							boxPart.CastShadow = false
+							boxPart.Parent = workspace
+
+							local selBox = Instance.new("SelectionBox")
+							selBox.Name = "HipHubDigSelectionBox"
+							selBox.Color3 = Color3.fromRGB(255, 45, 45)
+							selBox.LineThickness = 0.08
+							selBox.SurfaceColor3 = Color3.fromRGB(255, 30, 30)
+							selBox.SurfaceTransparency = 0.88
+							selBox.Adornee = boxPart
+							selBox.Parent = boxPart
+						end
+
+						boxPart.Size = boxSize
+						boxPart.CFrame = CFrame.new(centerPos.X, boxCenterY, centerPos.Z)
+					else
+						if boxPart then boxPart:Destroy() end
+					end
+				end)
+			end
+
+			-- Auto Fly Mode Toggle Sync
+			local function syncAutoDigFlyMode()
+				local char = player and player.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					local flyHold = hrp:FindFirstChild("HipHubFarmFly")
+					if autoDigEnabled then
+						if not flyHold then
+							flyHold = Instance.new("BodyVelocity")
+							flyHold.Name = "HipHubFarmFly"
+							flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+							flyHold.Velocity = Vector3.zero
+							flyHold.Parent = hrp
+						end
+					else
+						if flyHold then flyHold:Destroy() end
+					end
+				end
+			end
+
+			adToggleTrack.MouseButton1Click:Connect(function()
+				updateDigBoxVisuals()
+				syncAutoDigFlyMode()
+			end)
+
+			-- Auto-Digging Loop Engine inside 50-Stud Box Facing DIRECTLY DOWNWARDS
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
 				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil", "slate"
 			}
-
-			local mountainCenterPos = Vector3.new(31.1644400100708008, 92.10850524902344, 867.5848388671875)
 
 			local function performOutermostAutoDig(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
@@ -2614,26 +2688,32 @@ local success, err = pcall(function()
 				if not hrp or not hum then return end
 
 				local moveSpeed = 8 -- Smooth move speed = 8 studs/sec
+				local centerPos = customDigCenterPos or Vector3.new(31.16444001, 92.108505, 867.584838)
+				local rangeStuds = 25 -- 50 Studs Box Radius
 
-				-- Helper to find diggable Terrain surface or material block, prioritized by HIGHEST Y position and OUTERMOST Part first
+				updateDigBoxVisuals()
+				syncAutoDigFlyMode()
+
+				-- Helper to find diggable Terrain surface or material block strictly INSIDE 50-stud box
 				local function findOutermostDigTarget(pos, targetMatFilter)
 					local candidates = {}
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
-					-- 1. Scan Workspace.Terrain using Raycasts across mountain area
+					-- 1. Scan Workspace.Terrain using Raycasts inside 50-stud box
 					local rayParams = RaycastParams.new()
 					rayParams.FilterType = Enum.RaycastFilterType.Exclude
 					local filterList = {}
 					if char then table.insert(filterList, char) end
+					local boxPart = workspace:FindFirstChild("HipHubDigBoxPart")
+					if boxPart then table.insert(filterList, boxPart) end
 					rayParams.FilterDescendantsInstances = filterList
 					rayParams.IgnoreWater = true
 
-					local scanRadius = 180
-					local step = 12
+					local step = 5
 
-					for offsetZ = -scanRadius, scanRadius, step do
-						for offsetX = -scanRadius, scanRadius, step do
-							local rayOrigin = Vector3.new(mountainCenterPos.X + offsetX, 350, mountainCenterPos.Z + offsetZ)
+					for offsetZ = -rangeStuds, rangeStuds, step do
+						for offsetX = -rangeStuds, rangeStuds, step do
+							local rayOrigin = Vector3.new(centerPos.X + offsetX, 350, centerPos.Z + offsetZ)
 							local rayDirection = Vector3.new(0, -400, 0)
 							local rayResult = workspace:Raycast(rayOrigin, rayDirection, rayParams)
 
@@ -2659,7 +2739,7 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 2. Scan folders for any dig BaseParts
+					-- 2. Scan folders for any dig BaseParts inside 50-stud box
 					local folders = {
 						workspace:FindFirstChild("RealisticMaterials"),
 						workspace:FindFirstChild("Materials"),
@@ -2676,7 +2756,10 @@ local success, err = pcall(function()
 						if folder then
 							for _, obj in ipairs(folder:GetDescendants()) do
 								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
-									if obj.Position.Y >= 10 then
+									local dx = math.abs(obj.Position.X - centerPos.X)
+									local dz = math.abs(obj.Position.Z - centerPos.Z)
+
+									if dx <= rangeStuds and dz <= rangeStuds and obj.Position.Y >= 10 then
 										local nameLower = string.lower(obj.Name)
 										local matName = string.lower(tostring(obj.Material))
 										local inRealisticFolder = false
@@ -2717,15 +2800,15 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Sort candidates: Highest Y position -> Outermost Part distance -> Closest distance
+					-- 3. Sort candidates: Highest Y position -> Outermost Part distance from center -> Closest distance
 					if #candidates > 0 then
 						table.sort(candidates, function(a, b)
 							local posA, posB = a.Position, b.Position
 							if math.abs(posA.Y - posB.Y) > 1.5 then
 								return posA.Y > posB.Y
 							end
-							local dist2DA = (Vector2.new(posA.X, posA.Z) - Vector2.new(mountainCenterPos.X, mountainCenterPos.Z)).Magnitude
-							local dist2DB = (Vector2.new(posB.X, posB.Z) - Vector2.new(mountainCenterPos.X, mountainCenterPos.Z)).Magnitude
+							local dist2DA = (Vector2.new(posA.X, posA.Z) - Vector2.new(centerPos.X, centerPos.Z)).Magnitude
+							local dist2DB = (Vector2.new(posB.X, posB.Z) - Vector2.new(centerPos.X, centerPos.Z)).Magnitude
 							if math.abs(dist2DA - dist2DB) > 1.0 then
 								return dist2DA > dist2DB -- Outermost Part First!
 							end
@@ -2752,44 +2835,37 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Search for highest & outermost Terrain / Material target
+				-- Search for highest & outermost Terrain / Material target inside 50-stud box
 				local targetDigPos = findOutermostDigTarget(hrp.Position, selectedDigMaterial)
 
 				if not targetDigPos then
-					targetDigPos = hrp.Position + (hrp.CFrame.LookVector * 4)
+					targetDigPos = centerPos
 				end
 
 				if targetDigPos.Y < 10 then
 					targetDigPos = Vector3.new(targetDigPos.X, 10, targetDigPos.Z)
 				end
 
-				-- Hover character safely right on/near target position (+0.5 studs so server accepts dig distance)
-				local targetHover = Vector3.new(targetDigPos.X, math.max(targetDigPos.Y + 0.5, 10), targetDigPos.Z)
-				local flyHold = hrp:FindFirstChild("HipHubFarmFly")
-				if not flyHold then
-					flyHold = Instance.new("BodyVelocity")
-					flyHold.Name = "HipHubFarmFly"
-					flyHold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-					flyHold.Velocity = Vector3.zero
-					flyHold.Parent = hrp
-				end
+				-- Position character 2.5 studs DIRECTLY ABOVE target block & orient facing STRAIGHT DOWNWARDS
+				local targetHover = Vector3.new(targetDigPos.X, math.max(targetDigPos.Y + 2.5, 10), targetDigPos.Z)
+				local downCFrame = CFrame.lookAt(targetHover, targetDigPos)
 
 				local dist = (hrp.Position - targetHover).Magnitude
 				if dist > 1.0 then
 					local timeToMove = math.clamp(dist / moveSpeed, 0.05, 3.0)
 					local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
-						CFrame = CFrame.new(targetHover)
+						CFrame = downCFrame
 					})
 					tw:Play()
 					tw.Completed:Wait()
 				else
-					hrp.CFrame = CFrame.new(targetHover)
+					hrp.CFrame = downCFrame
 				end
 
-				-- Brief wait to ensure player position has replicated to server before clicking/digging
+				-- Brief wait to ensure player position and downward orientation replicate to server
 				task.wait(0.06)
 
-				-- Perform Auto Click / Tool Swing
+				-- Perform Auto Click / Tool Swing while facing directly down
 				pcall(function()
 					local equippedTool = char:FindFirstChildWhichIsA("Tool")
 					if equippedTool then
@@ -2851,13 +2927,9 @@ local success, err = pcall(function()
 							end
 						end
 					else
-						-- Clean up flying hover when disabled
-						local char = player and player.Character
-						local hrp = char and char:FindFirstChild("HumanoidRootPart")
-						if hrp then
-							local flyHold = hrp:FindFirstChild("HipHubFarmFly")
-							if flyHold then flyHold:Destroy() end
-						end
+						-- Clean up flying hover & box when disabled
+						updateDigBoxVisuals()
+						syncAutoDigFlyMode()
 					end
 				end
 			end)
@@ -2869,8 +2941,9 @@ local success, err = pcall(function()
 						autoDigEnabled = autoDigEnabled,
 						selectedDigPickaxe = selectedDigPickaxe,
 						selectedDigMaterial = selectedDigMaterial,
-						selectedDigRange = selectedDigRange,
-						selectedDigRangeText = selectedDigRangeText,
+						customDigCenterX = customDigCenterPos and customDigCenterPos.X,
+						customDigCenterY = customDigCenterPos and customDigCenterPos.Y,
+						customDigCenterZ = customDigCenterPos and customDigCenterPos.Z,
 					}
 				end,
 				setState = function(s)
@@ -2878,6 +2951,8 @@ local success, err = pcall(function()
 					if s.autoDigEnabled ~= nil then
 						autoDigEnabled = (s.autoDigEnabled == true)
 						updateAutoDigVisuals()
+						updateDigBoxVisuals()
+						syncAutoDigFlyMode()
 					end
 					if s.selectedDigPickaxe ~= nil and tostring(s.selectedDigPickaxe) ~= "" then
 						selectedDigPickaxe = tostring(s.selectedDigPickaxe)
@@ -2887,11 +2962,10 @@ local success, err = pcall(function()
 						selectedDigMaterial = tostring(s.selectedDigMaterial)
 						updateMatDropdownVisuals()
 					end
-					if s.selectedDigRangeText ~= nil and tostring(s.selectedDigRangeText) ~= "" then
-						selectedDigRangeText = tostring(s.selectedDigRangeText)
-						local num = tonumber(string.match(selectedDigRangeText, "%d+"))
-						if num then selectedDigRange = num end
-						updateRangeDropdownVisuals()
+					if s.customDigCenterX and s.customDigCenterY and s.customDigCenterZ then
+						customDigCenterPos = Vector3.new(s.customDigCenterX, s.customDigCenterY, s.customDigCenterZ)
+						setPosBtn.Text = string.format("Center Set: (%.1f, %.1f, %.1f)", s.customDigCenterX, s.customDigCenterY, s.customDigCenterZ)
+						updateDigBoxVisuals()
 					end
 				end
 			}
@@ -4565,6 +4639,9 @@ local success, err = pcall(function()
 				data.autoDigEnabled = adState.autoDigEnabled
 				data.selectedDigPickaxe = adState.selectedDigPickaxe
 				data.selectedDigMaterial = adState.selectedDigMaterial
+				data.customDigCenterX = adState.customDigCenterX
+				data.customDigCenterY = adState.customDigCenterY
+				data.customDigCenterZ = adState.customDigCenterZ
 			end
 
 			-- Auto Place Crystal config state
@@ -4674,6 +4751,9 @@ local success, err = pcall(function()
 						autoDigEnabled = data.autoDigEnabled,
 						selectedDigPickaxe = data.selectedDigPickaxe,
 						selectedDigMaterial = data.selectedDigMaterial,
+						customDigCenterX = data.customDigCenterX,
+						customDigCenterY = data.customDigCenterY,
+						customDigCenterZ = data.customDigCenterZ,
 					})
 				end
 
