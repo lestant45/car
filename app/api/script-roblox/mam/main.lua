@@ -2481,6 +2481,8 @@ local success, err = pcall(function()
 			local selectedDigMaterial = "All"
 			local selectedDigRange = 50
 			local selectedDigRangeText = "50 Studs"
+			local selectedDigTweenSpeed = 350
+			local selectedDigTweenSpeedText = "350 (Fast)"
 
 			-- Preference UI Collapsible Section
 			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 3.5)
@@ -2629,6 +2631,42 @@ local success, err = pcall(function()
 				rangeBinder.updateOptionVisuals()
 			end
 
+			-- Dropdown Row 5: Select Dig Tween Speed
+			local speedOptions = {
+				"50 (Slow)",
+				"100 (Normal)",
+				"200 (Medium)",
+				"350 (Fast)",
+				"500 (Very Fast)",
+				"750 (Ultra Fast)",
+				"1000 (Instant)"
+			}
+
+			local speedDropCard, speedDropBtn, speedDropLabel, speedMenuFrame, speedSearch, speedScroll = refs.createGlassDropdown(
+				autoDigContainer, "Select Dig Tween Speed", selectedDigTweenSpeedText, 5
+			)
+
+			refs.registerDropdownMenu(speedDropBtn, speedMenuFrame)
+			local speedBinder = refs.bindDropdown(
+				speedDropBtn, speedMenuFrame, speedSearch, speedScroll, speedOptions,
+				function(opt) return selectedDigTweenSpeedText == opt end,
+				function(val)
+					selectedDigTweenSpeedText = val
+					speedDropLabel.Text = val
+					local num = tonumber(string.match(val, "%d+"))
+					if num then selectedDigTweenSpeed = num end
+					if saveConfig then pcall(saveConfig) end
+				end,
+				function()
+					speedDropLabel.Text = selectedDigTweenSpeedText
+				end
+			)
+
+			local updateSpeedDropdownVisuals = function()
+				speedDropLabel.Text = selectedDigTweenSpeedText
+				speedBinder.updateOptionVisuals()
+			end
+
 			-- Auto-Digging Loop Engine with Square Area Centered at (31.16444, 92.1085, 867.5848)
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
@@ -2645,6 +2683,7 @@ local success, err = pcall(function()
 				if not hrp or not hum then return end
 
 				local rangeStuds = selectedDigRange or 50
+				local moveSpeed = selectedDigTweenSpeed or 350
 
 				-- Helper to find diggable material block strictly INSIDE the square box centered at centerDigPos
 				local function findDigMaterialPartInSquare(pos, targetMatFilter)
@@ -2777,15 +2816,35 @@ local success, err = pcall(function()
 
 				local dist = (hrp.Position - targetHover).Magnitude
 				if dist > 1.0 then
-					local timeToMove = math.clamp(dist / 350, 0.01, 0.3)
-					local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
-						CFrame = CFrame.new(targetHover)
-					})
-					tw:Play()
-					tw.Completed:Wait()
+					if moveSpeed >= 1000 then
+						hrp.CFrame = CFrame.new(targetHover)
+					else
+						local timeToMove = math.clamp(dist / moveSpeed, 0.01, 0.5)
+						local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
+							CFrame = CFrame.new(targetHover)
+						})
+						tw:Play()
+						tw.Completed:Wait()
+					end
 				else
 					hrp.CFrame = CFrame.new(targetHover)
 				end
+
+				-- Perform Auto Click / Tool Swing
+				pcall(function()
+					local equippedTool = char:FindFirstChildWhichIsA("Tool")
+					if equippedTool then
+						equippedTool:Activate()
+					end
+				end)
+
+				pcall(function()
+					local vu = game:GetService("VirtualUser")
+					if vu then
+						vu:CaptureController()
+						vu:ClickButton1(Vector2.new(0, 0))
+					end
+				end)
 
 				-- Fire Dig remote
 				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
@@ -2796,6 +2855,27 @@ local success, err = pcall(function()
 					end)
 				end
 			end
+
+			-- Dedicated rapid auto-click loop while Auto Digging is active
+			task.spawn(function()
+				while true do
+					task.wait(0.05)
+					if autoDigEnabled then
+						pcall(function()
+							local char = player and player.Character
+							local tool = char and char:FindFirstChildWhichIsA("Tool")
+							if tool then
+								tool:Activate()
+							end
+							local vu = game:GetService("VirtualUser")
+							if vu then
+								vu:CaptureController()
+								vu:ClickButton1(Vector2.new(0, 0))
+							end
+						end)
+					end
+				end
+			end)
 
 			task.spawn(function()
 				while true do
@@ -2832,6 +2912,8 @@ local success, err = pcall(function()
 						selectedDigMaterial = selectedDigMaterial,
 						selectedDigRange = selectedDigRange,
 						selectedDigRangeText = selectedDigRangeText,
+						selectedDigTweenSpeed = selectedDigTweenSpeed,
+						selectedDigTweenSpeedText = selectedDigTweenSpeedText,
 					}
 				end,
 				setState = function(s)
@@ -2853,6 +2935,12 @@ local success, err = pcall(function()
 						local num = tonumber(string.match(selectedDigRangeText, "%d+"))
 						if num then selectedDigRange = num end
 						updateRangeDropdownVisuals()
+					end
+					if s.selectedDigTweenSpeedText ~= nil and tostring(s.selectedDigTweenSpeedText) ~= "" then
+						selectedDigTweenSpeedText = tostring(s.selectedDigTweenSpeedText)
+						local num = tonumber(string.match(selectedDigTweenSpeedText, "%d+"))
+						if num then selectedDigTweenSpeed = num end
+						updateSpeedDropdownVisuals()
 					end
 				end
 			}
