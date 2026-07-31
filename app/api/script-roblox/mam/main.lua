@@ -671,13 +671,10 @@ local success, err = pcall(function()
 
 		refs.applyListLayout(sellContentContainer, 6)
 
-		local lastSellClick = 0
 		local function toggleSellSection()
-			if os.clock() - lastSellClick < 0.2 then return end
-			lastSellClick = os.clock()
 			isSellExpanded = not isSellExpanded
 			sellChevronLabel.Text = isSellExpanded and "v" or ">"
-			local targetHeight = isSellExpanded and 215 or 36
+			local targetHeight = isSellExpanded and 225 or 36
 
 			local tween = TweenService:Create(sellCard,
 				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
@@ -689,11 +686,6 @@ local success, err = pcall(function()
 		end
 
 		sellHeaderBtn.MouseButton1Click:Connect(toggleSellSection)
-		sellHeaderBtn.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				toggleSellSection()
-			end
-		end)
 
 		-- Helper to get Shop / Sell location CFrame in Mine Mountain
 		local function getShopCFrame()
@@ -1084,18 +1076,6 @@ local success, err = pcall(function()
 
 		-- Expand Automation Sell card container height to accommodate new filters
 		sellContentContainer.Size = UDim2.new(1, -24, 0, 180)
-		sellHeaderBtn.MouseButton1Click:Connect(function()
-			isSellExpanded = not isSellExpanded
-			sellChevronLabel.Text = isSellExpanded and "v" or ">"
-			local targetHeight = isSellExpanded and 225 or 36
-			local tween = TweenService:Create(sellCard,
-				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-				Size = UDim2.new(1, 0, 0, targetHeight)
-			})
-			tween:Play()
-			tween.Completed:Connect(updateMainTabCanvas)
-			updateMainTabCanvas()
-		end)
 
 		-- Auto Sell Loop
 		task.spawn(function()
@@ -2390,6 +2370,41 @@ local success, err = pcall(function()
 
 							-- Fly & levitate 6.5 studs above the target crystal while picking it up
 							local farmTargetCFrame = part.CFrame + Vector3.new(0, 6.5, 0)
+
+							-- Tween first to middle top of mountain if starting from base/shop or far away (> 75 studs)
+							local currentDist = (myHrp.Position - farmTargetCFrame.Position).Magnitude
+							if currentDist > 75 then
+								local mountainCenterX = 0
+								local mountainCenterZ = 0
+								pcall(function()
+									local spawnLoc = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+									if spawnLoc then
+										mountainCenterX = spawnLoc.Position.X
+										mountainCenterZ = spawnLoc.Position.Z
+									else
+										local mapObj = workspace:FindFirstChild("Map") or workspace:FindFirstChild("CaveZones") or workspace:FindFirstChild("Things")
+										if mapObj then
+											if mapObj:IsA("Model") and mapObj.PrimaryPart then
+												mountainCenterX = mapObj.PrimaryPart.Position.X
+												mountainCenterZ = mapObj.PrimaryPart.Position.Z
+											else
+												local firstPart = mapObj:FindFirstChildWhichIsA("BasePart", true)
+												if firstPart then
+													mountainCenterX = firstPart.Position.X
+													mountainCenterZ = firstPart.Position.Z
+												end
+											end
+										end
+									end
+								end)
+								local targetY = part.Position.Y
+								local highY = math.max(targetY + 120, 350)
+								local mountainMiddleUp = CFrame.new(mountainCenterX, highY, mountainCenterZ)
+
+								tweenToTargetCFrame(myHrp, mountainMiddleUp, 380)
+								task.wait(0.1)
+							end
+
 							tweenToTargetCFrame(myHrp, farmTargetCFrame, 350)
 
 							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
