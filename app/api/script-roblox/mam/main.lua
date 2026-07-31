@@ -2193,17 +2193,39 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Helper to check if player backpack/inventory is full based on game's CarryWeight vs sum of crystal WeightKg
+		-- Helper to check if player backpack/inventory is full based on PlayerGui, CarryWeight, or slot limits
 		isBackpackFull = function()
 			local p = player or game:GetService("Players").LocalPlayer
 			if not p then return false end
 
-			-- 1. Check game's exact capacity logic (PlayerData.RealStats.CarryWeight)
+			-- 1. Check PlayerGui for visible "BACKPACK FULL!" popups or notifications (as shown in game UI)
+			local guiFull = false
+			pcall(function()
+				local pGui = p:FindFirstChildOfClass("PlayerGui") or p:FindFirstChild("PlayerGui")
+				if pGui then
+					for _, desc in ipairs(pGui:GetDescendants()) do
+						if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Visible then
+							local txt = string.lower(desc.Text or "")
+							if string.find(txt, "backpack full", 1, true)
+								or string.find(txt, "backpack is full", 1, true)
+								or string.find(txt, "go sell", 1, true)
+								or string.find(txt, "bag full", 1, true)
+								or string.find(txt, "inventory full", 1, true) then
+								guiFull = true
+								break
+							end
+						end
+					end
+				end
+			end)
+			if guiFull then return true end
+
+			-- 2. Check game's capacity logic (PlayerData.RealStats.CarryWeight)
 			local carryCap = 10
 			pcall(function()
 				local pd = p:FindFirstChild("PlayerData")
-				local rs = pd and pd:FindFirstChild("RealStats")
-				local cw = rs and rs:FindFirstChild("CarryWeight")
+				local rs = pd and (pd:FindFirstChild("RealStats") or pd:FindFirstChild("Stats") or pd)
+				local cw = rs and (rs:FindFirstChild("CarryWeight") or rs:FindFirstChild("MaxCarryWeight") or rs:FindFirstChild("MaxWeight"))
 				if cw and typeof(cw.Value) == "number" and cw.Value > 0 then
 					carryCap = cw.Value
 				end
@@ -2212,11 +2234,13 @@ local success, err = pcall(function()
 			-- Sum weight of all crystal tools in Backpack + Character
 			local totalWeight = 0
 			local crystalCount = 0
+			local totalTools = 0
 
 			local function scanContainer(container)
 				if not container then return end
 				for _, child in ipairs(container:GetChildren()) do
 					if child:IsA("Tool") then
+						totalTools = totalTools + 1
 						local hasTier = child:GetAttribute("Tier") ~= nil
 						local wKg = child:GetAttribute("WeightKg") or child:GetAttribute("Weight")
 						local tNameLower = string.lower(child.Name)
@@ -2248,13 +2272,18 @@ local success, err = pcall(function()
 				scanContainer(p.Character)
 			end
 
-			-- If total weight exceeds or equals CarryWeight capacity, or within 0.2 kg of capacity
+			-- 3. Check tool/slot capacity limit (Roblox hotbar holds max 10 tools)
+			if totalTools >= 10 or crystalCount >= 8 then
+				return true
+			end
+
+			-- 4. If total weight exceeds or equals CarryWeight capacity, or within 0.2 kg of capacity
 			if carryCap > 0 and (totalWeight >= carryCap or (carryCap - totalWeight) <= 0.2) then
 				return true
 			end
 
 			-- Fallback: Check Player attributes
-			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag")
+			local maxCap = p:GetAttribute("MaxCapacity") or p:GetAttribute("MaxBackpack") or p:GetAttribute("MaxStorage") or p:GetAttribute("MaxCrystals") or p:GetAttribute("MaxBag") or p:GetAttribute("CarryWeight")
 			local currCap = p:GetAttribute("Capacity") or p:GetAttribute("BackpackCount") or p:GetAttribute("StorageCount") or p:GetAttribute("CrystalsCount") or p:GetAttribute("BagCount")
 			if typeof(maxCap) == "number" and typeof(currCap) == "number" and maxCap > 0 then
 				if currCap >= maxCap then return true end
