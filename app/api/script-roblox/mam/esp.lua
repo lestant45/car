@@ -827,111 +827,49 @@ local function initESP()
 			clearCategoryESP("player")
 		end
 
-		-- 5. Boulder ESP Scan
+		-- 5. Boulder ESP Scan (Ultra-Lightweight & Fast)
 		if state.boulderEspEnabled then
 			local mountainDeco = workspace:FindFirstChild("MountainDecorations")
+			local primaryBouldersFolder = mountainDeco and mountainDeco:FindFirstChild("Boulders")
 			local things = workspace:FindFirstChild("Things")
-			local mapFolder = workspace:FindFirstChild("Map")
-			local foldersToScan = {
-				mountainDeco and mountainDeco:FindFirstChild("Boulders"),
+
+			local targetFolders = {
+				primaryBouldersFolder,
 				workspace:FindFirstChild("Boulders"),
 				workspace:FindFirstChild("RenderedBoulders"),
 				workspace:FindFirstChild("ActiveBoulders"),
 				things and things:FindFirstChild("Boulders"),
-				things and things:FindFirstChild("RenderedBoulders"),
-				mapFolder and mapFolder:FindFirstChild("Boulders"),
-				mapFolder and mapFolder:FindFirstChild("Nodes"),
-				workspace:FindFirstChild("CaveZones"),
-				workspace:FindFirstChild("FrozenCaves"),
-				workspace:FindFirstChild("Spawns"),
-				workspace:FindFirstChild("Ores"),
-				workspace:FindFirstChild("Mine"),
-				workspace:FindFirstChild("Nodes"),
-				workspace:FindFirstChild("World"),
 			}
 
-			-- Always include top-level workspace folders/models as safety fallback
-			for _, child in ipairs(workspace:GetChildren()) do
-				if (child:IsA("Folder") or child:IsA("Model")) and child ~= player.Character and not child:IsA("Terrain") and child.Name ~= "HipHubESP" and child.Name ~= "Camera" then
-					table.insert(foldersToScan, child)
-				end
-			end
-
 			local scannedBoulders = {}
-			for _, folder in ipairs(foldersToScan) do
+			for _, folder in ipairs(targetFolders) do
 				if folder then
-					for _, bObj in ipairs(folder:GetDescendants()) do
-						if (bObj:IsA("Model") or bObj:IsA("BasePart")) and not bObj:IsA("Accessory") then
-							-- Resolve topObj (if child BasePart belongs to a Model, group under Model)
-							local topObj = bObj
-							if bObj:IsA("BasePart") and bObj.Parent and bObj.Parent:IsA("Model") and bObj.Parent ~= workspace then
-								topObj = bObj.Parent
-							end
-
+					for _, topObj in ipairs(folder:GetChildren()) do
+						if topObj:IsA("Model") or topObj:IsA("BasePart") then
 							if not scannedBoulders[topObj] then
+								scannedBoulders[topObj] = true
+
 								local nameLower = string.lower(topObj.Name)
-								local parentLower = topObj.Parent and string.lower(topObj.Parent.Name) or ""
-
-								local isBoulder = string.find(nameLower, "boulder", 1, true)
-									or string.find(parentLower, "boulder", 1, true)
-									or BOULDER_CONFIG[topObj.Name] ~= nil
-									or topObj:GetAttribute("MinPickaxe") ~= nil
-									or topObj:GetAttribute("Swings") ~= nil
-									or topObj:GetAttribute("SwingsAtGate") ~= nil
-									or topObj:GetAttribute("Boulder") ~= nil
-									or topObj:GetAttribute("Type") == "Boulder"
-									or topObj:GetAttribute("Rarity") ~= nil
-
-								if not isBoulder then
-									for bName in pairs(BOULDER_CONFIG) do
-										if string.find(nameLower, string.lower(bName), 1, true) then
-											isBoulder = true
-											break
-										end
-									end
-								end
-
-								-- Check children names if topObj name is generic
-								if not isBoulder then
-									for _, child in ipairs(topObj:GetChildren()) do
-										local cNameLower = string.lower(child.Name)
-										if string.find(cNameLower, "boulder", 1, true)
-											or string.find(cNameLower, "mossite", 1, true)
-											or string.find(cNameLower, "voltite", 1, true)
-											or string.find(cNameLower, "gildrite", 1, true)
-											or string.find(cNameLower, "rimeveil", 1, true)
-											or string.find(cNameLower, "nocturnite", 1, true) then
-											isBoulder = true
-											break
-										end
-									end
-								end
+								local isBoulder = BOULDER_CONFIG[topObj.Name] ~= nil
+									or string.find(nameLower, "boulder", 1, true)
+									or string.find(nameLower, "mossite", 1, true)
+									or string.find(nameLower, "voltite", 1, true)
+									or string.find(nameLower, "gildrite", 1, true)
+									or string.find(nameLower, "rimeveil", 1, true)
+									or string.find(nameLower, "nocturnite", 1, true)
 
 								if isBoulder then
-									scannedBoulders[topObj] = true
 									if boulderMatchesRarity(topObj) then
 										if not activeESPs[topObj] then
-											local boulderData = nil
-											local targetNameLower = string.lower(topObj.Name)
-											for bName, bData in pairs(BOULDER_CONFIG) do
-												if string.find(targetNameLower, string.lower(bName), 1, true) then
-													boulderData = bData
-													break
-												end
-											end
-
+											local boulderData = BOULDER_CONFIG[topObj.Name]
 											if not boulderData then
-												local attrRarity = topObj:GetAttribute("Rarity") or topObj:GetAttribute("rarity")
-												if attrRarity then
-													for _, bData in pairs(BOULDER_CONFIG) do
-														if string.lower(bData.rarity) == string.lower(tostring(attrRarity)) then
-															boulderData = bData
-															break
-														end
+												for bName, bData in pairs(BOULDER_CONFIG) do
+													if string.find(nameLower, string.lower(bName), 1, true) then
+														boulderData = bData
+														break
 													end
 												end
 											end
-
 											local colorHex = boulderData and boulderData.color or "#00c8ff"
 											createBillboardForObject(topObj, topObj.Name, "boulder", colorHex)
 										end
@@ -952,6 +890,32 @@ local function initESP()
 	-- Event-driven Workspace & Folder Listeners (Instant ESP updates without 1s polling spikes)
 	local function hookFolderEvents(folder, category, isCrystal)
 		if not folder then return end
+		if category == "boulder" then
+			folder.ChildAdded:Connect(function(child)
+				if state.boulderEspEnabled and (child:IsA("Model") or child:IsA("BasePart")) then
+					if boulderMatchesRarity(child) then
+						local boulderData = BOULDER_CONFIG[child.Name]
+						if not boulderData then
+							local nameLower = string.lower(child.Name)
+							for bName, bData in pairs(BOULDER_CONFIG) do
+								if string.find(nameLower, string.lower(bName), 1, true) then
+									boulderData = bData
+									break
+								end
+							end
+						end
+						local colorHex = boulderData and boulderData.color or "#00c8ff"
+						createBillboardForObject(child, child.Name, "boulder", colorHex)
+					end
+				end
+			end)
+
+			folder.ChildRemoved:Connect(function(child)
+				removeBillboardForObject(child)
+			end)
+			return
+		end
+
 		folder.DescendantAdded:Connect(function(child)
 			if isCrystal then
 				if (category == "crystal" and state.crystalEspEnabled) or (category == "dropped_crystal" and state.droppedCrystalEspEnabled) then
@@ -959,24 +923,6 @@ local function initESP()
 						local colorHex = getCrystalAccentColor(child.Name)
 						createBillboardForObject(child, child.Name, category, colorHex)
 					end
-				end
-			elseif category == "boulder" and state.boulderEspEnabled then
-				local targetObj = child
-				if child:IsA("BasePart") and child.Parent and child.Parent:IsA("Model") and child.Parent ~= workspace then
-					targetObj = child.Parent
-				end
-
-				if boulderMatchesRarity(targetObj) then
-					local boulderData = nil
-					local nameLower = string.lower(targetObj.Name)
-					for bName, bData in pairs(BOULDER_CONFIG) do
-						if string.find(nameLower, string.lower(bName), 1, true) then
-							boulderData = bData
-							break
-						end
-					end
-					local colorHex = boulderData and boulderData.color or "#00c8ff"
-					createBillboardForObject(targetObj, targetObj.Name, "boulder", colorHex)
 				end
 			elseif category == "dropped_rune" and state.droppedRuneEspEnabled then
 				createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
