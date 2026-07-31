@@ -395,6 +395,10 @@ local success, err = pcall(function()
 			end
 		end
 
+		updateAntiFallVisuals()
+		updateInstantMineVisuals()
+		updateInstantPickupVisuals()
+
 		-- 🛡️ Anti-Fall Engine Logic
 		local function disableRagdoll()
 			if not antiFallEnabled then return end
@@ -967,6 +971,7 @@ local success, err = pcall(function()
 					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
+		updateAutoSellVisuals()
 
 		asTrack.MouseButton1Click:Connect(function()
 			autoSellEnabled = not autoSellEnabled
@@ -1537,7 +1542,7 @@ local success, err = pcall(function()
 		do
 			local isAutoMineCategoryExpanded = false
 		local autoFarmCrystalsEnabled = false
-		local autoFarmNoclipEnabled = true
+		local autoFarmNoclipEnabled = false
 		local autoFarmRarityFilter = "All"
 		local autoFarmSizeFilter = "All"
 
@@ -1644,6 +1649,7 @@ local success, err = pcall(function()
 					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 			end
 		end
+		updateAutoFarmVisuals()
 
 		-- 2. Auto Mine Runes Toggle
 		local autoFarmRunesEnabled = false
@@ -1683,7 +1689,7 @@ local success, err = pcall(function()
 		updateAutoFarmNoclipVisuals()
 
 		-- 4. Auto Sell When Full Toggle
-		local autoSellOnFullEnabled = true
+		local autoSellOnFullEnabled = false
 		local asfRow, asfTrack, asfThumb = refs.createGlassToggle(amContentContainer, "Auto Sell When Full", 4)
 		local updateAutoSellFullVisuals = function()
 			if autoSellOnFullEnabled then
@@ -2452,6 +2458,7 @@ local success, err = pcall(function()
 		do
 			local autoDigEnabled = false
 			local selectedDigPickaxe = "VolcanoBasalt"
+			local selectedDigMaterial = "All"
 
 			-- Preference UI Collapsible Section
 			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 3.5)
@@ -2469,6 +2476,7 @@ local success, err = pcall(function()
 					TweenService:Create(adToggleThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
 				end
 			end
+			updateAutoDigVisuals()
 
 			adToggleTrack.MouseButton1Click:Connect(function()
 				autoDigEnabled = not autoDigEnabled
@@ -2524,8 +2532,51 @@ local success, err = pcall(function()
 				pickBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine with Persistent Forward Progress & Flying Tween
+			-- Dropdown Row 3: Select Material for Digging
+			local materialOptions = {
+				"All",
+				"Asphalt",
+				"Brick",
+				"Cobblestone",
+				"Concrete",
+				"Ice",
+				"LeafyGrass",
+				"Pavement",
+				"Salt",
+				"Mud",
+				"Dirt"
+			}
+
+			local matDropCard, matDropBtn, matDropLabel, matMenuFrame, matSearch, matScroll = refs.createGlassDropdown(
+				autoDigContainer, "Select Material for Digging", selectedDigMaterial, 3
+			)
+
+			refs.registerDropdownMenu(matDropBtn, matMenuFrame)
+			local matBinder = refs.bindDropdown(
+				matDropBtn, matMenuFrame, matSearch, matScroll, materialOptions,
+				function(opt) return selectedDigMaterial == opt end,
+				function(val)
+					selectedDigMaterial = val
+					matDropLabel.Text = val
+					if saveConfig then pcall(saveConfig) end
+				end,
+				function()
+					matDropLabel.Text = selectedDigMaterial
+				end
+			)
+
+			local updateMatDropdownVisuals = function()
+				matDropLabel.Text = selectedDigMaterial
+				matBinder.updateOptionVisuals()
+			end
+
+			-- Auto-Digging Loop Engine with Material Detection & Flying Tween
 			local currentDigPos = Vector3.new(17.36946868688964844, 40.940834045410156, 949.3936767578125)
+
+			local DIGGABLE_MATERIAL_KEYWORDS = {
+				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
+				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil"
+			}
 
 			local function executeGridDiggingPattern(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
@@ -2533,13 +2584,16 @@ local success, err = pcall(function()
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				-- Helper to detect nearest Mud / Dirt / Ground block part near target position
-				local function findNearbyMudPart(pos, maxDist)
-					maxDist = maxDist or 25
+				-- Helper to detect nearest diggable material part (RealisticMaterials, Asphalt, Brick, Pavement, Salt, etc.)
+				local function findNearbyDigMaterialPart(pos, maxDist, targetMatFilter)
+					maxDist = maxDist or 35
 					local bestPart = nil
 					local bestDist = maxDist
+					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
 
 					local folders = {
+						workspace:FindFirstChild("RealisticMaterials"),
+						workspace:FindFirstChild("Materials"),
 						workspace:FindFirstChild("Mud"),
 						workspace:FindFirstChild("Dirt"),
 						workspace:FindFirstChild("CaveZones"),
@@ -2556,8 +2610,36 @@ local success, err = pcall(function()
 								if obj:IsA("BasePart") and not obj:IsA("Terrain") then
 									local nameLower = string.lower(obj.Name)
 									local matName = string.lower(tostring(obj.Material))
-									local isMud = string.find(nameLower, "mud") or string.find(nameLower, "dirt") or string.find(nameLower, "dig") or string.find(nameLower, "ground") or string.find(nameLower, "rock") or string.find(matName, "mud") or string.find(matName, "ground") or string.find(matName, "dirt")
-									if isMud then
+									local inRealisticFolder = false
+									local p = obj.Parent
+									while p and p ~= workspace do
+										local pName = string.lower(p.Name)
+										if string.find(pName, "realisticmaterials", 1, true) or string.find(pName, "materials", 1, true) then
+											inRealisticFolder = true
+											break
+										end
+										p = p.Parent
+									end
+
+									local isMatch = false
+									if filterLower then
+										if string.find(nameLower, filterLower, 1, true) or string.find(matName, filterLower, 1, true) then
+											isMatch = true
+										end
+									else
+										if inRealisticFolder then
+											isMatch = true
+										else
+											for _, kw in ipairs(DIGGABLE_MATERIAL_KEYWORDS) do
+												if string.find(nameLower, kw, 1, true) or string.find(matName, kw, 1, true) then
+													isMatch = true
+													break
+												end
+											end
+										end
+									end
+
+									if isMatch then
 										local dist = (obj.Position - pos).Magnitude
 										if dist < bestDist then
 											bestDist = dist
@@ -2618,15 +2700,19 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Helper to perform rapid-fire dig at position with Mud detection
+				-- Helper to perform rapid-fire dig at position with Material detection
 				local function performDigAtPos(targetPos, digTimes)
 					if not getIsActiveFunc() then return end
 
-					-- Check if a Mud / Dirt block exists near targetPos
+					-- Check if a material part (Asphalt, Brick, Pavement, Salt, etc.) exists near targetPos or character
 					local actualDigPos = targetPos
-					local mudObj = findNearbyMudPart(targetPos, 25)
-					if mudObj and mudObj.Parent then
-						actualDigPos = mudObj.Position
+					local matObj = findNearbyDigMaterialPart(targetPos, 35, selectedDigMaterial)
+					if not matObj then
+						matObj = findNearbyDigMaterialPart(hrp.Position, 35, selectedDigMaterial)
+					end
+
+					if matObj and matObj.Parent then
+						actualDigPos = matObj.Position
 					end
 
 					moveToPositionAndHover(actualDigPos)
@@ -2653,9 +2739,9 @@ local success, err = pcall(function()
 					currentDigPos = currentDigPos + Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 2: Then decrement Z position by 7 (forward into mountain) and dig twice
+				-- Phase 2: Then decrement X position by 7 (forward into mountain) and dig twice
 				if not getIsActiveFunc() then return end
-				currentDigPos = currentDigPos - Vector3.new(0, 0, 7)
+				currentDigPos = currentDigPos - Vector3.new(7, 0, 0)
 				performDigAtPos(currentDigPos, 2)
 
 				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
@@ -2665,9 +2751,9 @@ local success, err = pcall(function()
 					currentDigPos = currentDigPos - Vector3.new(0, 3, 0)
 				end
 
-				-- Phase 4: Then, decrement Z position by 7 (forward into mountain) and dig twice
+				-- Phase 4: Then, decrement X position by 7 (forward into mountain) and dig twice
 				if not getIsActiveFunc() then return end
-				currentDigPos = currentDigPos - Vector3.new(0, 0, 7)
+				currentDigPos = currentDigPos - Vector3.new(7, 0, 0)
 				performDigAtPos(currentDigPos, 2)
 			end
 
@@ -2703,6 +2789,7 @@ local success, err = pcall(function()
 					return {
 						autoDigEnabled = autoDigEnabled,
 						selectedDigPickaxe = selectedDigPickaxe,
+						selectedDigMaterial = selectedDigMaterial,
 					}
 				end,
 				setState = function(s)
@@ -2714,6 +2801,10 @@ local success, err = pcall(function()
 					if s.selectedDigPickaxe ~= nil and tostring(s.selectedDigPickaxe) ~= "" then
 						selectedDigPickaxe = tostring(s.selectedDigPickaxe)
 						updatePickDropdownVisuals()
+					end
+					if s.selectedDigMaterial ~= nil and tostring(s.selectedDigMaterial) ~= "" then
+						selectedDigMaterial = tostring(s.selectedDigMaterial)
+						updateMatDropdownVisuals()
 					end
 				end
 			}
@@ -2825,7 +2916,7 @@ local success, err = pcall(function()
 			end)
 
 			-- 2. Place by Highest Luck Toggle
-			local placeByHighestLuckEnabled = true
+			local placeByHighestLuckEnabled = false
 			local hlRow, hlTrack, hlThumb = refs.createGlassToggle(apContentContainer, "Place by Highest Luck", 2)
 			local updatePlaceHighestLuckVisuals = function()
 				if placeByHighestLuckEnabled then
@@ -4386,6 +4477,7 @@ local success, err = pcall(function()
 				local adState = _G.HipHubAutomationDigging.getState()
 				data.autoDigEnabled = adState.autoDigEnabled
 				data.selectedDigPickaxe = adState.selectedDigPickaxe
+				data.selectedDigMaterial = adState.selectedDigMaterial
 			end
 
 			-- Auto Place Crystal config state
@@ -4494,6 +4586,7 @@ local success, err = pcall(function()
 					_G.HipHubAutomationDigging.setState({
 						autoDigEnabled = data.autoDigEnabled,
 						selectedDigPickaxe = data.selectedDigPickaxe,
+						selectedDigMaterial = data.selectedDigMaterial,
 					})
 				end
 
