@@ -2371,35 +2371,12 @@ local success, err = pcall(function()
 							-- Fly & levitate 6.5 studs above the target crystal while picking it up
 							local farmTargetCFrame = part.CFrame + Vector3.new(0, 6.5, 0)
 
-							-- Tween first to middle top of mountain if starting from base/shop or far away (> 75 studs)
+							-- Tween first to middle top of mountain (x=35, y=225, z=715) if starting from base/shop or far away (> 75 studs)
 							local currentDist = (myHrp.Position - farmTargetCFrame.Position).Magnitude
 							if currentDist > 75 then
-								local mountainCenterX = 0
-								local mountainCenterZ = 0
-								pcall(function()
-									local spawnLoc = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChildWhichIsA("SpawnLocation", true)
-									if spawnLoc then
-										mountainCenterX = spawnLoc.Position.X
-										mountainCenterZ = spawnLoc.Position.Z
-									else
-										local mapObj = workspace:FindFirstChild("Map") or workspace:FindFirstChild("CaveZones") or workspace:FindFirstChild("Things")
-										if mapObj then
-											if mapObj:IsA("Model") and mapObj.PrimaryPart then
-												mountainCenterX = mapObj.PrimaryPart.Position.X
-												mountainCenterZ = mapObj.PrimaryPart.Position.Z
-											else
-												local firstPart = mapObj:FindFirstChildWhichIsA("BasePart", true)
-												if firstPart then
-													mountainCenterX = firstPart.Position.X
-													mountainCenterZ = firstPart.Position.Z
-												end
-											end
-										end
-									end
-								end)
 								local targetY = part.Position.Y
-								local highY = math.max(targetY + 120, 350)
-								local mountainMiddleUp = CFrame.new(mountainCenterX, highY, mountainCenterZ)
+								local highY = math.max(targetY + 80, 225)
+								local mountainMiddleUp = CFrame.new(35, highY, 715)
 
 								tweenToTargetCFrame(myHrp, mountainMiddleUp, 380)
 								task.wait(0.1)
