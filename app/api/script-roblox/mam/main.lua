@@ -2631,42 +2631,6 @@ local success, err = pcall(function()
 				rangeBinder.updateOptionVisuals()
 			end
 
-			-- Dropdown Row 5: Select Dig Tween Speed
-			local speedOptions = {
-				"50 (Slow)",
-				"100 (Normal)",
-				"200 (Medium)",
-				"350 (Fast)",
-				"500 (Very Fast)",
-				"750 (Ultra Fast)",
-				"1000 (Instant)"
-			}
-
-			local speedDropCard, speedDropBtn, speedDropLabel, speedMenuFrame, speedSearch, speedScroll = refs.createGlassDropdown(
-				autoDigContainer, "Select Dig Tween Speed", selectedDigTweenSpeedText, 5
-			)
-
-			refs.registerDropdownMenu(speedDropBtn, speedMenuFrame)
-			local speedBinder = refs.bindDropdown(
-				speedDropBtn, speedMenuFrame, speedSearch, speedScroll, speedOptions,
-				function(opt) return selectedDigTweenSpeedText == opt end,
-				function(val)
-					selectedDigTweenSpeedText = val
-					speedDropLabel.Text = val
-					local num = tonumber(string.match(val, "%d+"))
-					if num then selectedDigTweenSpeed = num end
-					if saveConfig then pcall(saveConfig) end
-				end,
-				function()
-					speedDropLabel.Text = selectedDigTweenSpeedText
-				end
-			)
-
-			local updateSpeedDropdownVisuals = function()
-				speedDropLabel.Text = selectedDigTweenSpeedText
-				speedBinder.updateOptionVisuals()
-			end
-
 			-- Auto-Digging Loop Engine with Square Area Centered at (31.16444, 92.1085, 867.5848)
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
@@ -2723,7 +2687,7 @@ local success, err = pcall(function()
 				if not hrp or not hum then return end
 
 				local rangeStuds = selectedDigRange or 50
-				local moveSpeed = selectedDigTweenSpeed or 350
+				local moveSpeed = 16 -- Standard walk speed (16 studs/sec)
 				updateDigBoxVisuals()
 
 				-- Helper to find diggable material block strictly INSIDE the square box, prioritized by HIGHEST Y position first
@@ -2864,16 +2828,12 @@ local success, err = pcall(function()
 
 				local dist = (hrp.Position - targetHover).Magnitude
 				if dist > 1.0 then
-					if moveSpeed >= 1000 then
-						hrp.CFrame = CFrame.new(targetHover)
-					else
-						local timeToMove = math.clamp(dist / moveSpeed, 0.01, 0.5)
-						local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
-							CFrame = CFrame.new(targetHover)
-						})
-						tw:Play()
-						tw.Completed:Wait()
-					end
+					local timeToMove = math.clamp(dist / moveSpeed, 0.05, 3.0)
+					local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
+						CFrame = CFrame.new(targetHover)
+					})
+					tw:Play()
+					tw.Completed:Wait()
 				else
 					hrp.CFrame = CFrame.new(targetHover)
 				end
@@ -2964,8 +2924,6 @@ local success, err = pcall(function()
 						selectedDigMaterial = selectedDigMaterial,
 						selectedDigRange = selectedDigRange,
 						selectedDigRangeText = selectedDigRangeText,
-						selectedDigTweenSpeed = selectedDigTweenSpeed,
-						selectedDigTweenSpeedText = selectedDigTweenSpeedText,
 					}
 				end,
 				setState = function(s)
@@ -2987,12 +2945,6 @@ local success, err = pcall(function()
 						local num = tonumber(string.match(selectedDigRangeText, "%d+"))
 						if num then selectedDigRange = num end
 						updateRangeDropdownVisuals()
-					end
-					if s.selectedDigTweenSpeedText ~= nil and tostring(s.selectedDigTweenSpeedText) ~= "" then
-						selectedDigTweenSpeedText = tostring(s.selectedDigTweenSpeedText)
-						local num = tonumber(string.match(selectedDigTweenSpeedText, "%d+"))
-						if num then selectedDigTweenSpeed = num end
-						updateSpeedDropdownVisuals()
 					end
 				end
 			}
