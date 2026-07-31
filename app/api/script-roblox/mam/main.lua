@@ -1594,7 +1594,7 @@ local success, err = pcall(function()
 		amTitle.Size = UDim2.new(1, -60, 1, 0)
 		amTitle.Position = UDim2.new(0, 24, 0, 0)
 		amTitle.BackgroundTransparency = 1
-		amTitle.Text = "Automation Mining"
+		amTitle.Text = "Bypass Gamepass"
 		amTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
 		amTitle.Font = Enum.Font.GothamBold
 		amTitle.TextSize = 13
@@ -1959,6 +1959,13 @@ local success, err = pcall(function()
 
 				local isCrystal = not isRune and (string.find(combinedSearchText, "crystal", 1, true) ~= nil or child:GetAttribute("Tier") ~= nil or child:GetAttribute("WeightKg") ~= nil or string.find(combinedSearchText, "kg", 1, true))
 
+				-- If Auto Mine Runes is ON and Auto Farm Crystals is OFF, STRICTLY REJECT ALL NON-RUNES!
+				if autoFarmRunesEnabled and not autoFarmCrystalsEnabled then
+					if not isRune then
+						return
+					end
+				end
+
 				if isRune and not autoFarmRunesEnabled then
 					return
 				end
@@ -2193,6 +2200,26 @@ local success, err = pcall(function()
 			evaluateFolder(things and things:FindFirstChild("Ores"))
 			evaluateFolder(workspace:FindFirstChild("Mines"))
 			evaluateFolder(workspace:FindFirstChild("Nodes"))
+
+			-- Direct workspace children scan for Runes (Haste Rune, Luck Rune, etc.)
+			for _, child in ipairs(workspace:GetChildren()) do
+				if child:IsA("Model") or child:IsA("BasePart") then
+					local cNameLower = string.lower(child.Name)
+					if string.find(cNameLower, "rune", 1, true)
+						or string.find(cNameLower, "luck", 1, true)
+						or string.find(cNameLower, "haste", 1, true)
+						or string.find(cNameLower, "storm", 1, true)
+						or string.find(cNameLower, "weight", 1, true)
+						or string.find(cNameLower, "fortune", 1, true)
+						or string.find(cNameLower, "detonation", 1, true)
+						or string.find(cNameLower, "preservation", 1, true)
+						or string.find(cNameLower, "warmth", 1, true)
+						or string.find(cNameLower, "excavator", 1, true)
+						or string.find(cNameLower, "colossus", 1, true) then
+						evaluateCandidate(child)
+					end
+				end
+			end
 
 			if bestObj and bestPart then
 				return { obj = bestObj, part = bestPart }

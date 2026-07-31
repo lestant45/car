@@ -798,13 +798,23 @@ local function initESP()
 			clearCategoryESP("dropped_crystal")
 		end
 
-		-- 3. Dropped Rune ESP Scan (workspace.DroppedRunes)
+		-- 3. Dropped Rune ESP Scan (workspace.DroppedRunes & direct workspace children)
 		if state.droppedRuneEspEnabled then
 			local drFolder = workspace:FindFirstChild("DroppedRunes")
 			if drFolder then
 				for _, drObj in ipairs(drFolder:GetChildren()) do
 					if not activeESPs[drObj] then
 						createBillboardForObject(drObj, drObj.Name, "dropped_rune", "#ffaa00")
+					end
+				end
+			end
+			for _, child in ipairs(workspace:GetChildren()) do
+				if child:IsA("Model") or child:IsA("BasePart") then
+					local cNameLower = string.lower(child.Name)
+					if string.find(cNameLower, "rune", 1, true) then
+						if not activeESPs[child] then
+							createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
+						end
 					end
 				end
 			end
@@ -959,6 +969,15 @@ local function initESP()
 
 		local drFolder = workspace:WaitForChild("DroppedRunes", 5)
 		if drFolder then hookFolderEvents(drFolder, "dropped_rune", false) end
+
+		workspace.ChildAdded:Connect(function(child)
+			if state.droppedRuneEspEnabled and string.find(string.lower(child.Name), "rune", 1, true) then
+				createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
+			end
+		end)
+		workspace.ChildRemoved:Connect(function(child)
+			removeBillboardForObject(child)
+		end)
 
 		Players.PlayerAdded:Connect(function(p)
 			p.CharacterAdded:Connect(function(char)
