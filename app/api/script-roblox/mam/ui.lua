@@ -957,32 +957,20 @@ local success, err = pcall(function()
 			if not isOpen then
 				ddData.isOpen = true
 
-				local mainPos = mainFrame.AbsolutePosition
 				local mainSize = mainFrame.AbsoluteSize
-				local btnPos = btn.AbsolutePosition
-				local btnSize = btn.AbsoluteSize
 
-				local menuWidth = math.max(160, btnSize.X + 20)
-				local menuHeight = 175
+				local menuWidth = 230
+				local menuHeight = math.clamp(mainSize.Y - 24, 300, 390)
 
-				local relX = (btnPos.X + btnSize.X - menuWidth) - mainPos.X
-				local relY = (btnPos.Y + btnSize.Y + 4) - mainPos.Y
-
-				if relY + menuHeight > mainSize.Y - 10 then
-					relY = (btnPos.Y - menuHeight - 4) - mainPos.Y
-				end
-
-				if relX < 10 then relX = 10 end
-				if relX + menuWidth > mainSize.X - 10 then
-					relX = mainSize.X - menuWidth - 10
-				end
+				local relX = mainSize.X - menuWidth - 10
+				local relY = 12
 
 				menu.Size = UDim2.new(0, menuWidth, 0, 0)
 				menu.Position = UDim2.new(0, relX, 0, relY)
 				menu.BackgroundTransparency = 1
 				menu.Visible = true
 
-				TweenService:Create(menu, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				TweenService:Create(menu, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 					Size = UDim2.new(0, menuWidth, 0, menuHeight),
 					BackgroundTransparency = 0.05
 				}):Play()
@@ -1029,13 +1017,13 @@ local success, err = pcall(function()
 
 			for i, opt in ipairs(optionsList) do
 				local optBtn = Instance.new("TextButton")
-				optBtn.Size = UDim2.new(1, 0, 0, 26)
+				optBtn.Size = UDim2.new(1, 0, 0, 30)
 				optBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 36)
 				optBtn.BorderSizePixel = 0
 				optBtn.Text = "     " .. opt
 				optBtn.TextColor3 = COLORS.textSecondary or Color3.fromRGB(140, 155, 185)
 				optBtn.Font = Enum.Font.GothamMedium
-				optBtn.TextSize = 11
+				optBtn.TextSize = 12
 				optBtn.TextXAlignment = Enum.TextXAlignment.Left
 				optBtn.ZIndex = 502
 				optBtn.LayoutOrder = i
@@ -1046,8 +1034,8 @@ local success, err = pcall(function()
 				optCorner.Parent = optBtn
 
 				local leftIndicator = Instance.new("Frame")
-				leftIndicator.Size = UDim2.new(0, 3, 0, 14)
-				leftIndicator.Position = UDim2.new(0, 4, 0.5, -7)
+				leftIndicator.Size = UDim2.new(0, 3, 0, 16)
+				leftIndicator.Position = UDim2.new(0, 4, 0.5, -8)
 				leftIndicator.BackgroundColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
 				leftIndicator.BorderSizePixel = 0
 				leftIndicator.Visible = false
@@ -1068,7 +1056,7 @@ local success, err = pcall(function()
 					if _G.HipHubUI.saveConfig then pcall(_G.HipHubUI.saveConfig) end
 				end)
 			end
-			scroll.CanvasSize = UDim2.new(0, 0, 0, #optionsList * 30 + 10)
+			scroll.CanvasSize = UDim2.new(0, 0, 0, #optionsList * 36 + 10)
 		end
 
 		rebuildMenu()
@@ -1172,7 +1160,7 @@ local success, err = pcall(function()
 			{ corner = CORNER.medium, stroke = true, strokeColor = COLORS.accentCyan, strokeThickness = 1, strokeTransparency = 0.45, gradient = true, gradientRotation = 180 })
 
 		local search = Instance.new("TextBox")
-		search.Size = UDim2.new(1, -36, 0, 28)
+		search.Size = UDim2.new(1, -40, 0, 28)
 		search.Position = UDim2.new(0, 8, 0, 8)
 		search.BackgroundColor3 = COLORS.glassPrimary
 		search.BackgroundTransparency = 0.15
@@ -1191,20 +1179,22 @@ local success, err = pcall(function()
 			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.6 })
 
 		local closeBtn = Instance.new("TextButton")
-		closeBtn.Size = UDim2.new(0, 20, 0, 20)
-		closeBtn.Position = UDim2.new(1, -26, 0, 12)
-		closeBtn.BackgroundColor3 = Color3.fromRGB(240, 70, 70)
-		closeBtn.BackgroundTransparency = 0.2
+		closeBtn.Size = UDim2.new(0, 24, 0, 24)
+		closeBtn.Position = UDim2.new(1, -30, 0, 10)
+		closeBtn.BackgroundTransparency = 1
 		closeBtn.Text = "✕"
-		closeBtn.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		closeBtn.TextColor3 = COLORS.textMuted or Color3.fromRGB(140, 155, 185)
 		closeBtn.Font = Enum.Font.GothamBold
-		closeBtn.TextSize = 11
+		closeBtn.TextSize = 13
 		closeBtn.ZIndex = 502
 		closeBtn.Parent = menu
 
-		local closeCorner = Instance.new("UICorner")
-		closeCorner.CornerRadius = UDim.new(1, 0)
-		closeCorner.Parent = closeBtn
+		closeBtn.MouseEnter:Connect(function()
+			closeBtn.TextColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
+		end)
+		closeBtn.MouseLeave:Connect(function()
+			closeBtn.TextColor3 = COLORS.textMuted or Color3.fromRGB(140, 155, 185)
+		end)
 
 		closeBtn.MouseButton1Click:Connect(function()
 			closeAllDropdowns()
