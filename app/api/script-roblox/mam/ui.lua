@@ -1001,10 +1001,12 @@ local success, err = pcall(function()
 				if oBtn and oInd then
 					if getSelectedFunc(opt) then
 						oBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-						oBtn.BackgroundColor3 = Color3.fromRGB(34, 40, 68)
+						oBtn.Font = Enum.Font.GothamBold
+						oBtn.BackgroundColor3 = Color3.fromRGB(32, 42, 72)
 						oInd.Visible = true
 					else
 						oBtn.TextColor3 = COLORS.textSecondary or Color3.fromRGB(140, 155, 185)
+						oBtn.Font = Enum.Font.GothamMedium
 						oBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 36)
 						oInd.Visible = false
 					end
@@ -1040,17 +1042,21 @@ local success, err = pcall(function()
 				optBtn.Parent = scroll
 
 				local optCorner = Instance.new("UICorner")
-				optCorner.CornerRadius = UDim.new(0, 4)
+				optCorner.CornerRadius = UDim.new(0, 6)
 				optCorner.Parent = optBtn
 
 				local leftIndicator = Instance.new("Frame")
 				leftIndicator.Size = UDim2.new(0, 3, 0, 14)
-				leftIndicator.Position = UDim2.new(0, 3, 0.5, -7)
+				leftIndicator.Position = UDim2.new(0, 4, 0.5, -7)
 				leftIndicator.BackgroundColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
 				leftIndicator.BorderSizePixel = 0
 				leftIndicator.Visible = false
 				leftIndicator.ZIndex = 503
 				leftIndicator.Parent = optBtn
+
+				local leftCorner = Instance.new("UICorner")
+				leftCorner.CornerRadius = UDim.new(0, 2)
+				leftCorner.Parent = leftIndicator
 
 				optionButtons[opt] = optBtn
 				optionIndicators[opt] = leftIndicator
@@ -1166,7 +1172,7 @@ local success, err = pcall(function()
 			{ corner = CORNER.medium, stroke = true, strokeColor = COLORS.accentCyan, strokeThickness = 1, strokeTransparency = 0.45, gradient = true, gradientRotation = 180 })
 
 		local search = Instance.new("TextBox")
-		search.Size = UDim2.new(1, -16, 0, 28)
+		search.Size = UDim2.new(1, -36, 0, 28)
 		search.Position = UDim2.new(0, 8, 0, 8)
 		search.BackgroundColor3 = COLORS.glassPrimary
 		search.BackgroundTransparency = 0.15
@@ -1183,6 +1189,26 @@ local success, err = pcall(function()
 
 		applyGlass(search,
 			{ corner = CORNER.small, stroke = true, strokeColor = COLORS.borderGlass, strokeThickness = 1, strokeTransparency = 0.6 })
+
+		local closeBtn = Instance.new("TextButton")
+		closeBtn.Size = UDim2.new(0, 20, 0, 20)
+		closeBtn.Position = UDim2.new(1, -26, 0, 12)
+		closeBtn.BackgroundColor3 = Color3.fromRGB(240, 70, 70)
+		closeBtn.BackgroundTransparency = 0.2
+		closeBtn.Text = "✕"
+		closeBtn.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+		closeBtn.Font = Enum.Font.GothamBold
+		closeBtn.TextSize = 11
+		closeBtn.ZIndex = 502
+		closeBtn.Parent = menu
+
+		local closeCorner = Instance.new("UICorner")
+		closeCorner.CornerRadius = UDim.new(1, 0)
+		closeCorner.Parent = closeBtn
+
+		closeBtn.MouseButton1Click:Connect(function()
+			closeAllDropdowns()
+		end)
 
 		local scroll = Instance.new("ScrollingFrame")
 		scroll.Size = UDim2.new(1, 0, 1, -44)

@@ -2549,8 +2549,82 @@ local success, err = pcall(function()
 			local selectedDigTweenSpeedText = "350 (Fast)"
 
 			-- Preference UI Collapsible Section
-			local autoDigSection = refs.createCollapsibleSection(mainFrameContent, "Automation Digging", 4.8)
-			local autoDigContainer = autoDigSection.Content
+			local isAutoDigCategoryExpanded = false
+			local autoDigCategoryCard = Instance.new("Frame")
+			autoDigCategoryCard.Size = UDim2.new(1, 0, 0, 36)
+			autoDigCategoryCard.BackgroundColor3 = COLORS.glassCard
+			autoDigCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			autoDigCategoryCard.BorderSizePixel = 0
+			autoDigCategoryCard.ClipsDescendants = true
+			autoDigCategoryCard.LayoutOrder = 4
+			autoDigCategoryCard.Parent = mainFrameContent
+
+			refs.applyGlass(autoDigCategoryCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7
+			})
+
+			-- Expandable Header Click Button
+			local adHeaderBtn = Instance.new("TextButton")
+			adHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+			adHeaderBtn.BackgroundTransparency = 1
+			adHeaderBtn.Text = ""
+			adHeaderBtn.Parent = autoDigCategoryCard
+
+			local adAccentBar = Instance.new("Frame")
+			adAccentBar.Size = UDim2.new(0, 3, 0, 18)
+			adAccentBar.Position = UDim2.new(0, 12, 0, 9)
+			adAccentBar.BackgroundColor3 = COLORS.accentCyan
+			adAccentBar.BorderSizePixel = 0
+			adAccentBar.Parent = adHeaderBtn
+
+			local adAccentCorner = Instance.new("UICorner")
+			adAccentCorner.CornerRadius = UDim.new(0, 2)
+			adAccentCorner.Parent = adAccentBar
+
+			local adTitle = Instance.new("TextLabel")
+			adTitle.Size = UDim2.new(1, -60, 1, 0)
+			adTitle.Position = UDim2.new(0, 24, 0, 0)
+			adTitle.BackgroundTransparency = 1
+			adTitle.Text = "Automation Digging"
+			adTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+			adTitle.Font = Enum.Font.GothamBold
+			adTitle.TextSize = 13
+			adTitle.TextXAlignment = Enum.TextXAlignment.Left
+			adTitle.Parent = adHeaderBtn
+
+			local adChevronLabel = Instance.new("TextLabel")
+			adChevronLabel.Size = UDim2.new(0, 24, 1, 0)
+			adChevronLabel.Position = UDim2.new(1, -30, 0, 0)
+			adChevronLabel.BackgroundTransparency = 1
+			adChevronLabel.Text = ">"
+			adChevronLabel.TextColor3 = COLORS.accentCyan
+			adChevronLabel.Font = Enum.Font.GothamBold
+			adChevronLabel.TextSize = 13
+			adChevronLabel.Parent = adHeaderBtn
+
+			-- Content Container inside Automation Digging Card
+			local autoDigContainer = Instance.new("Frame")
+			autoDigContainer.Size = UDim2.new(1, -24, 0, 165)
+			autoDigContainer.Position = UDim2.new(0, 12, 0, 42)
+			autoDigContainer.BackgroundTransparency = 1
+			autoDigContainer.Parent = autoDigCategoryCard
+
+			refs.applyListLayout(autoDigContainer, 6)
+
+			adHeaderBtn.MouseButton1Click:Connect(function()
+				isAutoDigCategoryExpanded = not isAutoDigCategoryExpanded
+				adChevronLabel.Text = isAutoDigCategoryExpanded and "v" or ">"
+				local targetHeight = isAutoDigCategoryExpanded and 215 or 36
+				local tween = TweenService:Create(autoDigCategoryCard,
+					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+					Size = UDim2.new(1, 0, 0, targetHeight)
+				})
+				tween:Play()
+			end)
 
 			-- Toggle Row 1: Enable Auto Digging
 			local adToggleRow, adToggleTrack, adToggleThumb = refs.createGlassToggle(autoDigContainer, "Auto Digging", 1)
@@ -3090,7 +3164,7 @@ local success, err = pcall(function()
 			autoPlaceCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 			autoPlaceCategoryCard.BorderSizePixel = 0
 			autoPlaceCategoryCard.ClipsDescendants = true
-			autoPlaceCategoryCard.LayoutOrder = 4
+			autoPlaceCategoryCard.LayoutOrder = 5
 			autoPlaceCategoryCard.Parent = mainFrameContent
 
 			refs.applyGlass(autoPlaceCategoryCard, {

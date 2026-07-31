@@ -24,9 +24,9 @@ local function initESP()
 		droppedCrystalEspEnabled = false,
 		droppedRuneEspEnabled = false,
 		playerEspEnabled = false,
-		selectedCrystalRarity = "All",
-		selectedCrystalSize = "All",
-		selectedBoulderRarity = "All",
+		selectedCrystalRarityFilters = { ["All"] = true },
+		selectedCrystalSizeFilters = { ["All"] = true },
+		selectedBoulderRarityFilters = { ["All"] = true },
 	}
 
 	local BOULDER_CONFIG = {
@@ -139,26 +139,53 @@ local function initESP()
 			"Mythical"
 		}
 		refs.registerDropdownMenu(filterBtn, filterMenu)
+
+		local function getSelectedCrystalRarityLabelText()
+			if not state.selectedCrystalRarityFilters or state.selectedCrystalRarityFilters["All"] or next(state.selectedCrystalRarityFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic" }) do
+				if state.selectedCrystalRarityFilters[r] then table.insert(list, r) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
 		local rarityBinder = refs.bindDropdown(
 			filterBtn, filterMenu, filterSearch, filterScroll, rarities,
-			function(opt) return (state.selectedCrystalRarity or "All") == opt end,
-			function(val)
-				state.selectedCrystalRarity = val
+			function(opt)
+				return state.selectedCrystalRarityFilters and state.selectedCrystalRarityFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					state.selectedCrystalRarityFilters = { ["All"] = true }
+				else
+					state.selectedCrystalRarityFilters["All"] = nil
+					state.selectedCrystalRarityFilters[opt] = not state.selectedCrystalRarityFilters[opt]
+					local hasAny = false
+					for _, v in pairs(state.selectedCrystalRarityFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then state.selectedCrystalRarityFilters["All"] = true end
+				end
 				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
 			end,
 			function()
-				filterLabel.Text = state.selectedCrystalRarity or "All"
+				filterLabel.Text = getSelectedCrystalRarityLabelText()
 			end
 		)
 
 		updateDropdownVisuals = function()
-			filterLabel.Text = state.selectedCrystalRarity or "All"
+			filterLabel.Text = getSelectedCrystalRarityLabelText()
 			rarityBinder.updateOptionVisuals()
 		end
 
 		-- 🔽 Crystal Size Filter Dropdown Card
 		local sizeFilterCard, sizeDropBtn, sizeDropLabel, sizeMenuFrame, sizeSearch, sizeScroll = refs.createGlassDropdown(
-			filterSection.Content, "Crystal Size Filter", (state.selectedCrystalSize or "All"), 2
+			filterSection.Content, "Crystal Size Filter", "All", 2
 		)
 
 		local sizes = {
@@ -170,26 +197,53 @@ local function initESP()
 			"Colossal"
 		}
 		refs.registerDropdownMenu(sizeDropBtn, sizeMenuFrame)
+
+		local function getSelectedCrystalSizeLabelText()
+			if not state.selectedCrystalSizeFilters or state.selectedCrystalSizeFilters["All"] or next(state.selectedCrystalSizeFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, s in ipairs({ "Small", "Medium", "Large", "Titan", "Colossal" }) do
+				if state.selectedCrystalSizeFilters[s] then table.insert(list, s) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
 		local sizeBinder = refs.bindDropdown(
 			sizeDropBtn, sizeMenuFrame, sizeSearch, sizeScroll, sizes,
-			function(opt) return (state.selectedCrystalSize or "All") == opt end,
-			function(val)
-				state.selectedCrystalSize = val
+			function(opt)
+				return state.selectedCrystalSizeFilters and state.selectedCrystalSizeFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					state.selectedCrystalSizeFilters = { ["All"] = true }
+				else
+					state.selectedCrystalSizeFilters["All"] = nil
+					state.selectedCrystalSizeFilters[opt] = not state.selectedCrystalSizeFilters[opt]
+					local hasAny = false
+					for _, v in pairs(state.selectedCrystalSizeFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then state.selectedCrystalSizeFilters["All"] = true end
+				end
 				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
 			end,
 			function()
-				sizeDropLabel.Text = state.selectedCrystalSize or "All"
+				sizeDropLabel.Text = getSelectedCrystalSizeLabelText()
 			end
 		)
 
 		updateSizeDropdownVisuals = function()
-			sizeDropLabel.Text = state.selectedCrystalSize or "All"
+			sizeDropLabel.Text = getSelectedCrystalSizeLabelText()
 			sizeBinder.updateOptionVisuals()
 		end
 
 		-- 🔽 Boulder Rarity Filter Dropdown Card
 		local bFilterCard, bFilterBtn, bFilterLabel, bFilterMenu, bFilterSearch, bFilterScroll = refs.createGlassDropdown(
-			filterSection.Content, "Boulder Rarity Filter", (state.selectedBoulderRarity or "All"), 3
+			filterSection.Content, "Boulder Rarity Filter", "All", 3
 		)
 
 		local boulderRarities = {
@@ -201,20 +255,47 @@ local function initESP()
 			"Legendary"
 		}
 		refs.registerDropdownMenu(bFilterBtn, bFilterMenu)
+
+		local function getSelectedBoulderRarityLabelText()
+			if not state.selectedBoulderRarityFilters or state.selectedBoulderRarityFilters["All"] or next(state.selectedBoulderRarityFilters) == nil then
+				return "All"
+			end
+			local list = {}
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary" }) do
+				if state.selectedBoulderRarityFilters[r] then table.insert(list, r) end
+			end
+			if #list == 0 then return "All" end
+			if #list == 1 then return list[1] end
+			if #list == 2 then return list[1] .. ", " .. list[2] end
+			return tostring(#list) .. " Selected"
+		end
+
 		local bRarityBinder = refs.bindDropdown(
 			bFilterBtn, bFilterMenu, bFilterSearch, bFilterScroll, boulderRarities,
-			function(opt) return (state.selectedBoulderRarity or "All") == opt end,
-			function(val)
-				state.selectedBoulderRarity = val
+			function(opt)
+				return state.selectedBoulderRarityFilters and state.selectedBoulderRarityFilters[opt] == true
+			end,
+			function(opt)
+				if opt == "All" then
+					state.selectedBoulderRarityFilters = { ["All"] = true }
+				else
+					state.selectedBoulderRarityFilters["All"] = nil
+					state.selectedBoulderRarityFilters[opt] = not state.selectedBoulderRarityFilters[opt]
+					local hasAny = false
+					for _, v in pairs(state.selectedBoulderRarityFilters) do
+						if v then hasAny = true break end
+					end
+					if not hasAny then state.selectedBoulderRarityFilters["All"] = true end
+				end
 				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
 			end,
 			function()
-				bFilterLabel.Text = state.selectedBoulderRarity or "All"
+				bFilterLabel.Text = getSelectedBoulderRarityLabelText()
 			end
 		)
 
 		updateBoulderDropdownVisuals = function()
-			bFilterLabel.Text = state.selectedBoulderRarity or "All"
+			bFilterLabel.Text = getSelectedBoulderRarityLabelText()
 			bRarityBinder.updateOptionVisuals()
 		end
 
@@ -379,63 +460,39 @@ local function initESP()
 	end
 
 	local function crystalMatchesRarity(crystalObj)
-		local filter = state.selectedCrystalRarity or "All"
-		if filter == "All" or filter == "" then return true end
+		local filters = state.selectedCrystalRarityFilters or { ["All"] = true }
+		if filters["All"] or next(filters) == nil then return true end
 
 		local nameLower = string.lower(crystalObj.Name)
-		local filterLower = string.lower(filter)
+		local attr = crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("Tier") or crystalObj:GetAttribute("rarity") or crystalObj:GetAttribute("tier")
+		local attrStr = attr and string.lower(tostring(attr)) or ""
 
 		local filterMap = {
 			["common"] = {"_t1", "t1", "common"},
-			["t1 (common)"] = {"_t1", "t1", "common"},
-			["t1"] = {"_t1", "t1", "common"},
-
 			["uncommon"] = {"_t2", "t2", "uncommon"},
-			["t2 (uncommon)"] = {"_t2", "t2", "uncommon"},
-			["t2"] = {"_t2", "t2", "uncommon"},
-
 			["rare"] = {"_t3", "t3", "rare"},
-			["t3 (rare)"] = {"_t3", "t3", "rare"},
-			["t3"] = {"_t3", "t3", "rare"},
-
 			["epic"] = {"_t4", "t4", "epic"},
-			["t4 (epic)"] = {"_t4", "t4", "epic"},
-			["t4"] = {"_t4", "t4", "epic"},
-
 			["legendary"] = {"_t5", "t5", "legendary"},
-			["t5 (legendary)"] = {"_t5", "t5", "legendary"},
-			["t5"] = {"_t5", "t5", "legendary"},
-
-			["mythical"] = {"_t6", "t6", "mythical", "mythic"},
 			["mythic"] = {"_t6", "t6", "mythical", "mythic"},
-			["t6 (mythical)"] = {"_t6", "t6", "mythical", "mythic"},
-			["t6 (mythic)"] = {"_t6", "t6", "mythical", "mythic"},
-			["t6"] = {"_t6", "t6", "mythical", "mythic"},
+			["mythical"] = {"_t6", "t6", "mythical", "mythic"},
 		}
 
-		local keywords = filterMap[filterLower]
-		if keywords then
-			for _, kw in ipairs(keywords) do
-				if string.find(nameLower, kw, 1, true) then
-					return true
+		for r, isSel in pairs(filters) do
+			if isSel == true then
+				local filterLower = string.lower(tostring(r))
+				local keywords = filterMap[filterLower]
+				if keywords then
+					for _, kw in ipairs(keywords) do
+						if string.find(nameLower, kw, 1, true) then return true end
+					end
 				end
-			end
-		end
-
-		if string.find(nameLower, filterLower, 1, true) then
-			return true
-		end
-
-		local attr = crystalObj:GetAttribute("Rarity") or crystalObj:GetAttribute("Tier") or crystalObj:GetAttribute("rarity") or crystalObj:GetAttribute("tier")
-		if attr then
-			local attrStr = string.lower(tostring(attr))
-			if string.find(attrStr, filterLower, 1, true) then
-				return true
-			end
-			if keywords then
-				for _, kw in ipairs(keywords) do
-					if string.find(attrStr, kw, 1, true) then
-						return true
+				if string.find(nameLower, filterLower, 1, true) then return true end
+				if attrStr ~= "" then
+					if string.find(attrStr, filterLower, 1, true) then return true end
+					if keywords then
+						for _, kw in ipairs(keywords) do
+							if string.find(attrStr, kw, 1, true) then return true end
+						end
 					end
 				end
 			end
@@ -445,46 +502,36 @@ local function initESP()
 	end
 
 	local function crystalMatchesSize(crystalObj)
-		local filter = state.selectedCrystalSize or "All"
-		if filter == "All" or filter == "" then return true end
+		local filters = state.selectedCrystalSizeFilters or { ["All"] = true }
+		if filters["All"] or next(filters) == nil then return true end
 
-		local filterLower = string.lower(filter)
 		local nameLower = string.lower(crystalObj.Name)
-
-		if string.find(nameLower, filterLower, 1, true) then
-			return true
-		end
-
 		local attr = crystalObj:GetAttribute("Size") or crystalObj:GetAttribute("Category") or crystalObj:GetAttribute("size") or crystalObj:GetAttribute("category")
-		if attr then
-			local attrStr = string.lower(tostring(attr))
-			if string.find(attrStr, filterLower, 1, true) then
-				return true
-			end
-		end
+		local attrStr = attr and string.lower(tostring(attr)) or ""
 
 		local sizeVec = nil
 		if crystalObj:IsA("BasePart") then
 			sizeVec = crystalObj.Size
 		elseif crystalObj:IsA("Model") then
 			local primary = crystalObj.PrimaryPart or crystalObj:FindFirstChildWhichIsA("BasePart")
-			if primary then
-				sizeVec = primary.Size
-			end
+			if primary then sizeVec = primary.Size end
 		end
 
-		if sizeVec then
-			local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
-			if filterLower == "colossal" and maxDim >= 12 then
-				return true
-			elseif filterLower == "titan" and (maxDim >= 7 and maxDim < 12) then
-				return true
-			elseif filterLower == "large" and (maxDim >= 4.5 and maxDim < 7) then
-				return true
-			elseif filterLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then
-				return true
-			elseif filterLower == "small" and maxDim < 1.8 then
-				return true
+		for s, isSel in pairs(filters) do
+			if isSel == true then
+				local filterLower = string.lower(tostring(s))
+				if string.find(nameLower, filterLower, 1, true) then return true end
+				if attrStr ~= "" and string.find(attrStr, filterLower, 1, true) then return true end
+
+				if sizeVec then
+					local maxDim = math.max(sizeVec.X, sizeVec.Y, sizeVec.Z)
+					if filterLower == "colossal" and maxDim >= 12 then return true
+					elseif filterLower == "titan" and (maxDim >= 7 and maxDim < 12) then return true
+					elseif filterLower == "large" and (maxDim >= 4.5 and maxDim < 7) then return true
+					elseif filterLower == "medium" and (maxDim >= 1.8 and maxDim < 4.5) then return true
+					elseif filterLower == "small" and maxDim < 1.8 then return true
+					end
+				end
 			end
 		end
 
@@ -496,26 +543,28 @@ local function initESP()
 	end
 
 	local function boulderMatchesRarity(boulderObj)
-		local filter = state.selectedBoulderRarity or "All"
-		if filter == "All" or filter == "" or string.lower(filter) == "all" then return true end
+		local filters = state.selectedBoulderRarityFilters or { ["All"] = true }
+		if filters["All"] or next(filters) == nil then return true end
 
 		local nameLower = string.lower(boulderObj.Name)
 		local parentLower = boulderObj.Parent and string.lower(boulderObj.Parent.Name) or ""
-		local filterLower = string.lower(filter)
-
-		for bName, bData in pairs(BOULDER_CONFIG) do
-			local bNameLower = string.lower(bName)
-			if string.find(nameLower, bNameLower, 1, true) or string.find(parentLower, bNameLower, 1, true) then
-				if string.lower(bData.rarity) == filterLower then
-					return true
-				end
-			end
-		end
-
 		local attr = boulderObj:GetAttribute("Rarity") or boulderObj:GetAttribute("rarity")
 			or (boulderObj.Parent and (boulderObj.Parent:GetAttribute("Rarity") or boulderObj.Parent:GetAttribute("rarity")))
-		if attr and string.lower(tostring(attr)) == filterLower then
-			return true
+		local attrStr = attr and string.lower(tostring(attr)) or ""
+
+		for r, isSel in pairs(filters) do
+			if isSel == true then
+				local filterLower = string.lower(tostring(r))
+				for bName, bData in pairs(BOULDER_CONFIG) do
+					local bNameLower = string.lower(bName)
+					if string.find(nameLower, bNameLower, 1, true) or string.find(parentLower, bNameLower, 1, true) then
+						if string.lower(bData.rarity) == filterLower then
+							return true
+						end
+					end
+				end
+				if attrStr == filterLower then return true end
+			end
 		end
 
 		return false
@@ -542,7 +591,11 @@ local function initESP()
 			end
 			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%dm]</font>", displayName, distanceMeters or 0)
 		elseif category == "dropped_rune" then
-			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%dm]</font>", obj.Name, distanceMeters or 0)
+			local displayName = obj.Name
+			if not string.find(string.lower(displayName), "rune", 1, true) then
+				displayName = displayName .. " Rune"
+			end
+			return string.format("<font color='#ffaa00'><b>📜 %s</b></font>\n<font color='#ffcc00'>[RUNE]</font> <font color='#e0f0ff'>[%dm]</font>", displayName, distanceMeters or 0)
 		elseif category == "boulder" then
 			local name = obj.Name
 			local nameLower = string.lower(name)
@@ -666,9 +719,9 @@ local function initESP()
 		local targetPart = getTargetPart(obj)
 		if not targetPart then return end
 
-		local isCardCategory = (category == "crystal" or category == "dropped_crystal" or category == "boulder")
-		local bWidth = isCardCategory and 190 or 150
-		local bHeight = isCardCategory and 95 or 28
+		local isCardCategory = (category == "crystal" or category == "dropped_crystal" or category == "boulder" or category == "dropped_rune")
+		local bWidth = (category == "dropped_rune") and 160 or (isCardCategory and 190 or 150)
+		local bHeight = (category == "dropped_rune") and 48 or (isCardCategory and 95 or 28)
 
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "ESP_" .. tostring(obj.Name)
@@ -798,9 +851,9 @@ local function initESP()
 			clearCategoryESP("dropped_crystal")
 		end
 
-		-- 3. Dropped Rune ESP Scan (workspace.DroppedRunes & direct workspace children)
+		-- 3. Dropped Rune ESP Scan (workspace.DroppedRunes, workspace.Runes & direct workspace children)
 		if state.droppedRuneEspEnabled then
-			local drFolder = workspace:FindFirstChild("DroppedRunes")
+			local drFolder = workspace:FindFirstChild("DroppedRunes") or workspace:FindFirstChild("Runes")
 			if drFolder then
 				for _, drObj in ipairs(drFolder:GetChildren()) do
 					if not activeESPs[drObj] then
@@ -811,7 +864,19 @@ local function initESP()
 			for _, child in ipairs(workspace:GetChildren()) do
 				if child:IsA("Model") or child:IsA("BasePart") then
 					local cNameLower = string.lower(child.Name)
-					if string.find(cNameLower, "rune", 1, true) then
+					local isRuneObj = string.find(cNameLower, "rune", 1, true) ~= nil
+						or string.find(cNameLower, "luck", 1, true) ~= nil
+						or string.find(cNameLower, "haste", 1, true) ~= nil
+						or string.find(cNameLower, "storm", 1, true) ~= nil
+						or string.find(cNameLower, "weight", 1, true) ~= nil
+						or string.find(cNameLower, "fortune", 1, true) ~= nil
+						or string.find(cNameLower, "detonation", 1, true) ~= nil
+						or string.find(cNameLower, "preservation", 1, true) ~= nil
+						or string.find(cNameLower, "warmth", 1, true) ~= nil
+						or string.find(cNameLower, "excavator", 1, true) ~= nil
+						or string.find(cNameLower, "colossus", 1, true) ~= nil
+
+					if isRuneObj then
 						if not activeESPs[child] then
 							createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
 						end
@@ -971,8 +1036,23 @@ local function initESP()
 		if drFolder then hookFolderEvents(drFolder, "dropped_rune", false) end
 
 		workspace.ChildAdded:Connect(function(child)
-			if state.droppedRuneEspEnabled and string.find(string.lower(child.Name), "rune", 1, true) then
-				createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
+			if state.droppedRuneEspEnabled then
+				local cNameLower = string.lower(child.Name)
+				local isRuneObj = string.find(cNameLower, "rune", 1, true) ~= nil
+					or string.find(cNameLower, "luck", 1, true) ~= nil
+					or string.find(cNameLower, "haste", 1, true) ~= nil
+					or string.find(cNameLower, "storm", 1, true) ~= nil
+					or string.find(cNameLower, "weight", 1, true) ~= nil
+					or string.find(cNameLower, "fortune", 1, true) ~= nil
+					or string.find(cNameLower, "detonation", 1, true) ~= nil
+					or string.find(cNameLower, "preservation", 1, true) ~= nil
+					or string.find(cNameLower, "warmth", 1, true) ~= nil
+					or string.find(cNameLower, "excavator", 1, true) ~= nil
+					or string.find(cNameLower, "colossus", 1, true) ~= nil
+
+				if isRuneObj then
+					createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
+				end
 			end
 		end)
 		workspace.ChildRemoved:Connect(function(child)
@@ -1036,9 +1116,9 @@ local function initESP()
 			if newState.droppedCrystalEspEnabled ~= nil then state.droppedCrystalEspEnabled = (newState.droppedCrystalEspEnabled == true) end
 			if newState.droppedRuneEspEnabled ~= nil then state.droppedRuneEspEnabled = (newState.droppedRuneEspEnabled == true) end
 			if newState.playerEspEnabled ~= nil then state.playerEspEnabled = (newState.playerEspEnabled == true) end
-			if newState.selectedCrystalRarity ~= nil then state.selectedCrystalRarity = tostring(newState.selectedCrystalRarity) end
-			if newState.selectedCrystalSize ~= nil then state.selectedCrystalSize = tostring(newState.selectedCrystalSize) end
-			if newState.selectedBoulderRarity ~= nil then state.selectedBoulderRarity = tostring(newState.selectedBoulderRarity) end
+			if newState.selectedCrystalRarityFilters ~= nil then state.selectedCrystalRarityFilters = newState.selectedCrystalRarityFilters end
+			if newState.selectedCrystalSizeFilters ~= nil then state.selectedCrystalSizeFilters = newState.selectedCrystalSizeFilters end
+			if newState.selectedBoulderRarityFilters ~= nil then state.selectedBoulderRarityFilters = newState.selectedBoulderRarityFilters end
 
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
 			if updateBoulderEspVisuals then updateBoulderEspVisuals() end
