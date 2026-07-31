@@ -2590,15 +2590,13 @@ local success, err = pcall(function()
 				matBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine with Material Detection & Flying Tween
-			local currentDigPos = Vector3.new(17.36946868688964844, 40.940834045410156, 949.3936767578125)
-
+			-- Auto-Digging Loop Engine with Material Detection & Stationary Hover
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
 				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil"
 			}
 
-			local function executeGridDiggingPattern(getIsActiveFunc, pickaxeName)
+			local function performSmartAutoDig(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2606,7 +2604,7 @@ local success, err = pcall(function()
 
 				-- Helper to detect nearest diggable material part (RealisticMaterials, Asphalt, Brick, Pavement, Salt, etc.)
 				local function findNearbyDigMaterialPart(pos, maxDist, targetMatFilter)
-					maxDist = maxDist or 35
+					maxDist = maxDist or 150
 					local bestPart = nil
 					local bestDist = maxDist
 					local filterLower = (targetMatFilter and targetMatFilter ~= "All") and string.lower(targetMatFilter) or nil
@@ -2621,7 +2619,6 @@ local success, err = pcall(function()
 						workspace:FindFirstChild("Map"),
 						workspace:FindFirstChild("Nodes"),
 						workspace:FindFirstChild("Rocks"),
-						workspace
 					}
 
 					for _, folder in ipairs(folders) do
@@ -2659,7 +2656,7 @@ local success, err = pcall(function()
 										end
 									end
 
-									if isMatch then
+									if isMatch and obj.Position.Y >= 10 then
 										local dist = (obj.Position - pos).Magnitude
 										if dist < bestDist then
 											bestDist = dist
@@ -2674,16 +2671,30 @@ local success, err = pcall(function()
 					return bestPart
 				end
 
-				-- Helper to attach/maintain hover flight and move rapidly to target position
-				local function moveToPositionAndHover(targetPos)
-					if not hrp or not hrp.Parent then return end
-
-					-- Ensure minimum Y position is 10 for digging movement/hover
-					if targetPos.Y < 10 then
-						targetPos = Vector3.new(targetPos.X, 10, targetPos.Z)
+				-- Ensure pickaxe tool is equipped
+				local heldTool = char:FindFirstChildWhichIsA("Tool")
+				if not heldTool then
+					local backpack = player and player:FindFirstChild("Backpack")
+					if backpack then
+						for _, tool in ipairs(backpack:GetChildren()) do
+							if tool:IsA("Tool") then
+								hum:EquipTool(tool)
+								task.wait(0.05)
+								break
+							end
+						end
 					end
+				end
 
-					-- Ensure BodyVelocity hover is attached
+				-- Search for closest matching material block near character
+				local matObj = findNearbyDigMaterialPart(hrp.Position, 150, selectedDigMaterial)
+				local actualDigPos = nil
+
+				if matObj and matObj.Parent then
+					actualDigPos = matObj.Position
+					local targetHover = Vector3.new(actualDigPos.X, math.max(actualDigPos.Y + 2.5, 10), actualDigPos.Z)
+
+					-- Attach BodyVelocity hover to keep player position steady near target block
 					local flyHold = hrp:FindFirstChild("HipHubFarmFly")
 					if not flyHold then
 						flyHold = Instance.new("BodyVelocity")
@@ -2693,104 +2704,45 @@ local success, err = pcall(function()
 						flyHold.Parent = hrp
 					end
 
-					-- Move character to target position at ultra-high speed (450 studs/sec)
-					local dist = (hrp.Position - targetPos).Magnitude
-					if dist > 0.5 then
-						local timeToMove = math.clamp(dist / 450, 0.01, 0.2)
+					local dist = (hrp.Position - targetHover).Magnitude
+					if dist > 1.0 then
+						local timeToMove = math.clamp(dist / 350, 0.01, 0.3)
 						local tw = TweenService:Create(hrp, TweenInfo.new(timeToMove, Enum.EasingStyle.Linear), {
-							CFrame = CFrame.new(targetPos)
+							CFrame = CFrame.new(targetHover)
 						})
 						tw:Play()
 						tw.Completed:Wait()
 					else
-						hrp.CFrame = CFrame.new(targetPos)
+						hrp.CFrame = CFrame.new(targetHover)
 					end
+				else
+					-- Fallback: Dig right in front of character facing position without drifting
+					actualDigPos = hrp.Position + (hrp.CFrame.LookVector * 4)
 				end
 
-				-- Helper to ensure pickaxe is equipped
-				local function ensurePickaxeEquipped()
-					if not char or not char.Parent then return end
-					local heldTool = char:FindFirstChildWhichIsA("Tool")
-					if not heldTool then
-						local backpack = player and player:FindFirstChild("Backpack")
-						if backpack then
-							for _, tool in ipairs(backpack:GetChildren()) do
-								if tool:IsA("Tool") then
-									hum:EquipTool(tool)
-									task.wait(0.05)
-									break
-								end
-							end
-						end
-					end
+				if actualDigPos.Y < 10 then
+					actualDigPos = Vector3.new(actualDigPos.X, 10, actualDigPos.Z)
 				end
 
-				-- Helper to perform rapid-fire dig at position with Material detection
-				local function performDigAtPos(targetPos, digTimes)
-					if not getIsActiveFunc() then return end
-
-					-- Check if a material part (Asphalt, Brick, Pavement, Salt, etc.) exists near targetPos or character
-					local actualDigPos = targetPos
-					local matObj = findNearbyDigMaterialPart(targetPos, 35, selectedDigMaterial)
-					if not matObj then
-						matObj = findNearbyDigMaterialPart(hrp.Position, 35, selectedDigMaterial)
-					end
-
-					if matObj and matObj.Parent then
-						actualDigPos = matObj.Position
-					end
-
-					moveToPositionAndHover(actualDigPos)
-					ensurePickaxeEquipped()
-
-					local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-					local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
-
-					for i = 1, (digTimes or 2) do
-						if not getIsActiveFunc() then break end
-						if digRem then
-							pcall(function()
-								digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", actualDigPos)
-							end)
-						end
-						task.wait(0.04)
-					end
+				-- Fire Dig remote
+				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+				local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
+				if digRem then
+					pcall(function()
+						digRem:FireServer(pickaxeName or selectedDigPickaxe or "VolcanoBasalt", actualDigPos)
+					end)
 				end
-
-				-- Phase 1: Dig twice, then raise the Y position by 3, repeat 5 times
-				for step = 1, 5 do
-					if not getIsActiveFunc() then return end
-					performDigAtPos(currentDigPos, 2)
-					currentDigPos = currentDigPos + Vector3.new(0, 3, 0)
-				end
-
-				-- Phase 2: Then decrement X position by 7 (forward into mountain) and dig twice
-				if not getIsActiveFunc() then return end
-				currentDigPos = currentDigPos - Vector3.new(7, 0, 0)
-				performDigAtPos(currentDigPos, 2)
-
-				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
-				for step = 1, 5 do
-					if not getIsActiveFunc() then return end
-					performDigAtPos(currentDigPos, 2)
-					currentDigPos = currentDigPos - Vector3.new(0, 3, 0)
-				end
-
-				-- Phase 4: Then, decrement X position by 7 (forward into mountain) and dig twice
-				if not getIsActiveFunc() then return end
-				currentDigPos = currentDigPos - Vector3.new(7, 0, 0)
-				performDigAtPos(currentDigPos, 2)
 			end
 
 			task.spawn(function()
 				while true do
-					task.wait(0.05)
+					task.wait(0.08)
 					if autoDigEnabled then
 						local char = player and player.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
 							local ok, err = pcall(function()
-								executeGridDiggingPattern(function() return autoDigEnabled end, selectedDigPickaxe)
+								performSmartAutoDig(function() return autoDigEnabled end, selectedDigPickaxe)
 							end)
 							if not ok and err then
 								warn("[HipHub AutoDig Error]:", err)
