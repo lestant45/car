@@ -821,7 +821,14 @@ local success, err = pcall(function()
 			end
 
 			local lastCFrame = myHrp.CFrame
+			if lastCFrame.Position.Y < 10 then
+				lastCFrame = CFrame.new(lastCFrame.Position.X, 10, lastCFrame.Position.Z) * (lastCFrame - lastCFrame.Position)
+			end
+
 			local shopCFrame = getShopCFrame()
+			if shopCFrame and shopCFrame.Position.Y < 10 then
+				shopCFrame = CFrame.new(shopCFrame.Position.X, 10, shopCFrame.Position.Z) * (shopCFrame - shopCFrame.Position)
+			end
 
 			if shopCFrame then
 				-- Attach hover flight during sell travel
@@ -2105,11 +2112,14 @@ local success, err = pcall(function()
 				if matchesRarity and matchesSize and matchesValue then
 					local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 					if targetPart then
-						local dist = (myPos - targetPart.Position).Magnitude
-						if dist < shortestDist then
-							shortestDist = dist
-							bestObj = child
-							bestPart = targetPart
+						-- Ignore any crystal under Y position 10
+						if targetPart.Position.Y >= 10 then
+							local dist = (myPos - targetPart.Position).Magnitude
+							if dist < shortestDist then
+								shortestDist = dist
+								bestObj = child
+								bestPart = targetPart
+							end
 						end
 					end
 				end
@@ -2290,6 +2300,12 @@ local success, err = pcall(function()
 		local activeFarmTween = nil
 		tweenToTargetCFrame = function(myHrp, targetCFrame, speed)
 			if not myHrp or not targetCFrame then return end
+
+			-- Clamp target Y position so movement never goes below Y = 10
+			if targetCFrame.Position.Y < 10 then
+				local pos = targetCFrame.Position
+				targetCFrame = CFrame.new(pos.X, 10, pos.Z) * (targetCFrame - pos)
+			end
 			local spd = speed or 350
 			local dist = (myHrp.Position - targetCFrame.Position).Magnitude
 			if dist <= 3 then
@@ -2374,8 +2390,12 @@ local success, err = pcall(function()
 								flyHold.Parent = myHrp
 							end
 
-							-- Fly & levitate 6.5 studs above the target crystal while picking it up
-							local farmTargetCFrame = part.CFrame + Vector3.new(0, 6.5, 0)
+							-- Fly & levitate 6.5 studs above the target crystal while picking it up (ensuring minimum Y is 10)
+							local farmTargetPos = part.Position + Vector3.new(0, 6.5, 0)
+							if farmTargetPos.Y < 10 then
+								farmTargetPos = Vector3.new(farmTargetPos.X, 10, farmTargetPos.Z)
+							end
+							local farmTargetCFrame = CFrame.new(farmTargetPos)
 
 							-- Tween first to middle top of mountain (x=35, y=225, z=715) if starting from base/shop or far away (> 75 studs)
 							local currentDist = (myHrp.Position - farmTargetCFrame.Position).Magnitude
@@ -2657,6 +2677,11 @@ local success, err = pcall(function()
 				-- Helper to attach/maintain hover flight and move rapidly to target position
 				local function moveToPositionAndHover(targetPos)
 					if not hrp or not hrp.Parent then return end
+
+					-- Ensure minimum Y position is 10 for digging movement/hover
+					if targetPos.Y < 10 then
+						targetPos = Vector3.new(targetPos.X, 10, targetPos.Z)
+					end
 
 					-- Ensure BodyVelocity hover is attached
 					local flyHold = hrp:FindFirstChild("HipHubFarmFly")
