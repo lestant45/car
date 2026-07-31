@@ -2218,10 +2218,26 @@ local success, err = pcall(function()
 				for _, child in ipairs(container:GetChildren()) do
 					if child:IsA("Tool") then
 						local hasTier = child:GetAttribute("Tier") ~= nil
-						local wKg = child:GetAttribute("WeightKg")
-						if hasTier or wKg ~= nil then
+						local wKg = child:GetAttribute("WeightKg") or child:GetAttribute("Weight")
+						local tNameLower = string.lower(child.Name)
+						local isCrystalTool = hasTier or wKg ~= nil
+							or string.find(tNameLower, "crystal", 1, true)
+							or string.find(tNameLower, "kg", 1, true)
+							or string.find(tNameLower, "%[s%]")
+							or string.find(tNameLower, "%[m%]")
+							or string.find(tNameLower, "%[l%]")
+							or string.find(tNameLower, "%[xl%]")
+
+						if isCrystalTool then
 							crystalCount = crystalCount + 1
-							totalWeight = totalWeight + (wKg or 0)
+							local toolWeight = wKg
+							if not toolWeight then
+								local matchKg = string.match(child.Name, "(%d+%.?%d*)%s*kg")
+								if matchKg then
+									toolWeight = tonumber(matchKg)
+								end
+							end
+							totalWeight = totalWeight + (toolWeight or 1)
 						end
 					end
 				end
@@ -2232,8 +2248,8 @@ local success, err = pcall(function()
 				scanContainer(p.Character)
 			end
 
-			-- If total weight exceeds or equals CarryWeight capacity, or if crystalCount > 0 and weight is at limit
-			if carryCap > 0 and totalWeight >= carryCap then
+			-- If total weight exceeds or equals CarryWeight capacity, or within 0.2 kg of capacity
+			if carryCap > 0 and (totalWeight >= carryCap or (carryCap - totalWeight) <= 0.2) then
 				return true
 			end
 
@@ -2458,7 +2474,7 @@ local success, err = pcall(function()
 
 			-- Content Container inside Auto Place Crystal Card
 			local apContentContainer = Instance.new("Frame")
-			apContentContainer.Size = UDim2.new(1, -24, 0, 160)
+			apContentContainer.Size = UDim2.new(1, -24, 0, 200)
 			apContentContainer.Position = UDim2.new(0, 12, 0, 42)
 			apContentContainer.BackgroundTransparency = 1
 			apContentContainer.Parent = autoPlaceCategoryCard
@@ -2468,7 +2484,7 @@ local success, err = pcall(function()
 			apHeaderBtn.MouseButton1Click:Connect(function()
 				isAutoPlaceCategoryExpanded = not isAutoPlaceCategoryExpanded
 				apChevronLabel.Text = isAutoPlaceCategoryExpanded and "v" or ">"
-				local targetHeight = isAutoPlaceCategoryExpanded and 175 or 36
+				local targetHeight = isAutoPlaceCategoryExpanded and 215 or 36
 				local tween = TweenService:Create(autoPlaceCategoryCard,
 					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 					Size = UDim2.new(1, 0, 0, targetHeight)
@@ -2500,10 +2516,32 @@ local success, err = pcall(function()
 				if refs.saveConfig then pcall(refs.saveConfig) end
 			end)
 
-			-- 2. Place Rarity Filter Dropdown
+			-- 2. Place by Highest Luck Toggle
+			local placeByHighestLuckEnabled = true
+			local hlRow, hlTrack, hlThumb = refs.createGlassToggle(apContentContainer, "Place by Highest Luck", 2)
+			local updatePlaceHighestLuckVisuals = function()
+				if placeByHighestLuckEnabled then
+					TweenService:Create(hlTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+					TweenService:Create(hlThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+						{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				else
+					TweenService:Create(hlTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+					TweenService:Create(hlThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+						{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				end
+			end
+			updatePlaceHighestLuckVisuals()
+
+			hlTrack.MouseButton1Click:Connect(function()
+				placeByHighestLuckEnabled = not placeByHighestLuckEnabled
+				updatePlaceHighestLuckVisuals()
+				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
+
+			-- 3. Place Rarity Filter Dropdown
 			local autoPlaceRarityFilters = { ["All"] = true }
 			local apRarCard, apRarDropBtn, apRarDropLabel, apRarMenuFrame, apRarSearch, apRarScroll = refs.createGlassDropdown(
-				apContentContainer, "Place Rarity Filter", "All", 2
+				apContentContainer, "Place Rarity Filter", "All", 3
 			)
 			apRarCard.Size = UDim2.new(1, 0, 0, 32)
 
@@ -2551,7 +2589,7 @@ local success, err = pcall(function()
 				apRarityBinder.updateOptionVisuals()
 			end
 
-			-- 3. Action Button: Place Crystals Now
+			-- 4. Action Button: Place Crystals Now
 			local apActionBtn = Instance.new("TextButton")
 			apActionBtn.Size = UDim2.new(1, 0, 0, 32)
 			apActionBtn.BackgroundColor3 = COLORS.accentCyan
@@ -2560,7 +2598,7 @@ local success, err = pcall(function()
 			apActionBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
 			apActionBtn.Font = Enum.Font.GothamBold
 			apActionBtn.TextSize = 12
-			apActionBtn.LayoutOrder = 3
+			apActionBtn.LayoutOrder = 4
 			apActionBtn.Parent = apContentContainer
 
 			local apActionCorner = Instance.new("UICorner")
@@ -2709,6 +2747,48 @@ local success, err = pcall(function()
 				scanTools(char)
 
 				if #targetTools == 0 then return end
+
+				-- Helper to calculate crystal luck value for sorting
+				local function getCrystalLuckValue(tool)
+					if not tool then return 0 end
+					local luck = 0
+					pcall(function()
+						local lAttr = tool:GetAttribute("Luck") or tool:GetAttribute("LuckMultiplier") or tool:GetAttribute("LuckMult") or tool:GetAttribute("LuckBoost") or tool:GetAttribute("Multiplier") or tool:GetAttribute("Boost")
+						if typeof(lAttr) == "number" then
+							luck = lAttr
+						elseif typeof(lAttr) == "string" then
+							luck = tonumber(string.match(lAttr, "%d+%.?%d*")) or 0
+						end
+					end)
+
+					local tier = tool:GetAttribute("Tier") or 0
+					if typeof(tier) ~= "number" then tier = 0 end
+					if tier == 0 then
+						local tName = string.lower(tool.Name)
+						if string.find(tName, "mythic", 1, true) or string.find(tName, "_t6", 1, true) or string.find(tName, "tier 6", 1, true) then tier = 6
+						elseif string.find(tName, "legendary", 1, true) or string.find(tName, "_t5", 1, true) or string.find(tName, "tier 5", 1, true) then tier = 5
+						elseif string.find(tName, "epic", 1, true) or string.find(tName, "_t4", 1, true) or string.find(tName, "tier 4", 1, true) then tier = 4
+						elseif string.find(tName, "rare", 1, true) or string.find(tName, "_t3", 1, true) or string.find(tName, "tier 3", 1, true) then tier = 3
+						elseif string.find(tName, "uncommon", 1, true) or string.find(tName, "_t2", 1, true) or string.find(tName, "tier 2", 1, true) then tier = 2
+						elseif string.find(tName, "common", 1, true) or string.find(tName, "_t1", 1, true) or string.find(tName, "tier 1", 1, true) then tier = 1
+						end
+					end
+
+					local wKg = tool:GetAttribute("WeightKg") or tool:GetAttribute("Weight") or 0
+					if typeof(wKg) ~= "number" or wKg <= 0 then
+						local matchKg = string.match(tool.Name, "(%d+%.?%d*)%s*kg")
+						wKg = matchKg and tonumber(matchKg) or 0
+					end
+
+					return (luck * 1000000) + (tier * 100000) + wKg
+				end
+
+				-- Sort crystals by highest luck / tier / weight first if Place by Highest Luck is enabled
+				if placeByHighestLuckEnabled then
+					table.sort(targetTools, function(a, b)
+						return getCrystalLuckValue(a) > getCrystalLuckValue(b)
+					end)
+				end
 
 				-- Stand directly in the middle of your plot floor
 				local targetStandCF = CFrame.new(plotCenter.X, plotCenter.Y + 3.0, plotCenter.Z)
@@ -2894,6 +2974,7 @@ local success, err = pcall(function()
 				getState = function()
 					return {
 						autoPlaceCrystalsEnabled = autoPlaceCrystalsEnabled,
+						placeByHighestLuckEnabled = placeByHighestLuckEnabled,
 						autoPlaceRarityFilters = autoPlaceRarityFilters,
 					}
 				end,
@@ -2902,6 +2983,10 @@ local success, err = pcall(function()
 					if s.autoPlaceCrystalsEnabled ~= nil then
 						autoPlaceCrystalsEnabled = (s.autoPlaceCrystalsEnabled == true)
 						updateAutoPlaceVisuals()
+					end
+					if s.placeByHighestLuckEnabled ~= nil then
+						placeByHighestLuckEnabled = (s.placeByHighestLuckEnabled == true)
+						updatePlaceHighestLuckVisuals()
 					end
 					if s.autoPlaceRarityFilters ~= nil then
 						if type(s.autoPlaceRarityFilters) == "table" then
@@ -3990,6 +4075,7 @@ local success, err = pcall(function()
 			if _G.HipHubAutoPlaceCrystal and _G.HipHubAutoPlaceCrystal.getState then
 				local apState = _G.HipHubAutoPlaceCrystal.getState()
 				data.autoPlaceCrystalsEnabled = apState.autoPlaceCrystalsEnabled
+				data.placeByHighestLuckEnabled = apState.placeByHighestLuckEnabled
 				data.autoPlaceRarityFilters = apState.autoPlaceRarityFilters
 			end
 
@@ -4079,6 +4165,7 @@ local success, err = pcall(function()
 				if _G.HipHubAutoPlaceCrystal and _G.HipHubAutoPlaceCrystal.setState then
 					_G.HipHubAutoPlaceCrystal.setState({
 						autoPlaceCrystalsEnabled = data.autoPlaceCrystalsEnabled,
+						placeByHighestLuckEnabled = data.placeByHighestLuckEnabled,
 						autoPlaceRarityFilters = data.autoPlaceRarityFilters,
 					})
 				end
