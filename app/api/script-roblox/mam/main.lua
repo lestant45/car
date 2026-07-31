@@ -2647,7 +2647,7 @@ local success, err = pcall(function()
 				syncAutoDigFlyMode()
 			end)
 
-			-- Auto-Digging Loop Engine inside Equal Cube (150x150x150 Studs) with Speed = 16
+			-- Auto-Digging Loop Engine inside Equal Cube (150x150x150 Studs) with Speed = 30
 			local DIGGABLE_MATERIAL_KEYWORDS = {
 				"asphalt", "brick", "cobblestone", "concrete", "ice", "leafygrass", "pavement", "salt",
 				"mud", "dirt", "dig", "ground", "rock", "basalt", "stone", "sand", "gravel", "soil", "slate"
@@ -2659,7 +2659,7 @@ local success, err = pcall(function()
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if not hrp or not hum then return end
 
-				local moveSpeed = 16 -- Custom move speed = 16 studs/sec
+				local moveSpeed = 30 -- Custom move speed = 30 studs/sec
 				local centerPos = customDigCenterPos or Vector3.new(31.16444001, 92.108505, 867.584838)
 				local rangeStuds = 75 -- Equal Cube Side Radius (150 x 150 x 150 Studs)
 
@@ -2679,7 +2679,7 @@ local success, err = pcall(function()
 					rayParams.FilterDescendantsInstances = filterList
 					rayParams.IgnoreWater = true
 
-					local step = 8
+					local step = 6
 
 					for offsetZ = -rangeStuds, rangeStuds, step do
 						for offsetX = -rangeStuds, rangeStuds, step do
@@ -2771,18 +2771,27 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Sort candidates: Highest Y position -> Outermost Part distance from center -> Closest distance
+					-- 3. Sort candidates:
+					-- Layer 1: Top-Down in 3-stud height bands
+					-- Layer 2: Outermost perimeter shell band from center (Chebyshev distance)
+					-- Layer 3: Nearest neighbor distance to player (Smooth sequential digging without far jumps!)
 					if #candidates > 0 then
 						table.sort(candidates, function(a, b)
 							local posA, posB = a.Position, b.Position
-							if math.abs(posA.Y - posB.Y) > 1.5 then
-								return posA.Y > posB.Y
+							local tierA = math.floor(posA.Y / 3)
+							local tierB = math.floor(posB.Y / 3)
+							if tierA ~= tierB then
+								return tierA > tierB
 							end
-							local dist2DA = (Vector2.new(posA.X, posA.Z) - Vector2.new(centerPos.X, centerPos.Z)).Magnitude
-							local dist2DB = (Vector2.new(posB.X, posB.Z) - Vector2.new(centerPos.X, centerPos.Z)).Magnitude
-							if math.abs(dist2DA - dist2DB) > 1.0 then
-								return dist2DA > dist2DB -- Outermost Part First!
+
+							local shellA = math.max(math.abs(posA.X - centerPos.X), math.abs(posA.Z - centerPos.Z))
+							local shellB = math.max(math.abs(posB.X - centerPos.X), math.abs(posB.Z - centerPos.Z))
+							local shellTierA = math.floor(shellA / 4)
+							local shellTierB = math.floor(shellB / 4)
+							if shellTierA ~= shellTierB then
+								return shellTierA > shellTierB
 							end
+
 							return (posA - pos).Magnitude < (posB - pos).Magnitude
 						end)
 						return candidates[1].Position
