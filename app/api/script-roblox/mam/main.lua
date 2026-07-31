@@ -4065,11 +4065,13 @@ local success, err = pcall(function()
 			if _G.HipHubESP and _G.HipHubESP.getState then
 				local espState = _G.HipHubESP.getState()
 				data.crystalEspEnabled = espState.crystalEspEnabled
+				data.boulderEspEnabled = espState.boulderEspEnabled
 				data.droppedCrystalEspEnabled = espState.droppedCrystalEspEnabled
 				data.droppedRuneEspEnabled = espState.droppedRuneEspEnabled
 				data.playerEspEnabled = espState.playerEspEnabled
 				data.selectedCrystalRarity = espState.selectedCrystalRarity
 				data.selectedCrystalSize = espState.selectedCrystalSize
+				data.selectedBoulderRarity = espState.selectedBoulderRarity
 			end
 
 			-- Mining config state
@@ -4162,11 +4164,13 @@ local success, err = pcall(function()
 				if _G.HipHubESP and _G.HipHubESP.setState then
 					_G.HipHubESP.setState({
 						crystalEspEnabled = data.crystalEspEnabled,
+						boulderEspEnabled = data.boulderEspEnabled,
 						droppedCrystalEspEnabled = data.droppedCrystalEspEnabled,
 						droppedRuneEspEnabled = data.droppedRuneEspEnabled,
 						playerEspEnabled = data.playerEspEnabled,
 						selectedCrystalRarity = data.selectedCrystalRarity,
 						selectedCrystalSize = data.selectedCrystalSize,
+						selectedBoulderRarity = data.selectedBoulderRarity,
 					})
 				end
 

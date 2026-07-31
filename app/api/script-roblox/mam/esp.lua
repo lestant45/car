@@ -20,14 +20,49 @@ local function initESP()
 	-- ESP persistent states
 	local state = {
 		crystalEspEnabled = false,
+		boulderEspEnabled = false,
 		droppedCrystalEspEnabled = false,
 		droppedRuneEspEnabled = false,
 		playerEspEnabled = false,
 		selectedCrystalRarity = "All",
 		selectedCrystalSize = "All",
+		selectedBoulderRarity = "All",
 	}
 
-	local updateCrystalEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals, updateSizeDropdownVisuals
+	local BOULDER_CONFIG = {
+		Mossite = {
+			rarity = "Common",
+			color = "#d0d0d0",
+			minPickaxeId = "TitaniumSpike",
+			swingsAtGate = 240,
+		},
+		Voltite = {
+			rarity = "Uncommon",
+			color = "#55ff55",
+			minPickaxeId = "CelestialApex",
+			swingsAtGate = 400,
+		},
+		Gildrite = {
+			rarity = "Rare",
+			color = "#00c8ff",
+			minPickaxeId = "EclipseFang",
+			swingsAtGate = 600,
+		},
+		Rimeveil = {
+			rarity = "Epic",
+			color = "#aa00ff",
+			minPickaxeId = "Voidreign",
+			swingsAtGate = 910,
+		},
+		Nocturnite = {
+			rarity = "Legendary",
+			color = "#ffaa00",
+			minPickaxeId = "TheTerminus",
+			swingsAtGate = 1440,
+		}
+	}
+
+	local updateCrystalEspVisuals, updateBoulderEspVisuals, updateDroppedCrystalEspVisuals, updateDroppedRuneEspVisuals, updatePlayerEspVisuals, updateDropdownVisuals, updateSizeDropdownVisuals, updateBoulderDropdownVisuals
 
 
 
@@ -152,13 +187,44 @@ local function initESP()
 			sizeBinder.updateOptionVisuals()
 		end
 
+		-- 🔽 Boulder Rarity Filter Dropdown Card
+		local bFilterCard, bFilterBtn, bFilterLabel, bFilterMenu, bFilterSearch, bFilterScroll = refs.createGlassDropdown(
+			filterSection.Content, "Boulder Rarity Filter", (state.selectedBoulderRarity or "All"), 3
+		)
+
+		local boulderRarities = {
+			"All",
+			"Common",
+			"Uncommon",
+			"Rare",
+			"Epic",
+			"Legendary"
+		}
+		refs.registerDropdownMenu(bFilterBtn, bFilterMenu)
+		local bRarityBinder = refs.bindDropdown(
+			bFilterBtn, bFilterMenu, bFilterSearch, bFilterScroll, boulderRarities,
+			function() return state.selectedBoulderRarity or "All" end,
+			function(val)
+				state.selectedBoulderRarity = val
+				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
+			end,
+			function()
+				bFilterLabel.Text = state.selectedBoulderRarity or "All"
+			end
+		)
+
+		updateBoulderDropdownVisuals = function()
+			bFilterLabel.Text = state.selectedBoulderRarity or "All"
+			bRarityBinder.updateOptionVisuals()
+		end
+
 		-- Collapsible Toggles Section
 		local toggleSection = refs.createCollapsibleSection(espTabFrame, "Toggles", 5)
 		refs.applyPadding(toggleSection.Content, 2, 2, 2, 2)
 
 		-- Toggles Card
 		local togglesCard = Instance.new("Frame")
-		togglesCard.Size = UDim2.new(1, 0, 0, 170)
+		togglesCard.Size = UDim2.new(1, 0, 0, 215)
 		togglesCard.BackgroundColor3 = COLORS.glassCard
 		togglesCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
 		togglesCard.BorderSizePixel = 0
@@ -188,6 +254,23 @@ local function initESP()
 		cTrack.MouseButton1Click:Connect(function()
 			state.crystalEspEnabled = not state.crystalEspEnabled
 			updateCrystalEspVisuals()
+			if saveConfig then pcall(saveConfig) end
+		end)
+
+		-- 2. Boulder ESP Toggle
+		local bRow, bTrack, bThumb = refs.createGlassToggle(togglesCard, "Boulder ESP", 2)
+		updateBoulderEspVisuals = function()
+			if state.boulderEspEnabled then
+				TweenService:Create(bTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(bThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(bTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(bThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		bTrack.MouseButton1Click:Connect(function()
+			state.boulderEspEnabled = not state.boulderEspEnabled
+			updateBoulderEspVisuals()
 			if saveConfig then pcall(saveConfig) end
 		end)
 
@@ -401,6 +484,29 @@ local function initESP()
 		return crystalMatchesRarity(crystalObj) and crystalMatchesSize(crystalObj)
 	end
 
+	local function boulderMatchesRarity(boulderObj)
+		local filter = state.selectedBoulderRarity or "All"
+		if filter == "All" or filter == "" then return true end
+
+		local nameLower = string.lower(boulderObj.Name)
+		local filterLower = string.lower(filter)
+
+		for bName, bData in pairs(BOULDER_CONFIG) do
+			if string.find(nameLower, string.lower(bName), 1, true) then
+				if string.lower(bData.rarity) == filterLower then
+					return true
+				end
+			end
+		end
+
+		local attr = boulderObj:GetAttribute("Rarity") or boulderObj:GetAttribute("rarity")
+		if attr and string.lower(tostring(attr)) == filterLower then
+			return true
+		end
+
+		return false
+	end
+
 	local function formatComma(n)
 		local num = tonumber(n)
 		if not num then return tostring(n or "") end
@@ -423,6 +529,42 @@ local function initESP()
 			return string.format("<font color='#8c78ff'><b>👤 %s</b></font> <font color='#a0b0d0'>[%dm]</font>", displayName, distanceMeters or 0)
 		elseif category == "dropped_rune" then
 			return string.format("<font color='#ffaa00'><b>%s</b></font> <font color='#a0b0d0'>[%dm]</font>", obj.Name, distanceMeters or 0)
+		elseif category == "boulder" then
+			local name = obj.Name
+			local nameLower = string.lower(name)
+			local bData = nil
+			local matchedName = name
+
+			for bName, cfg in pairs(BOULDER_CONFIG) do
+				if string.find(nameLower, string.lower(bName), 1, true) then
+					bData = cfg
+					matchedName = bName
+					break
+				end
+			end
+
+			local rarityStr = bData and bData.rarity or (obj:GetAttribute("Rarity") or "Common")
+			local colorHex = bData and bData.color or getCrystalAccentColor(rarityStr)
+			local minPick = bData and bData.minPickaxeId or "Pickaxe"
+			local swings = bData and bData.swingsAtGate or "?"
+
+			local hpVal = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("Swings")
+			local maxHp = obj:GetAttribute("MaxHealth") or obj:GetAttribute("MaxHP") or swings
+
+			local titleLine = string.format("<font color='%s'><b>%s</b></font> <b>%s Boulder</b>", colorHex, rarityStr, matchedName)
+			local subLine = string.format("<font color='#a0b5d0'>Req: %s</font>", minPick)
+			local separatorLine = "<font color='#405075'>___________________________</font>"
+
+			local hpStr = ""
+			if hpVal then
+				hpStr = string.format("\n<font color='#00ff66'>HP: %s/%s</font>", tostring(hpVal), tostring(maxHp))
+			else
+				hpStr = string.format("\n<font color='#ffcc00'>Swings: %s</font>", tostring(swings))
+			end
+
+			local distLine = string.format("<font color='#e0f0ff'>[%dm]</font>", distanceMeters or 0)
+
+			return titleLine .. "\n" .. subLine .. hpStr .. "\n" .. separatorLine .. "\n" .. distLine
 		end
 
 		local name = obj.Name
@@ -509,7 +651,7 @@ local function initESP()
 		local targetPart = getTargetPart(obj)
 		if not targetPart then return end
 
-		local isCardCategory = (category == "crystal" or category == "dropped_crystal")
+		local isCardCategory = (category == "crystal" or category == "dropped_crystal" or category == "boulder")
 		local bWidth = isCardCategory and 190 or 150
 		local bHeight = isCardCategory and 95 or 28
 
@@ -669,6 +811,57 @@ local function initESP()
 		else
 			clearCategoryESP("player")
 		end
+
+		-- 5. Boulder ESP Scan
+		if state.boulderEspEnabled then
+			local things = workspace:FindFirstChild("Things")
+			local foldersToScan = {
+				workspace:FindFirstChild("Boulders"),
+				workspace:FindFirstChild("Map"),
+				workspace:FindFirstChild("CaveZones"),
+				things and things:FindFirstChild("Boulders"),
+				workspace:FindFirstChild("FrozenCaves"),
+			}
+
+			local scannedBoulders = {}
+			for _, folder in ipairs(foldersToScan) do
+				if folder then
+					for _, bObj in ipairs(folder:GetDescendants()) do
+						if not scannedBoulders[bObj] and (bObj:IsA("Model") or bObj:IsA("BasePart")) then
+							local nameLower = string.lower(bObj.Name)
+							local isBoulder = string.find(nameLower, "boulder", 1, true)
+								or BOULDER_CONFIG[bObj.Name] ~= nil
+								or string.find(nameLower, "mossite", 1, true)
+								or string.find(nameLower, "voltite", 1, true)
+								or string.find(nameLower, "gildrite", 1, true)
+								or string.find(nameLower, "rimeveil", 1, true)
+								or string.find(nameLower, "nocturnite", 1, true)
+
+							if isBoulder then
+								scannedBoulders[bObj] = true
+								if boulderMatchesRarity(bObj) then
+									if not activeESPs[bObj] then
+										local boulderData = nil
+										for bName, bData in pairs(BOULDER_CONFIG) do
+											if string.find(nameLower, string.lower(bName), 1, true) then
+												boulderData = bData
+												break
+											end
+										end
+										local colorHex = boulderData and boulderData.color or "#00c8ff"
+										createBillboardForObject(bObj, bObj.Name, "boulder", colorHex)
+									end
+								else
+									removeBillboardForObject(bObj)
+								end
+							end
+						end
+					end
+				end
+			end
+		else
+			clearCategoryESP("boulder")
+		end
 	end
 
 	-- Event-driven Workspace & Folder Listeners (Instant ESP updates without 1s polling spikes)
@@ -681,6 +874,19 @@ local function initESP()
 						local colorHex = getCrystalAccentColor(child.Name)
 						createBillboardForObject(child, child.Name, category, colorHex)
 					end
+				end
+			elseif category == "boulder" and state.boulderEspEnabled then
+				if boulderMatchesRarity(child) then
+					local boulderData = nil
+					local nameLower = string.lower(child.Name)
+					for bName, bData in pairs(BOULDER_CONFIG) do
+						if string.find(nameLower, string.lower(bName), 1, true) then
+							boulderData = bData
+							break
+						end
+					end
+					local colorHex = boulderData and boulderData.color or "#00c8ff"
+					createBillboardForObject(child, child.Name, "boulder", colorHex)
 				end
 			elseif category == "dropped_rune" and state.droppedRuneEspEnabled then
 				createBillboardForObject(child, child.Name, "dropped_rune", "#ffaa00")
@@ -702,6 +908,9 @@ local function initESP()
 
 		local caveZones = workspace:FindFirstChild("CaveZones")
 		if caveZones then hookFolderEvents(caveZones, "crystal", true) end
+
+		local bouldersFolder = workspace:FindFirstChild("Boulders") or (things and things:FindFirstChild("Boulders"))
+		if bouldersFolder then hookFolderEvents(bouldersFolder, "boulder", false) end
 
 		local dcFolder = workspace:WaitForChild("DroppedCrystals", 5)
 		if dcFolder then hookFolderEvents(dcFolder, "dropped_crystal", true) end
@@ -762,28 +971,34 @@ local function initESP()
 		setState = function(newState)
 			if not newState then return end
 			if newState.crystalEspEnabled ~= nil then state.crystalEspEnabled = (newState.crystalEspEnabled == true) end
+			if newState.boulderEspEnabled ~= nil then state.boulderEspEnabled = (newState.boulderEspEnabled == true) end
 			if newState.droppedCrystalEspEnabled ~= nil then state.droppedCrystalEspEnabled = (newState.droppedCrystalEspEnabled == true) end
 			if newState.droppedRuneEspEnabled ~= nil then state.droppedRuneEspEnabled = (newState.droppedRuneEspEnabled == true) end
 			if newState.playerEspEnabled ~= nil then state.playerEspEnabled = (newState.playerEspEnabled == true) end
 			if newState.selectedCrystalRarity ~= nil then state.selectedCrystalRarity = tostring(newState.selectedCrystalRarity) end
 			if newState.selectedCrystalSize ~= nil then state.selectedCrystalSize = tostring(newState.selectedCrystalSize) end
+			if newState.selectedBoulderRarity ~= nil then state.selectedBoulderRarity = tostring(newState.selectedBoulderRarity) end
 
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
+			if updateBoulderEspVisuals then updateBoulderEspVisuals() end
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
 			if updateSizeDropdownVisuals then updateSizeDropdownVisuals() end
+			if updateBoulderDropdownVisuals then updateBoulderDropdownVisuals() end
 
 			pcall(scanAllObjects)
 		end,
 		updateVisuals = function()
 			if updateCrystalEspVisuals then updateCrystalEspVisuals() end
+			if updateBoulderEspVisuals then updateBoulderEspVisuals() end
 			if updateDroppedCrystalEspVisuals then updateDroppedCrystalEspVisuals() end
 			if updateDroppedRuneEspVisuals then updateDroppedRuneEspVisuals() end
 			if updatePlayerEspVisuals then updatePlayerEspVisuals() end
 			if updateDropdownVisuals then updateDropdownVisuals() end
 			if updateSizeDropdownVisuals then updateSizeDropdownVisuals() end
+			if updateBoulderDropdownVisuals then updateBoulderDropdownVisuals() end
 
 			pcall(scanAllObjects)
 		end
