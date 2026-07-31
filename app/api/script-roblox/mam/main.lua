@@ -4079,6 +4079,13 @@ local success, err = pcall(function()
 				data.autoPlaceRarityFilters = apState.autoPlaceRarityFilters
 			end
 
+			-- Shop config state
+			if _G.HipHubShop and _G.HipHubShop.getState then
+				local shopState = _G.HipHubShop.getState()
+				data.autoBuyBombEnabled = shopState.autoBuyBombEnabled
+				data.autoBuyBombSelection = shopState.autoBuyBombSelection
+			end
+
 			-- Misc config state
 			if _G.HipHubMisc and _G.HipHubMisc.getState then
 				local miscState = _G.HipHubMisc.getState()
@@ -4167,6 +4174,13 @@ local success, err = pcall(function()
 						autoPlaceCrystalsEnabled = data.autoPlaceCrystalsEnabled,
 						placeByHighestLuckEnabled = data.placeByHighestLuckEnabled,
 						autoPlaceRarityFilters = data.autoPlaceRarityFilters,
+					})
+				end
+
+				if _G.HipHubShop and _G.HipHubShop.setState then
+					_G.HipHubShop.setState({
+						autoBuyBombEnabled = data.autoBuyBombEnabled,
+						autoBuyBombSelection = data.autoBuyBombSelection,
 					})
 				end
 
