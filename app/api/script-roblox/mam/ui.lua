@@ -931,15 +931,19 @@ local success, err = pcall(function()
 	local dropdownsList = {}
 	local function closeAllDropdowns()
 		for _, dd in ipairs(dropdownsList) do
-			dd.isOpen = false
-			local m = dd.menu
-			local tween = TweenService:Create(m, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-				Position = UDim2.new(1, 0, 0, 0)
-			})
-			tween.Completed:Connect(function()
-				if not dd.isOpen then m.Visible = false end
-			end)
-			tween:Play()
+			if dd.isOpen then
+				dd.isOpen = false
+				local m = dd.menu
+				local targetWidth = m.Size.X.Offset
+				local tween = TweenService:Create(m, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+					BackgroundTransparency = 1,
+					Size = UDim2.new(0, targetWidth > 0 and targetWidth or 160, 0, 0)
+				})
+				tween.Completed:Connect(function()
+					if not dd.isOpen then m.Visible = false end
+				end)
+				tween:Play()
+			end
 		end
 	end
 
@@ -952,11 +956,35 @@ local success, err = pcall(function()
 			closeAllDropdowns()
 			if not isOpen then
 				ddData.isOpen = true
+
+				local mainPos = mainFrame.AbsolutePosition
+				local mainSize = mainFrame.AbsoluteSize
+				local btnPos = btn.AbsolutePosition
+				local btnSize = btn.AbsoluteSize
+
+				local menuWidth = math.max(160, btnSize.X + 20)
+				local menuHeight = 175
+
+				local relX = (btnPos.X + btnSize.X - menuWidth) - mainPos.X
+				local relY = (btnPos.Y + btnSize.Y + 4) - mainPos.Y
+
+				if relY + menuHeight > mainSize.Y - 10 then
+					relY = (btnPos.Y - menuHeight - 4) - mainPos.Y
+				end
+
+				if relX < 10 then relX = 10 end
+				if relX + menuWidth > mainSize.X - 10 then
+					relX = mainSize.X - menuWidth - 10
+				end
+
+				menu.Size = UDim2.new(0, menuWidth, 0, 0)
+				menu.Position = UDim2.new(0, relX, 0, relY)
+				menu.BackgroundTransparency = 1
 				menu.Visible = true
-				local menuWidth = menu.Size.X.Offset
-				if menuWidth <= 0 then menuWidth = 160 end
-				TweenService:Create(menu, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Position = UDim2.new(1, -menuWidth, 0, 0)
+
+				TweenService:Create(menu, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Size = UDim2.new(0, menuWidth, 0, menuHeight),
+					BackgroundTransparency = 0.05
 				}):Play()
 			end
 		end)
@@ -1007,7 +1035,7 @@ local success, err = pcall(function()
 				optBtn.Font = Enum.Font.GothamMedium
 				optBtn.TextSize = 11
 				optBtn.TextXAlignment = Enum.TextXAlignment.Left
-				optBtn.ZIndex = 102
+				optBtn.ZIndex = 502
 				optBtn.LayoutOrder = i
 				optBtn.Parent = scroll
 
@@ -1021,7 +1049,7 @@ local success, err = pcall(function()
 				leftIndicator.BackgroundColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
 				leftIndicator.BorderSizePixel = 0
 				leftIndicator.Visible = false
-				leftIndicator.ZIndex = 103
+				leftIndicator.ZIndex = 503
 				leftIndicator.Parent = optBtn
 
 				optionButtons[opt] = optBtn
@@ -1029,7 +1057,6 @@ local success, err = pcall(function()
 
 				optBtn.MouseButton1Click:Connect(function()
 					setSelectedFunc(opt)
-					closeAllDropdowns()
 					updateOptionVisuals()
 					updateLabelCallback()
 					if _G.HipHubUI.saveConfig then pcall(_G.HipHubUI.saveConfig) end
@@ -1125,13 +1152,14 @@ local success, err = pcall(function()
 
 		-- Dropdown Menu Overlay
 		local menu = Instance.new("Frame")
-		menu.Size = UDim2.new(0, 160, 1, 0)
+		menu.Size = UDim2.new(0, 160, 0, 175)
 		menu.Position = UDim2.new(1, 0, 0, 0)
 		menu.BackgroundColor3 = COLORS.glassSurface
 		menu.BackgroundTransparency = 0.05
 		menu.BorderSizePixel = 0
+		menu.ClipsDescendants = true
 		menu.Visible = false
-		menu.ZIndex = 100
+		menu.ZIndex = 500
 		menu.Parent = mainFrame
 
 		applyGlass(menu,
@@ -1150,7 +1178,7 @@ local success, err = pcall(function()
 		search.Font = Enum.Font.GothamMedium
 		search.TextSize = 11
 		search.ClearTextOnFocus = false
-		search.ZIndex = 101
+		search.ZIndex = 501
 		search.Parent = menu
 
 		applyGlass(search,
@@ -1166,7 +1194,7 @@ local success, err = pcall(function()
 			scroll.ScrollBarImageColor3 = COLORS.accentCyan
 			scroll.ScrollBarImageTransparency = 0.4
 		end)
-		scroll.ZIndex = 101
+		scroll.ZIndex = 501
 		scroll.Parent = menu
 
 		applyListLayout(scroll, 4)

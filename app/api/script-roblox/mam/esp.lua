@@ -141,7 +141,7 @@ local function initESP()
 		refs.registerDropdownMenu(filterBtn, filterMenu)
 		local rarityBinder = refs.bindDropdown(
 			filterBtn, filterMenu, filterSearch, filterScroll, rarities,
-			function() return state.selectedCrystalRarity or "All" end,
+			function(opt) return (state.selectedCrystalRarity or "All") == opt end,
 			function(val)
 				state.selectedCrystalRarity = val
 				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
@@ -172,7 +172,7 @@ local function initESP()
 		refs.registerDropdownMenu(sizeDropBtn, sizeMenuFrame)
 		local sizeBinder = refs.bindDropdown(
 			sizeDropBtn, sizeMenuFrame, sizeSearch, sizeScroll, sizes,
-			function() return state.selectedCrystalSize or "All" end,
+			function(opt) return (state.selectedCrystalSize or "All") == opt end,
 			function(val)
 				state.selectedCrystalSize = val
 				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
@@ -203,7 +203,7 @@ local function initESP()
 		refs.registerDropdownMenu(bFilterBtn, bFilterMenu)
 		local bRarityBinder = refs.bindDropdown(
 			bFilterBtn, bFilterMenu, bFilterSearch, bFilterScroll, boulderRarities,
-			function() return state.selectedBoulderRarity or "All" end,
+			function(opt) return (state.selectedBoulderRarity or "All") == opt end,
 			function(val)
 				state.selectedBoulderRarity = val
 				if _G.HipHubESP and _G.HipHubESP.updateVisuals then _G.HipHubESP.updateVisuals() end
@@ -349,7 +349,13 @@ local function initESP()
 			return obj
 		elseif obj:IsA("Model") then
 			if obj.PrimaryPart then return obj.PrimaryPart end
-			return obj:FindFirstChildWhichIsA("BasePart", true)
+			local firstPart = obj:FindFirstChildWhichIsA("BasePart")
+			if firstPart then return firstPart end
+			for _, desc in ipairs(obj:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					return desc
+				end
+			end
 		end
 		return nil
 	end
@@ -559,7 +565,8 @@ local function initESP()
 			local hpVal = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("Swings")
 			local maxHp = obj:GetAttribute("MaxHealth") or obj:GetAttribute("MaxHP") or swings
 
-			local titleLine = string.format("<font color='%s'><b>%s</b></font> <b>%s Boulder</b>", colorHex, rarityStr, matchedName)
+			local displayTitle = string.find(string.lower(matchedName), "boulder", 1, true) and matchedName or (matchedName .. " Boulder")
+			local titleLine = string.format("<font color='%s'><b>%s</b></font> <b>%s</b>", colorHex, rarityStr, displayTitle)
 			local subLine = string.format("<font color='#a0b5d0'>Req: %s</font>", minPick)
 			local separatorLine = "<font color='#405075'>___________________________</font>"
 
@@ -841,12 +848,10 @@ local function initESP()
 				workspace:FindFirstChild("World"),
 			}
 
-			-- Fallback: If standard folders aren't found, scan workspace children
-			if not workspace:FindFirstChild("Boulders") and not (things and things:FindFirstChild("Boulders")) then
-				for _, child in ipairs(workspace:GetChildren()) do
-					if child ~= player.Character and not child:IsA("Terrain") and child.Name ~= "HipHubESP" then
-						table.insert(foldersToScan, child)
-					end
+			-- Always include top-level workspace folders/models as safety fallback
+			for _, child in ipairs(workspace:GetChildren()) do
+				if (child:IsA("Folder") or child:IsA("Model")) and child ~= player.Character and not child:IsA("Terrain") and child.Name ~= "HipHubESP" and child.Name ~= "Camera" then
+					table.insert(foldersToScan, child)
 				end
 			end
 
@@ -855,58 +860,81 @@ local function initESP()
 				if folder then
 					for _, bObj in ipairs(folder:GetDescendants()) do
 						if (bObj:IsA("Model") or bObj:IsA("BasePart")) and not bObj:IsA("Accessory") then
-							local nameLower = string.lower(bObj.Name)
-							local parentLower = bObj.Parent and string.lower(bObj.Parent.Name) or ""
-
-							local isBoulder = string.find(nameLower, "boulder", 1, true)
-								or string.find(parentLower, "boulder", 1, true)
-								or BOULDER_CONFIG[bObj.Name] ~= nil
-								or string.find(nameLower, "mossite", 1, true)
-								or string.find(nameLower, "voltite", 1, true)
-								or string.find(nameLower, "gildrite", 1, true)
-								or string.find(nameLower, "rimeveil", 1, true)
-								or string.find(nameLower, "nocturnite", 1, true)
-								or bObj:GetAttribute("MinPickaxe") ~= nil
-								or bObj:GetAttribute("Swings") ~= nil
-								or bObj:GetAttribute("SwingsAtGate") ~= nil
-								or bObj:GetAttribute("Boulder") ~= nil
-								or bObj:GetAttribute("Type") == "Boulder"
-
-							if not isBoulder then
-								for bName in pairs(BOULDER_CONFIG) do
-									if string.find(nameLower, string.lower(bName), 1, true) then
-										isBoulder = true
-										break
-									end
-								end
+							-- Resolve topObj (if child BasePart belongs to a Model, group under Model)
+							local topObj = bObj
+							if bObj:IsA("BasePart") and bObj.Parent and bObj.Parent:IsA("Model") and bObj.Parent ~= workspace then
+								topObj = bObj.Parent
 							end
 
-							if isBoulder then
-								local targetObj = bObj
-								if bObj:IsA("BasePart") and bObj.Parent and (bObj.Parent:IsA("Model") or bObj.Parent:IsA("Folder")) then
-									local pNameLower = string.lower(bObj.Parent.Name)
-									if string.find(pNameLower, "boulder", 1, true) or BOULDER_CONFIG[bObj.Parent.Name] ~= nil then
-										targetObj = bObj.Parent
+							if not scannedBoulders[topObj] then
+								local nameLower = string.lower(topObj.Name)
+								local parentLower = topObj.Parent and string.lower(topObj.Parent.Name) or ""
+
+								local isBoulder = string.find(nameLower, "boulder", 1, true)
+									or string.find(parentLower, "boulder", 1, true)
+									or BOULDER_CONFIG[topObj.Name] ~= nil
+									or topObj:GetAttribute("MinPickaxe") ~= nil
+									or topObj:GetAttribute("Swings") ~= nil
+									or topObj:GetAttribute("SwingsAtGate") ~= nil
+									or topObj:GetAttribute("Boulder") ~= nil
+									or topObj:GetAttribute("Type") == "Boulder"
+									or topObj:GetAttribute("Rarity") ~= nil
+
+								if not isBoulder then
+									for bName in pairs(BOULDER_CONFIG) do
+										if string.find(nameLower, string.lower(bName), 1, true) then
+											isBoulder = true
+											break
+										end
 									end
 								end
 
-								if not scannedBoulders[targetObj] then
-									scannedBoulders[targetObj] = true
-									if boulderMatchesRarity(targetObj) then
-										if not activeESPs[targetObj] then
+								-- Check children names if topObj name is generic
+								if not isBoulder then
+									for _, child in ipairs(topObj:GetChildren()) do
+										local cNameLower = string.lower(child.Name)
+										if string.find(cNameLower, "boulder", 1, true)
+											or string.find(cNameLower, "mossite", 1, true)
+											or string.find(cNameLower, "voltite", 1, true)
+											or string.find(cNameLower, "gildrite", 1, true)
+											or string.find(cNameLower, "rimeveil", 1, true)
+											or string.find(cNameLower, "nocturnite", 1, true) then
+											isBoulder = true
+											break
+										end
+									end
+								end
+
+								if isBoulder then
+									scannedBoulders[topObj] = true
+									if boulderMatchesRarity(topObj) then
+										if not activeESPs[topObj] then
 											local boulderData = nil
-											local targetNameLower = string.lower(targetObj.Name)
+											local targetNameLower = string.lower(topObj.Name)
 											for bName, bData in pairs(BOULDER_CONFIG) do
 												if string.find(targetNameLower, string.lower(bName), 1, true) then
 													boulderData = bData
 													break
 												end
 											end
+
+											if not boulderData then
+												local attrRarity = topObj:GetAttribute("Rarity") or topObj:GetAttribute("rarity")
+												if attrRarity then
+													for _, bData in pairs(BOULDER_CONFIG) do
+														if string.lower(bData.rarity) == string.lower(tostring(attrRarity)) then
+															boulderData = bData
+															break
+														end
+													end
+												end
+											end
+
 											local colorHex = boulderData and boulderData.color or "#00c8ff"
-											createBillboardForObject(targetObj, targetObj.Name, "boulder", colorHex)
+											createBillboardForObject(topObj, topObj.Name, "boulder", colorHex)
 										end
 									else
-										removeBillboardForObject(targetObj)
+										removeBillboardForObject(topObj)
 									end
 								end
 							end
