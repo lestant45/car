@@ -2524,8 +2524,8 @@ local success, err = pcall(function()
 				pickBinder.updateOptionVisuals()
 			end
 
-			-- Auto-Digging Loop Engine with Structured Grid Pattern & Fast Flying Tween
-			local startDigPos = Vector3.new(17.36946868688964844, 40.940834045410156, 949.3936767578125)
+			-- Auto-Digging Loop Engine with Persistent Forward Progress & Flying Tween
+			local currentDigPos = Vector3.new(17.36946868688964844, 40.940834045410156, 949.3936767578125)
 
 			local function executeGridDiggingPattern(getIsActiveFunc, pickaxeName)
 				local char = player and player.Character
@@ -2646,31 +2646,29 @@ local success, err = pcall(function()
 					end
 				end
 
-				local currentPos = startDigPos
-
 				-- Phase 1: Dig twice, then raise the Y position by 3, repeat 5 times
 				for step = 1, 5 do
 					if not getIsActiveFunc() then return end
-					performDigAtPos(currentPos, 2)
-					currentPos = currentPos + Vector3.new(0, 3, 0)
+					performDigAtPos(currentDigPos, 2)
+					currentDigPos = currentDigPos + Vector3.new(0, 3, 0)
 				end
 
 				-- Phase 2: Then advance Z position by 7 (forward) and dig twice
 				if not getIsActiveFunc() then return end
-				currentPos = currentPos + Vector3.new(0, 0, 7)
-				performDigAtPos(currentPos, 2)
+				currentDigPos = currentDigPos + Vector3.new(0, 0, 7)
+				performDigAtPos(currentDigPos, 2)
 
 				-- Phase 3: Then, dig twice, then lower the Y position by 3, repeat 5 times
 				for step = 1, 5 do
 					if not getIsActiveFunc() then return end
-					performDigAtPos(currentPos, 2)
-					currentPos = currentPos - Vector3.new(0, 3, 0)
+					performDigAtPos(currentDigPos, 2)
+					currentDigPos = currentDigPos - Vector3.new(0, 3, 0)
 				end
 
 				-- Phase 4: Then, advance Z position by 7 (forward) and dig twice
 				if not getIsActiveFunc() then return end
-				currentPos = currentPos + Vector3.new(0, 0, 7)
-				performDigAtPos(currentPos, 2)
+				currentDigPos = currentDigPos + Vector3.new(0, 0, 7)
+				performDigAtPos(currentDigPos, 2)
 			end
 
 			task.spawn(function()
