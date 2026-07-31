@@ -299,7 +299,7 @@ local success, err = pcall(function()
 		miningTitle.Size = UDim2.new(1, -60, 1, 0)
 		miningTitle.Position = UDim2.new(0, 24, 0, 0)
 		miningTitle.BackgroundTransparency = 1
-		miningTitle.Text = "Mining"
+		miningTitle.Text = "Bypass Gamepass"
 		miningTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
 		miningTitle.Font = Enum.Font.GothamBold
 		miningTitle.TextSize = 13
@@ -1594,7 +1594,7 @@ local success, err = pcall(function()
 		amTitle.Size = UDim2.new(1, -60, 1, 0)
 		amTitle.Position = UDim2.new(0, 24, 0, 0)
 		amTitle.BackgroundTransparency = 1
-		amTitle.Text = "Bypass Gamepass"
+		amTitle.Text = "Automation Mining"
 		amTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
 		amTitle.Font = Enum.Font.GothamBold
 		amTitle.TextSize = 13
@@ -1880,10 +1880,95 @@ local success, err = pcall(function()
 			if not hrp then return nil end
 
 			local myPos = hrp.Position
+			local evaluatedObjects = {}
+
+			-- =========================================================
+			-- PRIORITY 1: AUTO MINE RUNES (If enabled, search & target Runes FIRST!)
+			-- =========================================================
+			if autoFarmRunesEnabled then
+				local bestRuneObj = nil
+				local bestRunePart = nil
+				local shortestRuneDist = math.huge
+
+				local function checkRuneCandidate(child)
+					if not child or not child.Parent or evaluatedObjects[child] then return end
+					evaluatedObjects[child] = true
+
+					if not (child:IsA("BasePart") or child:IsA("Model")) or child:IsA("Accessory") then return end
+
+					local pName = child.Parent and child.Parent.Name or ""
+					local fullName = string.lower(child.Name .. " " .. pName)
+					local attrStr = ""
+					pcall(function()
+						for aName, aVal in pairs(child:GetAttributes()) do
+							attrStr = attrStr .. " " .. string.lower(tostring(aName)) .. " " .. string.lower(tostring(aVal))
+						end
+					end)
+					local combinedSearchText = fullName .. " " .. attrStr
+
+					local isRune = string.find(combinedSearchText, "rune", 1, true) ~= nil
+						or (child.Parent and string.find(string.lower(child.Parent.Name), "rune", 1, true) ~= nil)
+						or string.find(combinedSearchText, "luck", 1, true) ~= nil
+						or string.find(combinedSearchText, "haste", 1, true) ~= nil
+						or string.find(combinedSearchText, "storm", 1, true) ~= nil
+						or string.find(combinedSearchText, "weight", 1, true) ~= nil
+						or string.find(combinedSearchText, "fortune", 1, true) ~= nil
+						or string.find(combinedSearchText, "detonation", 1, true) ~= nil
+						or string.find(combinedSearchText, "preservation", 1, true) ~= nil
+						or string.find(combinedSearchText, "warmth", 1, true) ~= nil
+						or string.find(combinedSearchText, "excavator", 1, true) ~= nil
+						or string.find(combinedSearchText, "colossus", 1, true) ~= nil
+
+					if isRune then
+						local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+						if targetPart then
+							local dist = (myPos - targetPart.Position).Magnitude
+							if dist < shortestRuneDist then
+								shortestRuneDist = dist
+								bestRuneObj = child
+								bestRunePart = targetPart
+							end
+						end
+					end
+				end
+
+				-- 1. Scan direct Workspace children for Runes (Haste Rune, Luck Rune, etc.)
+				for _, child in ipairs(workspace:GetChildren()) do
+					checkRuneCandidate(child)
+				end
+
+				-- 2. Scan known Rune Folders
+				local things = workspace:FindFirstChild("Things")
+				local runeFolders = {
+					workspace:FindFirstChild("Runes"),
+					things and things:FindFirstChild("Runes"),
+					workspace:FindFirstChild("DroppedRunes"),
+					things and things:FindFirstChild("DroppedRunes"),
+				}
+				for _, folder in ipairs(runeFolders) do
+					if folder then
+						for _, child in ipairs(folder:GetChildren()) do
+							checkRuneCandidate(child)
+						end
+					end
+				end
+
+				-- If ANY Rune is found, RETURN IT IMMEDIATELY! (Priority 1)
+				if bestRuneObj and bestRunePart then
+					return { obj = bestRuneObj, part = bestRunePart }
+				end
+			end
+
+			-- =========================================================
+			-- PRIORITY 2: AUTO FARM CRYSTALS (Only if Crystals is enabled & no Rune targeted)
+			-- =========================================================
+			if not autoFarmCrystalsEnabled then
+				return nil
+			end
+
 			local bestObj = nil
 			local bestPart = nil
 			local shortestDist = math.huge
-			local evaluatedObjects = {}
 
 			local filterMap = {
 				["common"] = { "_t1", "t1", "common", "tier1", "tier 1" },
@@ -1923,12 +2008,10 @@ local success, err = pcall(function()
 
 				if not (child:IsA("BasePart") or child:IsA("Model")) or child:IsA("Accessory") then return end
 
-				-- Build comprehensive search name & string from object, parent, and grandparent
 				local pName = child.Parent and child.Parent.Name or ""
 				local gpName = (child.Parent and child.Parent.Parent) and child.Parent.Parent.Name or ""
 				local fullName = string.lower(child.Name .. " " .. pName .. " " .. gpName)
 
-				-- Collect all attribute strings
 				local attrStr = ""
 				pcall(function()
 					for aName, aVal in pairs(child:GetAttributes()) do
@@ -1943,35 +2026,10 @@ local success, err = pcall(function()
 
 				local combinedSearchText = fullName .. " " .. attrStr
 
-				-- Rune vs Crystal Type Check
 				local isRune = string.find(combinedSearchText, "rune", 1, true) ~= nil
-					or (child.Parent and string.find(string.lower(child.Parent.Name), "rune", 1, true) ~= nil)
-					or string.find(combinedSearchText, "luck", 1, true) ~= nil
-					or string.find(combinedSearchText, "haste", 1, true) ~= nil
-					or string.find(combinedSearchText, "storm", 1, true) ~= nil
-					or string.find(combinedSearchText, "weight", 1, true) ~= nil
-					or string.find(combinedSearchText, "fortune", 1, true) ~= nil
-					or string.find(combinedSearchText, "detonation", 1, true) ~= nil
-					or string.find(combinedSearchText, "preservation", 1, true) ~= nil
-					or string.find(combinedSearchText, "warmth", 1, true) ~= nil
-					or string.find(combinedSearchText, "excavator", 1, true) ~= nil
-					or string.find(combinedSearchText, "colossus", 1, true) ~= nil
+				if isRune then return end -- Runes were already processed in Priority 1
 
-				local isCrystal = not isRune and (string.find(combinedSearchText, "crystal", 1, true) ~= nil or child:GetAttribute("Tier") ~= nil or child:GetAttribute("WeightKg") ~= nil or string.find(combinedSearchText, "kg", 1, true))
-
-				-- If Auto Mine Runes is ON and Auto Farm Crystals is OFF, STRICTLY REJECT ALL NON-RUNES!
-				if autoFarmRunesEnabled and not autoFarmCrystalsEnabled then
-					if not isRune then
-						return
-					end
-				end
-
-				if isRune and not autoFarmRunesEnabled then
-					return
-				end
-				if isCrystal and not autoFarmCrystalsEnabled then
-					return
-				end
+				local isCrystal = string.find(combinedSearchText, "crystal", 1, true) ~= nil or child:GetAttribute("Tier") ~= nil or child:GetAttribute("WeightKg") ~= nil or string.find(combinedSearchText, "kg", 1, true)
 
 				-- Min Value Filter Check ($M)
 				local matchesValue = true
@@ -2038,14 +2096,13 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Multi-Select Size Check using game's exact CrystalConfig thresholds & bracket tag matching
+				-- Multi-Select Size Check
 				local matchesSize = false
 				if not hasAnyEnabledSize or autoFarmSizeFilters["All"] == true then
 					matchesSize = true
 				else
 					local wKg = child:GetAttribute("WeightKg") or child:GetAttribute("Weight") or (child.Parent and child.Parent:GetAttribute("WeightKg")) or (child.Parent and child.Parent:GetAttribute("Weight"))
 
-					-- Try parsing weight from string (e.g. "[0.9kg]" or "24.4kg") if attribute is missing
 					if not wKg then
 						local kgMatch = string.match(combinedSearchText, "(%d+%.?%d*)%s*kg")
 						if kgMatch then
@@ -2068,7 +2125,6 @@ local success, err = pcall(function()
 					end
 					local maxDim = sizeVec and math.max(sizeVec.X, sizeVec.Y, sizeVec.Z) or 0
 
-					-- Detect crystal size category strictly (1. Name Tag -> 2. Weight -> 3. Dimensions)
 					local detectedSize = nil
 					if string.find(combinedSearchText, "%[behemoth%]", 1, true) or string.find(combinedSearchText, "behemoth", 1, true) then
 						detectedSize = "behemoth"
@@ -2123,17 +2179,10 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Runes bypass crystal-specific rarity and size filters
-				if isRune then
-					matchesRarity = true
-					matchesSize = true
-				end
-
 				if matchesRarity and matchesSize and matchesValue then
 					local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
 					if targetPart then
-						-- Allow runes at any Y position; crystals require Y >= 10
-						if isRune or targetPart.Position.Y >= 10 then
+						if targetPart.Position.Y >= 10 then
 							local dist = (myPos - targetPart.Position).Magnitude
 							if dist < shortestDist then
 								shortestDist = dist
@@ -2157,38 +2206,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Check ProximityPrompts across workspace to ensure no crystal with a prompt is missed
-			pcall(function()
-				for _, desc in ipairs(workspace:GetDescendants()) do
-					if desc:IsA("ProximityPrompt") then
-						local parentObj = desc.Parent
-						if parentObj then
-							local candidateObj = parentObj
-							if parentObj:IsA("BasePart") and parentObj.Parent and parentObj.Parent:IsA("Model") and not parentObj.Parent:IsA("Workspace") then
-								local pModel = parentObj.Parent
-								local isGlobalContainer = string.find(string.lower(pModel.Name), "crystals", 1, true)
-									or string.find(string.lower(pModel.Name), "folder", 1, true)
-									or string.find(string.lower(pModel.Name), "zone", 1, true)
-									or string.find(string.lower(pModel.Name), "things", 1, true)
-									or string.find(string.lower(pModel.Name), "ores", 1, true)
-									or string.find(string.lower(pModel.Name), "mines", 1, true)
-									or #pModel:GetChildren() > 15
-								if not isGlobalContainer then
-									candidateObj = pModel
-								end
-							end
-							evaluateCandidate(candidateObj)
-						end
-					end
-				end
-			end)
-
-			-- Search known workspace folders (including Runes & DroppedRunes)
+			-- Search known workspace crystal folders
 			local things = workspace:FindFirstChild("Things")
-			evaluateFolder(workspace:FindFirstChild("Runes"))
-			evaluateFolder(things and things:FindFirstChild("Runes"))
-			evaluateFolder(workspace:FindFirstChild("DroppedRunes"))
-			evaluateFolder(things and things:FindFirstChild("DroppedRunes"))
 			evaluateFolder(workspace:FindFirstChild("Crystals"))
 			evaluateFolder(things and things:FindFirstChild("Crystals"))
 			evaluateFolder(workspace:FindFirstChild("DroppedCrystals"))
@@ -2200,26 +2219,6 @@ local success, err = pcall(function()
 			evaluateFolder(things and things:FindFirstChild("Ores"))
 			evaluateFolder(workspace:FindFirstChild("Mines"))
 			evaluateFolder(workspace:FindFirstChild("Nodes"))
-
-			-- Direct workspace children scan for Runes (Haste Rune, Luck Rune, etc.)
-			for _, child in ipairs(workspace:GetChildren()) do
-				if child:IsA("Model") or child:IsA("BasePart") then
-					local cNameLower = string.lower(child.Name)
-					if string.find(cNameLower, "rune", 1, true)
-						or string.find(cNameLower, "luck", 1, true)
-						or string.find(cNameLower, "haste", 1, true)
-						or string.find(cNameLower, "storm", 1, true)
-						or string.find(cNameLower, "weight", 1, true)
-						or string.find(cNameLower, "fortune", 1, true)
-						or string.find(cNameLower, "detonation", 1, true)
-						or string.find(cNameLower, "preservation", 1, true)
-						or string.find(cNameLower, "warmth", 1, true)
-						or string.find(cNameLower, "excavator", 1, true)
-						or string.find(cNameLower, "colossus", 1, true) then
-						evaluateCandidate(child)
-					end
-				end
-			end
 
 			if bestObj and bestPart then
 				return { obj = bestObj, part = bestPart }
@@ -2450,20 +2449,46 @@ local success, err = pcall(function()
 								tweenToTargetCFrame(myHrp, farmTargetCFrame, 350)
 							end
 
-							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-							if prompt then
-								prompt.HoldDuration = 0
+							-- Check if target is a Rune or Has "COLLECT" / "RUNE" prompt
+							local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true) or (part and part:FindFirstChildWhichIsA("ProximityPrompt", true))
+							local isRuneTarget = string.find(string.lower(obj.Name), "rune", 1, true) ~= nil
+								or (prompt and (string.find(string.lower(prompt.ActionText or ""), "collect", 1, true) or string.find(string.lower(prompt.ObjectText or ""), "rune", 1, true)))
+
+							if isRuneTarget and myHrp and part then
+								-- Position character directly on the Rune's CFrame to guarantee range
+								myHrp.CFrame = part.CFrame
+								pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+							end
+
+							-- Helper to bypass line-of-sight & distance limits when crystals are stacked on top
+							local function triggerRunePrompt(p)
+								if not p or not p:IsA("ProximityPrompt") then return end
 								pcall(function()
+									p.RequiresLineOfSight = false
+									p.MaxActivationDistance = 99999
+									p.HoldDuration = 0
 									if fireproximityprompt then
-										fireproximityprompt(prompt)
+										fireproximityprompt(p)
 									end
 								end)
 							end
 
-							-- Stay flying levitated in mid-air while picking up crystal until breaks or backpack full
+							if prompt then
+								triggerRunePrompt(prompt)
+							end
+
+							pcall(function()
+								for _, desc in ipairs(obj:GetDescendants()) do
+									if desc:IsA("ProximityPrompt") then
+										triggerRunePrompt(desc)
+									end
+								end
+							end)
+
+							-- Stay levitated / attached while picking up crystal / collecting rune until collected or timeout
 							local startTime = os.clock()
-							while autoFarmCrystalsEnabled and obj and obj.Parent and (os.clock() - startTime < 2.5) do
-								task.wait(0.12)
+							while (autoFarmCrystalsEnabled or autoFarmRunesEnabled) and obj and obj.Parent and (os.clock() - startTime < 2.5) do
+								task.wait(0.08)
 
 								-- Ensure flying BodyVelocity stays attached while picking up
 								if myHrp and not myHrp:FindFirstChild("HipHubFarmFly") then
@@ -2480,11 +2505,10 @@ local success, err = pcall(function()
 								end
 
 								if prompt and prompt.Parent then
-									pcall(function()
-										if fireproximityprompt then
-											fireproximityprompt(prompt)
-										end
-									end)
+									triggerRunePrompt(prompt)
+								else
+									-- Finish loop immediately if Rune / Crystal was collected and removed
+									break
 								end
 							end
 						end
