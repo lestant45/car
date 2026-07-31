@@ -2865,7 +2865,7 @@ local success, err = pcall(function()
 				-- Brief wait to ensure player position and downward orientation replicate to server
 				task.wait(0.06)
 
-				-- Perform downward raycast to get exact target point DIRECTLY UNDER character's feet
+				-- Calculate exact position directly below character's current position (X, Y - 2.5/downward raycast, Z)
 				local downRayParams = RaycastParams.new()
 				downRayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local excList = {}
@@ -2878,23 +2878,7 @@ local success, err = pcall(function()
 				local downRayHit = workspace:Raycast(hrp.Position, Vector3.new(0, -30, 0), downRayParams)
 				local digPosUnderFeet = downRayHit and downRayHit.Position or Vector3.new(hrp.Position.X, math.max(hrp.Position.Y - 2.5, 10), hrp.Position.Z)
 
-				-- Perform Auto Click / Tool Swing while facing directly down
-				pcall(function()
-					local equippedTool = char:FindFirstChildWhichIsA("Tool")
-					if equippedTool then
-						equippedTool:Activate()
-					end
-				end)
-
-				pcall(function()
-					local vu = game:GetService("VirtualUser")
-					if vu then
-						vu:CaptureController()
-						vu:ClickButton1(Vector2.new(0, 0))
-					end
-				end)
-
-				-- Fire Dig remote to ReplicatedStorage.Remotes.DigRequest targeting position directly under character
+				-- Pure Dig Remote call (No auto-click / VirtualUser click)
 				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 				local digRem = remotes and (remotes:FindFirstChild("DigRequest") or remotes:FindFirstChild("Dig"))
 				if digRem then
@@ -2904,7 +2888,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Paced auto-click loop while Auto Digging is active (0.20s interval)
+			-- Pure Remote Paced Digging loop (0.20s interval without mouse clicks)
 			task.spawn(function()
 				while true do
 					task.wait(0.20)
@@ -2912,16 +2896,6 @@ local success, err = pcall(function()
 						pcall(function()
 							local char = player and player.Character
 							local hrp = char and char:FindFirstChild("HumanoidRootPart")
-							local tool = char and char:FindFirstChildWhichIsA("Tool")
-							if tool then
-								tool:Activate()
-							end
-							local vu = game:GetService("VirtualUser")
-							if vu then
-								vu:CaptureController()
-								vu:ClickButton1(Vector2.new(0, 0))
-							end
-
 							if hrp then
 								local downRayParams = RaycastParams.new()
 								downRayParams.FilterType = Enum.RaycastFilterType.Exclude
