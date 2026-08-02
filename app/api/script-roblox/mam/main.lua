@@ -2308,14 +2308,15 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- Collect ALL target Runes sequentially with verification
+								-- Collect ALL target Runes sequentially with ultra-fast verification
+								local totalCollected = 0
 								for _, rData in ipairs(targetRunes) do
 									if rData.item and rData.item.Parent and rData.part and rData.part.Parent then
 										local attempt = 0
-										while autoFarmBouldersEnabled and rData.item and rData.item.Parent and rData.part and rData.part.Parent and attempt < 3 do
+										while autoFarmBouldersEnabled and rData.item and rData.item.Parent and rData.part and rData.part.Parent and attempt < 2 do
 											attempt = attempt + 1
 
-											-- Direct CFrame Overlap on Rune center
+											-- Instant CFrame Overlap on Rune center
 											myHrp.CFrame = rData.part.CFrame
 											pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
@@ -2346,7 +2347,6 @@ local success, err = pcall(function()
 													prompt.HoldDuration = 0
 													if fireproximityprompt then fireproximityprompt(prompt) end
 													prompt:InputHoldBegin()
-													task.wait(0.01)
 													prompt:InputHoldEnd()
 												end)
 											end
@@ -2369,10 +2369,14 @@ local success, err = pcall(function()
 												end
 											end
 
-											task.wait(0.05)
+											task.wait(0.015)
+										end
+										if not (rData.item and rData.item.Parent) then
+											totalCollected = totalCollected + 1
 										end
 									end
 								end
+								return totalCollected
 							end
 
 							-- Fast Mining Loop: Mine boulder continuously until model or part is destroyed
@@ -2401,21 +2405,30 @@ local success, err = pcall(function()
 									end
 								end)
 
-								-- Periodic Rune scan while mining (every 0.25s)
-								if os.clock() - lastRuneScan > 0.25 then
+								-- Periodic Rune scan while mining (every 0.2s)
+								if os.clock() - lastRuneScan > 0.2 then
 									lastRuneScan = os.clock()
 									pcall(function() collectRunesNearPos(bInitialPos) end)
 								end
 
-								task.wait(0.1)
+								task.wait(0.08)
 							end
 
-							-- Post-destruction Guaranteed Rune Collection (Active 2.5s window for server spawned Runes)
+							-- Post-destruction Ultra-Fast Rune Sweep
 							if autoFarmBouldersEnabled then
 								local sweepStart = os.clock()
-								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 2.5) do
-									pcall(function() collectRunesNearPos(bInitialPos) end)
-									task.wait(0.15)
+								local emptyChecks = 0
+								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 1.8) do
+									local c = 0
+									pcall(function() c = collectRunesNearPos(bInitialPos) or 0 end)
+									if c == 0 then
+										emptyChecks = emptyChecks + 1
+										if emptyChecks >= 2 and (os.clock() - sweepStart > 0.3) then
+											break -- Instant exit when all runes are claimed!
+										end
+									else
+										emptyChecks = 0
+									end
 								end
 							end
 						end
