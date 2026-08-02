@@ -2308,7 +2308,7 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- Collect ALL target Runes sequentially with ultra-fast verification
+								-- Collect ALL target Runes sequentially with fast tween & verification
 								local totalCollected = 0
 								for _, rData in ipairs(targetRunes) do
 									if rData.item and rData.item.Parent and rData.part and rData.part.Parent then
@@ -2316,7 +2316,14 @@ local success, err = pcall(function()
 										while autoFarmBouldersEnabled and rData.item and rData.item.Parent and rData.part and rData.part.Parent and attempt < 2 do
 											attempt = attempt + 1
 
-											-- Instant CFrame Overlap on Rune center
+											-- Fast CFrame Tween directly to Rune position (0.08s)
+											local rDist = (myHrp.Position - rData.part.Position).Magnitude
+											if rDist > 1.5 then
+												local dur = math.clamp(rDist / 350, 0.05, 0.2)
+												local tw = TweenService:Create(myHrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = rData.part.CFrame })
+												tw:Play()
+												tw.Completed:Wait()
+											end
 											myHrp.CFrame = rData.part.CFrame
 											pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
@@ -2369,7 +2376,7 @@ local success, err = pcall(function()
 												end
 											end
 
-											task.wait(0.015)
+											task.wait(0.04)
 										end
 										if not (rData.item and rData.item.Parent) then
 											totalCollected = totalCollected + 1
@@ -2414,21 +2421,12 @@ local success, err = pcall(function()
 								task.wait(0.08)
 							end
 
-							-- Post-destruction Ultra-Fast Rune Sweep
+							-- Post-destruction Guaranteed Active Rune Sweep (Active 1.8s window)
 							if autoFarmBouldersEnabled then
 								local sweepStart = os.clock()
-								local emptyChecks = 0
 								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 1.8) do
-									local c = 0
-									pcall(function() c = collectRunesNearPos(bInitialPos) or 0 end)
-									if c == 0 then
-										emptyChecks = emptyChecks + 1
-										if emptyChecks >= 2 and (os.clock() - sweepStart > 0.3) then
-											break -- Instant exit when all runes are claimed!
-										end
-									else
-										emptyChecks = 0
-									end
+									pcall(function() collectRunesNearPos(bInitialPos) end)
+									task.wait(0.1)
 								end
 							end
 						end
