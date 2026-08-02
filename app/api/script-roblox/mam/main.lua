@@ -2316,8 +2316,8 @@ local success, err = pcall(function()
 										end
 
 										if isR then
-											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 120 then
+											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 150 then
 												table.insert(targetRunes, { item = child, part = rPart })
 											end
 										end
@@ -2332,11 +2332,9 @@ local success, err = pcall(function()
 										local rTargetPos = part.Position
 										if rTargetPos.Y >= 10 then
 											local rCFrame = CFrame.new(rTargetPos)
-											if tweenToTargetCFrame then
-												pcall(function() tweenToTargetCFrame(myHrp, rCFrame, 500) end)
-											else
-												local dist = (myHrp.Position - rTargetPos).Magnitude
-												local dur = math.clamp(dist / 450, 0.05, 0.3)
+											local dist = (myHrp.Position - rTargetPos).Magnitude
+											if dist > 1.5 then
+												local dur = math.clamp(dist / 400, 0.06, 0.4)
 												local tw = TweenService:Create(myHrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = rCFrame })
 												tw:Play()
 												tw.Completed:Wait()
@@ -2346,7 +2344,7 @@ local success, err = pcall(function()
 
 											-- Trigger ProximityPrompts repeatedly in a short loop until collected (exact Auto Mining logic!)
 											local startTime = os.clock()
-											while item and item.Parent and (os.clock() - startTime < 0.4) do
+											while item and item.Parent and (os.clock() - startTime < 0.6) do
 												local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
 												if prompt then
 													triggerRunePrompt(prompt)
