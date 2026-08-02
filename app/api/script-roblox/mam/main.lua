@@ -2183,6 +2183,8 @@ local success, err = pcall(function()
 						local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
 
 						if myHrp and boulderPart and boulderPart.Parent then
+							if myHum then myHum.PlatformStand = true end
+
 							-- 1. Fly / Tween to Boulder position
 							local targetPos = boulderPart.Position + Vector3.new(0, 3, 0)
 							local targetCFrame = CFrame.new(targetPos, boulderPart.Position)
