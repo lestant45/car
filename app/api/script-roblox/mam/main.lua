@@ -2047,43 +2047,69 @@ local success, err = pcall(function()
 
 			refs.applyListLayout(abContentContainer, 6)
 
-			-- 4. Live Rune Stats Tracker Card (Appears when Auto Farm Boulder is activated)
-			local runeStatsCard = Instance.new("Frame")
-			runeStatsCard.Size = UDim2.new(1, 0, 0, 140)
-			runeStatsCard.BackgroundColor3 = COLORS.glassPrimary or Color3.fromRGB(15, 18, 36)
-			runeStatsCard.BackgroundTransparency = 0.3
-			runeStatsCard.BorderSizePixel = 0
-			runeStatsCard.LayoutOrder = 4
-			runeStatsCard.Visible = false
-			runeStatsCard.Parent = abContentContainer
+			-- 4. Standalone Floating Live Rune Tracker HUD (Parented to screenGui)
+			local runeStatsHUD = Instance.new("Frame")
+			runeStatsHUD.Name = "HipHub_RuneTrackerHUD"
+			runeStatsHUD.Size = UDim2.new(0, 220, 0, 230)
+			runeStatsHUD.Position = UDim2.new(0, 20, 0, 160)
+			runeStatsHUD.BackgroundColor3 = COLORS.glassPrimary or Color3.fromRGB(15, 18, 36)
+			runeStatsHUD.BackgroundTransparency = 0.25
+			runeStatsHUD.BorderSizePixel = 0
+			runeStatsHUD.Visible = false
+			runeStatsHUD.Parent = screenGui
 
-			refs.applyGlass(runeStatsCard, {
-				corner = refs.CORNER.small,
+			refs.applyGlass(runeStatsHUD, {
+				corner = refs.CORNER.medium,
 				stroke = true,
 				strokeColor = COLORS.accentCyan or Color3.fromRGB(0, 200, 255),
 				strokeThickness = 1,
-				strokeTransparency = 0.6
+				strokeTransparency = 0.5
 			})
 
-			local runeStatsTitle = Instance.new("TextLabel")
-			runeStatsTitle.Size = UDim2.new(1, -16, 0, 22)
-			runeStatsTitle.Position = UDim2.new(0, 10, 0, 4)
-			runeStatsTitle.BackgroundTransparency = 1
-			runeStatsTitle.Text = "📜 Live Rune Inventory & Session Gains"
-			runeStatsTitle.TextColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
-			runeStatsTitle.Font = Enum.Font.GothamBold
-			runeStatsTitle.TextSize = 12
-			runeStatsTitle.TextXAlignment = Enum.TextXAlignment.Left
-			runeStatsTitle.Parent = runeStatsCard
+			-- Draggable Header
+			local hudHeader = Instance.new("Frame")
+			hudHeader.Size = UDim2.new(1, 0, 0, 30)
+			hudHeader.BackgroundTransparency = 1
+			hudHeader.Parent = runeStatsHUD
 
+			local hudTitle = Instance.new("TextLabel")
+			hudTitle.Size = UDim2.new(1, -30, 1, 0)
+			hudTitle.Position = UDim2.new(0, 10, 0, 0)
+			hudTitle.BackgroundTransparency = 1
+			hudTitle.Text = "📜 Live Rune Tracker"
+			hudTitle.TextColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
+			hudTitle.Font = Enum.Font.GothamBold
+			hudTitle.TextSize = 12
+			hudTitle.TextXAlignment = Enum.TextXAlignment.Left
+			hudTitle.Parent = hudHeader
+
+			local hudCloseBtn = Instance.new("TextButton")
+			hudCloseBtn.Size = UDim2.new(0, 24, 0, 24)
+			hudCloseBtn.Position = UDim2.new(1, -26, 0, 3)
+			hudCloseBtn.BackgroundTransparency = 1
+			hudCloseBtn.Text = "X"
+			hudCloseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+			hudCloseBtn.Font = Enum.Font.GothamBold
+			hudCloseBtn.TextSize = 11
+			hudCloseBtn.Parent = hudHeader
+
+			hudCloseBtn.MouseButton1Click:Connect(function()
+				runeStatsHUD.Visible = false
+			end)
+
+			if refs.makeDraggable then
+				pcall(function() refs.makeDraggable(runeStatsHUD, hudHeader) end)
+			end
+
+			-- Scrolling Content List
 			local runeStatsListFrame = Instance.new("ScrollingFrame")
-			runeStatsListFrame.Size = UDim2.new(1, -12, 1, -30)
-			runeStatsListFrame.Position = UDim2.new(0, 6, 0, 26)
+			runeStatsListFrame.Size = UDim2.new(1, -16, 1, -36)
+			runeStatsListFrame.Position = UDim2.new(0, 8, 0, 30)
 			runeStatsListFrame.BackgroundTransparency = 1
 			runeStatsListFrame.BorderSizePixel = 0
 			runeStatsListFrame.ScrollBarThickness = 3
 			runeStatsListFrame.ScrollBarImageColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
-			runeStatsListFrame.Parent = runeStatsCard
+			runeStatsListFrame.Parent = runeStatsHUD
 
 			local runeGridList = Instance.new("UIListLayout")
 			runeGridList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2213,21 +2239,12 @@ local success, err = pcall(function()
 			end
 
 			local function updateAutoBoulderCardHeight()
-				if isAutoBoulderCategoryExpanded then
-					local baseH = 165
-					local extraH = runeStatsCard.Visible and 145 or 0
-					local tween = TweenService:Create(autoBoulderCategoryCard,
-						TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-						Size = UDim2.new(1, 0, 0, baseH + extraH)
-					})
-					tween:Play()
-				else
-					local tween = TweenService:Create(autoBoulderCategoryCard,
-						TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-						Size = UDim2.new(1, 0, 0, 36)
-					})
-					tween:Play()
-				end
+				local targetHeight = isAutoBoulderCategoryExpanded and 115 or 36
+				local tween = TweenService:Create(autoBoulderCategoryCard,
+					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+					Size = UDim2.new(1, 0, 0, targetHeight)
+				})
+				tween:Play()
 			end
 
 			abHeaderBtn.MouseButton1Click:Connect(function()
@@ -2242,11 +2259,11 @@ local success, err = pcall(function()
 				if autoFarmBouldersEnabled then
 					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
 					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
-					runeStatsCard.Visible = true
+					runeStatsHUD.Visible = true
 				else
 					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
 					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
-					runeStatsCard.Visible = false
+					runeStatsHUD.Visible = false
 				end
 				updateAutoBoulderCardHeight()
 			end
@@ -2276,7 +2293,7 @@ local success, err = pcall(function()
 			task.spawn(function()
 				while true do
 					task.wait(1.0)
-					if autoFarmBouldersEnabled and runeStatsCard.Visible then
+					if autoFarmBouldersEnabled and runeStatsHUD.Visible then
 						pcall(updateRuneStatsUI)
 					end
 				end
@@ -2322,35 +2339,6 @@ local success, err = pcall(function()
 				end,
 				function()
 					bRarityLabel.Text = getSelectedBoulderRarityLabelText()
-				end
-			)
-
-			-- 3. Dropdown: Select Bomb for Mining Boulder
-			local bombOptions = {
-				"ClassicBomb",
-				"WindBomb",
-				"IceBomb",
-				"FireBomb",
-				"ThunderBomb",
-				"PoisonBomb",
-				"TimeBomb",
-				"AgonyBomb"
-			}
-			local bombCard, bombBtn, bombLabel, bombMenuFrame, bombSearch, bombScroll = refs.createGlassDropdown(
-				abContentContainer, "Select Bomb for Mining Boulder", selectedBoulderBomb, 3
-			)
-
-			refs.registerDropdownMenu(bombBtn, bombMenuFrame)
-			local bombBinder = refs.bindDropdown(
-				bombBtn, bombMenuFrame, bombSearch, bombScroll, bombOptions,
-				function(opt) return selectedBoulderBomb == opt end,
-				function(val)
-					selectedBoulderBomb = val
-					bombLabel.Text = val
-					if refs.saveConfig then pcall(refs.saveConfig) end
-				end,
-				function()
-					bombLabel.Text = selectedBoulderBomb
 				end
 			)
 		end
