@@ -2171,21 +2171,40 @@ local success, err = pcall(function()
 								tweenMove.Completed:Wait()
 							end
 							myHrp.CFrame = targetCFrame
-							pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
-							task.wait(0.2)
-
-							-- 2. Hit Boulder 2x to make it visible
+							pcall(function() myHrp.Asse							-- 2. Equip Pickaxe & Mine Boulder continuously until destroyed, collecting Runes instantly in mid-air
 							local function getPickaxeTool()
 								local p = player or game:GetService("Players").LocalPlayer
 								local char = p and p.Character
 								local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+
+								local knownPickaxeKeywords = {
+									"pick", "axe", "spike", "apex", "fang", "reign", "terminus",
+									"titanium", "celestial", "eclipse", "void", "starter", "mining"
+								}
 
 								local function scan(cont)
 									if not cont then return nil end
 									for _, child in ipairs(cont:GetChildren()) do
 										if child:IsA("Tool") then
 											local nLower = string.lower(child.Name)
-											if string.find(nLower, "pick", 1, true) or string.find(nLower, "axe", 1, true) or child:GetAttribute("Pickaxe") then
+											for _, kw in ipairs(knownPickaxeKeywords) do
+												if string.find(nLower, kw, 1, true) then
+													return child
+												end
+											end
+											if child:GetAttribute("Pickaxe") or child:GetAttribute("IsPickaxe") then
+												return child
+											end
+										end
+									end
+									-- Fallback: Any tool that is NOT a bomb, crystal, or rune
+									for _, child in ipairs(cont:GetChildren()) do
+										if child:IsA("Tool") then
+											local nLower = string.lower(child.Name)
+											if not string.find(nLower, "bomb", 1, true)
+												and not string.find(nLower, "crystal", 1, true)
+												and not string.find(nLower, "rune", 1, true)
+												and not string.find(nLower, "kg", 1, true) then
 												return child
 											end
 										end
@@ -2196,15 +2215,22 @@ local success, err = pcall(function()
 								return scan(char) or scan(bp)
 							end
 
-							for hitCount = 1, 2 do
-								if not autoFarmBouldersEnabled or not boulderPart.Parent then break end
+							local pickTool = getPickaxeTool()
+							if pickTool and myChar then
 								pcall(function()
-									local pickTool = getPickaxeTool()
-									if pickTool then
-										if myHum and pickTool.Parent ~= myChar then
-											myHum:EquipTool(pickTool)
-											task.wait(0.1)
-										end
+									pickTool.Parent = myChar
+									if myHum then myHum:EquipTool(pickTool) end
+								end)
+								task.wait(0.15)
+							end
+
+							local bInitialPos = boulderPart.Position
+
+							-- Fast Mining Loop: Mine boulder continuously until model or part is destroyed
+							local mineStart = os.clock()
+							while autoFarmBouldersEnabled and boulderPart and boulderPart.Parent and targetBoulderModel and targetBoulderModel.Parent and (os.clock() - mineStart < 20) do
+								pcall(function()
+									if pickTool and pickTool.Parent == myChar then
 										pickTool:Activate()
 									end
 
@@ -2218,115 +2244,64 @@ local success, err = pcall(function()
 										end
 									end
 								end)
-								task.wait(0.3)
-							end
 
-							-- 3. Place selected bomb at boulder position
-							if autoFarmBouldersEnabled and boulderPart and boulderPart.Parent then
+								-- Instant mid-air Rune scan while mining
 								pcall(function()
-									local bName = selectedBoulderBomb or "ClassicBomb"
-									local searchKey = string.lower(string.gsub(bName, "[Bb][Oo][Mm][Bb]", ""))
-
-									local function getBombTool()
-										local p = player or game:GetService("Players").LocalPlayer
-										local char = p and p.Character
-										local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
-
-										local function scan(cont)
-											if not cont then return nil end
-											for _, child in ipairs(cont:GetChildren()) do
-												if child:IsA("Tool") then
-													local nLower = string.lower(child.Name)
-													if string.find(nLower, "bomb", 1, true) and (searchKey == "" or string.find(nLower, searchKey, 1, true)) then
-														return child
-													end
-												end
-											end
-											return nil
-										end
-
-										return scan(char) or scan(bp)
-									end
-
-									local bombTool = getBombTool()
-
-									-- Auto-buy selected bomb if missing from inventory
-									if not bombTool then
-										local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-											or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
-											or game:GetService("ReplicatedStorage")
-										local buyRem = rems and (rems:FindFirstChild("BombBuyRequest") or rems:FindFirstChild("BuyBomb"))
-										if buyRem then
-											pcall(function() buyRem:InvokeServer(bName) end)
-											task.wait(0.3)
-											bombTool = getBombTool()
-										end
-									end
-
-									if bombTool then
-										if myHum and bombTool.Parent ~= myChar then
-											myHum:EquipTool(bombTool)
-											task.wait(0.15)
-										end
-										bombTool:Activate()
-										task.wait(0.15)
-									end
-
-									local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-										or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
-										or game:GetService("ReplicatedStorage")
-									if rems then
-										local placeRem = rems:FindFirstChild("PlaceBomb") or rems:FindFirstChild("DropBomb") or rems:FindFirstChild("UseBomb") or rems:FindFirstChild("BombRequest")
-										if placeRem then
-											if placeRem:IsA("RemoteFunction") then
-												pcall(function() placeRem:InvokeServer(bName) end)
-											else
-												pcall(function() placeRem:FireServer(bName) end)
-											end
-										end
-									end
-								end)
-								task.wait(1.4)
-							end
-
-							-- 4. Collect all Runes dropped near the destroyed boulder area
-							if autoFarmBouldersEnabled then
-								local runeCollectStart = os.clock()
-								while autoFarmBouldersEnabled and (os.clock() - runeCollectStart < 3.0) do
-									local bPos = boulderPart.Position
-									local nearbyRune, runePart = nil, nil
-
 									for _, child in ipairs(workspace:GetChildren()) do
 										if child:IsA("Model") or child:IsA("BasePart") then
 											local cNameLower = string.lower(child.Name)
 											if string.find(cNameLower, "rune", 1, true) then
 												local rPart = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
-												if rPart and (rPart.Position - bPos).Magnitude <= 45 then
-													nearbyRune = child
-													runePart = rPart
-													break
+												if rPart and rPart.Position.Y >= 10 and (rPart.Position - bInitialPos).Magnitude <= 55 then
+													-- Move instantly next to the Rune in mid-air
+													myHrp.CFrame = rPart.CFrame + Vector3.new(0, 1, 0)
+													pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
+													local prompt = child:FindFirstChildWhichIsA("ProximityPrompt", true) or rPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+													if prompt then
+														prompt.RequiresLineOfSight = false
+														prompt.MaxActivationDistance = 99999
+														prompt.HoldDuration = 0
+														if fireproximityprompt then fireproximityprompt(prompt) end
+													end
 												end
 											end
 										end
 									end
+								end)
 
-									if nearbyRune and runePart and myHrp then
-										myHrp.CFrame = runePart.CFrame + Vector3.new(0, 1.5, 0)
-										pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+								task.wait(0.1)
+							end
 
-										local prompt = nearbyRune:FindFirstChildWhichIsA("ProximityPrompt", true) or runePart:FindFirstChildWhichIsA("ProximityPrompt", true)
-										if prompt then
-											pcall(function()
-												prompt.RequiresLineOfSight = false
-												prompt.MaxActivationDistance = 99999
-												prompt.HoldDuration = 0
-												if fireproximityprompt then fireproximityprompt(prompt) end
-											end)
+							-- Post-destruction Fast Instant Rune Sweep (0.8s intensive sweep before Rune falls down)
+							if autoFarmBouldersEnabled then
+								local sweepStart = os.clock()
+								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 1.0) do
+									local collectedAny = false
+									for _, child in ipairs(workspace:GetChildren()) do
+										if child:IsA("Model") or child:IsA("BasePart") then
+											local cNameLower = string.lower(child.Name)
+											if string.find(cNameLower, "rune", 1, true) then
+												local rPart = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
+												if rPart and rPart.Position.Y >= 10 and (rPart.Position - bInitialPos).Magnitude <= 60 then
+													collectedAny = true
+													myHrp.CFrame = rPart.CFrame + Vector3.new(0, 1, 0)
+													pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
+													local prompt = child:FindFirstChildWhichIsA("ProximityPrompt", true) or rPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+													if prompt then
+														prompt.RequiresLineOfSight = false
+														prompt.MaxActivationDistance = 99999
+														prompt.HoldDuration = 0
+														if fireproximityprompt then fireproximityprompt(prompt) end
+													end
+													task.wait(0.08)
+												end
+											end
 										end
-										task.wait(0.2)
-									else
-										break
 									end
+									if not collectedAny then break end
+									task.wait(0.05)
 								end
 							end
 						end
@@ -2383,7 +2358,7 @@ local success, err = pcall(function()
 
 					if isRune then
 						local targetPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-						if targetPart then
+						if targetPart and targetPart.Position.Y >= 10 then
 							local dist = (myPos - targetPart.Position).Magnitude
 							if dist < shortestRuneDist then
 								shortestRuneDist = dist
