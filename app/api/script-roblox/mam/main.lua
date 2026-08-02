@@ -2274,14 +2274,21 @@ local success, err = pcall(function()
 
 								-- Instant mid-air Rune scan while mining
 								pcall(function()
+									local runeKeywords = {
+										"rune", "luck", "haste", "storm", "weight", "fortune",
+										"detonation", "preservation", "warmth", "excavator", "colossus"
+									}
 									for _, child in ipairs(workspace:GetChildren()) do
 										if child:IsA("Model") or child:IsA("BasePart") then
 											local cNameLower = string.lower(child.Name)
-											if string.find(cNameLower, "rune", 1, true) then
-												local rPart = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
-												if rPart and rPart.Position.Y >= 10 and (rPart.Position - bInitialPos).Magnitude <= 55 then
-													-- Move instantly next to the Rune in mid-air
-													myHrp.CFrame = rPart.CFrame + Vector3.new(0, 1, 0)
+											local isR = false
+											for _, kw in ipairs(runeKeywords) do
+												if string.find(cNameLower, kw, 1, true) then isR = true break end
+											end
+											if isR then
+												local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+												if rPart and rPart.Position.Y >= 10 and (rPart.Position - bInitialPos).Magnitude <= 65 then
+													myHrp.CFrame = rPart.CFrame + Vector3.new(0, 1.5, 0)
 													pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
 													local prompt = child:FindFirstChildWhichIsA("ProximityPrompt", true) or rPart:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -2300,35 +2307,59 @@ local success, err = pcall(function()
 								task.wait(0.1)
 							end
 
-							-- Post-destruction Fast Instant Rune Sweep (0.8s intensive sweep before Rune falls down)
+							-- Post-destruction Guaranteed Rune Collection (Waits up to 2.5s for server to spawn the Rune)
 							if autoFarmBouldersEnabled then
-								local sweepStart = os.clock()
-								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 1.0) do
-									local collectedAny = false
-									for _, child in ipairs(workspace:GetChildren()) do
-										if child:IsA("Model") or child:IsA("BasePart") then
-											local cNameLower = string.lower(child.Name)
-											if string.find(cNameLower, "rune", 1, true) then
-												local rPart = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
-												if rPart and rPart.Position.Y >= 10 and (rPart.Position - bInitialPos).Magnitude <= 60 then
-													collectedAny = true
-													myHrp.CFrame = rPart.CFrame + Vector3.new(0, 1, 0)
-													pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+								local runeKeywords = {
+									"rune", "luck", "haste", "storm", "weight", "fortune",
+									"detonation", "preservation", "warmth", "excavator", "colossus"
+								}
 
-													local prompt = child:FindFirstChildWhichIsA("ProximityPrompt", true) or rPart:FindFirstChildWhichIsA("ProximityPrompt", true)
-													if prompt then
-														prompt.RequiresLineOfSight = false
-														prompt.MaxActivationDistance = 99999
-														prompt.HoldDuration = 0
-														if fireproximityprompt then fireproximityprompt(prompt) end
+								local function isRuneObject(obj)
+									if not obj then return false end
+									local nLower = string.lower(obj.Name)
+									for _, kw in ipairs(runeKeywords) do
+										if string.find(nLower, kw, 1, true) then return true end
+									end
+									return false
+								end
+
+								local sweepStart = os.clock()
+								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 2.5) do
+									local containersToScan = {
+										workspace,
+										workspace:FindFirstChild("DroppedRunes"),
+										workspace:FindFirstChild("Runes"),
+										workspace:FindFirstChild("Things") and workspace.Things:FindFirstChild("Runes"),
+										workspace:FindFirstChild("Things") and workspace.Things:FindFirstChild("DroppedRunes"),
+									}
+
+									for _, container in ipairs(containersToScan) do
+										if container then
+											for _, child in ipairs(container:GetChildren()) do
+												if child:IsA("Model") or child:IsA("BasePart") then
+													if isRuneObject(child) then
+														local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+														if rPart and rPart.Position.Y >= 10 and (rPart.Position - bInitialPos).Magnitude <= 65 then
+															myHrp.CFrame = rPart.CFrame + Vector3.new(0, 1.5, 0)
+															pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
+															local prompt = child:FindFirstChildWhichIsA("ProximityPrompt", true) or rPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+															if prompt then
+																pcall(function()
+																	prompt.RequiresLineOfSight = false
+																	prompt.MaxActivationDistance = 99999
+																	prompt.HoldDuration = 0
+																	if fireproximityprompt then fireproximityprompt(prompt) end
+																end)
+															end
+															task.wait(0.2)
+														end
 													end
-													task.wait(0.08)
 												end
 											end
 										end
 									end
-									if not collectedAny then break end
-									task.wait(0.05)
+									task.wait(0.15)
 								end
 							end
 						end
