@@ -2047,15 +2047,153 @@ local success, err = pcall(function()
 
 			refs.applyListLayout(abContentContainer, 6)
 
+			-- 4. Live Rune Stats Tracker Card (Appears when Auto Farm Boulder is activated)
+			local runeStatsCard = Instance.new("Frame")
+			runeStatsCard.Size = UDim2.new(1, 0, 0, 140)
+			runeStatsCard.BackgroundColor3 = COLORS.glassPrimary or Color3.fromRGB(15, 18, 36)
+			runeStatsCard.BackgroundTransparency = 0.3
+			runeStatsCard.BorderSizePixel = 0
+			runeStatsCard.LayoutOrder = 4
+			runeStatsCard.Visible = false
+			runeStatsCard.Parent = abContentContainer
+
+			refs.applyGlass(runeStatsCard, {
+				corner = refs.CORNER.small,
+				stroke = true,
+				strokeColor = COLORS.accentCyan or Color3.fromRGB(0, 200, 255),
+				strokeThickness = 1,
+				strokeTransparency = 0.6
+			})
+
+			local runeStatsTitle = Instance.new("TextLabel")
+			runeStatsTitle.Size = UDim2.new(1, -16, 0, 22)
+			runeStatsTitle.Position = UDim2.new(0, 10, 0, 4)
+			runeStatsTitle.BackgroundTransparency = 1
+			runeStatsTitle.Text = "📜 Live Rune Inventory & Session Gains"
+			runeStatsTitle.TextColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
+			runeStatsTitle.Font = Enum.Font.GothamBold
+			runeStatsTitle.TextSize = 12
+			runeStatsTitle.TextXAlignment = Enum.TextXAlignment.Left
+			runeStatsTitle.Parent = runeStatsCard
+
+			local runeStatsListFrame = Instance.new("ScrollingFrame")
+			runeStatsListFrame.Size = UDim2.new(1, -12, 1, -30)
+			runeStatsListFrame.Position = UDim2.new(0, 6, 0, 26)
+			runeStatsListFrame.BackgroundTransparency = 1
+			runeStatsListFrame.BorderSizePixel = 0
+			runeStatsListFrame.ScrollBarThickness = 3
+			runeStatsListFrame.ScrollBarImageColor3 = COLORS.accentCyan or Color3.fromRGB(0, 200, 255)
+			runeStatsListFrame.Parent = runeStatsCard
+
+			local runeGridList = Instance.new("UIListLayout")
+			runeGridList.SortOrder = Enum.SortOrder.LayoutOrder
+			runeGridList.Padding = UDim.new(0, 3)
+			runeGridList.Parent = runeStatsListFrame
+
+			local RUNE_TYPES = { "luck", "haste", "storm", "weight", "fortune", "detonation", "preservation", "warmth", "excavator", "colossus" }
+			local initialRuneCounts = {}
+			local runeLabelsMap = {}
+
+			local function getRuneCounts()
+				local counts = {}
+				for _, rName in ipairs(RUNE_TYPES) do counts[rName] = 0 end
+
+				local p = player or game:GetService("Players").LocalPlayer
+				local char = p and p.Character
+				local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+
+				local containers = { char, bp }
+				for _, cont in ipairs(containers) do
+					if cont then
+						for _, child in ipairs(cont:GetChildren()) do
+							local cName = string.lower(child.Name)
+							for _, rName in ipairs(RUNE_TYPES) do
+								if string.find(cName, rName, 1, true) then
+									counts[rName] = counts[rName] + 1
+								end
+							end
+						end
+					end
+				end
+				return counts
+			end
+
+			for idx, rName in ipairs(RUNE_TYPES) do
+				local row = Instance.new("Frame")
+				row.Size = UDim2.new(1, 0, 0, 16)
+				row.BackgroundTransparency = 1
+				row.LayoutOrder = idx
+				row.Parent = runeStatsListFrame
+
+				local lblName = Instance.new("TextLabel")
+				lblName.Size = UDim2.new(0.4, 0, 1, 0)
+				lblName.Position = UDim2.new(0, 4, 0, 0)
+				lblName.BackgroundTransparency = 1
+				lblName.Text = string.upper(string.sub(rName, 1, 1)) .. string.sub(rName, 2)
+				lblName.TextColor3 = Color3.fromRGB(220, 230, 255)
+				lblName.Font = Enum.Font.GothamMedium
+				lblName.TextSize = 11
+				lblName.TextXAlignment = Enum.TextXAlignment.Left
+				lblName.Parent = row
+
+				local lblVal = Instance.new("TextLabel")
+				lblVal.Size = UDim2.new(0.55, 0, 1, 0)
+				lblVal.Position = UDim2.new(0.42, 0, 0, 0)
+				lblVal.BackgroundTransparency = 1
+				lblVal.Text = "0 (+0)"
+				lblVal.TextColor3 = Color3.fromRGB(180, 190, 220)
+				lblVal.Font = Enum.Font.GothamBold
+				lblVal.TextSize = 11
+				lblVal.TextXAlignment = Enum.TextXAlignment.Left
+				lblVal.Parent = row
+
+				runeLabelsMap[rName] = lblVal
+			end
+
+			runeGridList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+				runeStatsListFrame.CanvasSize = UDim2.new(0, 0, 0, runeGridList.AbsoluteContentSize.Y + 4)
+			end)
+
+			local function updateRuneStatsUI()
+				local currentCounts = getRuneCounts()
+				for rName, lbl in pairs(runeLabelsMap) do
+					local total = currentCounts[rName] or 0
+					local init = initialRuneCounts[rName] or total
+					local gained = total - init
+					if gained < 0 then gained = 0 end
+
+					if gained > 0 then
+						lbl.Text = string.format("%d <font color='#55ff55'><b>(+%d)</b></font>", total, gained)
+						lbl.RichText = true
+					else
+						lbl.Text = string.format("%d (+0)", total)
+						lbl.RichText = false
+					end
+				end
+			end
+
+			local function updateAutoBoulderCardHeight()
+				if isAutoBoulderCategoryExpanded then
+					local baseH = 165
+					local extraH = runeStatsCard.Visible and 145 or 0
+					local tween = TweenService:Create(autoBoulderCategoryCard,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+						Size = UDim2.new(1, 0, 0, baseH + extraH)
+					})
+					tween:Play()
+				else
+					local tween = TweenService:Create(autoBoulderCategoryCard,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+						Size = UDim2.new(1, 0, 0, 36)
+					})
+					tween:Play()
+				end
+			end
+
 			abHeaderBtn.MouseButton1Click:Connect(function()
 				isAutoBoulderCategoryExpanded = not isAutoBoulderCategoryExpanded
 				abChevronLabel.Text = isAutoBoulderCategoryExpanded and "v" or ">"
-				local targetHeight = isAutoBoulderCategoryExpanded and 165 or 36
-				local tween = TweenService:Create(autoBoulderCategoryCard,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-					Size = UDim2.new(1, 0, 0, targetHeight)
-				})
-				tween:Play()
+				updateAutoBoulderCardHeight()
 			end)
 
 			-- 1. Auto Farm Boulder Toggle
@@ -2064,15 +2202,22 @@ local success, err = pcall(function()
 				if autoFarmBouldersEnabled then
 					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
 					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+					runeStatsCard.Visible = true
 				else
 					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
 					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+					runeStatsCard.Visible = false
 				end
+				updateAutoBoulderCardHeight()
 			end
 			updateAutoFarmBoulderVisuals()
 
 			afbTrack.MouseButton1Click:Connect(function()
 				autoFarmBouldersEnabled = not autoFarmBouldersEnabled
+				if autoFarmBouldersEnabled then
+					initialRuneCounts = getRuneCounts()
+					updateRuneStatsUI()
+				end
 				updateAutoFarmBoulderVisuals()
 				if autoFarmBouldersEnabled then
 					pcall(function()
@@ -2085,6 +2230,16 @@ local success, err = pcall(function()
 					end)
 				end
 				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
+
+			-- Live Rune Stats background updater task
+			task.spawn(function()
+				while true do
+					task.wait(1.0)
+					if autoFarmBouldersEnabled and runeStatsCard.Visible then
+						pcall(updateRuneStatsUI)
+					end
+				end
 			end)
 
 			-- 2. Dropdown: Boulder Rarity Filter
