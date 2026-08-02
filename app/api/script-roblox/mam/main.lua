@@ -1899,59 +1899,83 @@ local success, err = pcall(function()
 				nocturnite = "Legendary"
 			}
 
-			local containersToScan = {}
-			local mDeco = workspace:FindFirstChild("MountainDecorations")
-			if mDeco and mDeco:FindFirstChild("Boulders") then
-				table.insert(containersToScan, mDeco.Boulders)
-			end
-			if workspace:FindFirstChild("Boulders") then
-				table.insert(containersToScan, workspace.Boulders)
-			end
-			if workspace:FindFirstChild("RenderedBoulders") then
-				table.insert(containersToScan, workspace.RenderedBoulders)
-			end
-			table.insert(containersToScan, workspace)
+			local scanned = {}
+			local function checkBoulderCandidate(child)
+				if not child or not child.Parent or scanned[child] then return end
+				scanned[child] = true
 
-			for _, container in ipairs(containersToScan) do
-				for _, child in ipairs(container:GetChildren()) do
-					if child and child.Parent and (child:IsA("Model") or child:IsA("BasePart")) then
-						local nameLower = string.lower(child.Name)
-						local rarityStr = child:GetAttribute("Rarity") or child:GetAttribute("rarity")
+				if not (child:IsA("Model") or child:IsA("BasePart")) or child:IsA("Accessory") then return end
 
-						if not rarityStr then
-							for key, rName in pairs(BOULDER_MAP) do
-								if string.find(nameLower, key, 1, true) then
-									rarityStr = rName
-									break
-								end
-							end
+				local nameLower = string.lower(child.Name)
+				local pNameLower = child.Parent and string.lower(child.Parent.Name) or ""
+				local combinedName = nameLower .. " " .. pNameLower
+
+				local rarityStr = child:GetAttribute("Rarity") or child:GetAttribute("rarity")
+					or (child.Parent and (child.Parent:GetAttribute("Rarity") or child.Parent:GetAttribute("rarity")))
+
+				if not rarityStr then
+					for key, rName in pairs(BOULDER_MAP) do
+						if string.find(combinedName, key, 1, true) then
+							rarityStr = rName
+							break
 						end
+					end
+				end
 
-						if rarityStr then
-							local matchesRarity = false
-							if boulderRarityFilters["All"] or next(boulderRarityFilters) == nil then
+				if rarityStr then
+					local matchesRarity = false
+					if boulderRarityFilters["All"] or next(boulderRarityFilters) == nil then
+						matchesRarity = true
+					else
+						for rFilter, isSel in pairs(boulderRarityFilters) do
+							if isSel == true and string.lower(tostring(rFilter)) == string.lower(tostring(rarityStr)) then
 								matchesRarity = true
-							else
-								for rFilter, isSel in pairs(boulderRarityFilters) do
-									if isSel == true and string.lower(tostring(rFilter)) == string.lower(tostring(rarityStr)) then
-										matchesRarity = true
-										break
-									end
-								end
-							end
-
-							if matchesRarity then
-								local part = getTargetPart(child)
-								if part then
-									local dist = (part.Position - myPos).Magnitude
-									if dist < shortestDist then
-										shortestDist = dist
-										bestObj = child
-									end
-								end
+								break
 							end
 						end
 					end
+
+					if matchesRarity then
+						local part = getTargetPart(child)
+						if part then
+							local dist = (part.Position - myPos).Magnitude
+							if dist < shortestDist then
+								shortestDist = dist
+								bestObj = child
+							end
+						end
+					end
+				end
+			end
+
+			-- Scan primary Boulder folders
+			local mDeco = workspace:FindFirstChild("MountainDecorations")
+			local things = workspace:FindFirstChild("Things")
+			local targetFolders = {
+				mDeco and mDeco:FindFirstChild("Boulders"),
+				workspace:FindFirstChild("Boulders"),
+				workspace:FindFirstChild("RenderedBoulders"),
+				workspace:FindFirstChild("ActiveBoulders"),
+				things and things:FindFirstChild("Boulders"),
+			}
+
+			for _, folder in ipairs(targetFolders) do
+				if folder then
+					for _, child in ipairs(folder:GetChildren()) do
+						checkBoulderCandidate(child)
+					end
+				end
+			end
+
+			-- Fallback: Scan MountainDecorations descendants and direct Workspace children
+			if not bestObj then
+				if mDeco then
+					for _, desc in ipairs(mDeco:GetDescendants()) do
+						checkBoulderCandidate(desc)
+					end
+				end
+				for _, child in ipairs(workspace:GetChildren()) do
+					checkBoulderCandidate(child)
 				end
 			end
 
