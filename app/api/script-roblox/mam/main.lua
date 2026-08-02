@@ -2327,40 +2327,55 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- Collect ALL target Runes sequentially by locking position onto falling Rune in real-time
+								-- Collect ALL target Runes sequentially by TWEENING to each Rune
 								for _, rData in ipairs(targetRunes) do
 									local item = rData.item
 									local part = rData.part
 									if item and item.Parent and part and part.Parent then
-										local startTime = os.clock()
-										while item and item.Parent and part and part.Parent and (os.clock() - startTime < 0.25) do
-											if part.Position.Y >= 10 then
-												myHrp.CFrame = CFrame.new(part.Position)
-												pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+										local rTargetPos = part.Position
+										if rTargetPos.Y >= 10 then
+											local rCFrame = CFrame.new(rTargetPos + Vector3.new(0, 0.5, 0))
+											local dist = (myHrp.Position - rTargetPos).Magnitude
 
-												-- Dual Touch Interest
-												if firetouchinterest then
-													pcall(function()
-														firetouchinterest(myHrp, part, 0)
-														firetouchinterest(myHrp, part, 1)
-														firetouchinterest(part, myHrp, 0)
-														firetouchinterest(part, myHrp, 1)
-													end)
-												end
-
-												-- ProximityPrompt fallback
-												local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
-												if prompt then triggerRunePrompt(prompt) end
-
-												pcall(function()
-													for _, desc in ipairs(item:GetDescendants()) do
-														if desc:IsA("ProximityPrompt") then
-															triggerRunePrompt(desc)
-														end
-													end
-												end)
+											-- 1. Visibly TWEEN smoothly & fast directly to the Rune
+											if dist > 1.5 then
+												local dur = math.clamp(dist / 350, 0.06, 0.4)
+												local tw = TweenService:Create(myHrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = rCFrame })
+												tw:Play()
+												tw.Completed:Wait()
 											end
-											task.wait(0.01)
+											myHrp.CFrame = rCFrame
+											pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
+											-- 2. Stay locked on Rune & trigger ProximityPrompts + TouchInterest until collected (max 0.6s)
+											local startTime = os.clock()
+											while item and item.Parent and part and part.Parent and (os.clock() - startTime < 0.6) do
+												if part.Position.Y >= 10 then
+													myHrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 0.5, 0))
+													pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
+													local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+													if prompt then triggerRunePrompt(prompt) end
+
+													pcall(function()
+														for _, desc in ipairs(item:GetDescendants()) do
+															if desc:IsA("ProximityPrompt") then
+																triggerRunePrompt(desc)
+															end
+														end
+													end)
+
+													if firetouchinterest then
+														pcall(function()
+															firetouchinterest(myHrp, part, 0)
+															firetouchinterest(myHrp, part, 1)
+															firetouchinterest(part, myHrp, 0)
+															firetouchinterest(part, myHrp, 1)
+														end)
+													end
+												end
+												task.wait(0.04)
+											end
 										end
 									end
 								end
