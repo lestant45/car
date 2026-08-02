@@ -1870,6 +1870,7 @@ local success, err = pcall(function()
 		-- 🪨 AUTOMATION BOULDER CATEGORY SECTION
 		------------------------------------------------
 		local autoFarmBouldersEnabled = false
+		local autoHopServerEnabled = false
 		local boulderRarityFilters = { ["All"] = true }
 		local selectedBoulderBomb = "ClassicBomb"
 
@@ -2056,7 +2057,7 @@ local success, err = pcall(function()
 			runeStatsHUD.BackgroundTransparency = 0.25
 			runeStatsHUD.BorderSizePixel = 0
 			runeStatsHUD.Visible = false
-			runeStatsHUD.Parent = screenGui
+			runeStatsHUD.Parent = refs.gui
 
 			refs.applyGlass(runeStatsHUD, {
 				corner = refs.CORNER.medium,
@@ -2238,7 +2239,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			local autoHopServerEnabled = false
+
 
 			local function updateAutoBoulderCardHeight()
 				local targetHeight = isAutoBoulderCategoryExpanded and 155 or 36
