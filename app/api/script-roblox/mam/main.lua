@@ -2238,8 +2238,10 @@ local success, err = pcall(function()
 				end
 			end
 
+			local autoHopServerEnabled = false
+
 			local function updateAutoBoulderCardHeight()
-				local targetHeight = isAutoBoulderCategoryExpanded and 115 or 36
+				local targetHeight = isAutoBoulderCategoryExpanded and 155 or 36
 				local tween = TweenService:Create(autoBoulderCategoryCard,
 					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 					Size = UDim2.new(1, 0, 0, targetHeight)
@@ -2341,6 +2343,25 @@ local success, err = pcall(function()
 					bRarityLabel.Text = getSelectedBoulderRarityLabelText()
 				end
 			)
+
+			-- 3. Auto Hop Server Toggle
+			local ahsRow, ahsTrack, ahsThumb = refs.createGlassToggle(abContentContainer, "Auto Hop Server", 3)
+			local updateAutoHopServerVisuals = function()
+				if autoHopServerEnabled then
+					TweenService:Create(ahsTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+					TweenService:Create(ahsThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				else
+					TweenService:Create(ahsTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+					TweenService:Create(ahsThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				end
+			end
+			updateAutoHopServerVisuals()
+
+			ahsTrack.MouseButton1Click:Connect(function()
+				autoHopServerEnabled = not autoHopServerEnabled
+				updateAutoHopServerVisuals()
+				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
 		end
 
 		-- Auto Farm Boulder Loop Engine
@@ -2614,9 +2635,41 @@ local success, err = pcall(function()
 							end
 						end
 					else
-						-- No matching boulder found on the map right now!
-						-- Sleep for 1.2s to prevent CPU spinlock & eliminate 60 FPS drops!
-						task.wait(1.2)
+						-- No matching boulder found on the map!
+						-- STOP all scanning completely to prevent FPS drops.
+						if autoHopServerEnabled then
+							-- Auto Hop Server: teleport to a new server
+							pcall(function()
+								local TeleportService = game:GetService("TeleportService")
+								local HttpService = game:GetService("HttpService")
+								local placeId = game.PlaceId
+								local currentJobId = game.JobId
+
+								-- Try to find a different server via API
+								local success, servers = pcall(function()
+									local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
+									local response = game:HttpGet(url)
+									return HttpService:JSONDecode(response)
+								end)
+
+								if success and servers and servers.data then
+									for _, server in ipairs(servers.data) do
+										if server.id ~= currentJobId and server.playing and server.maxPlayers and server.playing < server.maxPlayers then
+											TeleportService:TeleportToPlaceInstance(placeId, server.id)
+											task.wait(10)
+											return
+										end
+									end
+								end
+
+								-- Fallback: teleport to same place (random server)
+								TeleportService:Teleport(placeId)
+								task.wait(10)
+							end)
+						else
+							-- No auto hop: just idle sleep, no scanning
+							task.wait(3)
+						end
 					end
 				end
 			end
