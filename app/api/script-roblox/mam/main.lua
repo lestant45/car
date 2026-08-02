@@ -2262,7 +2262,7 @@ local success, err = pcall(function()
 								task.wait(0.15)
 							end
 
-							-- Helper to collect all spawned Runes near position (Replicates Auto Mining Rune engine with ultra-fast speed)
+							-- Helper to collect all spawned Runes near position by TWEENING to each Rune (Matches Auto Mining Rune engine!)
 							local function collectRunesNearPos(centerPos)
 								if not centerPos or not myHrp then return end
 
@@ -2317,48 +2317,59 @@ local success, err = pcall(function()
 
 										if isR then
 											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 90 then
+											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 120 then
 												table.insert(targetRunes, { item = child, part = rPart })
 											end
 										end
 									end
 								end
 
-								-- Collect ALL target Runes sequentially at ultra-fast speed
+								-- Collect ALL target Runes sequentially by TWEENING to each Rune (like Auto Mining!)
 								for _, rData in ipairs(targetRunes) do
 									local item = rData.item
 									local part = rData.part
 									if item and item.Parent and part and part.Parent then
-										-- Position character directly on part.CFrame (exact Auto Mining Rune positioning)
-										pcall(function()
-											myHrp.CFrame = part.CFrame
-											myHrp.AssemblyLinearVelocity = Vector3.zero
-										end)
-
-										-- Trigger primary prompt
-										local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
-										if prompt then
-											triggerRunePrompt(prompt)
-										end
-
-										-- Trigger all descendant prompts (matching Auto Mining)
-										pcall(function()
-											for _, desc in ipairs(item:GetDescendants()) do
-												if desc:IsA("ProximityPrompt") then
-													triggerRunePrompt(desc)
-												end
+										local rTargetPos = part.Position
+										if rTargetPos.Y >= 10 then
+											local rCFrame = CFrame.new(rTargetPos)
+											if tweenToTargetCFrame then
+												pcall(function() tweenToTargetCFrame(myHrp, rCFrame, 500) end)
+											else
+												local dist = (myHrp.Position - rTargetPos).Magnitude
+												local dur = math.clamp(dist / 450, 0.05, 0.3)
+												local tw = TweenService:Create(myHrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = rCFrame })
+												tw:Play()
+												tw.Completed:Wait()
 											end
-										end)
+											myHrp.CFrame = rCFrame
+											pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
-										-- Direct Touch Interest fallback
-										if firetouchinterest then
-											pcall(function()
-												firetouchinterest(myHrp, part, 0)
-												firetouchinterest(myHrp, part, 1)
-											end)
+											-- Trigger ProximityPrompts repeatedly in a short loop until collected (exact Auto Mining logic!)
+											local startTime = os.clock()
+											while item and item.Parent and (os.clock() - startTime < 0.4) do
+												local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+												if prompt then
+													triggerRunePrompt(prompt)
+												end
+
+												pcall(function()
+													for _, desc in ipairs(item:GetDescendants()) do
+														if desc:IsA("ProximityPrompt") then
+															triggerRunePrompt(desc)
+														end
+													end
+												end)
+
+												if firetouchinterest then
+													pcall(function()
+														firetouchinterest(myHrp, part, 0)
+														firetouchinterest(myHrp, part, 1)
+													end)
+												end
+
+												task.wait(0.05)
+											end
 										end
-
-										task.wait(0.04) -- Fast 0.04s transition to next Rune!
 									end
 								end
 							end
