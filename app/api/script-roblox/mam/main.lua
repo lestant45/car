@@ -2251,8 +2251,6 @@ local success, err = pcall(function()
 								task.wait(0.15)
 							end
 
-							local bInitialPos = boulderPart.Position
-
 							-- Helper to collect all spawned Runes near position without FPS lag
 							local function collectRunesNearPos(centerPos)
 								if not centerPos or not myHrp then return end
@@ -2263,34 +2261,62 @@ local success, err = pcall(function()
 
 								local targetRunes = {}
 								local scanList = {}
-								local drFolder = workspace:FindFirstChild("DroppedRunes") or workspace:FindFirstChild("Runes")
-								if drFolder then
-									for _, c in ipairs(drFolder:GetChildren()) do table.insert(scanList, c) end
+								local things = workspace:FindFirstChild("Things")
+								local runeFolders = {
+									workspace:FindFirstChild("DroppedRunes"),
+									workspace:FindFirstChild("Runes"),
+									things and things:FindFirstChild("Runes"),
+									things and things:FindFirstChild("DroppedRunes"),
+									workspace:FindFirstChild("MountainDecorations")
+								}
+
+								for _, folder in ipairs(runeFolders) do
+									if folder then
+										for _, c in ipairs(folder:GetChildren()) do table.insert(scanList, c) end
+									end
 								end
 								for _, c in ipairs(workspace:GetChildren()) do table.insert(scanList, c) end
 
+								local addedMap = {}
 								for _, child in ipairs(scanList) do
-									if child and child.Parent and (child:IsA("Model") or child:IsA("BasePart")) then
+									if child and child.Parent and not addedMap[child] and (child:IsA("MeshPart") or child:IsA("BasePart") or child:IsA("Model")) and not child:IsA("Accessory") then
+										addedMap[child] = true
 										local cName = string.lower(child.Name)
-										local isR = false
-										for _, kw in ipairs(runeKeywords) do
-											if string.find(cName, kw, 1, true) then isR = true break end
+										local pName = child.Parent and string.lower(child.Parent.Name) or ""
+										local isR = string.find(pName, "rune", 1, true) ~= nil or string.find(cName, "rune", 1, true) ~= nil
+
+										if not isR then
+											for _, kw in ipairs(runeKeywords) do
+												if string.find(cName, kw, 1, true) then isR = true break end
+											end
 										end
+
 										if isR then
 											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 70 then
+											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 85 then
 												table.insert(targetRunes, { item = child, part = rPart })
 											end
 										end
 									end
 								end
 
-								-- Collect ALL target Runes sequentially without lag
+								-- Collect ALL target Runes sequentially
 								for _, rData in ipairs(targetRunes) do
 									if rData.item and rData.item.Parent and rData.part and rData.part.Parent then
-										myHrp.CFrame = rData.part.CFrame + Vector3.new(0, 1.5, 0)
+										-- Teleport right onto the MeshPart/BasePart
+										myHrp.CFrame = rData.part.CFrame + Vector3.new(0, 0.5, 0)
 										pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
+										-- 1. Direct Touch Interest trigger
+										if firetouchinterest then
+											pcall(function()
+												firetouchinterest(myHrp, rData.part, 0)
+												task.wait(0.02)
+												firetouchinterest(myHrp, rData.part, 1)
+											end)
+										end
+
+										-- 2. Proximity Prompt trigger
 										local prompt = rData.item:FindFirstChildWhichIsA("ProximityPrompt", true) or rData.part:FindFirstChildWhichIsA("ProximityPrompt", true)
 										if prompt then
 											pcall(function()
@@ -2298,9 +2324,12 @@ local success, err = pcall(function()
 												prompt.MaxActivationDistance = 99999
 												prompt.HoldDuration = 0
 												if fireproximityprompt then fireproximityprompt(prompt) end
+												prompt:InputHoldBegin()
+												task.wait(0.02)
+												prompt:InputHoldEnd()
 											end)
 										end
-										task.wait(0.12)
+										task.wait(0.08)
 									end
 								end
 							end
@@ -2325,8 +2354,8 @@ local success, err = pcall(function()
 									end
 								end)
 
-								-- Periodic Rune scan while mining (every 0.4s to maintain 60 FPS)
-								if os.clock() - lastRuneScan > 0.4 then
+								-- Periodic Rune scan while mining (every 0.3s)
+								if os.clock() - lastRuneScan > 0.3 then
 									lastRuneScan = os.clock()
 									pcall(function() collectRunesNearPos(bInitialPos) end)
 								end
@@ -2334,12 +2363,12 @@ local success, err = pcall(function()
 								task.wait(0.1)
 							end
 
-							-- Post-destruction Guaranteed Rune Collection (Collects ALL dropped Runes 2 times to ensure 100% pickup)
+							-- Post-destruction Guaranteed Rune Collection (Active 2.0s window for server spawned Runes)
 							if autoFarmBouldersEnabled then
-								for sweepStep = 1, 2 do
-									if not autoFarmBouldersEnabled then break end
+								local sweepStart = os.clock()
+								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 2.0) do
 									pcall(function() collectRunesNearPos(bInitialPos) end)
-									task.wait(0.25)
+									task.wait(0.2)
 								end
 							end
 						end

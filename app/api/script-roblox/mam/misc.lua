@@ -217,10 +217,21 @@ local function initMisc()
 
 					local flySpeed = math.max(walkSpeedValue, 40)
 					if flyBv and flyBv.Parent then
-						flyBv.Velocity = moveDir * flySpeed
+						if moveDir.Magnitude > 0 then
+							flyBv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+							flyBv.Velocity = moveDir * flySpeed
+						else
+							flyBv.MaxForce = Vector3.zero
+							flyBv.Velocity = Vector3.zero
+						end
 					end
 					if flyBg and flyBg.Parent then
-						flyBg.CFrame = cam.CFrame
+						if moveDir.Magnitude > 0 then
+							flyBg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+							flyBg.CFrame = cam.CFrame
+						else
+							flyBg.MaxTorque = Vector3.zero
+						end
 					end
 				end)
 			end
@@ -519,8 +530,11 @@ local function initMisc()
 				wsBox.Text = tostring(walkSpeedValue)
 			end
 			if s.flyEnabled ~= nil then
-				flyEnabled = (s.flyEnabled == true)
-				updateFlyVisuals()
+				local newFly = (s.flyEnabled == true)
+				if flyEnabled ~= newFly then
+					flyEnabled = newFly
+					updateFlyVisuals()
+				end
 			end
 		end
 	}
