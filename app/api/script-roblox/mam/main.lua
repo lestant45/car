@@ -2099,53 +2099,44 @@ local success, err = pcall(function()
 				for _, rName in ipairs(RUNE_TYPES) do counts[rName] = 0 end
 
 				local p = player or game:GetService("Players").LocalPlayer
+				local pData = p and p:FindFirstChild("PlayerData")
+				local inv = pData and pData:FindFirstChild("Inventory")
+				local runesFolder = inv and inv:FindFirstChild("Runes")
+
+				-- 1. Primary Direct Server Source: player.PlayerData.Inventory.Runes IntValues
+				if runesFolder then
+					for _, child in ipairs(runesFolder:GetChildren()) do
+						if child:IsA("ValueBase") or child:IsA("IntValue") or child:IsA("NumberValue") then
+							local cNameLower = string.lower(child.Name)
+							for _, rName in ipairs(RUNE_TYPES) do
+								if string.find(cNameLower, rName, 1, true) then
+									counts[rName] = tonumber(child.Value) or 0
+								end
+							end
+						end
+					end
+					return counts
+				end
+
+				-- 2. Fallback: Backpack & Character Tool scanning
 				local char = p and p.Character
 				local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
 
 				local function getToolUses(tool)
 					if not tool then return 1 end
-
-					-- Check Attributes
 					local attrs = { "Uses", "uses", "Count", "count", "Amount", "amount", "Quantity", "quantity", "Stack", "stack", "Charges", "charges" }
 					for _, aName in ipairs(attrs) do
 						local v = tool:GetAttribute(aName)
 						if tonumber(v) then return tonumber(v) end
 					end
-
-					-- Check Child ValueObjects
 					for _, cName in ipairs(attrs) do
 						local child = tool:FindFirstChild(cName)
 						if child then
 							if child:IsA("ValueBase") or child:IsA("IntValue") or child:IsA("NumberValue") then
 								if tonumber(child.Value) then return tonumber(child.Value) end
-							elseif child:IsA("StringValue") then
-								if tonumber(child.Value) then return tonumber(child.Value) end
 							end
 						end
 					end
-
-					-- Check IntValue/NumberValue descendants
-					for _, child in ipairs(tool:GetChildren()) do
-						if child:IsA("IntValue") or child:IsA("NumberValue") then
-							if tonumber(child.Value) and tonumber(child.Value) > 0 then
-								return tonumber(child.Value)
-							end
-						end
-					end
-
-					-- Check TextLabel descendants inside tool if any
-					for _, desc in ipairs(tool:GetDescendants()) do
-						if desc:IsA("TextLabel") or desc:IsA("TextBox") then
-							local txt = desc.Text
-							if txt and txt ~= "" then
-								local num = string.match(txt, "(%d+)")
-								if num and tonumber(num) and tonumber(num) > 1 then
-									return tonumber(num)
-								end
-							end
-						end
-					end
-
 					return 1
 				end
 
