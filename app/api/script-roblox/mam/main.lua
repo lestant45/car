@@ -2314,15 +2314,15 @@ local success, err = pcall(function()
 								-- Collect ALL target Runes sequentially
 								for _, rData in ipairs(targetRunes) do
 									if rData.item and rData.item.Parent and rData.part and rData.part.Parent then
-										-- Teleport right onto the MeshPart/BasePart
-										myHrp.CFrame = rData.part.CFrame + Vector3.new(0, 0.5, 0)
+										-- Teleport directly to Rune Position keeping character upright (NO rotational spin)
+										myHrp.CFrame = CFrame.new(rData.part.Position + Vector3.new(0, 0.2, 0))
 										pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
-										-- 1. Direct Touch Interest trigger
+										-- 1. Direct Touch Interest trigger on all parts
 										if firetouchinterest then
 											pcall(function()
 												firetouchinterest(myHrp, rData.part, 0)
-												task.wait(0.02)
+												task.wait(0.01)
 												firetouchinterest(myHrp, rData.part, 1)
 											end)
 										end
@@ -2336,7 +2336,7 @@ local success, err = pcall(function()
 												prompt.HoldDuration = 0
 												if fireproximityprompt then fireproximityprompt(prompt) end
 												prompt:InputHoldBegin()
-												task.wait(0.02)
+												task.wait(0.01)
 												prompt:InputHoldEnd()
 											end)
 										end

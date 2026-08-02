@@ -221,17 +221,15 @@ local function initMisc()
 							flyBv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
 							flyBv.Velocity = moveDir * flySpeed
 						else
-							flyBv.MaxForce = Vector3.new(0, 1e5, 0)
+							-- Active braking: apply full 3D force to stop horizontal inertia instantly
+							flyBv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
 							flyBv.Velocity = Vector3.zero
+							pcall(function() cHrp.AssemblyLinearVelocity = Vector3.zero end)
 						end
 					end
 					if flyBg and flyBg.Parent then
-						if moveDir.Magnitude > 0 then
-							flyBg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-							flyBg.CFrame = cam.CFrame
-						else
-							flyBg.MaxTorque = Vector3.zero
-						end
+						flyBg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+						flyBg.CFrame = cam.CFrame
 					end
 				end)
 			end
