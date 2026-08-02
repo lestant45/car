@@ -2175,22 +2175,42 @@ local success, err = pcall(function()
 							task.wait(0.2)
 
 							-- 2. Hit Boulder 2x to make it visible
+							local function getPickaxeTool()
+								local p = player or game:GetService("Players").LocalPlayer
+								local char = p and p.Character
+								local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+
+								local function scan(cont)
+									if not cont then return nil end
+									for _, child in ipairs(cont:GetChildren()) do
+										if child:IsA("Tool") then
+											local nLower = string.lower(child.Name)
+											if string.find(nLower, "pick", 1, true) or string.find(nLower, "axe", 1, true) or child:GetAttribute("Pickaxe") then
+												return child
+											end
+										end
+									end
+									return nil
+								end
+
+								return scan(char) or scan(bp)
+							end
+
 							for hitCount = 1, 2 do
 								if not autoFarmBouldersEnabled or not boulderPart.Parent then break end
 								pcall(function()
-									local bp = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
-									if bp then
-										local pick = bp:FindFirstChildWhichIsA("Tool")
-										if pick and myHum then
-											myHum:EquipTool(pick)
+									local pickTool = getPickaxeTool()
+									if pickTool then
+										if myHum and pickTool.Parent ~= myChar then
+											myHum:EquipTool(pickTool)
+											task.wait(0.1)
 										end
-									end
-									local equippedTool = myChar and myChar:FindFirstChildWhichIsA("Tool")
-									if equippedTool then
-										equippedTool:Activate()
+										pickTool:Activate()
 									end
 
 									local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+										or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+										or game:GetService("ReplicatedStorage")
 									if rems then
 										local mineRem = rems:FindFirstChild("MineRequest") or rems:FindFirstChild("Mine") or rems:FindFirstChild("Damage")
 										if mineRem then
@@ -2198,34 +2218,63 @@ local success, err = pcall(function()
 										end
 									end
 								end)
-								task.wait(0.25)
+								task.wait(0.3)
 							end
 
 							-- 3. Place selected bomb at boulder position
 							if autoFarmBouldersEnabled and boulderPart and boulderPart.Parent then
 								pcall(function()
 									local bName = selectedBoulderBomb or "ClassicBomb"
-									local bp = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
-									local bombTool = (myChar and myChar:FindFirstChild(bName)) or (bp and bp:FindFirstChild(bName))
+									local searchKey = string.lower(string.gsub(bName, "[Bb][Oo][Mm][Bb]", ""))
 
+									local function getBombTool()
+										local p = player or game:GetService("Players").LocalPlayer
+										local char = p and p.Character
+										local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
+
+										local function scan(cont)
+											if not cont then return nil end
+											for _, child in ipairs(cont:GetChildren()) do
+												if child:IsA("Tool") then
+													local nLower = string.lower(child.Name)
+													if string.find(nLower, "bomb", 1, true) and (searchKey == "" or string.find(nLower, searchKey, 1, true)) then
+														return child
+													end
+												end
+											end
+											return nil
+										end
+
+										return scan(char) or scan(bp)
+									end
+
+									local bombTool = getBombTool()
+
+									-- Auto-buy selected bomb if missing from inventory
 									if not bombTool then
 										local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-										local buyRem = rems and rems:FindFirstChild("BombBuyRequest")
+											or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+											or game:GetService("ReplicatedStorage")
+										local buyRem = rems and (rems:FindFirstChild("BombBuyRequest") or rems:FindFirstChild("BuyBomb"))
 										if buyRem then
 											pcall(function() buyRem:InvokeServer(bName) end)
-											task.wait(0.25)
-											bombTool = (myChar and myChar:FindFirstChild(bName)) or (bp and bp:FindFirstChild(bName))
+											task.wait(0.3)
+											bombTool = getBombTool()
 										end
 									end
 
-									if bombTool and myHum then
-										myHum:EquipTool(bombTool)
-										task.wait(0.15)
+									if bombTool then
+										if myHum and bombTool.Parent ~= myChar then
+											myHum:EquipTool(bombTool)
+											task.wait(0.15)
+										end
 										bombTool:Activate()
 										task.wait(0.15)
 									end
 
 									local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+										or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+										or game:GetService("ReplicatedStorage")
 									if rems then
 										local placeRem = rems:FindFirstChild("PlaceBomb") or rems:FindFirstChild("DropBomb") or rems:FindFirstChild("UseBomb") or rems:FindFirstChild("BombRequest")
 										if placeRem then
