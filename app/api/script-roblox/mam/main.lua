@@ -2185,9 +2185,13 @@ local success, err = pcall(function()
 						if myHrp and boulderPart and boulderPart.Parent then
 							if myHum then myHum.PlatformStand = true end
 
-							-- 1. Fly / Tween to Boulder position
-							local targetPos = boulderPart.Position + Vector3.new(0, 3, 0)
-							local targetCFrame = CFrame.new(targetPos, boulderPart.Position)
+							-- 1. Fly / Tween to Boulder position (2.2 studs horizontal offset facing directly at boulder)
+							local offsetDir = (myHrp.Position - boulderPart.Position)
+							local horizDir = Vector3.new(offsetDir.X, 0, offsetDir.Z)
+							if horizDir.Magnitude < 0.1 then horizDir = Vector3.new(0, 0, 1) else horizDir = horizDir.Unit end
+
+							local targetPos = boulderPart.Position + (horizDir * 2.2) + Vector3.new(0, 0.5, 0)
+							local targetCFrame = CFrame.lookAt(targetPos, Vector3.new(boulderPart.Position.X, targetPos.Y, boulderPart.Position.Z))
 							local distToBoulder = (myHrp.Position - targetPos).Magnitude
 
 							if distToBoulder > 4 then
@@ -2376,6 +2380,11 @@ local success, err = pcall(function()
 							local lastRuneScan = 0
 							while autoFarmBouldersEnabled and boulderPart and boulderPart.Parent and targetBoulderModel and targetBoulderModel.Parent and (os.clock() - mineStart < 20) do
 								pcall(function()
+									-- Constantly face and stay aligned to boulder
+									local bPos = boulderPart.Position
+									local faceCFrame = CFrame.lookAt(myHrp.Position, Vector3.new(bPos.X, myHrp.Position.Y, bPos.Z))
+									myHrp.CFrame = faceCFrame
+
 									if pickTool and pickTool.Parent == myChar then
 										pickTool:Activate()
 									end
@@ -2387,6 +2396,7 @@ local success, err = pcall(function()
 										local mineRem = rems:FindFirstChild("MineRequest") or rems:FindFirstChild("Mine") or rems:FindFirstChild("Damage")
 										if mineRem then
 											mineRem:FireServer(boulderPart)
+											mineRem:FireServer(targetBoulderModel)
 										end
 									end
 								end)
