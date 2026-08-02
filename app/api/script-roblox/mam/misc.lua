@@ -221,7 +221,7 @@ local function initMisc()
 							flyBv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
 							flyBv.Velocity = moveDir * flySpeed
 						else
-							flyBv.MaxForce = Vector3.zero
+							flyBv.MaxForce = Vector3.new(0, 1e5, 0)
 							flyBv.Velocity = Vector3.zero
 						end
 					end

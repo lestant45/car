@@ -2183,7 +2183,18 @@ local success, err = pcall(function()
 						local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
 
 						if myHrp and boulderPart and boulderPart.Parent then
-							-- 1. Fly / Tween to Boulder position
+							-- 1. Fly / Tween to Boulder position with anti-gravity levitation
+							if myHum then myHum.PlatformStand = true end
+
+							local holdBv = myHrp:FindFirstChild("BoulderHoldBV")
+							if not holdBv then
+								holdBv = Instance.new("BodyVelocity")
+								holdBv.Name = "BoulderHoldBV"
+								holdBv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+								holdBv.Velocity = Vector3.zero
+								holdBv.Parent = myHrp
+							end
+
 							local targetPos = boulderPart.Position + Vector3.new(0, 3, 0)
 							local targetCFrame = CFrame.new(targetPos, boulderPart.Position)
 							local distToBoulder = (myHrp.Position - targetPos).Magnitude
@@ -2372,6 +2383,17 @@ local success, err = pcall(function()
 								end
 							end
 						end
+					end
+				else
+					local myChar = player and player.Character
+					local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+					local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+					if myHrp then
+						local holdBv = myHrp:FindFirstChild("BoulderHoldBV")
+						if holdBv then pcall(function() holdBv:Destroy() end) end
+					end
+					if myHum and not flyEnabled then
+						myHum.PlatformStand = false
 					end
 				end
 			end
