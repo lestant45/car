@@ -1873,6 +1873,68 @@ local success, err = pcall(function()
 		local autoHopServerEnabled = false
 		local boulderRarityFilters = { ["All"] = true }
 		local selectedBoulderBomb = "ClassicBomb"
+		local updateAutoFarmBoulderVisuals = nil
+		local updateAutoHopServerVisuals = nil
+
+		local function queueScriptOnTeleport()
+			pcall(function()
+				local queueFunc = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or queueonteleport
+				if queueFunc then
+					local scriptUrl = _G.hiphub_script_url or "https://hiphub.app/api/script-roblox/mam"
+					local code = string.format([[
+						repeat task.wait() until game:IsLoaded()
+						pcall(function()
+							if isfile and isfile("ui.lua") then
+								loadstring(readfile("ui.lua"))()
+							else
+								loadstring(game:HttpGet("%s"))()
+							end
+						end)
+					]], scriptUrl)
+					queueFunc(code)
+				end
+			end)
+		end
+
+		-- 🔄 24/7 Auto Reconnect Engine on Disconnection
+		task.spawn(function()
+			local GuiService = game:GetService("GuiService")
+			local TeleportService = game:GetService("TeleportService")
+			local isReconnecting = false
+
+			local function triggerReconnect()
+				if isReconnecting then return end
+				if autoFarmBouldersEnabled or autoHopServerEnabled then
+					isReconnecting = true
+					if refs.saveConfig then pcall(refs.saveConfig) end
+					queueScriptOnTeleport()
+					task.wait(2)
+					pcall(function()
+						TeleportService:Teleport(game.PlaceId)
+					end)
+				end
+			end
+
+			pcall(function()
+				GuiService.ErrorMessageChanged:Connect(function()
+					task.wait(3)
+					triggerReconnect()
+				end)
+			end)
+
+			pcall(function()
+				local CoreGui = game:GetService("CoreGui")
+				local promptOverlay = CoreGui:FindFirstChild("RobloxPromptGui") and CoreGui.RobloxPromptGui:FindFirstChild("promptOverlay")
+				if promptOverlay then
+					promptOverlay.ChildAdded:Connect(function(child)
+						if child.Name == "ErrorPrompt" then
+							task.wait(3)
+							triggerReconnect()
+						end
+					end)
+				end
+			end)
+		end)
 
 		local function getTargetPart(obj)
 			if not obj then return nil end
@@ -2258,7 +2320,7 @@ local success, err = pcall(function()
 
 			-- 1. Auto Farm Boulder Toggle
 			local afbRow, afbTrack, afbThumb = refs.createGlassToggle(abContentContainer, "Auto Farm Boulder", 1)
-			local updateAutoFarmBoulderVisuals = function()
+			updateAutoFarmBoulderVisuals = function()
 				if autoFarmBouldersEnabled then
 					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
 					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
@@ -2347,7 +2409,7 @@ local success, err = pcall(function()
 
 			-- 3. Auto Hop Server Toggle
 			local ahsRow, ahsTrack, ahsThumb = refs.createGlassToggle(abContentContainer, "Auto Hop Server", 3)
-			local updateAutoHopServerVisuals = function()
+			updateAutoHopServerVisuals = function()
 				if autoHopServerEnabled then
 					TweenService:Create(ahsTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
 					TweenService:Create(ahsThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
@@ -2639,7 +2701,9 @@ local success, err = pcall(function()
 						-- No matching boulder found on the map!
 						-- STOP all scanning completely to prevent FPS drops.
 						if autoHopServerEnabled then
-							-- Auto Hop Server: teleport to a new server
+							-- Auto Hop Server: save config, queue reload script, and teleport to a new server
+							if refs.saveConfig then pcall(refs.saveConfig) end
+							queueScriptOnTeleport()
 							pcall(function()
 								local TeleportService = game:GetService("TeleportService")
 								local HttpService = game:GetService("HttpService")
@@ -4512,6 +4576,7 @@ local success, err = pcall(function()
 				getState = function()
 					return {
 						autoFarmBouldersEnabled = autoFarmBouldersEnabled,
+						autoHopServerEnabled = autoHopServerEnabled,
 						boulderRarityFilters = boulderRarityFilters,
 						selectedBoulderBomb = selectedBoulderBomb,
 					}
@@ -4531,6 +4596,10 @@ local success, err = pcall(function()
 								end
 							end)
 						end
+					end
+					if s.autoHopServerEnabled ~= nil then
+						autoHopServerEnabled = (s.autoHopServerEnabled == true)
+						if updateAutoHopServerVisuals then updateAutoHopServerVisuals() end
 					end
 					if s.boulderRarityFilters ~= nil then
 						if type(s.boulderRarityFilters) == "table" then
@@ -5663,6 +5732,7 @@ local success, err = pcall(function()
 			if _G.HipHubAutomationBoulder and _G.HipHubAutomationBoulder.getState then
 				local abState = _G.HipHubAutomationBoulder.getState()
 				data.autoFarmBouldersEnabled = abState.autoFarmBouldersEnabled
+				data.autoHopServerEnabled = abState.autoHopServerEnabled
 				data.boulderRarityFilters = abState.boulderRarityFilters
 				data.selectedBoulderBomb = abState.selectedBoulderBomb
 			end
@@ -5773,6 +5843,7 @@ local success, err = pcall(function()
 				if _G.HipHubAutomationBoulder and _G.HipHubAutomationBoulder.setState then
 					_G.HipHubAutomationBoulder.setState({
 						autoFarmBouldersEnabled = data.autoFarmBouldersEnabled,
+						autoHopServerEnabled = data.autoHopServerEnabled,
 						boulderRarityFilters = data.boulderRarityFilters,
 						selectedBoulderBomb = data.selectedBoulderBomb,
 					})
