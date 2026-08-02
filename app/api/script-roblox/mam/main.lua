@@ -2183,18 +2183,7 @@ local success, err = pcall(function()
 						local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
 
 						if myHrp and boulderPart and boulderPart.Parent then
-							-- 1. Fly / Tween to Boulder position with anti-gravity levitation
-							if myHum then myHum.PlatformStand = true end
-
-							local holdBv = myHrp:FindFirstChild("BoulderHoldBV")
-							if not holdBv then
-								holdBv = Instance.new("BodyVelocity")
-								holdBv.Name = "BoulderHoldBV"
-								holdBv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-								holdBv.Velocity = Vector3.zero
-								holdBv.Parent = myHrp
-							end
-
+							-- 1. Fly / Tween to Boulder position
 							local targetPos = boulderPart.Position + Vector3.new(0, 3, 0)
 							local targetCFrame = CFrame.new(targetPos, boulderPart.Position)
 							local distToBoulder = (myHrp.Position - targetPos).Magnitude
@@ -2262,29 +2251,15 @@ local success, err = pcall(function()
 								task.wait(0.15)
 							end
 
-							-- Helper to collect all spawned Runes instantly in mid-air (Real-Time Position Lock & Instant Dual Touch/Prompt)
+							local bInitialPos = boulderPart.Position
+
+							-- Helper to collect all spawned Runes near position with 100% pickup rate
 							local function collectRunesNearPos(centerPos)
 								if not centerPos or not myHrp then return end
-
 								local runeKeywords = {
 									"rune", "luck", "haste", "storm", "weight", "fortune",
 									"detonation", "preservation", "warmth", "excavator", "colossus"
 								}
-
-								local function triggerRunePrompt(p)
-									if not p or not p:IsA("ProximityPrompt") then return end
-									pcall(function()
-										p.RequiresLineOfSight = false
-										p.MaxActivationDistance = 99999
-										p.HoldDuration = 0
-										p.ClickablePrompt = true
-										if fireproximityprompt then
-											pcall(function() fireproximityprompt(p) end)
-										end
-										pcall(function() p:InputHoldBegin() end)
-										pcall(function() p:InputHoldEnd() end)
-									end)
-								end
 
 								local targetRunes = {}
 								local scanList = {}
@@ -2306,7 +2281,7 @@ local success, err = pcall(function()
 
 								local addedMap = {}
 								for _, child in ipairs(scanList) do
-									if child and child.Parent and not addedMap[child] and (child:IsA("MeshPart") or child:IsA("BasePart") or child:IsA("Model")) and not child:IsA("Accessory") then
+									if child and child.Parent and not addedMap[child] and (child:IsA("Model") or child:IsA("BasePart")) and not child:IsA("Accessory") then
 										addedMap[child] = true
 										local cName = string.lower(child.Name)
 										local pName = child.Parent and string.lower(child.Parent.Name) or ""
@@ -2320,62 +2295,75 @@ local success, err = pcall(function()
 
 										if isR then
 											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
-											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 160 then
+											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 90 then
 												table.insert(targetRunes, { item = child, part = rPart })
 											end
 										end
 									end
 								end
 
-								-- Collect ALL target Runes sequentially by TWEENING to each Rune
+								-- Collect ALL target Runes sequentially with verification
 								for _, rData in ipairs(targetRunes) do
-									local item = rData.item
-									local part = rData.part
-									if item and item.Parent and part and part.Parent then
-										local rTargetPos = part.Position
-										if rTargetPos.Y >= 10 then
-											local rCFrame = CFrame.new(rTargetPos + Vector3.new(0, 0.5, 0))
-											local dist = (myHrp.Position - rTargetPos).Magnitude
+									if rData.item and rData.item.Parent and rData.part and rData.part.Parent then
+										local attempt = 0
+										while autoFarmBouldersEnabled and rData.item and rData.item.Parent and rData.part and rData.part.Parent and attempt < 3 do
+											attempt = attempt + 1
 
-											-- 1. Visibly TWEEN smoothly & fast directly to the Rune
-											if dist > 1.5 then
-												local dur = math.clamp(dist / 350, 0.06, 0.4)
-												local tw = TweenService:Create(myHrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = rCFrame })
-												tw:Play()
-												tw.Completed:Wait()
-											end
-											myHrp.CFrame = rCFrame
+											-- Direct CFrame Overlap on Rune center
+											myHrp.CFrame = rData.part.CFrame
 											pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
-											-- 2. Stay locked on Rune & trigger ProximityPrompts + TouchInterest until collected (max 0.6s)
-											local startTime = os.clock()
-											while item and item.Parent and part and part.Parent and (os.clock() - startTime < 0.6) do
-												if part.Position.Y >= 10 then
-													myHrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 0.5, 0))
-													pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
-
-													local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
-													if prompt then triggerRunePrompt(prompt) end
-
-													pcall(function()
-														for _, desc in ipairs(item:GetDescendants()) do
-															if desc:IsA("ProximityPrompt") then
-																triggerRunePrompt(desc)
-															end
-														end
-													end)
-
-													if firetouchinterest then
-														pcall(function()
-															firetouchinterest(myHrp, part, 0)
-															firetouchinterest(myHrp, part, 1)
-															firetouchinterest(part, myHrp, 0)
-															firetouchinterest(part, myHrp, 1)
-														end)
+											-- 1. Touch Interest trigger on ALL BaseParts inside the Rune model
+											if firetouchinterest then
+												local touchParts = {}
+												if rData.item:IsA("BasePart") then
+													table.insert(touchParts, rData.item)
+												elseif rData.item:IsA("Model") then
+													for _, desc in ipairs(rData.item:GetDescendants()) do
+														if desc:IsA("BasePart") then table.insert(touchParts, desc) end
 													end
 												end
-												task.wait(0.04)
+												for _, tPart in ipairs(touchParts) do
+													pcall(function()
+														firetouchinterest(myHrp, tPart, 0)
+														firetouchinterest(myHrp, tPart, 1)
+													end)
+												end
 											end
+
+											-- 2. Proximity Prompt trigger
+											local prompt = rData.item:FindFirstChildWhichIsA("ProximityPrompt", true) or rData.part:FindFirstChildWhichIsA("ProximityPrompt", true)
+											if prompt then
+												pcall(function()
+													prompt.RequiresLineOfSight = false
+													prompt.MaxActivationDistance = 99999
+													prompt.HoldDuration = 0
+													if fireproximityprompt then fireproximityprompt(prompt) end
+													prompt:InputHoldBegin()
+													task.wait(0.01)
+													prompt:InputHoldEnd()
+												end)
+											end
+
+											-- 3. Remote Event pickup fallback
+											local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+												or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+												or game:GetService("ReplicatedStorage")
+											if rems then
+												local pRem = rems:FindFirstChild("CollectRune") or rems:FindFirstChild("PickupRune")
+													or rems:FindFirstChild("ClaimRune") or rems:FindFirstChild("PickupItem")
+												if pRem then
+													pcall(function()
+														if pRem:IsA("RemoteFunction") then
+															pRem:InvokeServer(rData.item)
+														else
+															pRem:FireServer(rData.item)
+														end
+													end)
+												end
+											end
+
+											task.wait(0.05)
 										end
 									end
 								end
@@ -2410,26 +2398,15 @@ local success, err = pcall(function()
 								task.wait(0.1)
 							end
 
-							-- Post-destruction Guaranteed Rune Collection (Active 1.2s instant catch window)
+							-- Post-destruction Guaranteed Rune Collection (Active 2.5s window for server spawned Runes)
 							if autoFarmBouldersEnabled then
 								local sweepStart = os.clock()
-								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 1.2) do
+								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 2.5) do
 									pcall(function() collectRunesNearPos(bInitialPos) end)
-									task.wait(0.02)
+									task.wait(0.15)
 								end
 							end
 						end
-					end
-				else
-					local myChar = player and player.Character
-					local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
-					local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-					if myHrp then
-						local holdBv = myHrp:FindFirstChild("BoulderHoldBV")
-						if holdBv then pcall(function() holdBv:Destroy() end) end
-					end
-					if myHum and not flyEnabled then
-						myHum.PlatformStand = false
 					end
 				end
 			end
