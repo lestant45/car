@@ -1882,41 +1882,63 @@ local success, err = pcall(function()
 			local bestObj = nil
 			local shortestDist = math.huge
 
-			local mountainDeco = workspace:FindFirstChild("MountainDecorations")
-			local bFolder = (mountainDeco and mountainDeco:FindFirstChild("Boulders"))
-				or workspace:FindFirstChild("Boulders")
-				or workspace:FindFirstChild("RenderedBoulders")
+			local BOULDER_MAP = {
+				mossite = "Common",
+				voltite = "Uncommon",
+				gildrite = "Rare",
+				rimeveil = "Epic",
+				nocturnite = "Legendary"
+			}
 
-			if bFolder then
-				for _, boulderModel in ipairs(bFolder:GetChildren()) do
-					if boulderModel and boulderModel.Parent then
-						local nameLower = string.lower(boulderModel.Name)
-						local bData = nil
-						for bName, cfg in pairs(BOULDER_CONFIG or {}) do
-							if string.find(nameLower, string.lower(bName), 1, true) then
-								bData = cfg
-								break
+			local containersToScan = {}
+			local mDeco = workspace:FindFirstChild("MountainDecorations")
+			if mDeco and mDeco:FindFirstChild("Boulders") then
+				table.insert(containersToScan, mDeco.Boulders)
+			end
+			if workspace:FindFirstChild("Boulders") then
+				table.insert(containersToScan, workspace.Boulders)
+			end
+			if workspace:FindFirstChild("RenderedBoulders") then
+				table.insert(containersToScan, workspace.RenderedBoulders)
+			end
+			table.insert(containersToScan, workspace)
+
+			for _, container in ipairs(containersToScan) do
+				for _, child in ipairs(container:GetChildren()) do
+					if child and child.Parent and (child:IsA("Model") or child:IsA("BasePart")) then
+						local nameLower = string.lower(child.Name)
+						local rarityStr = child:GetAttribute("Rarity") or child:GetAttribute("rarity")
+
+						if not rarityStr then
+							for key, rName in pairs(BOULDER_MAP) do
+								if string.find(nameLower, key, 1, true) then
+									rarityStr = rName
+									break
+								end
 							end
 						end
 
-						local rarityStr = bData and bData.rarity or (boulderModel:GetAttribute("Rarity") or "Common")
-						local matchesRarity = false
-
-						if boulderRarityFilters["All"] or next(boulderRarityFilters) == nil then
-							matchesRarity = true
-						else
-							if boulderRarityFilters[rarityStr] == true then
+						if rarityStr then
+							local matchesRarity = false
+							if boulderRarityFilters["All"] or next(boulderRarityFilters) == nil then
 								matchesRarity = true
+							else
+								for rFilter, isSel in pairs(boulderRarityFilters) do
+									if isSel == true and string.lower(tostring(rFilter)) == string.lower(tostring(rarityStr)) then
+										matchesRarity = true
+										break
+									end
+								end
 							end
-						end
 
-						if matchesRarity then
-							local part = getTargetPart(boulderModel)
-							if part then
-								local dist = (part.Position - myPos).Magnitude
-								if dist < shortestDist then
-									shortestDist = dist
-									bestObj = boulderModel
+							if matchesRarity then
+								local part = getTargetPart(child)
+								if part then
+									local dist = (part.Position - myPos).Magnitude
+									if dist < shortestDist then
+										shortestDist = dist
+										bestObj = child
+									end
 								end
 							end
 						end
@@ -2131,12 +2153,16 @@ local success, err = pcall(function()
 							-- 1. Fly / Tween to Boulder position
 							local targetPos = boulderPart.Position + Vector3.new(0, 3, 0)
 							local targetCFrame = CFrame.new(targetPos, boulderPart.Position)
+							local distToBoulder = (myHrp.Position - targetPos).Magnitude
 
-							if tweenToTargetCFrame and boulderPart.Position.Y >= 10 then
-								tweenToTargetCFrame(myHrp, targetCFrame, 350)
-							else
-								myHrp.CFrame = targetCFrame
+							if distToBoulder > 4 then
+								local duration = math.clamp(distToBoulder / 350, 0.15, 4.0)
+								local tweenMove = TweenService:Create(myHrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = targetCFrame })
+								tweenMove:Play()
+								tweenMove.Completed:Wait()
 							end
+							myHrp.CFrame = targetCFrame
+							pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 							task.wait(0.2)
 
 							-- 2. Hit Boulder 2x to make it visible
