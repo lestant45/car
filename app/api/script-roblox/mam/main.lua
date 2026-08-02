@@ -2262,13 +2262,26 @@ local success, err = pcall(function()
 								task.wait(0.15)
 							end
 
-							-- Helper to collect all spawned Runes near position without FPS lag
+							-- Helper to collect all spawned Runes near position (Replicates Auto Mining Rune engine with ultra-fast speed)
 							local function collectRunesNearPos(centerPos)
 								if not centerPos or not myHrp then return end
+
 								local runeKeywords = {
 									"rune", "luck", "haste", "storm", "weight", "fortune",
 									"detonation", "preservation", "warmth", "excavator", "colossus"
 								}
+
+								local function triggerRunePrompt(p)
+									if not p or not p:IsA("ProximityPrompt") then return end
+									pcall(function()
+										p.RequiresLineOfSight = false
+										p.MaxActivationDistance = 99999
+										p.HoldDuration = 0
+										if fireproximityprompt then
+											fireproximityprompt(p)
+										end
+									end)
+								end
 
 								local targetRunes = {}
 								local scanList = {}
@@ -2304,43 +2317,48 @@ local success, err = pcall(function()
 
 										if isR then
 											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 85 then
+											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 90 then
 												table.insert(targetRunes, { item = child, part = rPart })
 											end
 										end
 									end
 								end
 
-								-- Collect ALL target Runes sequentially
+								-- Collect ALL target Runes sequentially at ultra-fast speed
 								for _, rData in ipairs(targetRunes) do
-									if rData.item and rData.item.Parent and rData.part and rData.part.Parent then
-										-- Teleport directly to Rune Position keeping character upright (NO rotational spin)
-										myHrp.CFrame = CFrame.new(rData.part.Position + Vector3.new(0, 0.2, 0))
-										pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+									local item = rData.item
+									local part = rData.part
+									if item and item.Parent and part and part.Parent then
+										-- Position character directly on part.CFrame (exact Auto Mining Rune positioning)
+										pcall(function()
+											myHrp.CFrame = part.CFrame
+											myHrp.AssemblyLinearVelocity = Vector3.zero
+										end)
 
-										-- 1. Direct Touch Interest trigger on all parts
+										-- Trigger primary prompt
+										local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+										if prompt then
+											triggerRunePrompt(prompt)
+										end
+
+										-- Trigger all descendant prompts (matching Auto Mining)
+										pcall(function()
+											for _, desc in ipairs(item:GetDescendants()) do
+												if desc:IsA("ProximityPrompt") then
+													triggerRunePrompt(desc)
+												end
+											end
+										end)
+
+										-- Direct Touch Interest fallback
 										if firetouchinterest then
 											pcall(function()
-												firetouchinterest(myHrp, rData.part, 0)
-												task.wait(0.01)
-												firetouchinterest(myHrp, rData.part, 1)
+												firetouchinterest(myHrp, part, 0)
+												firetouchinterest(myHrp, part, 1)
 											end)
 										end
 
-										-- 2. Proximity Prompt trigger
-										local prompt = rData.item:FindFirstChildWhichIsA("ProximityPrompt", true) or rData.part:FindFirstChildWhichIsA("ProximityPrompt", true)
-										if prompt then
-											pcall(function()
-												prompt.RequiresLineOfSight = false
-												prompt.MaxActivationDistance = 99999
-												prompt.HoldDuration = 0
-												if fireproximityprompt then fireproximityprompt(prompt) end
-												prompt:InputHoldBegin()
-												task.wait(0.01)
-												prompt:InputHoldEnd()
-											end)
-										end
-										task.wait(0.08)
+										task.wait(0.04) -- Fast 0.04s transition to next Rune!
 									end
 								end
 							end
