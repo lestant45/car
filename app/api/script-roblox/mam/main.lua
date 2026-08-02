@@ -2102,14 +2102,63 @@ local success, err = pcall(function()
 				local char = p and p.Character
 				local bp = p and (p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack"))
 
+				local function getToolUses(tool)
+					if not tool then return 1 end
+
+					-- Check Attributes
+					local attrs = { "Uses", "uses", "Count", "count", "Amount", "amount", "Quantity", "quantity", "Stack", "stack", "Charges", "charges" }
+					for _, aName in ipairs(attrs) do
+						local v = tool:GetAttribute(aName)
+						if tonumber(v) then return tonumber(v) end
+					end
+
+					-- Check Child ValueObjects
+					for _, cName in ipairs(attrs) do
+						local child = tool:FindFirstChild(cName)
+						if child then
+							if child:IsA("ValueBase") or child:IsA("IntValue") or child:IsA("NumberValue") then
+								if tonumber(child.Value) then return tonumber(child.Value) end
+							elseif child:IsA("StringValue") then
+								if tonumber(child.Value) then return tonumber(child.Value) end
+							end
+						end
+					end
+
+					-- Check IntValue/NumberValue descendants
+					for _, child in ipairs(tool:GetChildren()) do
+						if child:IsA("IntValue") or child:IsA("NumberValue") then
+							if tonumber(child.Value) and tonumber(child.Value) > 0 then
+								return tonumber(child.Value)
+							end
+						end
+					end
+
+					-- Check TextLabel descendants inside tool if any
+					for _, desc in ipairs(tool:GetDescendants()) do
+						if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+							local txt = desc.Text
+							if txt and txt ~= "" then
+								local num = string.match(txt, "(%d+)")
+								if num and tonumber(num) and tonumber(num) > 1 then
+									return tonumber(num)
+								end
+							end
+						end
+					end
+
+					return 1
+				end
+
 				local containers = { char, bp }
 				for _, cont in ipairs(containers) do
 					if cont then
 						for _, child in ipairs(cont:GetChildren()) do
-							local cName = string.lower(child.Name)
-							for _, rName in ipairs(RUNE_TYPES) do
-								if string.find(cName, rName, 1, true) then
-									counts[rName] = counts[rName] + 1
+							if child:IsA("Tool") then
+								local cName = string.lower(child.Name)
+								for _, rName in ipairs(RUNE_TYPES) do
+									if string.find(cName, rName, 1, true) then
+										counts[rName] = counts[rName] + getToolUses(child)
+									end
 								end
 							end
 						end
@@ -2585,6 +2634,10 @@ local success, err = pcall(function()
 								end
 							end
 						end
+					else
+						-- No matching boulder found on the map right now!
+						-- Sleep for 1.2s to prevent CPU spinlock & eliminate 60 FPS drops!
+						task.wait(1.2)
 					end
 				end
 			end
