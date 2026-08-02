@@ -2171,7 +2171,10 @@ local success, err = pcall(function()
 								tweenMove.Completed:Wait()
 							end
 							myHrp.CFrame = targetCFrame
-							pcall(function() myHrp.Asse							-- 2. Equip Pickaxe & Mine Boulder continuously until destroyed, collecting Runes instantly in mid-air
+							pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+							task.wait(0.1)
+
+							-- 2. Equip Pickaxe & Mine Boulder continuously until destroyed, collecting Runes instantly in mid-air
 							local function getPickaxeTool()
 								local p = player or game:GetService("Players").LocalPlayer
 								local char = p and p.Character
