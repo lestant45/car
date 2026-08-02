@@ -2262,7 +2262,7 @@ local success, err = pcall(function()
 								task.wait(0.15)
 							end
 
-							-- Helper to collect all spawned Runes near position by TWEENING to each Rune (Matches Auto Mining Rune engine!)
+							-- Helper to collect all spawned Runes instantly in mid-air (Real-Time Position Lock & Instant Dual Touch/Prompt)
 							local function collectRunesNearPos(centerPos)
 								if not centerPos or not myHrp then return end
 
@@ -2277,9 +2277,12 @@ local success, err = pcall(function()
 										p.RequiresLineOfSight = false
 										p.MaxActivationDistance = 99999
 										p.HoldDuration = 0
+										p.ClickablePrompt = true
 										if fireproximityprompt then
-											fireproximityprompt(p)
+											pcall(function() fireproximityprompt(p) end)
 										end
+										pcall(function() p:InputHoldBegin() end)
+										pcall(function() p:InputHoldEnd() end)
 									end)
 								end
 
@@ -2317,38 +2320,37 @@ local success, err = pcall(function()
 
 										if isR then
 											local rPart = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
-											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 150 then
+											if rPart and rPart.Position.Y >= 10 and (rPart.Position - centerPos).Magnitude <= 160 then
 												table.insert(targetRunes, { item = child, part = rPart })
 											end
 										end
 									end
 								end
 
-								-- Collect ALL target Runes sequentially by TWEENING to each Rune (like Auto Mining!)
+								-- Collect ALL target Runes sequentially by locking position onto falling Rune in real-time
 								for _, rData in ipairs(targetRunes) do
 									local item = rData.item
 									local part = rData.part
 									if item and item.Parent and part and part.Parent then
-										local rTargetPos = part.Position
-										if rTargetPos.Y >= 10 then
-											local rCFrame = CFrame.new(rTargetPos)
-											local dist = (myHrp.Position - rTargetPos).Magnitude
-											if dist > 1.5 then
-												local dur = math.clamp(dist / 400, 0.06, 0.4)
-												local tw = TweenService:Create(myHrp, TweenInfo.new(dur, Enum.EasingStyle.Linear), { CFrame = rCFrame })
-												tw:Play()
-												tw.Completed:Wait()
-											end
-											myHrp.CFrame = rCFrame
-											pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+										local startTime = os.clock()
+										while item and item.Parent and part and part.Parent and (os.clock() - startTime < 0.25) do
+											if part.Position.Y >= 10 then
+												myHrp.CFrame = CFrame.new(part.Position)
+												pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 
-											-- Trigger ProximityPrompts repeatedly in a short loop until collected (exact Auto Mining logic!)
-											local startTime = os.clock()
-											while item and item.Parent and (os.clock() - startTime < 0.6) do
-												local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
-												if prompt then
-													triggerRunePrompt(prompt)
+												-- Dual Touch Interest
+												if firetouchinterest then
+													pcall(function()
+														firetouchinterest(myHrp, part, 0)
+														firetouchinterest(myHrp, part, 1)
+														firetouchinterest(part, myHrp, 0)
+														firetouchinterest(part, myHrp, 1)
+													end)
 												end
+
+												-- ProximityPrompt fallback
+												local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+												if prompt then triggerRunePrompt(prompt) end
 
 												pcall(function()
 													for _, desc in ipairs(item:GetDescendants()) do
@@ -2357,16 +2359,8 @@ local success, err = pcall(function()
 														end
 													end
 												end)
-
-												if firetouchinterest then
-													pcall(function()
-														firetouchinterest(myHrp, part, 0)
-														firetouchinterest(myHrp, part, 1)
-													end)
-												end
-
-												task.wait(0.05)
 											end
+											task.wait(0.01)
 										end
 									end
 								end
@@ -2392,8 +2386,8 @@ local success, err = pcall(function()
 									end
 								end)
 
-								-- Periodic Rune scan while mining (every 0.3s)
-								if os.clock() - lastRuneScan > 0.3 then
+								-- Periodic Rune scan while mining (every 0.25s)
+								if os.clock() - lastRuneScan > 0.25 then
 									lastRuneScan = os.clock()
 									pcall(function() collectRunesNearPos(bInitialPos) end)
 								end
@@ -2401,12 +2395,12 @@ local success, err = pcall(function()
 								task.wait(0.1)
 							end
 
-							-- Post-destruction Guaranteed Rune Collection (Active 2.0s window for server spawned Runes)
+							-- Post-destruction Guaranteed Rune Collection (Active 1.2s instant catch window)
 							if autoFarmBouldersEnabled then
 								local sweepStart = os.clock()
-								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 2.0) do
+								while autoFarmBouldersEnabled and (os.clock() - sweepStart < 1.2) do
 									pcall(function() collectRunesNearPos(bInitialPos) end)
-									task.wait(0.2)
+									task.wait(0.02)
 								end
 							end
 						end
