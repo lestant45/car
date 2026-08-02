@@ -610,6 +610,25 @@ local function initSettings()
 		end
 	end
 
+	_G.HipHubSettings = {
+		getState = function()
+			return state
+		end,
+		setState = function(s)
+			if not s then return end
+			if s.noclip ~= nil or s.noclipEnabled ~= nil then
+				local val = (s.noclip == true or s.noclipEnabled == true)
+				state.noclip = val
+				updateNoclipVisuals()
+				if state.noclip then
+					task.spawn(runNoclip)
+				else
+					pcall(restoreCollisions)
+				end
+			end
+		end
+	}
+
 	-- Delay config load slightly
 	task.spawn(function()
 		task.wait(0.1)

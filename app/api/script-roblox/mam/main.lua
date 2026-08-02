@@ -808,7 +808,7 @@ local success, err = pcall(function()
 			return matchesRarity and matchesSize
 		end
 
-		-- Sell Execution Logic (Tween to Shop, Fire Remotes & Prompts, Return via Tween)
+		-- Sell Execution Logic (Tween to Shop, Fire Remotes & Prompts, Return via Direct Tween)
 		local function executeSellAllTeleport()
 			if isSelling then return end
 			isSelling = true
@@ -821,14 +821,7 @@ local success, err = pcall(function()
 			end
 
 			local lastCFrame = myHrp.CFrame
-			if lastCFrame.Position.Y < 10 then
-				lastCFrame = CFrame.new(lastCFrame.Position.X, 10, lastCFrame.Position.Z) * (lastCFrame - lastCFrame.Position)
-			end
-
 			local shopCFrame = getShopCFrame()
-			if shopCFrame and shopCFrame.Position.Y < 10 then
-				shopCFrame = CFrame.new(shopCFrame.Position.X, 10, shopCFrame.Position.Z) * (shopCFrame - shopCFrame.Position)
-			end
 
 			if shopCFrame then
 				-- Attach hover flight during sell travel
@@ -841,30 +834,38 @@ local success, err = pcall(function()
 					flyHold.Parent = myHrp
 				end
 
-				-- Smooth tween to shop instead of instant teleporting
-				if tweenToTargetCFrame then
-					tweenToTargetCFrame(myHrp, shopCFrame, 350)
-				else
-					local dist = (myHrp.Position - shopCFrame.Position).Magnitude
-					local duration = math.clamp(dist / 350, 0.1, 3.0)
-					local tween = TweenService:Create(myHrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = shopCFrame })
-					tween:Play()
-					tween.Completed:Wait()
+				-- Smooth travel to shop
+				local distToShop = (myHrp.Position - shopCFrame.Position).Magnitude
+				if distToShop > 5 then
+					local duration = math.clamp(distToShop / 350, 0.15, 3.0)
+					local tweenToShop = TweenService:Create(myHrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = shopCFrame })
+					tweenToShop:Play()
+					tweenToShop.Completed:Wait()
 				end
-				task.wait(0.3)
+				myHrp.CFrame = shopCFrame
+				pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+				task.wait(0.2)
 			end
 
 			local function triggerSellAllRemotes()
 				pcall(function()
 					local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+						or game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+						or game:GetService("ReplicatedStorage")
 					if rems then
 						local goHomeRem = rems:FindFirstChild("GoHome")
 						if goHomeRem then pcall(function() goHomeRem:FireServer("sell") end) end
+
 						local sellRem = rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell")
-						if sellRem then pcall(function() sellRem:FireServer("all") end) end
+						if sellRem then
+							pcall(function() sellRem:FireServer("all") end)
+							pcall(function() sellRem:FireServer("All") end)
+							pcall(function() sellRem:FireServer(true) end)
+							pcall(function() sellRem:FireServer() end)
+						end
 					end
 
-					-- Also scan and fire sell for each individual tool as backup
+					-- Scan and fire sell for each individual tool in backpack/character
 					local sellTools = {}
 					local function scanCont(cont)
 						if not cont then return end
@@ -892,11 +893,11 @@ local success, err = pcall(function()
 
 				-- Fire any nearby ProximityPrompts at Shop NPC
 				pcall(function()
-					if shopCFrame and myHrp then
+					if myHrp then
 						for _, desc in ipairs(workspace:GetDescendants()) do
 							if desc:IsA("ProximityPrompt") and desc.Parent then
 								local part = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart", true)
-								if part and (part.Position - myHrp.Position).Magnitude <= 20 then
+								if part and (part.Position - myHrp.Position).Magnitude <= 30 then
 									desc.HoldDuration = 0
 									if fireproximityprompt then fireproximityprompt(desc) end
 								end
@@ -906,31 +907,23 @@ local success, err = pcall(function()
 				end)
 			end
 
-			triggerSellAllRemotes()
+			-- Fire sell triggers repeatedly for 1.2 seconds to ensure 100% processing
+			for _ = 1, 4 do
+				triggerSellAllRemotes()
+				task.wait(0.25)
+			end
 
-			if shopCFrame then
-				task.wait(0.3)
-				-- Wait until server processes selling and clears crystal weight from backpack
-				if isBackpackFull then
-					local sellWaitStart = os.clock()
-					while isBackpackFull() and (os.clock() - sellWaitStart < 2.5) do
-						triggerSellAllRemotes()
-						task.wait(0.2)
-					end
+			-- ALWAYS GUARANTEE RETURN TO LAST MINING POSITION
+			if myHrp and myHrp.Parent and lastCFrame then
+				local distBack = (myHrp.Position - lastCFrame.Position).Magnitude
+				if distBack > 5 then
+					local durationBack = math.clamp(distBack / 350, 0.15, 3.0)
+					local tweenBack = TweenService:Create(myHrp, TweenInfo.new(durationBack, Enum.EasingStyle.Linear), { CFrame = lastCFrame })
+					tweenBack:Play()
+					tweenBack.Completed:Wait()
 				end
-
-				if myHrp and myHrp.Parent then
-					-- Smooth tween back to last position
-					if tweenToTargetCFrame then
-						tweenToTargetCFrame(myHrp, lastCFrame, 350)
-					else
-						local dist = (myHrp.Position - lastCFrame.Position).Magnitude
-						local duration = math.clamp(dist / 350, 0.1, 3.0)
-						local tween = TweenService:Create(myHrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = lastCFrame })
-						tween:Play()
-						tween.Completed:Wait()
-					end
-				end
+				myHrp.CFrame = lastCFrame
+				pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
 			end
 
 			isSelling = false
@@ -1873,6 +1866,391 @@ local success, err = pcall(function()
 			if refs.saveConfig then pcall(refs.saveConfig) end
 		end)
 
+		------------------------------------------------
+		-- 🪨 AUTOMATION BOULDER CATEGORY SECTION
+		------------------------------------------------
+		local autoFarmBouldersEnabled = false
+		local boulderRarityFilters = { ["All"] = true }
+		local selectedBoulderBomb = "ClassicBomb"
+
+		local function getClosestFilteredBoulder()
+			local char = player and player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if not hrp then return nil end
+
+			local myPos = hrp.Position
+			local bestObj = nil
+			local shortestDist = math.huge
+
+			local mountainDeco = workspace:FindFirstChild("MountainDecorations")
+			local bFolder = (mountainDeco and mountainDeco:FindFirstChild("Boulders"))
+				or workspace:FindFirstChild("Boulders")
+				or workspace:FindFirstChild("RenderedBoulders")
+
+			if bFolder then
+				for _, boulderModel in ipairs(bFolder:GetChildren()) do
+					if boulderModel and boulderModel.Parent then
+						local nameLower = string.lower(boulderModel.Name)
+						local bData = nil
+						for bName, cfg in pairs(BOULDER_CONFIG or {}) do
+							if string.find(nameLower, string.lower(bName), 1, true) then
+								bData = cfg
+								break
+							end
+						end
+
+						local rarityStr = bData and bData.rarity or (boulderModel:GetAttribute("Rarity") or "Common")
+						local matchesRarity = false
+
+						if boulderRarityFilters["All"] or next(boulderRarityFilters) == nil then
+							matchesRarity = true
+						else
+							if boulderRarityFilters[rarityStr] == true then
+								matchesRarity = true
+							end
+						end
+
+						if matchesRarity then
+							local part = getTargetPart(boulderModel)
+							if part then
+								local dist = (part.Position - myPos).Magnitude
+								if dist < shortestDist then
+									shortestDist = dist
+									bestObj = boulderModel
+								end
+							end
+						end
+					end
+				end
+			end
+
+			return bestObj
+		end
+
+		do
+			local isAutoBoulderCategoryExpanded = false
+			local autoBoulderCategoryCard = Instance.new("Frame")
+			autoBoulderCategoryCard.Size = UDim2.new(1, 0, 0, 36)
+			autoBoulderCategoryCard.BackgroundColor3 = COLORS.glassCard
+			autoBoulderCategoryCard.BackgroundTransparency = refs.TRANSPARENCY.glassCard
+			autoBoulderCategoryCard.BorderSizePixel = 0
+			autoBoulderCategoryCard.ClipsDescendants = true
+			autoBoulderCategoryCard.LayoutOrder = 3.5
+			autoBoulderCategoryCard.Parent = mainFrameContent
+
+			refs.applyGlass(autoBoulderCategoryCard, {
+				corner = refs.CORNER.medium,
+				stroke = true,
+				strokeColor = COLORS.borderGlass,
+				strokeThickness = 1,
+				strokeTransparency = 0.7
+			})
+
+			local abHeaderBtn = Instance.new("TextButton")
+			abHeaderBtn.Size = UDim2.new(1, 0, 0, 36)
+			abHeaderBtn.BackgroundTransparency = 1
+			abHeaderBtn.Text = ""
+			abHeaderBtn.Parent = autoBoulderCategoryCard
+
+			local abAccentBar = Instance.new("Frame")
+			abAccentBar.Size = UDim2.new(0, 3, 0, 18)
+			abAccentBar.Position = UDim2.new(0, 12, 0, 9)
+			abAccentBar.BackgroundColor3 = COLORS.accentCyan
+			abAccentBar.BorderSizePixel = 0
+			abAccentBar.Parent = abHeaderBtn
+
+			local abAccentCorner = Instance.new("UICorner")
+			abAccentCorner.CornerRadius = UDim.new(0, 2)
+			abAccentCorner.Parent = abAccentBar
+
+			local abTitle = Instance.new("TextLabel")
+			abTitle.Size = UDim2.new(1, -60, 1, 0)
+			abTitle.Position = UDim2.new(0, 24, 0, 0)
+			abTitle.BackgroundTransparency = 1
+			abTitle.Text = "Automation Boulder"
+			abTitle.TextColor3 = COLORS.textWhite or Color3.fromRGB(255, 255, 255)
+			abTitle.Font = Enum.Font.GothamBold
+			abTitle.TextSize = 13
+			abTitle.TextXAlignment = Enum.TextXAlignment.Left
+			abTitle.Parent = abHeaderBtn
+
+			local abChevronLabel = Instance.new("TextLabel")
+			abChevronLabel.Size = UDim2.new(0, 24, 1, 0)
+			abChevronLabel.Position = UDim2.new(1, -30, 0, 0)
+			abChevronLabel.BackgroundTransparency = 1
+			abChevronLabel.Text = ">"
+			abChevronLabel.TextColor3 = COLORS.accentCyan
+			abChevronLabel.Font = Enum.Font.GothamBold
+			abChevronLabel.TextSize = 13
+			abChevronLabel.Parent = abHeaderBtn
+
+			local abContentContainer = Instance.new("Frame")
+			abContentContainer.Size = UDim2.new(1, -24, 0, 120)
+			abContentContainer.Position = UDim2.new(0, 12, 0, 42)
+			abContentContainer.BackgroundTransparency = 1
+			abContentContainer.Parent = autoBoulderCategoryCard
+
+			refs.applyListLayout(abContentContainer, 6)
+
+			abHeaderBtn.MouseButton1Click:Connect(function()
+				isAutoBoulderCategoryExpanded = not isAutoBoulderCategoryExpanded
+				abChevronLabel.Text = isAutoBoulderCategoryExpanded and "v" or ">"
+				local targetHeight = isAutoBoulderCategoryExpanded and 165 or 36
+				local tween = TweenService:Create(autoBoulderCategoryCard,
+					TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+					Size = UDim2.new(1, 0, 0, targetHeight)
+				})
+				tween:Play()
+			end)
+
+			-- 1. Auto Farm Boulder Toggle
+			local afbRow, afbTrack, afbThumb = refs.createGlassToggle(abContentContainer, "Auto Farm Boulder", 1)
+			local updateAutoFarmBoulderVisuals = function()
+				if autoFarmBouldersEnabled then
+					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+				else
+					TweenService:Create(afbTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+					TweenService:Create(afbThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+				end
+			end
+			updateAutoFarmBoulderVisuals()
+
+			afbTrack.MouseButton1Click:Connect(function()
+				autoFarmBouldersEnabled = not autoFarmBouldersEnabled
+				updateAutoFarmBoulderVisuals()
+				if autoFarmBouldersEnabled then
+					pcall(function()
+						if _G.HipHubMisc and _G.HipHubMisc.setState then
+							_G.HipHubMisc.setState({ flyEnabled = true })
+						end
+						if _G.HipHubSettings and _G.HipHubSettings.setState then
+							_G.HipHubSettings.setState({ noclip = true })
+						end
+					end)
+				end
+				if refs.saveConfig then pcall(refs.saveConfig) end
+			end)
+
+			-- 2. Dropdown: Boulder Rarity Filter
+			local bRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary" }
+			local bRarityCard, bRarityBtn, bRarityLabel, bRarityMenuFrame, bRaritySearch, bRarityScroll = refs.createGlassDropdown(
+				abContentContainer, "Boulder Rarity Filter", "All", 2
+			)
+
+			local function getSelectedBoulderRarityLabelText()
+				if not boulderRarityFilters or boulderRarityFilters["All"] or next(boulderRarityFilters) == nil then
+					return "All"
+				end
+				local list = {}
+				for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary" }) do
+					if boulderRarityFilters[r] then table.insert(list, r) end
+				end
+				if #list == 0 then return "All" end
+				if #list == 1 then return list[1] end
+				if #list == 2 then return list[1] .. ", " .. list[2] end
+				return tostring(#list) .. " Selected"
+			end
+
+			refs.registerDropdownMenu(bRarityBtn, bRarityMenuFrame)
+			local bRarityBinder = refs.bindDropdown(
+				bRarityBtn, bRarityMenuFrame, bRaritySearch, bRarityScroll, bRarities,
+				function(opt) return boulderRarityFilters[opt] == true end,
+				function(opt)
+					if opt == "All" then
+						boulderRarityFilters = { ["All"] = true }
+					else
+						boulderRarityFilters["All"] = nil
+						boulderRarityFilters[opt] = not boulderRarityFilters[opt]
+						local hasAny = false
+						for _, v in pairs(boulderRarityFilters) do
+							if v then hasAny = true break end
+						end
+						if not hasAny then boulderRarityFilters["All"] = true end
+					end
+					if refs.saveConfig then pcall(refs.saveConfig) end
+				end,
+				function()
+					bRarityLabel.Text = getSelectedBoulderRarityLabelText()
+				end
+			)
+
+			-- 3. Dropdown: Select Bomb for Mining Boulder
+			local bombOptions = {
+				"ClassicBomb",
+				"WindBomb",
+				"IceBomb",
+				"FireBomb",
+				"ThunderBomb",
+				"PoisonBomb",
+				"TimeBomb",
+				"AgonyBomb"
+			}
+			local bombCard, bombBtn, bombLabel, bombMenuFrame, bombSearch, bombScroll = refs.createGlassDropdown(
+				abContentContainer, "Select Bomb for Mining Boulder", selectedBoulderBomb, 3
+			)
+
+			refs.registerDropdownMenu(bombBtn, bombMenuFrame)
+			local bombBinder = refs.bindDropdown(
+				bombBtn, bombMenuFrame, bombSearch, bombScroll, bombOptions,
+				function(opt) return selectedBoulderBomb == opt end,
+				function(val)
+					selectedBoulderBomb = val
+					bombLabel.Text = val
+					if refs.saveConfig then pcall(refs.saveConfig) end
+				end,
+				function()
+					bombLabel.Text = selectedBoulderBomb
+				end
+			)
+		end
+
+		-- Auto Farm Boulder Loop Engine
+		task.spawn(function()
+			while true do
+				task.wait(0.15)
+				if autoFarmBouldersEnabled then
+					-- Sync Fly & Noclip toggles automatically
+					pcall(function()
+						if _G.HipHubMisc and _G.HipHubMisc.setState then
+							_G.HipHubMisc.setState({ flyEnabled = true })
+						end
+						if _G.HipHubSettings and _G.HipHubSettings.setState then
+							_G.HipHubSettings.setState({ noclip = true })
+						end
+					end)
+
+					local targetBoulderModel = getClosestFilteredBoulder()
+					if targetBoulderModel and targetBoulderModel.Parent then
+						local boulderPart = getTargetPart(targetBoulderModel)
+						local myChar = player and player.Character
+						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+						local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+
+						if myHrp and boulderPart and boulderPart.Parent then
+							-- 1. Fly / Tween to Boulder position
+							local targetPos = boulderPart.Position + Vector3.new(0, 3, 0)
+							local targetCFrame = CFrame.new(targetPos, boulderPart.Position)
+
+							if tweenToTargetCFrame and boulderPart.Position.Y >= 10 then
+								tweenToTargetCFrame(myHrp, targetCFrame, 350)
+							else
+								myHrp.CFrame = targetCFrame
+							end
+							task.wait(0.2)
+
+							-- 2. Hit Boulder 2x to make it visible
+							for hitCount = 1, 2 do
+								if not autoFarmBouldersEnabled or not boulderPart.Parent then break end
+								pcall(function()
+									local bp = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
+									if bp then
+										local pick = bp:FindFirstChildWhichIsA("Tool")
+										if pick and myHum then
+											myHum:EquipTool(pick)
+										end
+									end
+									local equippedTool = myChar and myChar:FindFirstChildWhichIsA("Tool")
+									if equippedTool then
+										equippedTool:Activate()
+									end
+
+									local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+									if rems then
+										local mineRem = rems:FindFirstChild("MineRequest") or rems:FindFirstChild("Mine") or rems:FindFirstChild("Damage")
+										if mineRem then
+											mineRem:FireServer(boulderPart)
+										end
+									end
+								end)
+								task.wait(0.25)
+							end
+
+							-- 3. Place selected bomb at boulder position
+							if autoFarmBouldersEnabled and boulderPart and boulderPart.Parent then
+								pcall(function()
+									local bName = selectedBoulderBomb or "ClassicBomb"
+									local bp = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
+									local bombTool = (myChar and myChar:FindFirstChild(bName)) or (bp and bp:FindFirstChild(bName))
+
+									if not bombTool then
+										local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+										local buyRem = rems and rems:FindFirstChild("BombBuyRequest")
+										if buyRem then
+											pcall(function() buyRem:InvokeServer(bName) end)
+											task.wait(0.25)
+											bombTool = (myChar and myChar:FindFirstChild(bName)) or (bp and bp:FindFirstChild(bName))
+										end
+									end
+
+									if bombTool and myHum then
+										myHum:EquipTool(bombTool)
+										task.wait(0.15)
+										bombTool:Activate()
+										task.wait(0.15)
+									end
+
+									local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+									if rems then
+										local placeRem = rems:FindFirstChild("PlaceBomb") or rems:FindFirstChild("DropBomb") or rems:FindFirstChild("UseBomb") or rems:FindFirstChild("BombRequest")
+										if placeRem then
+											if placeRem:IsA("RemoteFunction") then
+												pcall(function() placeRem:InvokeServer(bName) end)
+											else
+												pcall(function() placeRem:FireServer(bName) end)
+											end
+										end
+									end
+								end)
+								task.wait(1.4)
+							end
+
+							-- 4. Collect all Runes dropped near the destroyed boulder area
+							if autoFarmBouldersEnabled then
+								local runeCollectStart = os.clock()
+								while autoFarmBouldersEnabled and (os.clock() - runeCollectStart < 3.0) do
+									local bPos = boulderPart.Position
+									local nearbyRune, runePart = nil, nil
+
+									for _, child in ipairs(workspace:GetChildren()) do
+										if child:IsA("Model") or child:IsA("BasePart") then
+											local cNameLower = string.lower(child.Name)
+											if string.find(cNameLower, "rune", 1, true) then
+												local rPart = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
+												if rPart and (rPart.Position - bPos).Magnitude <= 45 then
+													nearbyRune = child
+													runePart = rPart
+													break
+												end
+											end
+										end
+									end
+
+									if nearbyRune and runePart and myHrp then
+										myHrp.CFrame = runePart.CFrame + Vector3.new(0, 1.5, 0)
+										pcall(function() myHrp.AssemblyLinearVelocity = Vector3.zero end)
+
+										local prompt = nearbyRune:FindFirstChildWhichIsA("ProximityPrompt", true) or runePart:FindFirstChildWhichIsA("ProximityPrompt", true)
+										if prompt then
+											pcall(function()
+												prompt.RequiresLineOfSight = false
+												prompt.MaxActivationDistance = 99999
+												prompt.HoldDuration = 0
+												if fireproximityprompt then fireproximityprompt(prompt) end
+											end)
+										end
+										task.wait(0.2)
+									else
+										break
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end)
+
 		-- Helper to get closest filtered crystal using Automation Mining's multi-select filters
 		local function getClosestFilteredCrystal()
 			local char = player and player.Character
@@ -2378,12 +2756,14 @@ local success, err = pcall(function()
 		end
 
 		-- Auto Farm Loop with Levitating / Flying Stay Engine & Fast Speed Movement (Continuous Mining & Selling Loop)
+		local consecutiveFullCount = 0
 		task.spawn(function()
 			while true do
 				task.wait(0.1)
 				if autoFarmCrystalsEnabled or autoFarmRunesEnabled then
 					-- Check if backpack is full and trigger Auto Sell (Teleport to shop, sell, return, and resume mining)
-					if isBackpackFull and isBackpackFull() then
+					if isBackpackFull and isBackpackFull() and consecutiveFullCount < 3 then
+						consecutiveFullCount = consecutiveFullCount + 1
 						local myChar = player and player.Character
 						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
 						if myHrp then
@@ -2394,25 +2774,16 @@ local success, err = pcall(function()
 						pcall(executeSellAllTeleport)
 						task.wait(0.3)
 
-						-- Backup: Force fire direct sell remotes if still full
-						if isBackpackFull() then
-							pcall(function()
-								local rems = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-								local sellRem = rems and (rems:FindFirstChild("SellRequest") or rems:FindFirstChild("SellAll") or rems:FindFirstChild("Sell"))
-								if sellRem then pcall(function() sellRem:FireServer("all") end) end
-								local goHomeRem = rems and rems:FindFirstChild("GoHome")
-								if goHomeRem then pcall(function() goHomeRem:FireServer("sell") end) end
-							end)
-							task.wait(0.3)
-						end
-
-						-- If backpack is still full, pause mining completely until inventory opens up
-						if isBackpackFull() then
-							task.wait(0.5)
+						if not (isBackpackFull and isBackpackFull()) then
+							consecutiveFullCount = 0
 						end
 					else
+						if consecutiveFullCount >= 3 then
+							consecutiveFullCount = 0
+							task.wait(0.5)
+						end
 
-					local target = getClosestFilteredCrystal()
+						local target = getClosestFilteredCrystal()
 					if target and target.obj and target.obj.Parent and target.part and target.part.Parent then
 						local obj = target.obj
 						local part = target.part
@@ -3712,6 +4083,43 @@ local success, err = pcall(function()
 				end
 			}
 
+			_G.HipHubAutomationBoulder = {
+				getState = function()
+					return {
+						autoFarmBouldersEnabled = autoFarmBouldersEnabled,
+						boulderRarityFilters = boulderRarityFilters,
+						selectedBoulderBomb = selectedBoulderBomb,
+					}
+				end,
+				setState = function(s)
+					if not s then return end
+					if s.autoFarmBouldersEnabled ~= nil then
+						autoFarmBouldersEnabled = (s.autoFarmBouldersEnabled == true)
+						if updateAutoFarmBoulderVisuals then updateAutoFarmBoulderVisuals() end
+						if autoFarmBouldersEnabled then
+							pcall(function()
+								if _G.HipHubMisc and _G.HipHubMisc.setState then
+									_G.HipHubMisc.setState({ flyEnabled = true })
+								end
+								if _G.HipHubSettings and _G.HipHubSettings.setState then
+									_G.HipHubSettings.setState({ noclip = true })
+								end
+							end)
+						end
+					end
+					if s.boulderRarityFilters ~= nil then
+						if type(s.boulderRarityFilters) == "table" then
+							boulderRarityFilters = s.boulderRarityFilters
+						elseif type(s.boulderRarityFilters) == "string" then
+							boulderRarityFilters = { [s.boulderRarityFilters] = true }
+						end
+					end
+					if s.selectedBoulderBomb ~= nil then
+						selectedBoulderBomb = tostring(s.selectedBoulderBomb)
+					end
+				end
+			}
+
 			_G.HipHubAutoPlaceCrystal = {
 				getState = function()
 					return {
@@ -4826,6 +5234,14 @@ local success, err = pcall(function()
 				data.customDigCenterZ = adState.customDigCenterZ
 			end
 
+			-- Automation Boulder config state
+			if _G.HipHubAutomationBoulder and _G.HipHubAutomationBoulder.getState then
+				local abState = _G.HipHubAutomationBoulder.getState()
+				data.autoFarmBouldersEnabled = abState.autoFarmBouldersEnabled
+				data.boulderRarityFilters = abState.boulderRarityFilters
+				data.selectedBoulderBomb = abState.selectedBoulderBomb
+			end
+
 			-- Auto Place Crystal config state
 			if _G.HipHubAutoPlaceCrystal and _G.HipHubAutoPlaceCrystal.getState then
 				local apState = _G.HipHubAutoPlaceCrystal.getState()
@@ -4921,10 +5337,19 @@ local success, err = pcall(function()
 				if _G.HipHubAutomationMining and _G.HipHubAutomationMining.setState then
 					_G.HipHubAutomationMining.setState({
 						autoFarmCrystalsEnabled = data.autoFarmCrystalsEnabled,
+						autoFarmRunesEnabled = data.autoFarmRunesEnabled,
 						autoFarmNoclipEnabled = data.autoFarmNoclipEnabled,
 						autoSellOnFullEnabled = data.autoSellOnFullEnabled,
 						autoFarmRarityFilters = data.autoFarmRarityFilters or data.autoFarmRarityFilter,
 						autoFarmSizeFilters = data.autoFarmSizeFilters or data.autoFarmSizeFilter,
+					})
+				end
+
+				if _G.HipHubAutomationBoulder and _G.HipHubAutomationBoulder.setState then
+					_G.HipHubAutomationBoulder.setState({
+						autoFarmBouldersEnabled = data.autoFarmBouldersEnabled,
+						boulderRarityFilters = data.boulderRarityFilters,
+						selectedBoulderBomb = data.selectedBoulderBomb,
 					})
 				end
 
