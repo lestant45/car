@@ -1873,6 +1873,15 @@ local success, err = pcall(function()
 		local boulderRarityFilters = { ["All"] = true }
 		local selectedBoulderBomb = "ClassicBomb"
 
+		local function getTargetPart(obj)
+			if not obj then return nil end
+			if obj:IsA("BasePart") then return obj end
+			if obj:IsA("Model") then
+				return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
+			end
+			return nil
+		end
+
 		local function getClosestFilteredBoulder()
 			local char = player and player.Character
 			local hrp = char and char:FindFirstChild("HumanoidRootPart")
