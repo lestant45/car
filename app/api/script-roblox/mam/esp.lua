@@ -136,7 +136,10 @@ local function initESP()
 			"Rare",
 			"Epic",
 			"Legendary",
-			"Mythical"
+			"Mythical",
+			"Empyrean",
+			"Pulsar",
+			"Quasar"
 		}
 		refs.registerDropdownMenu(filterBtn, filterMenu)
 
@@ -145,8 +148,8 @@ local function initESP()
 				return "All"
 			end
 			local list = {}
-			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic" }) do
-				if state.selectedCrystalRarityFilters[r] then table.insert(list, r) end
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }) do
+				if state.selectedCrystalRarityFilters[r] or (r == "Mythical" and state.selectedCrystalRarityFilters["Mythic"]) then table.insert(list, r) end
 			end
 			if #list == 0 then return "All" end
 			if #list == 1 then return list[1] end
@@ -443,7 +446,13 @@ local function initESP()
 
 	local function getCrystalAccentColor(name)
 		local nameLower = string.lower(name)
-		if string.find(nameLower, "_t6") or string.find(nameLower, "t6") or string.find(nameLower, "mythic") then
+		if string.find(nameLower, "_t9") or string.find(nameLower, "t9") or string.find(nameLower, "quasar") then
+			return "#ff5adc"
+		elseif string.find(nameLower, "_t8") or string.find(nameLower, "t8") or string.find(nameLower, "pulsar") then
+			return "#5ad2ff"
+		elseif string.find(nameLower, "_t7") or string.find(nameLower, "t7") or string.find(nameLower, "empyrean") then
+			return "#ffe196"
+		elseif string.find(nameLower, "_t6") or string.find(nameLower, "t6") or string.find(nameLower, "mythic") then
 			return "#ff3366"
 		elseif string.find(nameLower, "_t5") or string.find(nameLower, "t5") or string.find(nameLower, "legendary") then
 			return "#ffaa00"
@@ -475,6 +484,9 @@ local function initESP()
 			["legendary"] = {"_t5", "t5", "legendary"},
 			["mythic"] = {"_t6", "t6", "mythical", "mythic"},
 			["mythical"] = {"_t6", "t6", "mythical", "mythic"},
+			["empyrean"] = {"_t7", "t7", "empyrean"},
+			["pulsar"] = {"_t8", "t8", "pulsar"},
+			["quasar"] = {"_t9", "t9", "quasar"},
 		}
 
 		for r, isSel in pairs(filters) do
@@ -646,14 +658,16 @@ local function initESP()
 		if string.find(nameLower, "droppedcrystal_") then
 			local tier = string.match(name, "T%d+") or "T2"
 			local tierMap = {
-				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythic"
+				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythic",
+				T7 = "Empyrean", T8 = "Pulsar", T9 = "Quasar"
 			}
 			rarityStr = tierMap[tier] or tier
 			displayName = "Crystal"
 		elseif string.find(nameLower, "_t%d") then
 			local tier = string.match(name, "T%d+") or ""
 			local tierMap = {
-				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythic"
+				T1 = "Common", T2 = "Uncommon", T3 = "Rare", T4 = "Epic", T5 = "Legendary", T6 = "Mythic",
+				T7 = "Empyrean", T8 = "Pulsar", T9 = "Quasar"
 			}
 			rarityStr = tierMap[tier] or tier
 			displayName = string.gsub(name, "_T%d+", "")

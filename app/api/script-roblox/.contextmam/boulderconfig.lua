@@ -1,6 +1,6 @@
 -- Script Path: game:GetService("ReplicatedStorage").Modules.Boulders.BoulderConfig
 -- Took 0s to decompile.
--- Executor: Potassium (v2.3.5)
+-- Executor: Potassium (v2.4.2)
 
 -- Decompiled with Potassium's decompiler.
 
@@ -178,6 +178,32 @@ return {
                 [13] = 10,
                 [14] = 5
             }
+        }
+    },
+    GuaranteedNewTier = {
+        Gildrite = {
+            roll = {
+                [7] = 90,
+                [8] = 9.5,
+                [9] = 0.5
+            },
+            countWeights = { 100 }
+        },
+        Rimeveil = {
+            roll = {
+                [7] = 78,
+                [8] = 20,
+                [9] = 2
+            },
+            countWeights = { 100 }
+        },
+        Nocturnite = {
+            roll = {
+                [7] = 58,
+                [8] = 34,
+                [9] = 8
+            },
+            countWeights = { 75, 25 }
         }
     },
     Spawn = {

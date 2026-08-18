@@ -755,6 +755,10 @@ local success, err = pcall(function()
 					["epic"] = { "_t4", "t4", "epic", "tier4", "tier 4" },
 					["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
 					["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+					["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+					["empyrean"] = { "_t7", "t7", "empyrean", "tier7", "tier 7" },
+					["pulsar"] = { "_t8", "t8", "pulsar", "tier8", "tier 8" },
+					["quasar"] = { "_t9", "t9", "quasar", "tier9", "tier 9" },
 				}
 				for selRarity, isSel in pairs(autoSellRarityFilters) do
 					if isSel == true then
@@ -990,8 +994,8 @@ local success, err = pcall(function()
 				return "All"
 			end
 			local list = {}
-			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
-				if autoSellRarityFilters[r] then table.insert(list, r) end
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }) do
+				if autoSellRarityFilters[r] or (r == "Mythical" and autoSellRarityFilters["Mythic"]) then table.insert(list, r) end
 			end
 			if #list == 0 then return "All" end
 			if #list == 1 then return list[1] end
@@ -999,7 +1003,7 @@ local success, err = pcall(function()
 			return tostring(#list) .. " Selected"
 		end
 
-		local asRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+		local asRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }
 		refs.registerDropdownMenu(asRarDropBtn, asRarMenuFrame)
 		local asRarityBinder = refs.bindDropdown(
 			asRarDropBtn, asRarMenuFrame, asRarSearch, asRarScroll, asRarities,
@@ -1245,8 +1249,8 @@ local success, err = pcall(function()
 				return "All"
 			end
 			local list = {}
-			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
-				if autoFavRarityFilters[r] then table.insert(list, r) end
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }) do
+				if autoFavRarityFilters[r] or (r == "Mythical" and autoFavRarityFilters["Mythic"]) then table.insert(list, r) end
 			end
 			if #list == 0 then return "All" end
 			if #list == 1 then return list[1] end
@@ -1254,7 +1258,7 @@ local success, err = pcall(function()
 			return tostring(#list) .. " Selected"
 		end
 
-		local favRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+		local favRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }
 		refs.registerDropdownMenu(favRarDropBtn, favRarMenuFrame)
 		local favRarityBinder = refs.bindDropdown(
 			favRarDropBtn, favRarMenuFrame, favRarSearch, favRarScroll, favRarities,
@@ -1405,6 +1409,9 @@ local success, err = pcall(function()
 						["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
 						["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
 						["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+						["empyrean"] = { "_t7", "t7", "empyrean", "tier7", "tier 7" },
+						["pulsar"] = { "_t8", "t8", "pulsar", "tier8", "tier 8" },
+						["quasar"] = { "_t9", "t9", "quasar", "tier9", "tier 9" },
 					}
 
 					for selRarity, isSel in pairs(autoFavRarityFilters) do
@@ -1727,8 +1734,8 @@ local success, err = pcall(function()
 				return "All"
 			end
 			local list = {}
-			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
-				if autoFarmRarityFilters[r] then table.insert(list, r) end
+			for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }) do
+				if autoFarmRarityFilters[r] or (r == "Mythical" and autoFarmRarityFilters["Mythic"]) then table.insert(list, r) end
 			end
 			if #list == 0 then return "All" end
 			if #list == 1 then return list[1] end
@@ -1750,7 +1757,7 @@ local success, err = pcall(function()
 			return tostring(#list) .. " Selected"
 		end
 
-		local amRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+		local amRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }
 
 		refs.registerDropdownMenu(amRarDropBtn, amRarMenuFrame)
 		local amRarityBinder = refs.bindDropdown(
@@ -2845,6 +2852,9 @@ local success, err = pcall(function()
 				["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
 				["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
 				["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+				["empyrean"] = { "_t7", "t7", "empyrean", "tier7", "tier 7" },
+				["pulsar"] = { "_t8", "t8", "pulsar", "tier8", "tier 8" },
+				["quasar"] = { "_t9", "t9", "quasar", "tier9", "tier 9" },
 			}
 
 			-- Check if any rarity is explicitly enabled
@@ -4152,8 +4162,8 @@ local success, err = pcall(function()
 					return "All"
 				end
 				local list = {}
-				for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }) do
-					if autoPlaceRarityFilters[r] then table.insert(list, r) end
+				for _, r in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }) do
+					if autoPlaceRarityFilters[r] or (r == "Mythical" and autoPlaceRarityFilters["Mythic"]) then table.insert(list, r) end
 				end
 				if #list == 0 then return "All" end
 				if #list == 1 then return list[1] end
@@ -4161,7 +4171,7 @@ local success, err = pcall(function()
 				return tostring(#list) .. " Selected"
 			end
 
-			local apRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+			local apRarities = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }
 			refs.registerDropdownMenu(apRarDropBtn, apRarMenuFrame)
 			local apRarityBinder = refs.bindDropdown(
 				apRarDropBtn, apRarMenuFrame, apRarSearch, apRarScroll, apRarities,
@@ -4295,6 +4305,9 @@ local success, err = pcall(function()
 					["legendary"] = { "_t5", "t5", "legendary", "tier5", "tier 5" },
 					["mythical"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
 					["mythic"] = { "_t6", "t6", "mythical", "mythic", "tier6", "tier 6" },
+					["empyrean"] = { "_t7", "t7", "empyrean", "tier7", "tier 7" },
+					["pulsar"] = { "_t8", "t8", "pulsar", "tier8", "tier 8" },
+					["quasar"] = { "_t9", "t9", "quasar", "tier9", "tier 9" },
 				}
 
 				for selRarity, isSel in pairs(autoPlaceRarityFilters) do
@@ -4367,7 +4380,10 @@ local success, err = pcall(function()
 					if typeof(tier) ~= "number" then tier = 0 end
 					if tier == 0 then
 						local tName = string.lower(tool.Name)
-						if string.find(tName, "mythic", 1, true) or string.find(tName, "_t6", 1, true) or string.find(tName, "tier 6", 1, true) then tier = 6
+						if string.find(tName, "quasar", 1, true) or string.find(tName, "_t9", 1, true) or string.find(tName, "tier 9", 1, true) then tier = 9
+						elseif string.find(tName, "pulsar", 1, true) or string.find(tName, "_t8", 1, true) or string.find(tName, "tier 8", 1, true) then tier = 8
+						elseif string.find(tName, "empyrean", 1, true) or string.find(tName, "_t7", 1, true) or string.find(tName, "tier 7", 1, true) then tier = 7
+						elseif string.find(tName, "mythic", 1, true) or string.find(tName, "_t6", 1, true) or string.find(tName, "tier 6", 1, true) then tier = 6
 						elseif string.find(tName, "legendary", 1, true) or string.find(tName, "_t5", 1, true) or string.find(tName, "tier 5", 1, true) then tier = 5
 						elseif string.find(tName, "epic", 1, true) or string.find(tName, "_t4", 1, true) or string.find(tName, "tier 4", 1, true) then tier = 4
 						elseif string.find(tName, "rare", 1, true) or string.find(tName, "_t3", 1, true) or string.find(tName, "tier 3", 1, true) then tier = 3
@@ -4677,7 +4693,7 @@ local success, err = pcall(function()
 			local uiNeedsUpdate = false
 
 			-- Filters State
-			local rarityNames = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
+			local rarityNames = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical", "Empyrean", "Pulsar", "Quasar" }
 
 			-- Helper functions
 			local function countTable(t)
@@ -4696,13 +4712,13 @@ local success, err = pcall(function()
 							return species.Rarity
 						elseif typeof(species.Rarity) == "table" and species.Rarity.Value then
 							local valueMap = { [1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] =
-							"Legendary", [6] = "Mythical" }
+							"Legendary", [6] = "Mythical", [7] = "Empyrean", [8] = "Pulsar", [9] = "Quasar" }
 							return valueMap[species.Rarity.Value] or tostring(species.Rarity.Value)
 						end
 					end
 					if species.RarityValue then
 						local valueMap = { [1] = "Common", [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] =
-						"Legendary", [6] = "Mythical" }
+						"Legendary", [6] = "Mythical", [7] = "Empyrean", [8] = "Pulsar", [9] = "Quasar" }
 						return valueMap[species.RarityValue] or tostring(species.RarityValue)
 					end
 				end
@@ -4720,7 +4736,8 @@ local success, err = pcall(function()
 				if rLower == fLower then return true end
 
 				local rarityValueMap = {
-					common = 1, uncommon = 2, rare = 3, epic = 4, legendary = 5, mythical = 6
+					common = 1, uncommon = 2, rare = 3, epic = 4, legendary = 5, mythical = 6, mythic = 6,
+					empyrean = 7, pulsar = 8, quasar = 9
 				}
 				local mappedValue = rarityValueMap[fLower]
 				if mappedValue and Core and Core.Species and Core.Species[rotName] then
