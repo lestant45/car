@@ -1613,7 +1613,7 @@ local success, err = pcall(function()
 
 		-- Content Container inside Automation Mining Card
 		local amContentContainer = Instance.new("Frame")
-		amContentContainer.Size = UDim2.new(1, -24, 0, 230)
+		amContentContainer.Size = UDim2.new(1, -24, 0, 275)
 		amContentContainer.Position = UDim2.new(0, 12, 0, 42)
 		amContentContainer.BackgroundTransparency = 1
 		amContentContainer.Parent = autoMineCategoryCard
@@ -1626,7 +1626,7 @@ local success, err = pcall(function()
 			lastAmClick = os.clock()
 			isAutoMineCategoryExpanded = not isAutoMineCategoryExpanded
 			amChevronLabel.Text = isAutoMineCategoryExpanded and "v" or ">"
-			local targetHeight = isAutoMineCategoryExpanded and 270 or 36
+			local targetHeight = isAutoMineCategoryExpanded and 315 or 36
 			local tween = TweenService:Create(autoMineCategoryCard,
 				TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, targetHeight)
@@ -1718,10 +1718,32 @@ local success, err = pcall(function()
 			if refs.saveConfig then pcall(refs.saveConfig) end
 		end)
 
-		-- 5. Target Rarity Filter Card inside Automation Mining
+		-- 5. Auto Pickup Crystals Toggle
+		local autoPickupCrystalEnabled = false
+		local apcRow, apcTrack, apcThumb = refs.createGlassToggle(amContentContainer, "Auto Pickup Crystals", 5)
+		local updateAutoPickupCrystalVisuals = function()
+			if autoPickupCrystalEnabled then
+				TweenService:Create(apcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOnColor }):Play()
+				TweenService:Create(apcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(1, -16, 0.5, -7) }):Play()
+			else
+				TweenService:Create(apcTrack, TweenInfo.new(0.2), { BackgroundColor3 = toggleOffColor }):Play()
+				TweenService:Create(apcThumb, TweenInfo.new(0.2, Enum.EasingStyle.Back),
+					{ Position = UDim2.new(0, 2, 0.5, -7) }):Play()
+			end
+		end
+		updateAutoPickupCrystalVisuals()
+
+		apcTrack.MouseButton1Click:Connect(function()
+			autoPickupCrystalEnabled = not autoPickupCrystalEnabled
+			updateAutoPickupCrystalVisuals()
+			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- 6. Target Rarity Filter Card inside Automation Mining
 		local amRarCard, amRarDropBtn, amRarDropLabel, amRarMenuFrame, amRarSearch, amRarScroll = refs
 		.createGlassDropdown(
-			amContentContainer, "Target Rarity", "All", 5
+			amContentContainer, "Target Rarity", "All", 6
 		)
 		amRarCard.Size = UDim2.new(1, 0, 0, 32)
 
@@ -1793,9 +1815,9 @@ local success, err = pcall(function()
 			amRarityBinder.updateOptionVisuals()
 		end
 
-		-- 6. Target Size Filter Card inside Automation Mining
+		-- 7. Target Size Filter Card inside Automation Mining
 		local amSzCard, amSzDropBtn, amSzDropLabel, amSzMenuFrame, amSzSearch, amSzScroll = refs.createGlassDropdown(
-			amContentContainer, "Target Size", "All", 6
+			amContentContainer, "Target Size", "All", 7
 		)
 		amSzCard.Size = UDim2.new(1, 0, 0, 32)
 
@@ -1871,6 +1893,95 @@ local success, err = pcall(function()
 			updateAutoFarmNoclipVisuals()
 			updateAutomationNoclipEngine()
 			if refs.saveConfig then pcall(refs.saveConfig) end
+		end)
+
+		-- 🤲 Auto Pickup Crystals Engine Logic
+		local function isCrystalPickupPrompt(prompt)
+			if not prompt or not prompt:IsA("ProximityPrompt") then return false end
+			local actionText = string.lower(prompt.ActionText or "")
+			local objText = string.lower(prompt.ObjectText or "")
+
+			if actionText == "pickup" or actionText == "pick up" or actionText == "collect" or string.find(actionText, "pickup", 1, true) then
+				return true
+			end
+			if string.find(objText, "crystal", 1, true) or string.find(objText, "kg", 1, true) or string.find(objText, "$", 1, true) or string.find(objText, "[", 1, true) then
+				return true
+			end
+			local parent = prompt.Parent
+			if parent then
+				local pName = string.lower(parent.Name)
+				if string.find(pName, "crystal", 1, true) or string.find(pName, "kg", 1, true) or string.find(pName, "[", 1, true) then
+					return true
+				end
+				local grandParent = parent.Parent
+				if grandParent then
+					local gpName = string.lower(grandParent.Name)
+					if gpName == "droppedcrystals" or gpName == "crystals" or string.find(gpName, "crystal", 1, true) then
+						return true
+					end
+				end
+			end
+			return false
+		end
+
+		local function triggerCrystalPickupPrompt(prompt)
+			if not prompt or not prompt:IsA("ProximityPrompt") then return end
+			pcall(function()
+				prompt.RequiresLineOfSight = false
+				prompt.MaxActivationDistance = 99999
+				prompt.HoldDuration = 0
+				if fireproximityprompt then
+					fireproximityprompt(prompt)
+				end
+				prompt:InputHoldBegin()
+				prompt:InputHoldEnd()
+			end)
+		end
+
+		-- Periodic crystal pickup scan loop
+		task.spawn(function()
+			while true do
+				task.wait(0.2)
+				if autoPickupCrystalEnabled then
+					pcall(function()
+						local myChar = player and player.Character
+						local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+						if not myHrp then return end
+						local myPos = myHrp.Position
+
+						local workspace = game:GetService("Workspace")
+						local things = workspace:FindFirstChild("Things")
+						local searchFolders = {
+							workspace:FindFirstChild("DroppedCrystals"),
+							workspace:FindFirstChild("Crystals"),
+							things and things:FindFirstChild("Crystals"),
+							things and things:FindFirstChild("DroppedCrystals"),
+						}
+
+						for _, folder in ipairs(searchFolders) do
+							if folder then
+								for _, desc in ipairs(folder:GetDescendants()) do
+									if desc:IsA("ProximityPrompt") and isCrystalPickupPrompt(desc) then
+										local part = desc.Parent
+										local pPos = (part and part:IsA("BasePart") and part.Position) or (part and part:IsA("Model") and part.PrimaryPart and part.PrimaryPart.Position)
+										if not pPos or (myPos - pPos).Magnitude <= 120 then
+											triggerCrystalPickupPrompt(desc)
+										end
+									end
+								end
+							end
+						end
+					end)
+				end
+			end
+		end)
+
+		-- Immediate pickup trigger on DescendantAdded
+		game:GetService("Workspace").DescendantAdded:Connect(function(desc)
+			if autoPickupCrystalEnabled and desc:IsA("ProximityPrompt") and isCrystalPickupPrompt(desc) then
+				task.wait(0.03)
+				triggerCrystalPickupPrompt(desc)
+			end
 		end)
 
 		------------------------------------------------
@@ -4539,6 +4650,7 @@ local success, err = pcall(function()
 						autoFarmRunesEnabled = autoFarmRunesEnabled,
 						autoFarmNoclipEnabled = autoFarmNoclipEnabled,
 						autoSellOnFullEnabled = autoSellOnFullEnabled,
+						autoPickupCrystalEnabled = autoPickupCrystalEnabled,
 						autoFarmRarityFilters = autoFarmRarityFilters,
 						autoFarmSizeFilters = autoFarmSizeFilters,
 					}
@@ -4562,6 +4674,10 @@ local success, err = pcall(function()
 					if s.autoSellOnFullEnabled ~= nil then
 						autoSellOnFullEnabled = (s.autoSellOnFullEnabled == true)
 						updateAutoSellFullVisuals()
+					end
+					if s.autoPickupCrystalEnabled ~= nil or s.autoPickupCrystalsEnabled ~= nil then
+						autoPickupCrystalEnabled = (s.autoPickupCrystalEnabled == true or s.autoPickupCrystalsEnabled == true)
+						updateAutoPickupCrystalVisuals()
 					end
 					if s.autoFarmRarityFilters ~= nil then
 						if type(s.autoFarmRarityFilters) == "table" then
@@ -5728,8 +5844,10 @@ local success, err = pcall(function()
 			if _G.HipHubAutomationMining and _G.HipHubAutomationMining.getState then
 				local amState = _G.HipHubAutomationMining.getState()
 				data.autoFarmCrystalsEnabled = amState.autoFarmCrystalsEnabled
+				data.autoFarmRunesEnabled = amState.autoFarmRunesEnabled
 				data.autoFarmNoclipEnabled = amState.autoFarmNoclipEnabled
 				data.autoSellOnFullEnabled = amState.autoSellOnFullEnabled
+				data.autoPickupCrystalEnabled = amState.autoPickupCrystalEnabled
 				data.autoFarmRarityFilters = amState.autoFarmRarityFilters
 				data.autoFarmSizeFilters = amState.autoFarmSizeFilters
 			end
@@ -5852,6 +5970,7 @@ local success, err = pcall(function()
 						autoFarmRunesEnabled = data.autoFarmRunesEnabled,
 						autoFarmNoclipEnabled = data.autoFarmNoclipEnabled,
 						autoSellOnFullEnabled = data.autoSellOnFullEnabled,
+						autoPickupCrystalEnabled = data.autoPickupCrystalEnabled or data.autoPickupCrystalsEnabled,
 						autoFarmRarityFilters = data.autoFarmRarityFilters or data.autoFarmRarityFilter,
 						autoFarmSizeFilters = data.autoFarmSizeFilters or data.autoFarmSizeFilter,
 					})
