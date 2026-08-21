@@ -1152,12 +1152,12 @@ local success, err = pcall(function()
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F for 2.5s)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F for 2.75s)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
 
-				while not isCarryingKoper() and os.clock() - tStart < 20 and bcaCourierActive do
+				while not isCarryingKoper() and os.clock() - tStart < 25 and bcaCourierActive do
 					-- 1. Position character right behind the trunk facing the trunk door (< 2.2 studs)
 					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.2 + Vector3.new(0, 0.5, 0))
 					task.wait(0.2)
@@ -1175,10 +1175,10 @@ local success, err = pcall(function()
 					if ambilPrompt then
 						pcall(function() ambilPrompt.Enabled = true end)
 
-						-- A. Trigger executor proximity prompt hooks with 2.5s hold duration
+						-- A. Trigger executor proximity prompt hooks with 2.75s hold duration
 						pcall(function()
 							if fireproximityprompt then
-								fireproximityprompt(ambilPrompt, 2.5)
+								fireproximityprompt(ambilPrompt, 2.75)
 								fireproximityprompt(ambilPrompt, 0)
 								fireproximityprompt(ambilPrompt)
 							end
@@ -1193,10 +1193,11 @@ local success, err = pcall(function()
 							if getconnections then
 								for _, c in ipairs(getconnections(ambilPrompt.Triggered)) do c:Fire(player) end
 								for _, c in ipairs(getconnections(ambilPrompt.PromptButtonHoldEnded)) do c:Fire(player) end
+								for _, c in ipairs(getconnections(ambilPrompt.PromptButtonHoldBegan)) do c:Fire(player) end
 							end
 						end)
 
-						-- B. Press and hold down 'F' key & InputHoldBegin for 2.5s
+						-- B. Press and hold down 'F' key & InputHoldBegin for 2.75s (PC + Mobile)
 						pcall(function()
 							if ambilPrompt.InputHoldBegin then
 								ambilPrompt:InputHoldBegin()
@@ -1204,25 +1205,35 @@ local success, err = pcall(function()
 							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 						end)
 
-						-- Hold continuously for 2.5 seconds or until suitcase is in hand
+						-- Mobile touch hold simulation for Arceus X / Delta / Redfinger
+						pcall(function()
+							local cam = workspace.CurrentCamera
+							local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+							vim:SendMouseButtonEvent(math.floor(vp.X / 2), math.floor(vp.Y / 2), 0, true, game, 1)
+						end)
+
+						-- Hold continuously for 2.75 seconds or until suitcase is in hand
 						local tHold = os.clock()
-						while not isCarryingKoper() and os.clock() - tHold < 2.5 do
+						while not isCarryingKoper() and os.clock() - tHold < 2.75 do
 							task.wait(0.05)
 						end
 
-						-- Release 'F' key
+						-- Release 'F' key, mobile touch, and InputHoldEnd
 						pcall(function()
+							local cam = workspace.CurrentCamera
+							local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+							vim:SendMouseButtonEvent(math.floor(vp.X / 2), math.floor(vp.Y / 2), 0, false, game, 1)
 							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 							if ambilPrompt.InputHoldEnd then
 								ambilPrompt:InputHoldEnd()
 							end
 						end)
 					else
-						-- Fallback: Hold F key for 2.5s
+						-- Fallback: Hold F key for 2.75s
 						pcall(function()
 							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 							local tHold = os.clock()
-							while not isCarryingKoper() and os.clock() - tHold < 2.5 do
+							while not isCarryingKoper() and os.clock() - tHold < 2.75 do
 								task.wait(0.05)
 							end
 							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
