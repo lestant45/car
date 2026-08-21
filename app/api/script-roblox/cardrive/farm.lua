@@ -723,20 +723,42 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 2. Take Koper from Bagasi on the ground
-			if bagasi then
-				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
-				task.wait(0.4)
-				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt")
-				triggerPrompt(ambilPrompt)
+			-- 2. Take Koper from Bagasi on the ground (Verify suitcase is in hand before proceeding)
+			local function isCarryingKoper()
+				local char = player.Character
+				if not char then return false end
+				if char:FindFirstChild("KoperUang") or char:FindFirstChildWhichIsA("Tool") then return true end
+				if char:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
+				if player:GetAttribute("HidePrompt") == true then return true end
+				return false
 			end
 
-			task.wait(0.6)
+			if bagasi then
+				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt")
+				local t0 = os.clock()
+				while not isCarryingKoper() and os.clock() - t0 < 8 and bcaCourierActive do
+					-- Stand right next to the trunk (< 3 studs)
+					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2 + Vector3.new(0, 1, 0))
+					task.wait(0.2)
+
+					if ambilPrompt and ambilPrompt.Enabled then
+						triggerPrompt(ambilPrompt, ambilPrompt.HoldDuration)
+					end
+
+					-- Wait for server confirmation
+					local tCheck = os.clock()
+					while not isCarryingKoper() and os.clock() - tCheck < 1.5 do
+						task.wait(0.1)
+					end
+				end
+			end
+
+			task.wait(0.5)
 
 			-- 3. Teleport character directly in front of ATM at ground level
 			local atmFrontPos = getGroundPosition(targetPos)
 			safeTeleport(CFrame.new(atmFrontPos))
-			task.wait(0.3)
+			task.wait(0.4)
 
 			local nearbyParts = workspace:GetPartBoundsInRadius(targetPos, 25)
 			for _, p in ipairs(nearbyParts) do
