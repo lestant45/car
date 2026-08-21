@@ -634,6 +634,92 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Function to simulate screen clicks to skip dialogue typewriter text and auto-select choices (Yes / Claim / Finish)
+	local function skipAndConfirmNpcDialog(timeout)
+		timeout = timeout or 3.5
+		local vim = game:GetService("VirtualInputManager")
+		local cam = workspace.CurrentCamera
+		local t0 = os.clock()
+
+		while os.clock() - t0 < timeout do
+			local pgui = player:FindFirstChild("PlayerGui")
+			local dialog = pgui and pgui:FindFirstChild("NpcDialog")
+			if dialog then
+				local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+				local clickX = math.floor(vp.X / 2)
+				local clickY = math.floor(vp.Y * 0.78)
+
+				-- 1. Tap screen to skip dialogue typewriter animation
+				pcall(function()
+					vim:SendMouseButtonEvent(clickX, clickY, 0, true, game, 1)
+					task.wait(0.02)
+					vim:SendMouseButtonEvent(clickX, clickY, 0, false, game, 1)
+				end)
+
+				-- 2. Check for choices buttons (Yes / Claim / Finish / Spawn)
+				local choices = dialog:FindFirstChild("Choices")
+				local yesBtn = (choices and choices:FindFirstChild("Yes")) or dialog:FindFirstChild("Yes", true)
+				if yesBtn and yesBtn.Visible then
+					pcall(function()
+						if firesignal then
+							firesignal(yesBtn.Activated)
+							firesignal(yesBtn.MouseButton1Click)
+						end
+						if getconnections then
+							for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
+							for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
+						end
+					end)
+				end
+
+				-- Check if dialog closed
+				local textLabel = dialog:FindFirstChild("Text")
+				if textLabel and not textLabel.Visible and not (choices and choices.Visible) then
+					break
+				end
+			end
+			task.wait(0.1)
+		end
+	end
+
+	-- Background NPC Dialog Auto-Skipper: Taps screen whenever dialog is active
+	task.spawn(function()
+		local vim = game:GetService("VirtualInputManager")
+		local cam = workspace.CurrentCamera
+		while true do
+			pcall(function()
+				local pgui = player:FindFirstChild("PlayerGui")
+				local dialog = pgui and pgui:FindFirstChild("NpcDialog")
+				local textLabel = dialog and dialog:FindFirstChild("Text")
+				local hintLabel = dialog and dialog:FindFirstChild("Hint")
+				local choices = dialog and dialog:FindFirstChild("Choices")
+
+				if dialog and ((textLabel and textLabel.Visible) or (hintLabel and hintLabel.Visible) or (choices and choices.Visible)) then
+					local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+					local clickX = math.floor(vp.X / 2)
+					local clickY = math.floor(vp.Y * 0.78)
+
+					vim:SendMouseButtonEvent(clickX, clickY, 0, true, game, 1)
+					task.wait(0.02)
+					vim:SendMouseButtonEvent(clickX, clickY, 0, false, game, 1)
+
+					local yesBtn = (choices and choices:FindFirstChild("Yes")) or dialog:FindFirstChild("Yes", true)
+					if yesBtn and yesBtn.Visible then
+						if firesignal then
+							firesignal(yesBtn.Activated)
+							firesignal(yesBtn.MouseButton1Click)
+						end
+						if getconnections then
+							for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
+							for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
+						end
+					end
+				end
+			end)
+			task.wait(0.15)
+		end
+	end)
+
 	local function spawnBankCar()
 		updateBcaActivity("🚶 Approaching Putra NPC (Vehicle Spawner)")
 		local npc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("CAR_SPAWNER_NPC")
@@ -653,28 +739,9 @@ local success, err = pcall(function()
 			triggerPrompt(prompt)
 		end
 
-		-- 3. Wait for NpcDialog choices and click Yes
-		updateBcaActivity("🚐 Spawning Armored Bank Van...")
-		local dialog = player.PlayerGui:WaitForChild("NpcDialog", 3)
-		local yesBtn = dialog and dialog:FindFirstChild("Yes", true)
-
-		local t0 = os.clock()
-		while (not yesBtn or not yesBtn.Visible) and os.clock() - t0 < 3 do
-			dialog = player.PlayerGui:FindFirstChild("NpcDialog")
-			yesBtn = dialog and dialog:FindFirstChild("Yes", true)
-			task.wait(0.1)
-		end
-
-		if yesBtn then
-			if firesignal then
-				firesignal(yesBtn.Activated)
-				firesignal(yesBtn.MouseButton1Click)
-			end
-			if getconnections then
-				for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
-				for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
-			end
-		end
+		-- 3. Click screen to skip dialog text and confirm vehicle spawn
+		updateBcaActivity("🚐 Spawning Armored Bank Van (Skipping Dialog)...")
+		skipAndConfirmNpcDialog(3.5)
 
 		fireRemote("NpcDialog", "Finish", 1)
 		fireRemote("NpcDialog", "Finish", "SpawnBankCar")
@@ -1051,7 +1118,18 @@ local success, err = pcall(function()
 						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC")
 						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
 						task.wait(0.5)
+
+						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
+						if andhiniPrompt then
+							triggerPrompt(andhiniPrompt, 0.2)
+						end
+
+						skipAndConfirmNpcDialog(3.0)
+
 						fireRemote("Job", "BankCourier")
+						fireRemote("NpcDialog", "Finish", 1)
+						fireRemote("NpcDialog", "Finish", "BankCourier")
 						task.wait(1.5)
 						jobGui = getBankCourierGui()
 						hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
@@ -1087,23 +1165,8 @@ local success, err = pcall(function()
 							triggerPrompt(andhiniPrompt, 0.2)
 						end
 
-						-- Handle Dialog UI confirmation to claim salary
-						task.wait(0.5)
-						local dialog = player.PlayerGui:FindFirstChild("NpcDialog")
-						if dialog then
-							for _, btn in ipairs(dialog:GetDescendants()) do
-								if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
-									if firesignal then
-										firesignal(btn.Activated)
-										firesignal(btn.MouseButton1Click)
-									end
-									if getconnections then
-										for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
-										for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
-									end
-								end
-							end
-						end
+						-- Tap screen to skip dialog text and confirm salary payout
+						skipAndConfirmNpcDialog(4.0)
 
 						fireRemote("NpcDialog", "Finish", 1)
 						fireRemote("NpcDialog", "Finish", "BankCourier")
