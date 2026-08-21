@@ -1152,26 +1152,84 @@ local success, err = pcall(function()
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Ambil Koper)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F for 2.5s)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
-				local t0 = os.clock()
-				while not isCarryingKoper() and os.clock() - t0 < 8 and bcaCourierActive do
-					-- Stand right behind the trunk (facing trunk)
-					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.5 + Vector3.new(0, 0.5, 0))
+				local vim = game:GetService("VirtualInputManager")
+				local tStart = os.clock()
+
+				while not isCarryingKoper() and os.clock() - tStart < 20 and bcaCourierActive do
+					-- 1. Position character right behind the trunk facing the trunk door (< 2.2 studs)
+					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.2 + Vector3.new(0, 0.5, 0))
 					task.wait(0.2)
 
-					if ambilPrompt then
-						triggerPrompt(ambilPrompt)
-					end
-
-					-- Search vehicle descendants for any Ambil prompts
-					for _, p in ipairs(car:GetDescendants()) do
-						if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
-							triggerPrompt(p)
+					ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
+					if not ambilPrompt then
+						for _, p in ipairs(car:GetDescendants()) do
+							if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
+								ambilPrompt = p
+								break
+							end
 						end
 					end
 
-					task.wait(0.5)
+					if ambilPrompt then
+						pcall(function() ambilPrompt.Enabled = true end)
+
+						-- A. Trigger executor proximity prompt hooks with 2.5s hold duration
+						pcall(function()
+							if fireproximityprompt then
+								fireproximityprompt(ambilPrompt, 2.5)
+								fireproximityprompt(ambilPrompt, 0)
+								fireproximityprompt(ambilPrompt)
+							end
+						end)
+
+						pcall(function()
+							if firesignal then
+								firesignal(ambilPrompt.PromptButtonHoldBegan, player)
+								firesignal(ambilPrompt.PromptButtonHoldEnded, player)
+								firesignal(ambilPrompt.Triggered, player)
+							end
+							if getconnections then
+								for _, c in ipairs(getconnections(ambilPrompt.Triggered)) do c:Fire(player) end
+								for _, c in ipairs(getconnections(ambilPrompt.PromptButtonHoldEnded)) do c:Fire(player) end
+							end
+						end)
+
+						-- B. Press and hold down 'F' key & InputHoldBegin for 2.5s
+						pcall(function()
+							if ambilPrompt.InputHoldBegin then
+								ambilPrompt:InputHoldBegin()
+							end
+							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+						end)
+
+						-- Hold continuously for 2.5 seconds or until suitcase is in hand
+						local tHold = os.clock()
+						while not isCarryingKoper() and os.clock() - tHold < 2.5 do
+							task.wait(0.05)
+						end
+
+						-- Release 'F' key
+						pcall(function()
+							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+							if ambilPrompt.InputHoldEnd then
+								ambilPrompt:InputHoldEnd()
+							end
+						end)
+					else
+						-- Fallback: Hold F key for 2.5s
+						pcall(function()
+							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+							local tHold = os.clock()
+							while not isCarryingKoper() and os.clock() - tHold < 2.5 do
+								task.wait(0.05)
+							end
+							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+						end)
+					end
+
+					task.wait(0.4)
 				end
 			end
 
