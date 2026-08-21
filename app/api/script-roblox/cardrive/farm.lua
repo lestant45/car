@@ -626,12 +626,12 @@ local success, err = pcall(function()
 
 	-- Safe Open Parking Spots for ATMs (Clear sky, open asphalt, no pillars or ceilings)
 	local ATM_PARKING_SPOTS = {
-		["ATM1"] = CFrame.new(1860, 24.5, -4850),
-		["ATM2"] = CFrame.new(2212.55, 27.5, -4594.36) * CFrame.Angles(0, math.rad(90), 0),
-		["ATM3"] = CFrame.new(825.0, 24.2, -3810.0),
-		["ATM4"] = CFrame.new(2291.25, 27.96, -4882.77),
-		["ATM9"] = CFrame.new(1575.0, 52.5, 885.0),
-		["ATM10"] = CFrame.new(1975.0, 24.2, -3540.0),
+		["ATM1"] = Vector3.new(1860.0, 24.5, -4850.0),
+		["ATM2"] = Vector3.new(2212.55, 27.5, -4594.36),
+		["ATM3"] = Vector3.new(825.0, 24.2, -3810.0),
+		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
+		["ATM9"] = Vector3.new(1575.0, 52.5, 885.0),
+		["ATM10"] = Vector3.new(2023.20, 21.44, -3538.69),
 	}
 
 	local function getBankCourierTargetPos()
@@ -684,8 +684,23 @@ local success, err = pcall(function()
 				if not targetPos then break end
 			end
 
-			-- 1. Calculate safe open road parking spot near destination ATM
-			local safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
+			-- 1. Match destination to designated safe open parking spot
+			local safeAtmCF = nil
+			local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
+			if atms then
+				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
+					local atm = atms:FindFirstChild(atmName)
+					local p = atm and atm:FindFirstChildWhichIsA("BasePart", true)
+					if (p and (p.Position - targetPos).Magnitude < 50) or (spotPos - targetPos).Magnitude < 80 then
+						safeAtmCF = CFrame.new(spotPos)
+						break
+					end
+				end
+			end
+
+			if not safeAtmCF then
+				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
+			end
 
 			safeTweenCar(safeAtmCF, 180)
 			task.wait(0.5)
@@ -810,14 +825,40 @@ local success, err = pcall(function()
 						return
 					end
 
-					-- STEP 5: Return to Depot & Claim Reward (When all ATMs are filled)
+					-- STEP 5: Return to Depot & Talk to Andhini NPC to Claim Salary
 					if isAtmDone or stepText:find("3)") then
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 220)
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
 						task.wait(0.5)
+
+						-- Walk inside lobby to talk to Andhini (Koordinator Kurir BCA)
+						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
+						task.wait(0.4)
+
+						-- Trigger Andhini's DialogPrompt
+						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
+						if andhiniPrompt then
+							triggerPrompt(andhiniPrompt)
+						end
+
+						-- Handle Dialog UI confirmation
+						task.wait(0.5)
+						local dialog = player.PlayerGui:FindFirstChild("NpcDialog")
+						if dialog then
+							local yesBtn = dialog:FindFirstChild("Yes", true) or dialog:FindFirstChild("Finish", true) or dialog:FindFirstChild("Claim", true)
+							if yesBtn and firesignal then
+								firesignal(yesBtn.Activated)
+								firesignal(yesBtn.MouseButton1Click)
+							end
+						end
+
+						fireRemote("NpcDialog", "Finish", 1)
+						fireRemote("NpcDialog", "Finish", "BankCourier")
 						fireRemote("BankCourier", "Complete")
 						fireRemote("PhoneJobSalary")
 						fireRemote("MyBcaAppOpened")
-						task.wait(1.5)
+						task.wait(2.0)
 					end
 				end)
 				task.wait(bcaCourierDelay)
