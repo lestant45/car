@@ -634,6 +634,59 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Helper function to automatically click screen to skip typewriter NPC dialog and select Yes/Confirm
+	local function skipAndConfirmNpcDialog(maxWait)
+		maxWait = maxWait or 3.5
+		local t0 = os.clock()
+		local vim = game:GetService("VirtualInputManager")
+		local camera = workspace.CurrentCamera
+		local vpSize = camera and camera.ViewportSize or Vector2.new(800, 600)
+		local midX = vpSize.X / 2
+		local midY = vpSize.Y * 0.82
+
+		while os.clock() - t0 < maxWait do
+			local pgui = player:FindFirstChild("PlayerGui")
+			local dialog = pgui and pgui:FindFirstChild("NpcDialog")
+			if not dialog then break end
+
+			local choices = dialog:FindFirstChild("Choices", true)
+			local yesBtn = dialog:FindFirstChild("Yes", true) or dialog:FindFirstChild("Finish", true) or dialog:FindFirstChild("Claim", true)
+
+			-- Check if choices or Yes button is visible
+			if yesBtn and ((choices and choices.Visible) or yesBtn.Visible) then
+				if firesignal then
+					firesignal(yesBtn.Activated)
+					firesignal(yesBtn.MouseButton1Click)
+				end
+				if getconnections then
+					for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
+					for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
+				end
+				pcall(function()
+					local absPos = yesBtn.AbsolutePosition
+					local absSize = yesBtn.AbsoluteSize
+					vim:SendMouseButtonEvent(absPos.X + absSize.X / 2, absPos.Y + absSize.Y / 2, 0, true, game, 1)
+					task.wait(0.04)
+					vim:SendMouseButtonEvent(absPos.X + absSize.X / 2, absPos.Y + absSize.Y / 2, 0, false, game, 1)
+				end)
+				task.wait(0.2)
+				break
+			end
+
+			-- Click screen & dialogue text area to skip typewriter animation
+			pcall(function()
+				vim:SendMouseButtonEvent(midX, midY, 0, true, game, 1)
+				task.wait(0.03)
+				vim:SendMouseButtonEvent(midX, midY, 0, false, game, 1)
+				vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+				task.wait(0.02)
+				vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+			end)
+
+			task.wait(0.08)
+		end
+	end
+
 	local function spawnBankCar()
 		updateBcaActivity("🚶 Approaching Putra NPC (Vehicle Spawner)")
 		local npc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("CAR_SPAWNER_NPC")
@@ -653,28 +706,9 @@ local success, err = pcall(function()
 			triggerPrompt(prompt)
 		end
 
-		-- 3. Wait for NpcDialog choices and click Yes
+		-- 3. Skip typewriter text and click Yes
 		updateBcaActivity("🚐 Spawning Armored Bank Van...")
-		local dialog = player.PlayerGui:WaitForChild("NpcDialog", 3)
-		local yesBtn = dialog and dialog:FindFirstChild("Yes", true)
-
-		local t0 = os.clock()
-		while (not yesBtn or not yesBtn.Visible) and os.clock() - t0 < 3 do
-			dialog = player.PlayerGui:FindFirstChild("NpcDialog")
-			yesBtn = dialog and dialog:FindFirstChild("Yes", true)
-			task.wait(0.1)
-		end
-
-		if yesBtn then
-			if firesignal then
-				firesignal(yesBtn.Activated)
-				firesignal(yesBtn.MouseButton1Click)
-			end
-			if getconnections then
-				for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
-				for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
-			end
-		end
+		skipAndConfirmNpcDialog(3.5)
 
 		fireRemote("NpcDialog", "Finish", 1)
 		fireRemote("NpcDialog", "Finish", "SpawnBankCar")
@@ -1049,8 +1083,17 @@ local success, err = pcall(function()
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
 					if not hasActiveJobGui then
 						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC")
-						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
+						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
 						task.wait(0.5)
+
+						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
+						if andhiniPrompt then
+							triggerPrompt(andhiniPrompt, 0.2)
+						end
+
+						skipAndConfirmNpcDialog(3.5)
 						fireRemote("Job", "BankCourier")
 						task.wait(1.5)
 						jobGui = getBankCourierGui()
@@ -1087,23 +1130,8 @@ local success, err = pcall(function()
 							triggerPrompt(andhiniPrompt, 0.2)
 						end
 
-						-- Handle Dialog UI confirmation to claim salary
-						task.wait(0.5)
-						local dialog = player.PlayerGui:FindFirstChild("NpcDialog")
-						if dialog then
-							for _, btn in ipairs(dialog:GetDescendants()) do
-								if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
-									if firesignal then
-										firesignal(btn.Activated)
-										firesignal(btn.MouseButton1Click)
-									end
-									if getconnections then
-										for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
-										for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
-									end
-								end
-							end
-						end
+						-- Skip typewriter dialog & confirm salary claim
+						skipAndConfirmNpcDialog(3.5)
 
 						fireRemote("NpcDialog", "Finish", 1)
 						fireRemote("NpcDialog", "Finish", "BankCourier")
