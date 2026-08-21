@@ -228,6 +228,35 @@ local success, err = pcall(function()
 		end
 	end
 
+	-- Remove heavy buildings, trees, and obstructive collision props for 100% smooth flight
+	local function destroyObstacles()
+		local count = 0
+		local map = workspace:FindFirstChild("Map")
+		local foldersToClear = {
+			map and map:FindFirstChild("Building"),
+			map and map:FindFirstChild("Tree"),
+			map and map:FindFirstChild("Prop"),
+			map and map:FindFirstChild("Stuff"),
+			map and map:FindFirstChild("PalangTol"),
+			map and map:FindFirstChild("Toll"),
+			map and map:FindFirstChild("Sementara"),
+			workspace:FindFirstChild("Rambu and props"),
+			workspace:FindFirstChild("StreetLampTemplate"),
+			workspace:FindFirstChild("MELAWAI")
+		}
+
+		for _, folder in ipairs(foldersToClear) do
+			if folder then
+				pcall(function()
+					count = count + #folder:GetChildren()
+					folder:ClearAllChildren()
+				end)
+			end
+		end
+
+		return count
+	end
+
 	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics Replication)
 	local function safeTweenCar(targetCF, speed)
 		while isInBankMinigame() and bcaCourierActive do
@@ -254,9 +283,10 @@ local success, err = pcall(function()
 		speed = speed or 180
 		local duration = math.clamp(dist / speed, 0.5, 6.0)
 
-		-- Zero out physics velocities before tween
+		-- Zero out physics velocities before tween & disable body part collisions
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
+				part.CanCollide = false
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -283,8 +313,17 @@ local success, err = pcall(function()
 				car:PivotTo(currentCF)
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
+						part.CanCollide = false
 						part.AssemblyLinearVelocity = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+				local char = player.Character
+				if char then
+					for _, part in ipairs(char:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
 					end
 				end
 			end)
@@ -1052,6 +1091,9 @@ local success, err = pcall(function()
 	end
 
 	local function runBcaCourierFarm()
+		if Config.farm.destroyBuildings then
+			pcall(destroyObstacles)
+		end
 		task.spawn(function()
 			while bcaCourierActive do
 				pcall(function()
@@ -1247,6 +1289,17 @@ local success, err = pcall(function()
 	-- Quick Status Card
 	local statusSec = UI.AddSection(farmFrame, "Automated Money Farm (CDID Jobs)", 1)
 	UI.AddLabel(statusSec, "Select a job below. Script will automate pickups, deliveries, and rewards.")
+
+	UI.AddButton(statusSec, "💥 Destroy Buildings & Obstacles (100% Smooth Travel)", function()
+		local count = destroyObstacles()
+		UI.Notify("Map Cleaned", string.format("Cleared %d obstructive buildings, trees & props!", count), 3, "success")
+	end, 1)
+
+	UI.AddToggle(statusSec, "Auto-Destroy Buildings on Farm Start", Config.farm.destroyBuildings or false, function(v)
+		Config.farm.destroyBuildings = v
+		if v then destroyObstacles() end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 2)
 
 	-- 🏦 BCA Collaboration Event & Bank Courier
 	local bcaSec = UI.AddSection(farmFrame, "🏦 BCA Collaboration Event & Bank Courier", 2)
