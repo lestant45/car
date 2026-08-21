@@ -544,8 +544,21 @@ local success, err = pcall(function()
 	local bcaIsCarrying = false
 	local bcaJobPhase = ""
 	local bcaJobComplete = false
-	local currentBcaActivity = "Idle (Toggle to start)"
-	local bcaActivityLabel, bcaProgressLabel, bcaTargetLabel, bcaSalaryLabel
+	local function resetBcaState()
+		bcaCurKoper = 0
+		bcaTotKoper = 0
+		bcaCurAtm = 0
+		bcaTotAtm = 0
+		bcaIsCarrying = false
+		bcaJobPhase = ""
+		bcaJobComplete = false
+	end
+
+	pcall(function()
+		player.CharacterAdded:Connect(function()
+			resetBcaState()
+		end)
+	end)
 
 	local function updateBcaActivity(activity)
 		currentBcaActivity = activity
@@ -1029,29 +1042,34 @@ local success, err = pcall(function()
 					end
 
 					local jobGui = getBankCourierGui()
+					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+					if not hasActiveJobGui then
+						resetBcaState()
+					end
 
-					local hintText = jobGui and jobGui.Status.Hint.Text or ""
-					local koperText = jobGui and jobGui.Status.Koper.Text or ""
-					local atmText = jobGui and jobGui.Status.Atm.Text or ""
-					local stepText = jobGui and jobGui.Status.Step.Text or ""
+					local hintText = hasActiveJobGui and jobGui.Status.Hint.Text or ""
+					local koperText = hasActiveJobGui and jobGui.Status.Koper.Text or ""
+					local atmText = hasActiveJobGui and jobGui.Status.Atm.Text or ""
+					local stepText = hasActiveJobGui and jobGui.Status.Step.Text or ""
 
 					local curKoper, totKoper = parseProgress(koperText)
 					local curAtm, totAtm = parseProgress(atmText)
 
-					local isContractActive = (totKoper > 0) or (curKoper > 0) or (curAtm > 0) or (bcaCurKoper > 0) or (bcaCurAtm > 0) or stepText:find("2)") or stepText:find("Antar")
-
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
-					if not isContractActive and (not jobGui or not jobGui.Status.Visible) then
+					if not hasActiveJobGui then
+						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC")
 						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
 						task.wait(0.5)
 						fireRemote("Job", "BankCourier")
-						task.wait(1)
+						task.wait(1.5)
 						jobGui = getBankCourierGui()
+						hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+						if not hasActiveJobGui then return end
 					end
 
-					-- STEP 2: Ensure Bank Car is spawned via Putra NPC (ONLY during initial vehicle spawn)
+					-- STEP 2: Ensure Bank Car is spawned via Putra NPC
 					local car = getPlayerCar()
-					if not isContractActive and (not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan")) then
+					if not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan") then
 						car = spawnBankCar()
 						task.wait(0.5)
 						return
@@ -1209,10 +1227,11 @@ local success, err = pcall(function()
 		while true do
 			pcall(function()
 				local jobGui = getBankCourierGui()
-				local kText = jobGui and jobGui.Status.Koper.Text or ""
-				local aText = jobGui and jobGui.Status.Atm.Text or ""
-				local sText = jobGui and jobGui.Status.Salary.Text or ""
-				local pText = jobGui and jobGui.Status:FindFirstChild("Pocket") and jobGui.Status.Pocket.Text or ""
+				local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+				local kText = hasActiveJobGui and jobGui.Status.Koper.Text or ""
+				local aText = hasActiveJobGui and jobGui.Status.Atm.Text or ""
+				local sText = hasActiveJobGui and jobGui.Status.Salary.Text or ""
+				local pText = hasActiveJobGui and jobGui.Status:FindFirstChild("Pocket") and jobGui.Status.Pocket.Text or ""
 				local curK, totK = parseProgress(kText)
 				local curA, totA = parseProgress(aText)
 
@@ -1227,7 +1246,7 @@ local success, err = pcall(function()
 
 					if bcaTargetLabel then
 						local targetPos = getBankCourierTargetPos()
-						if targetPos then
+						if targetPos and hasActiveJobGui then
 							local char = player.Character
 							local root = char and char:FindFirstChild("HumanoidRootPart")
 							local dist = root and math.floor((root.Position - targetPos).Magnitude) or 0
@@ -1243,7 +1262,7 @@ local success, err = pcall(function()
 							end
 							bcaTargetLabel.Text = string.format("🎯 Target: %s (%dm away)", matchedAtm, dist)
 						else
-							bcaTargetLabel.Text = "🎯 Target: Standby / Generating Route"
+							bcaTargetLabel.Text = hasActiveJobGui and "🎯 Target: Standby / Generating Route" or "🎯 Target: None (Starting Job...)"
 						end
 					end
 
