@@ -79,9 +79,9 @@ local success, err = pcall(function()
 		root.AssemblyAngularVelocity = Vector3.zero
 
 		if useTween then
-			speed = speed or 200
+			speed = speed or 120
 			local dist = (root.Position - cframe.Position).Magnitude
-			local time = math.max(dist / speed, 0.1)
+			local time = math.clamp(dist / speed, 0.2, 3)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
 			tw:Play()
 			tw.Completed:Wait()
@@ -243,16 +243,6 @@ local success, err = pcall(function()
 		ensureSafetyPlate(targetCF.Position, 55)
 		requestStreamAsync(targetCF.Position)
 
-		-- Auto-destroy all bollards and barriers around BCA Tower Thamrin to clear roads & paths
-		pcall(function()
-			local map = workspace:FindFirstChild("Map")
-			local building = map and map:FindFirstChild("Building")
-			local bcaTower = building and building:FindFirstChild("BCA Tower Thamrin")
-			local property = bcaTower and bcaTower:FindFirstChild("Property")
-			local bollardFolder = property and property:FindFirstChild("Bollard")
-			if bollardFolder then bollardFolder:Destroy() end
-		end)
-
 		-- 1. Enter Driver Seat before moving to claim Network Ownership on the server
 		enterDriveSeat(car)
 		task.wait(0.2)
@@ -264,13 +254,9 @@ local success, err = pcall(function()
 		speed = speed or 180
 		local duration = math.clamp(dist / speed, 0.5, 6.0)
 
-		-- Lift car into clear sky arc over buildings if traveling far
-		local arcHeight = (dist > 50) and math.clamp(dist * 0.12, 18, 55) or 0
-
-		-- No-clip vehicle parts during transit so buildings and walls never block or flip car
+		-- Zero out physics velocities before tween
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.CanCollide = false
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -291,17 +277,12 @@ local success, err = pcall(function()
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 			-- Smooth sine ease in-out
 			local easedAlpha = -(math.cos(math.pi * alpha) - 1) / 2
-
-			-- Interpolate position with parabolic sky arc clearance
-			local arcY = math.sin(alpha * math.pi) * arcHeight
-			local currentPos = startCF.Position:Lerp(destCF.Position, easedAlpha) + Vector3.new(0, arcY, 0)
-			local currentCF = CFrame.new(currentPos) * startCF.Rotation:Lerp(destCF.Rotation, easedAlpha)
+			local currentCF = startCF:Lerp(destCF, easedAlpha)
 
 			pcall(function()
 				car:PivotTo(currentCF)
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.CanCollide = false
 						part.AssemblyLinearVelocity = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
 					end
@@ -319,12 +300,11 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Settle car firmly on ground & restore solid collisions
+		-- Settle car firmly on ground
 		pcall(function()
 			car:PivotTo(destCF)
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
-					part.CanCollide = true
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
@@ -528,7 +508,6 @@ local success, err = pcall(function()
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
 	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
-	local bcaKoperDrivewayPos = Vector3.new(1762.85, 22.34, -4615.80)
 
 	local function getBankCourierGui()
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -655,69 +634,16 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Helper function to automatically click screen to skip typewriter NPC dialog and select Yes/Confirm
-	local function skipAndConfirmNpcDialog(maxWait)
-		maxWait = maxWait or 3.5
-		local t0 = os.clock()
-		local vim = game:GetService("VirtualInputManager")
-		local camera = workspace.CurrentCamera
-		local vpSize = camera and camera.ViewportSize or Vector2.new(800, 600)
-		local midX = vpSize.X / 2
-		local midY = vpSize.Y * 0.82
-
-		while os.clock() - t0 < maxWait do
-			local pgui = player:FindFirstChild("PlayerGui")
-			local dialog = pgui and pgui:FindFirstChild("NpcDialog")
-			if not dialog then break end
-
-			local choices = dialog:FindFirstChild("Choices", true)
-			local yesBtn = dialog:FindFirstChild("Yes", true) or dialog:FindFirstChild("Finish", true) or dialog:FindFirstChild("Claim", true)
-
-			-- Check if choices or Yes button is visible
-			if yesBtn and ((choices and choices.Visible) or yesBtn.Visible) then
-				if firesignal then
-					firesignal(yesBtn.Activated)
-					firesignal(yesBtn.MouseButton1Click)
-				end
-				if getconnections then
-					for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
-					for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
-				end
-				pcall(function()
-					local absPos = yesBtn.AbsolutePosition
-					local absSize = yesBtn.AbsoluteSize
-					vim:SendMouseButtonEvent(absPos.X + absSize.X / 2, absPos.Y + absSize.Y / 2, 0, true, game, 1)
-					task.wait(0.04)
-					vim:SendMouseButtonEvent(absPos.X + absSize.X / 2, absPos.Y + absSize.Y / 2, 0, false, game, 1)
-				end)
-				task.wait(0.2)
-				break
-			end
-
-			-- Click screen & dialogue text area to skip typewriter animation
-			pcall(function()
-				vim:SendMouseButtonEvent(midX, midY, 0, true, game, 1)
-				task.wait(0.03)
-				vim:SendMouseButtonEvent(midX, midY, 0, false, game, 1)
-				vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-				task.wait(0.02)
-				vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-			end)
-
-			task.wait(0.08)
-		end
-	end
-
 	local function spawnBankCar()
 		updateBcaActivity("🚶 Approaching Putra NPC (Vehicle Spawner)")
 		local npc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("CAR_SPAWNER_NPC")
 		local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
 
-		-- 1. Tween smoothly in front of Putra NPC (200 studs/s)
+		-- 1. Teleport right in front of Putra NPC
 		if npcRoot then
-			safeTeleport(npcRoot.CFrame + npcRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0), true, 200)
+			safeTeleport(npcRoot.CFrame + npcRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0))
 		else
-			safeTeleport(CFrame.new(bcaDepotPos), true, 200)
+			safeTeleport(CFrame.new(bcaDepotPos))
 		end
 		task.wait(0.4)
 
@@ -727,9 +653,28 @@ local success, err = pcall(function()
 			triggerPrompt(prompt)
 		end
 
-		-- 3. Skip typewriter text and click Yes
+		-- 3. Wait for NpcDialog choices and click Yes
 		updateBcaActivity("🚐 Spawning Armored Bank Van...")
-		skipAndConfirmNpcDialog(3.5)
+		local dialog = player.PlayerGui:WaitForChild("NpcDialog", 3)
+		local yesBtn = dialog and dialog:FindFirstChild("Yes", true)
+
+		local t0 = os.clock()
+		while (not yesBtn or not yesBtn.Visible) and os.clock() - t0 < 3 do
+			dialog = player.PlayerGui:FindFirstChild("NpcDialog")
+			yesBtn = dialog and dialog:FindFirstChild("Yes", true)
+			task.wait(0.1)
+		end
+
+		if yesBtn then
+			if firesignal then
+				firesignal(yesBtn.Activated)
+				firesignal(yesBtn.MouseButton1Click)
+			end
+			if getconnections then
+				for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
+				for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
+			end
+		end
 
 		fireRemote("NpcDialog", "Finish", 1)
 		fireRemote("NpcDialog", "Finish", "SpawnBankCar")
@@ -744,11 +689,11 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane (with +5 Y clearance)
+		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
 		if car then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
-			task.wait(1.0) -- Wait 1s after spawning before moving car
-			local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20) + Vector3.new(0, 5, 0)
+			task.wait(1.5) -- Wait 1.5s after spawning before moving car
+			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -768,11 +713,11 @@ local success, err = pcall(function()
 
 		car = car or getPlayerCar()
 
-		-- Ensure car is parked right on the asphalt driveway at (1762.85, 22.34 + 5, -4615.80)
-		local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20) + Vector3.new(0, 5, 0)
-		if car and (car:GetPivot().Position - bcaKoperDrivewayPos).Magnitude > 25 then
+		-- Ensure car is parked right on the asphalt driveway
+		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
+		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 25 then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
-			task.wait(1.0)
+			task.wait(1.5)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -859,7 +804,7 @@ local success, err = pcall(function()
 
 	-- Safe Open Parking Spots for Vehicle (Clear sky, open asphalt, no pillars or ceilings)
 	local ATM_PARKING_SPOTS = {
-		["ATM1"] = Vector3.new(1762.85, 22.34, -4615.80),
+		["ATM1"] = Vector3.new(1860.0, 24.5, -4850.0),
 		["ATM2"] = Vector3.new(2212.55, 27.5, -4594.36),
 		["ATM3"] = Vector3.new(825.0, 24.2, -3810.0),
 		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
@@ -1087,16 +1032,6 @@ local success, err = pcall(function()
 						return
 					end
 
-					-- Auto-destroy all obstacles & bollards around BCA Depot
-					pcall(function()
-						local map = workspace:FindFirstChild("Map")
-						local building = map and map:FindFirstChild("Building")
-						local bcaTower = building and building:FindFirstChild("BCA Tower Thamrin")
-						local property = bcaTower and bcaTower:FindFirstChild("Property")
-						local bollardFolder = property and property:FindFirstChild("Bollard")
-						if bollardFolder then bollardFolder:Destroy() end
-					end)
-
 					local jobGui = getBankCourierGui()
 					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
 					if not hasActiveJobGui then
@@ -1113,18 +1048,9 @@ local success, err = pcall(function()
 
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
 					if not hasActiveJobGui then
-						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC (200 studs/s)")
-						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
+						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC")
+						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
 						task.wait(0.5)
-
-						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
-						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt, 0.2)
-						end
-
-						skipAndConfirmNpcDialog(3.5)
 						fireRemote("Job", "BankCourier")
 						task.wait(1.5)
 						jobGui = getBankCourierGui()
@@ -1144,13 +1070,13 @@ local success, err = pcall(function()
 
 					if isAtmDone then
 						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(bcaKoperDrivewayPos, 20), 180)
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
 						task.wait(0.5)
 
 						-- Walk inside lobby to approach Andhini (Koordinator Kurir BCA)
-						updateBcaActivity("🚶 Walking Inside Lobby to Andhini NPC (200 studs/s)")
+						updateBcaActivity("🚶 Walking Inside Lobby to Andhini NPC")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
 						task.wait(0.5)
 
 						-- Trigger Andhini's DialogPrompt
@@ -1161,8 +1087,23 @@ local success, err = pcall(function()
 							triggerPrompt(andhiniPrompt, 0.2)
 						end
 
-						-- Skip typewriter dialog & confirm salary claim
-						skipAndConfirmNpcDialog(3.5)
+						-- Handle Dialog UI confirmation to claim salary
+						task.wait(0.5)
+						local dialog = player.PlayerGui:FindFirstChild("NpcDialog")
+						if dialog then
+							for _, btn in ipairs(dialog:GetDescendants()) do
+								if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+									if firesignal then
+										firesignal(btn.Activated)
+										firesignal(btn.MouseButton1Click)
+									end
+									if getconnections then
+										for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+										for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+									end
+								end
+							end
+						end
 
 						fireRemote("NpcDialog", "Finish", 1)
 						fireRemote("NpcDialog", "Finish", "BankCourier")
