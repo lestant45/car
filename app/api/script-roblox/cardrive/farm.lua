@@ -1005,6 +1005,15 @@ local success, err = pcall(function()
 			end
 
 			task.wait(1.2)
+
+			-- Check if all assigned ATMs are filled (e.g. 2/2, 3/3, 4/4) or Step 3 reached
+			jobGui = getBankCourierGui()
+			local curA, totA = parseProgress(jobGui and jobGui.Status.Atm.Text or "")
+			local stepT = jobGui and jobGui.Status.Step.Text or ""
+			if (totA > 0 and curA >= totA) or bcaJobComplete or stepT:find("3)") or stepT:find("Kembali") or stepT:find("Selesai") then
+				bcaJobComplete = true
+				break
+			end
 		end
 	end
 
