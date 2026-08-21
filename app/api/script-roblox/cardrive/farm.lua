@@ -575,6 +575,111 @@ local success, err = pcall(function()
 		return 0
 	end
 
+	local function disconnectPlayerWithModal(kickMsg)
+		-- 1. Call standard Roblox Player:Kick
+		pcall(function()
+			player:Kick(kickMsg)
+		end)
+
+		-- 2. Force network disconnect as fallback
+		pcall(function()
+			game:GetService("NetworkClient"):Disconnect()
+		end)
+
+		-- 3. Show Fullscreen "Koneksi Terputus" Modal matching Roblox Error Modal (Picture 2)
+		pcall(function()
+			local coreGui = game:GetService("CoreGui")
+			local pgui = player:FindFirstChild("PlayerGui")
+			local parent = coreGui or pgui
+			if not parent then return end
+
+			local existing = parent:FindFirstChild("HipHub_DisconnectedModal")
+			if existing then existing:Destroy() end
+
+			local sg = Instance.new("ScreenGui")
+			sg.Name = "HipHub_DisconnectedModal"
+			sg.DisplayOrder = 999999
+			sg.IgnoreGuiInset = true
+			sg.ResetOnSpawn = false
+			sg.Parent = parent
+
+			local overlay = Instance.new("Frame")
+			overlay.Size = UDim2.new(1, 0, 1, 0)
+			overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+			overlay.BackgroundTransparency = 0.4
+			overlay.BorderSizePixel = 0
+			overlay.Parent = sg
+
+			local card = Instance.new("Frame")
+			card.Size = UDim2.new(0, 480, 0, 270)
+			card.Position = UDim2.new(0.5, -240, 0.5, -135)
+			card.BackgroundColor3 = Color3.fromRGB(43, 45, 49)
+			card.BorderSizePixel = 0
+			card.Parent = sg
+
+			local cardCorner = Instance.new("UICorner")
+			cardCorner.CornerRadius = UDim.new(0, 8)
+			cardCorner.Parent = card
+
+			local title = Instance.new("TextLabel")
+			title.Size = UDim2.new(1, 0, 0, 48)
+			title.BackgroundTransparency = 1
+			title.Text = "Koneksi Terputus"
+			title.TextColor3 = Color3.fromRGB(255, 255, 255)
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 20
+			title.Parent = card
+
+			local div = Instance.new("Frame")
+			div.Size = UDim2.new(0.9, 0, 0, 1)
+			div.Position = UDim2.new(0.05, 0, 0, 48)
+			div.BackgroundColor3 = Color3.fromRGB(80, 82, 88)
+			div.BorderSizePixel = 0
+			div.Parent = card
+
+			local sub = Instance.new("TextLabel")
+			sub.Size = UDim2.new(0.9, 0, 0, 36)
+			sub.Position = UDim2.new(0.05, 0, 0, 56)
+			sub.BackgroundTransparency = 1
+			sub.Text = "Kamu dikeluarkan oleh pengalaman virtual ini atau moderatornya. Pesan moderasi:"
+			sub.TextColor3 = Color3.fromRGB(180, 182, 188)
+			sub.Font = Enum.Font.Gotham
+			sub.TextSize = 12
+			sub.TextWrapped = true
+			sub.Parent = card
+
+			local msgLabel = Instance.new("TextLabel")
+			msgLabel.Size = UDim2.new(0.9, 0, 0, 60)
+			msgLabel.Position = UDim2.new(0.05, 0, 0, 96)
+			msgLabel.BackgroundTransparency = 1
+			msgLabel.Text = kickMsg .. "\n(Kode Eror: 267)"
+			msgLabel.TextColor3 = Color3.fromRGB(220, 222, 228)
+			msgLabel.Font = Enum.Font.GothamMedium
+			msgLabel.TextSize = 13
+			msgLabel.TextWrapped = true
+			msgLabel.Parent = card
+
+			local leaveBtn = Instance.new("TextButton")
+			leaveBtn.Size = UDim2.new(0.9, 0, 0, 42)
+			leaveBtn.Position = UDim2.new(0.05, 0, 1, -56)
+			leaveBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			leaveBtn.BorderSizePixel = 0
+			leaveBtn.Text = "Keluar"
+			leaveBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
+			leaveBtn.Font = Enum.Font.GothamBold
+			leaveBtn.TextSize = 14
+			leaveBtn.Parent = card
+
+			local btnCorner = Instance.new("UICorner")
+			btnCorner.CornerRadius = UDim.new(0, 6)
+			btnCorner.Parent = leaveBtn
+
+			leaveBtn.MouseButton1Click:Connect(function()
+				pcall(function() game:Shutdown() end)
+			end)
+		end)
+	end
+
 	local function checkTargetEarningAndDisconnect()
 		if bcaTargetEarning and bcaTargetEarning > 0 then
 			local targetCash = bcaTargetEarning * 1000000
@@ -590,8 +695,8 @@ local success, err = pcall(function()
 				local kickMsg = string.format("DUIT LU UDAH NYENTUH %s\n(Saldo Poket: %s)", formattedTarget, formattedCurrent)
 				updateBcaActivity("🛑 Target Earning Reached! Disconnecting...")
 				UI.Notify("Target Earning Reached!", kickMsg, 5, "success")
-				task.wait(1.5)
-				player:Kick(kickMsg)
+
+				disconnectPlayerWithModal(kickMsg)
 				return true
 			end
 		end
@@ -1405,8 +1510,8 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Real-time auto-disconnect when target earning is reached
-				if bcaCourierActive and checkTargetEarningAndDisconnect() then
+				-- Real-time auto-disconnect when target earning is reached (checked unconditionally)
+				if checkTargetEarningAndDisconnect() then
 					return
 				end
 
