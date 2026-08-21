@@ -691,7 +691,7 @@ local success, err = pcall(function()
 		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
 		["ATM7"] = Vector3.new(-475.64, 26.27, 8732.79),
 		["ATM8"] = Vector3.new(-223.75, 21.93, 10705.88),
-		["ATM9"] = Vector3.new(1575.0, 52.5, 885.0),
+		["ATM9"] = Vector3.new(1585.46, 51.14, 870.47),
 		["ATM10"] = Vector3.new(2023.20, 21.44, -3538.69),
 	}
 
@@ -827,11 +827,11 @@ local success, err = pcall(function()
 			safeTeleport(CFrame.new(atmFrontPos))
 			task.wait(0.4)
 
-			local nearbyParts = workspace:GetPartBoundsInRadius(targetPos, 25)
+			local nearbyParts = workspace:GetPartBoundsInRadius(atmFrontPos, 25)
 			for _, p in ipairs(nearbyParts) do
 				for _, prompt in ipairs(p:GetChildren()) do
 					if prompt:IsA("ProximityPrompt") and prompt.Enabled and (prompt.ActionText:lower():find("isi") or prompt.ObjectText:lower():find("atm") or prompt.Name:find("Isi")) then
-						triggerPrompt(prompt)
+						triggerPrompt(prompt, prompt.HoldDuration)
 					end
 				end
 			end
