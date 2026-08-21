@@ -645,6 +645,7 @@ local success, err = pcall(function()
 		["ATM2"] = Vector3.new(2212.55, 27.5, -4594.36),
 		["ATM3"] = Vector3.new(825.0, 24.2, -3810.0),
 		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
+		["ATM8"] = Vector3.new(-223.75, 21.93, 10705.88),
 		["ATM9"] = Vector3.new(1575.0, 52.5, 885.0),
 		["ATM10"] = Vector3.new(2023.20, 21.44, -3538.69),
 	}
