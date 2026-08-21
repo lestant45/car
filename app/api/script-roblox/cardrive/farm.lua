@@ -519,6 +519,85 @@ local success, err = pcall(function()
 	local bcaIsCarrying = false
 	local bcaJobPhase = ""
 	local bcaJobComplete = false
+	local bcaTargetEarning = tonumber(Config.farm.bcaTargetEarning) or 0
+	local bcaTargetEarningLabel = nil
+
+	local function parseRupiahNumber(str)
+		if not str then return 0 end
+		local cleaned = string.gsub(str, "[^%d]", "")
+		return tonumber(cleaned) or 0
+	end
+
+	local function formatRupiah(num)
+		local str = tostring(math.floor(num or 0))
+		local formatted = str:reverse():gsub("(%d%d%d)", "%1."):reverse():gsub("^%.", "")
+		return "Rp. " .. formatted
+	end
+
+	local function getPocketRupiahCash()
+		local pgui = player:FindFirstChild("PlayerGui")
+		if not pgui then return 0 end
+		local phone = pgui:FindFirstChild("ACTUAL NEW PHONE") or pgui:FindFirstChild("Phone")
+		if not phone then return 0 end
+
+		-- 1. Check PoketRupiah Accumulated & CashAmount
+		local poketRupiah = phone:FindFirstChild("PoketRupiah", true)
+		if poketRupiah then
+			local acc = poketRupiah:FindFirstChild("Accumulated", true)
+			if acc and acc:IsA("TextLabel") and acc.Text ~= "" then
+				local val = parseRupiahNumber(acc.Text)
+				if val > 0 then return val end
+			end
+			local cash = poketRupiah:FindFirstChild("CashAmount", true)
+			if cash and cash:IsA("TextLabel") and cash.Text ~= "" then
+				local val = parseRupiahNumber(cash.Text)
+				if val > 0 then return val end
+			end
+		end
+
+		-- 2. Check 3b_POCKETRUPIAH EventPocket Saldo
+		local eventPocket = phone:FindFirstChild("EventPocket", true)
+		if eventPocket then
+			local saldo = eventPocket:FindFirstChild("Saldo", true)
+			if saldo and saldo:IsA("TextLabel") and saldo.Text ~= "" then
+				local val = parseRupiahNumber(saldo.Text)
+				if val > 0 then return val end
+			end
+		end
+
+		-- 3. Check any Accumulated label under Phone
+		local accGlobal = phone:FindFirstChild("Accumulated", true)
+		if accGlobal and accGlobal:IsA("TextLabel") and accGlobal.Text ~= "" then
+			local val = parseRupiahNumber(accGlobal.Text)
+			if val > 0 then return val end
+		end
+
+		return 0
+	end
+
+	local function checkTargetEarningAndDisconnect()
+		if bcaTargetEarning and bcaTargetEarning > 0 then
+			local targetCash = bcaTargetEarning * 1000000
+			local currentCash = getPocketRupiahCash()
+			if currentCash > 0 and currentCash >= targetCash then
+				bcaCourierActive = false
+				Config.farm.bcaCourier = false
+				if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+
+				local formattedTarget = formatRupiah(targetCash)
+				local formattedCurrent = formatRupiah(currentCash)
+
+				local kickMsg = string.format("DUIT LU UDAH NYENTUH %s\n(Saldo Poket: %s)", formattedTarget, formattedCurrent)
+				updateBcaActivity("🛑 Target Earning Reached! Disconnecting...")
+				UI.Notify("Target Earning Reached!", kickMsg, 5, "success")
+				task.wait(1.5)
+				player:Kick(kickMsg)
+				return true
+			end
+		end
+		return false
+	end
+
 	local function resetBcaState()
 		bcaCurKoper = 0
 		bcaTotKoper = 0
@@ -721,15 +800,15 @@ local success, err = pcall(function()
 	end)
 
 	local function spawnBankCar()
-		updateBcaActivity("🚶 Approaching Putra NPC (Vehicle Spawner)")
+		updateBcaActivity("🚶 Tweening to Putra NPC (200 studs/s)")
 		local npc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("CAR_SPAWNER_NPC")
 		local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
 
-		-- 1. Teleport right in front of Putra NPC
+		-- 1. Smooth tween right in front of Putra NPC at 200 studs/s
 		if npcRoot then
-			safeTeleport(npcRoot.CFrame + npcRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0))
+			safeTeleport(npcRoot.CFrame + npcRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0), true, 200)
 		else
-			safeTeleport(CFrame.new(bcaDepotPos))
+			safeTeleport(CFrame.new(bcaDepotPos), true, 200)
 		end
 		task.wait(0.4)
 
@@ -1099,6 +1178,8 @@ local success, err = pcall(function()
 						return
 					end
 
+					if checkTargetEarningAndDisconnect() then return end
+
 					local jobGui = getBankCourierGui()
 					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
 					if not hasActiveJobGui then
@@ -1115,8 +1196,9 @@ local success, err = pcall(function()
 
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
 					if not hasActiveJobGui then
-						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC")
-						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
+						updateBcaActivity("🚶 Tweening to Andhini NPC (200 studs/s)")
+						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
 						task.wait(0.5)
 
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
@@ -1151,10 +1233,10 @@ local success, err = pcall(function()
 						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
 						task.wait(0.5)
 
-						-- Walk inside lobby to approach Andhini (Koordinator Kurir BCA)
-						updateBcaActivity("🚶 Walking Inside Lobby to Andhini NPC")
+						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
+						updateBcaActivity("🚶 Tweening to Andhini NPC (200 studs/s)")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
 						task.wait(0.5)
 
 						-- Trigger Andhini's DialogPrompt
@@ -1175,7 +1257,9 @@ local success, err = pcall(function()
 						fireRemote("MyBcaAppOpened")
 						resetBcaState()
 						updateBcaActivity("🎉 Contract Completed! Salary Claimed")
-						task.wait(3.0)
+						task.wait(1.5)
+						if checkTargetEarningAndDisconnect() then return end
+						task.wait(1.5)
 						return
 					end
 
@@ -1291,6 +1375,7 @@ local success, err = pcall(function()
 	bcaProgressLabel = UI.AddLabel(bcaSec, "📦 Van Kopers: 0/0  |  🏧 ATMs Filled: 0/0", 2, UI.COLORS.textSecondary)
 	bcaTargetLabel = UI.AddLabel(bcaSec, "🎯 Target: Standby / None", 3, UI.COLORS.textMuted)
 	bcaSalaryLabel = UI.AddLabel(bcaSec, "💵 Est. Salary: Rp 0  |  Pocket: Rp 0", 4, UI.COLORS.successGreen)
+	bcaTargetEarningLabel = UI.AddLabel(bcaSec, "🎯 Target Earning: Disabled  |  Live Poket: Rp 0", 5, UI.COLORS.accentViolet)
 
 	-- Live Stats Auto-Updater Task
 	task.spawn(function()
@@ -1304,6 +1389,17 @@ local success, err = pcall(function()
 				local pText = hasActiveJobGui and jobGui.Status:FindFirstChild("Pocket") and jobGui.Status.Pocket.Text or ""
 				local curK, totK = parseProgress(kText)
 				local curA, totA = parseProgress(aText)
+
+				local livePocket = getPocketRupiahCash()
+				if bcaTargetEarningLabel then
+					if bcaTargetEarning > 0 then
+						local targetCash = bcaTargetEarning * 1000000
+						local pct = math.clamp(math.floor((livePocket / targetCash) * 100), 0, 100)
+						bcaTargetEarningLabel.Text = string.format("🎯 Target: %s  |  Live Poket: %s (%d%%)", formatRupiah(targetCash), formatRupiah(livePocket), pct)
+					else
+						bcaTargetEarningLabel.Text = string.format("🎯 Target: Disabled  |  Live Poket: %s", formatRupiah(livePocket))
+					end
+				end
 
 				if bcaCourierActive then
 					if bcaActivityLabel then
@@ -1366,6 +1462,22 @@ local success, err = pcall(function()
 		bcaCourierDelay = v
 		Config.farm.bcaCourierDelay = v
 	end, 6, "s")
+
+	UI.AddTextbox(bcaSec, "Target Earning (Million IDR)", tostring(bcaTargetEarning or 0), function(val)
+		local num = tonumber(val) or 0
+		bcaTargetEarning = num
+		Config.farm.bcaTargetEarning = num
+		if num > 0 then
+			local fullIdr = num * 1000000
+			UI.Notify("Target Earning Set", string.format("Target: %s (%d Juta). Will disconnect when reached!", formatRupiah(fullIdr), num), 3, "success")
+			checkTargetEarningAndDisconnect()
+		else
+			UI.Notify("Target Earning Disabled", "No earning limit set (runs continuously).", 2, "info")
+		end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 7)
+
+	UI.AddLabel(bcaSec, "💡 Type in millions: 1 = Rp 1.000.000, 10 = Rp 10.000.000, 68 = Rp 68.000.000 (0 = No limit)", 8, UI.COLORS.textMuted)
 
 	UI.AddToggle(bcaSec, "Auto Sync myBCA App (Pocket Rupiah)", Config.farm.bcaAppSync or true, function(v)
 		bcaAppSyncActive = v
