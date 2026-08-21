@@ -53,31 +53,15 @@ local success, err = pcall(function()
 		return plate
 	end
 
-	-- Tells Roblox server to prioritize streaming the destination chunks and waits until ground mesh is loaded
-	local function waitForGroundLoaded(pos, maxWait)
-		maxWait = maxWait or 2.5
+	-- Tells Roblox server in the background to prioritize streaming destination chunks without yielding
+	local function requestStreamAsync(pos)
 		pcall(function()
 			if player and player.RequestStreamAroundAsync then
-				player:RequestStreamAroundAsync(pos, 2)
+				task.spawn(function()
+					pcall(function() player:RequestStreamAroundAsync(pos, 2) end)
+				end)
 			end
 		end)
-		ensureSafetyPlate(pos, 50)
-
-		local t0 = os.clock()
-		local rayParams = RaycastParams.new()
-		local car = getPlayerCar()
-		local char = player.Character
-		rayParams.FilterDescendantsInstances = { car, char, workspace:FindFirstChild("__SafetyPlate") }
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-		while os.clock() - t0 < maxWait do
-			local hit = workspace:Raycast(pos + Vector3.new(0, 15, 0), Vector3.new(0, -45, 0), rayParams)
-			if hit and hit.Instance and hit.Instance.CanCollide and hit.Position.Y > -50 then
-				return hit.Position.Y
-			end
-			task.wait(0.1)
-		end
-		return pos.Y
 	end
 
 	-- Safe Character Teleport Function with StreamingEnabled & Anti-Void Protection
@@ -89,11 +73,7 @@ local success, err = pcall(function()
 
 		-- 1. Ensure invisible safety plate exists at destination before teleporting
 		ensureSafetyPlate(cframe.Position, 40)
-		pcall(function()
-			if player and player.RequestStreamAroundAsync then
-				player:RequestStreamAroundAsync(cframe.Position, 1)
-			end
-		end)
+		requestStreamAsync(cframe.Position)
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
@@ -101,7 +81,7 @@ local success, err = pcall(function()
 		if useTween then
 			speed = speed or 120
 			local dist = (root.Position - cframe.Position).Magnitude
-			local time = math.clamp(dist / speed, 0.2, 5)
+			local time = math.clamp(dist / speed, 0.2, 3)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
 			tw:Play()
 			tw.Completed:Wait()
@@ -125,12 +105,7 @@ local success, err = pcall(function()
 
 	-- Universal Safe Ground CFrame Calculator with Streaming Protection
 	local function getSafeGroundCFrame(targetPos, desiredAngle)
-		-- Prioritize map rendering around target
-		pcall(function()
-			if player and player.RequestStreamAroundAsync then
-				player:RequestStreamAroundAsync(targetPos, 2)
-			end
-		end)
+		requestStreamAsync(targetPos)
 		ensureSafetyPlate(targetPos, 50)
 
 		local rayParams = RaycastParams.new()
@@ -266,7 +241,7 @@ local success, err = pcall(function()
 
 		-- Ensure invisible safety platform is created and map chunks are streamed before moving
 		ensureSafetyPlate(targetCF.Position, 55)
-		waitForGroundLoaded(targetCF.Position, 2.0)
+		requestStreamAsync(targetCF.Position)
 
 		-- 1. Enter Driver Seat before moving to claim Network Ownership on the server
 		enterDriveSeat(car)
