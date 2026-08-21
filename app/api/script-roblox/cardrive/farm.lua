@@ -697,7 +697,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Safe Open Parking Spots for ATMs (Clear sky, open asphalt, no pillars or ceilings)
+	-- Safe Open Parking Spots for Vehicle (Clear sky, open asphalt, no pillars or ceilings)
 	local ATM_PARKING_SPOTS = {
 		["ATM1"] = Vector3.new(1860.0, 24.5, -4850.0),
 		["ATM2"] = Vector3.new(2212.55, 27.5, -4594.36),
@@ -707,6 +707,18 @@ local success, err = pcall(function()
 		["ATM8"] = Vector3.new(-223.75, 21.93, 10705.88),
 		["ATM9"] = Vector3.new(1585.46, 51.14, 870.47),
 		["ATM10"] = Vector3.new(2023.20, 21.44, -3538.69),
+	}
+
+	-- Exact Stand Positions for Character Directly in Front of ATM Screen (< 3 studs)
+	local ATM_STAND_SPOTS = {
+		["ATM1"] = Vector3.new(1860.0, 24.5, -4850.0),
+		["ATM2"] = Vector3.new(2224.71, 29.29, -4596.95),
+		["ATM3"] = Vector3.new(833.32, 24.23, -3825.72),
+		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
+		["ATM7"] = Vector3.new(-475.64, 26.27, 8732.79),
+		["ATM8"] = Vector3.new(-223.75, 21.93, 10705.88),
+		["ATM9"] = Vector3.new(1585.46, 51.14, 870.47),
+		["ATM10"] = Vector3.new(1988.32, 24.44, -3531.15),
 	}
 
 	local function getBankCourierTargetPos()
@@ -832,18 +844,31 @@ local success, err = pcall(function()
 
 			task.wait(0.5)
 
-			-- 3. Teleport character directly in front of ATM at ground level
-			local atmFrontPos = getGroundPosition(targetPos)
+			-- 3. Teleport character directly in front of ATM Screen (< 3 studs away)
+			local atmFrontPos = nil
 			local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
 			if atms then
-				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
-					local atm = atms:FindFirstChild(atmName)
-					local p = atm and atm:FindFirstChildWhichIsA("BasePart", true)
-					if (p and (p.Position - targetPos).Magnitude < 45) or (spotPos - targetPos).Magnitude < 70 then
-						atmFrontPos = spotPos
+				for _, atm in ipairs(atms:GetChildren()) do
+					local prompt = atm:FindFirstChildWhichIsA("ProximityPrompt", true)
+					local screen = atm:FindFirstChild("Screen_ATM_01", true) or (prompt and prompt.Parent) or atm:FindFirstChildWhichIsA("BasePart", true)
+					if screen and (screen.Position - targetPos).Magnitude < 100 then
+						atmFrontPos = screen.Position + screen.CFrame.LookVector * 2.5
 						break
 					end
 				end
+			end
+
+			if not atmFrontPos then
+				for atmName, standPos in pairs(ATM_STAND_SPOTS) do
+					if (standPos - targetPos).Magnitude < 90 then
+						atmFrontPos = standPos
+						break
+					end
+				end
+			end
+
+			if not atmFrontPos then
+				atmFrontPos = getGroundPosition(targetPos)
 			end
 
 			updateBcaActivity("🏧 Stepping in Front of ATM Machine")
