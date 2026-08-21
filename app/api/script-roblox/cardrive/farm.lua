@@ -99,9 +99,21 @@ local success, err = pcall(function()
 		safeTeleport(safeCF + Vector3.new(0, 1.0, 3), false)
 	end
 
+	local function isInBankMinigame()
+		local pgui = player:FindFirstChild("PlayerGui")
+		local jobGui = pgui and pgui:FindFirstChild("Job") and pgui.Job:FindFirstChild("BankCourier")
+		if not jobGui then return false end
+		local timing = jobGui:FindFirstChild("Timing")
+		local skill = jobGui:FindFirstChild("Skill")
+		if (timing and timing.Visible) or (skill and skill.Visible) then
+			return true
+		end
+		return false
+	end
+
 	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
 	local function enterDriveSeat(car)
-		if not car then return false end
+		if not car or isInBankMinigame() then return false end
 		local seat = car:FindFirstChild("DriveSeat")
 		local char = player.Character
 		if not seat or not char or not char:FindFirstChild("Humanoid") then return false end
@@ -137,6 +149,9 @@ local success, err = pcall(function()
 
 	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics Replication)
 	local function safeTweenCar(targetCF, speed)
+		while isInBankMinigame() and bcaCourierActive do
+			task.wait(0.2)
+		end
 		local car = getPlayerCar()
 		if not car then
 			safeTeleport(targetCF, true, speed)
@@ -674,6 +689,7 @@ local success, err = pcall(function()
 		["ATM2"] = Vector3.new(2212.55, 27.5, -4594.36),
 		["ATM3"] = Vector3.new(825.0, 24.2, -3810.0),
 		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
+		["ATM7"] = Vector3.new(-475.64, 26.27, 8732.79),
 		["ATM8"] = Vector3.new(-223.75, 21.93, 10705.88),
 		["ATM9"] = Vector3.new(1575.0, 52.5, 885.0),
 		["ATM10"] = Vector3.new(2023.20, 21.44, -3538.69),
@@ -796,6 +812,18 @@ local success, err = pcall(function()
 
 			-- 3. Teleport character directly in front of ATM at ground level
 			local atmFrontPos = getGroundPosition(targetPos)
+			local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
+			if atms then
+				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
+					local atm = atms:FindFirstChild(atmName)
+					local p = atm and atm:FindFirstChildWhichIsA("BasePart", true)
+					if (p and (p.Position - targetPos).Magnitude < 45) or (spotPos - targetPos).Magnitude < 70 then
+						atmFrontPos = spotPos
+						break
+					end
+				end
+			end
+
 			safeTeleport(CFrame.new(atmFrontPos))
 			task.wait(0.4)
 
@@ -809,20 +837,20 @@ local success, err = pcall(function()
 			end
 			fireRemote("BankCourier", "FillStart")
 
-			-- 4. Wait for all 3 Skill Check rounds to complete
+			-- 4. Wait for all 3 Skill Check rounds to complete (Strictly do not interrupt while minigame is open!)
 			local skill = jobGui and jobGui:FindFirstChild("Skill")
-			local t0 = os.clock()
-			while os.clock() - t0 < 12 and bcaCourierActive do
-				if not skill or not skill.Visible then
-					local curAtm, totAtm = parseProgress(jobGui and jobGui.Status.Atm.Text or "")
-					if curAtm > 0 or (jobGui and jobGui.Status.Step.Text:find("3)")) then
-						break
-					end
-				end
+			local tOpen = os.clock()
+			while (not skill or not skill.Visible) and os.clock() - tOpen < 2.5 and bcaCourierActive do
+				skill = jobGui and jobGui:FindFirstChild("Skill")
+				task.wait(0.1)
+			end
+
+			local tSolve = os.clock()
+			while (skill and skill.Visible) and os.clock() - tSolve < 20 and bcaCourierActive do
 				task.wait(0.2)
 			end
 
-			task.wait(1.0)
+			task.wait(1.2)
 		end
 	end
 
@@ -830,6 +858,11 @@ local success, err = pcall(function()
 		task.spawn(function()
 			while bcaCourierActive do
 				pcall(function()
+					-- If in minigame, DO ABSOLUTELY NOTHING and wait for minigame to finish
+					while isInBankMinigame() and bcaCourierActive do
+						task.wait(0.2)
+					end
+
 					local char = player.Character
 					if not char or not char:FindFirstChild("HumanoidRootPart") then
 						task.wait(1)
