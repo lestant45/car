@@ -819,6 +819,9 @@ local success, err = pcall(function()
 							break
 						end
 					end
+					task.wait(0.02)
+				end
+			end
 
 			task.wait(0.8)
 		end
