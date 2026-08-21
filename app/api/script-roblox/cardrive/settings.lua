@@ -42,7 +42,6 @@ local success, err = pcall(function()
 			bcaCourier = false,
 			bcaCourierDelay = 1.0,
 			bcaTargetEarning = 0,
-			antiStaff = true,
 			odometer = false,
 			odometerSpeed = 120,
 			autoClaimBox = true,

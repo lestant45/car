@@ -149,17 +149,6 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🖥️ GUI ROOT SETUP
 	------------------------------------------------
-	pcall(function()
-		local pgui = player:FindFirstChild("PlayerGui")
-		if pgui and pgui:FindFirstChild("HipHub_CDID") then pgui.HipHub_CDID:Destroy() end
-		if pgui and pgui:FindFirstChild("HipHub") then pgui.HipHub:Destroy() end
-		if gethui and gethui():FindFirstChild("HipHub_CDID") then gethui().HipHub_CDID:Destroy() end
-		if gethui and gethui():FindFirstChild("HipHub") then gethui().HipHub:Destroy() end
-		local cg = game:GetService("CoreGui")
-		if cg:FindFirstChild("HipHub_CDID") then cg.HipHub_CDID:Destroy() end
-		if cg:FindFirstChild("HipHub") then cg.HipHub:Destroy() end
-	end)
-
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "HipHub_CDID"
 	gui.ResetOnSpawn = false
@@ -167,24 +156,7 @@ local success, err = pcall(function()
 	pcall(function()
 		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	end)
-
-	local parentGui
-	if gethui then
-		parentGui = gethui()
-	else
-		local coreGui = game:GetService("CoreGui")
-		local successCore, _ = pcall(function()
-			local test = Instance.new("Folder")
-			test.Parent = coreGui
-			test:Destroy()
-		end)
-		if successCore then
-			parentGui = coreGui
-		else
-			parentGui = player:WaitForChild("PlayerGui")
-		end
-	end
-	gui.Parent = parentGui
+	gui.Parent = player:WaitForChild("PlayerGui")
 
 	------------------------------------------------
 	-- 🌑 SHADOW BACKING

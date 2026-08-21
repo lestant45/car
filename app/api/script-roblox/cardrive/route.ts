@@ -434,18 +434,17 @@ local allowedPlaceIds = {
     [130760175971028] = true,
     [140063367098641] = true,
     [2640407187] = true,
-    [4878566378] = true,
 }
 
 if not allowedPlaceIds[game.PlaceId] and not allowedPlaceIds[game.GameId] then
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "HipHub",
-            Text = "Game not supported!",
+            Text = "not support",
             Duration = 5
         })
     end)
-    print("HipHub: Game not supported!")
+    print("not support")
     return
 end
 
@@ -462,14 +461,14 @@ local function findGuiInParents(name)
     end
     local c = game:GetService("CoreGui"):FindFirstChild(name)
     if c then return c end
-    local p = player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui", 5)
-    if p and p:FindFirstChild(name) then return p[name] end
+    local p = player:WaitForChild("PlayerGui"):FindFirstChild(name)
+    if p then return p end
     return nil
 end
 
-local oldGui = findGuiInParents("HipHub") or findGuiInParents("HipHub_CDID")
-if oldGui then
-    pcall(function() oldGui:Destroy() end)
+local gui = findGuiInParents("HipHub")
+if gui then
+    return
 end
 
 local hwid = "unknown"
