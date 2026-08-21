@@ -414,12 +414,41 @@ local success, err = pcall(function()
 		return pgui and pgui:FindFirstChild("Job") and pgui.Job:FindFirstChild("BankCourier")
 	end
 
-	-- Hook BankCourier Remote to auto-solve ATM Skill Checks and Trunk Koper Drops with 100% precision
+	local bcaCurKoper, bcaTotKoper = 0, 0
+	local bcaCurAtm, bcaTotAtm = 0, 0
+	local bcaIsCarrying = false
+	local bcaJobPhase = ""
+	local bcaJobComplete = false
+
+	-- Hook BankCourier Remote to auto-solve ATM Skill Checks and track Koper state with 100% precision
 	pcall(function()
 		if Network and Network.OnClientEvent then
-			Network.OnClientEvent("BankCourier", function(action, data)
+			Network.OnClientEvent("BankCourier", function(action, data, arg2, arg3, arg4)
 				if not bcaCourierActive then return end
-				if action == "SkillCheck" and typeof(data) == "table" then
+
+				if action == "Koper" then
+					bcaCurKoper = tonumber(data) or 0
+					bcaCurAtm = tonumber(arg2) or 0
+					bcaTotAtm = tonumber(arg3) or 0
+					bcaTotKoper = bcaTotAtm
+					bcaIsCarrying = (arg4 == true)
+					if bcaTotAtm > 0 and bcaCurAtm >= bcaTotAtm then
+						bcaJobComplete = true
+					end
+				elseif action == "Phase" then
+					bcaJobPhase = tostring(data)
+					if bcaJobPhase == "Returning" then
+						bcaJobComplete = true
+					end
+				elseif action == "Complete" then
+					bcaJobComplete = true
+				elseif action == "Start" then
+					bcaJobComplete = false
+					if typeof(data) == "table" then
+						bcaTotKoper = data.totalKoper or 0
+						bcaTotAtm = bcaTotKoper
+					end
+				elseif action == "SkillCheck" and typeof(data) == "table" then
 					task.spawn(function()
 						local warnLead = data.warnLead or 0.04
 						local speed = data.speed or 360
@@ -848,31 +877,31 @@ local success, err = pcall(function()
 					end
 
 					-- STEP 4: Deliver to marked ATMs (ONLY when all kopers are loaded!)
-					local isAtmDone = (totAtm > 0 and curAtm >= totAtm) or stepText:find("3)")
+					local isAtmDone = bcaJobComplete or (totAtm > 0 and curAtm >= totAtm) or stepText:find("3)") or stepText:find("Kembali") or stepText:find("Selesai")
 					if isKoperFull and not isAtmDone then
 						deliverToAtms(car)
 						task.wait(0.5)
 						return
 					end
 
-					-- STEP 5: Return to Depot & Talk to Andhini NPC to Claim Salary
-					if isAtmDone or stepText:find("3)") then
+					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary
+					if isAtmDone then
 						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
 						task.wait(0.5)
 
-						-- Walk inside lobby to talk to Andhini (Koordinator Kurir BCA)
+						-- Walk inside lobby to approach Andhini (Koordinator Kurir BCA)
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
 						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
-						task.wait(0.4)
+						task.wait(0.5)
 
 						-- Trigger Andhini's DialogPrompt
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
 						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
 						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt)
+							triggerPrompt(andhiniPrompt, andhiniPrompt.HoldDuration)
 						end
 
-						-- Handle Dialog UI confirmation
+						-- Handle Dialog UI confirmation to claim salary
 						task.wait(0.5)
 						local dialog = player.PlayerGui:FindFirstChild("NpcDialog")
 						if dialog then
@@ -888,7 +917,8 @@ local success, err = pcall(function()
 						fireRemote("BankCourier", "Complete")
 						fireRemote("PhoneJobSalary")
 						fireRemote("MyBcaAppOpened")
-						task.wait(2.0)
+						bcaJobComplete = false
+						task.wait(2.5)
 					end
 				end)
 				task.wait(bcaCourierDelay)
