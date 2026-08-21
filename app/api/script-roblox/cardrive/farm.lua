@@ -81,7 +81,7 @@ local success, err = pcall(function()
 		if useTween then
 			speed = speed or 200
 			local dist = (root.Position - cframe.Position).Magnitude
-			local time = math.clamp(dist / speed, 0.2, 3)
+			local time = math.max(dist / speed, 0.1)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
 			tw:Play()
 			tw.Completed:Wait()
@@ -713,11 +713,11 @@ local success, err = pcall(function()
 		local npc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("CAR_SPAWNER_NPC")
 		local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
 
-		-- 1. Teleport right in front of Putra NPC
+		-- 1. Tween smoothly in front of Putra NPC (200 studs/s)
 		if npcRoot then
-			safeTeleport(npcRoot.CFrame + npcRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0))
+			safeTeleport(npcRoot.CFrame + npcRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0), true, 200)
 		else
-			safeTeleport(CFrame.new(bcaDepotPos))
+			safeTeleport(CFrame.new(bcaDepotPos), true, 200)
 		end
 		task.wait(0.4)
 
