@@ -1140,30 +1140,48 @@ local success, err = pcall(function()
 			end
 
 			-- 2. Take Koper from Bagasi on the ground (Verify suitcase is in hand before proceeding)
+			local bagasi = car and (car:FindFirstChild("BagasiPoint", true) or car:FindFirstChild("Bagasi", true) or car:FindFirstChild("Trunk", true))
+			local ambilPrompt = nil
+			if bagasi then
+				ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
+			end
+			if not ambilPrompt and car then
+				for _, p in ipairs(car:GetDescendants()) do
+					if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
+						ambilPrompt = p
+						bagasi = p.Parent
+						break
+					end
+				end
+			end
+
 			local function isCarryingKoper()
 				local c = player.Character
 				if not c then return false end
 				if bcaIsCarrying == true then return true end
-				if c:FindFirstChild("KoperUang") or c:FindFirstChildWhichIsA("Tool") then return true end
-				if c:FindFirstChild("Koper", true) then return true end
+				if c:FindFirstChild("KoperUang") or c:FindFirstChild("Koper", true) or c:FindFirstChildWhichIsA("Tool") then return true end
 				if c:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
 				if player:GetAttribute("HidePrompt") == true then return true end
 				return false
 			end
 
-			if bagasi then
+			if bagasi or ambilPrompt then
 				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F for 2.75s)")
-				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local vim = game:GetService("VirtualInputManager")
+				local vu = game:GetService("VirtualUser")
 				local tStart = os.clock()
 
 				while not isCarryingKoper() and os.clock() - tStart < 25 and bcaCourierActive do
-					-- 1. Position character right behind the trunk facing the trunk door (< 2.2 studs)
-					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.2 + Vector3.new(0, 0.5, 0))
+					-- Stand right behind trunk facing trunk (< 2.2 studs)
+					local standTarget = (ambilPrompt and ambilPrompt.Parent:IsA("BasePart") and ambilPrompt.Parent) or (bagasi and bagasi:IsA("BasePart") and bagasi)
+					if standTarget then
+						safeTeleport(standTarget.CFrame + standTarget.CFrame.LookVector * -2.2 + Vector3.new(0, 0.5, 0))
+					elseif car and car.PrimaryPart then
+						safeTeleport(car.PrimaryPart.CFrame + car.PrimaryPart.CFrame.LookVector * -7 + Vector3.new(0, 1, 0))
+					end
 					task.wait(0.2)
 
-					ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
-					if not ambilPrompt then
+					if not ambilPrompt or not ambilPrompt.Parent then
 						for _, p in ipairs(car:GetDescendants()) do
 							if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
 								ambilPrompt = p
@@ -1173,7 +1191,11 @@ local success, err = pcall(function()
 					end
 
 					if ambilPrompt then
-						pcall(function() ambilPrompt.Enabled = true end)
+						pcall(function()
+							ambilPrompt.Enabled = true
+							ambilPrompt.RequiresLineOfSight = false
+							ambilPrompt.MaxActivationDistance = 30
+						end)
 
 						-- A. Trigger executor proximity prompt hooks with 2.75s hold duration
 						pcall(function()
@@ -1210,6 +1232,7 @@ local success, err = pcall(function()
 							local cam = workspace.CurrentCamera
 							local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
 							vim:SendMouseButtonEvent(math.floor(vp.X / 2), math.floor(vp.Y / 2), 0, true, game, 1)
+							vu:Button1Down(Vector2.new(math.floor(vp.X / 2), math.floor(vp.Y / 2)))
 						end)
 
 						-- Hold continuously for 2.75 seconds or until suitcase is in hand
@@ -1223,13 +1246,14 @@ local success, err = pcall(function()
 							local cam = workspace.CurrentCamera
 							local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
 							vim:SendMouseButtonEvent(math.floor(vp.X / 2), math.floor(vp.Y / 2), 0, false, game, 1)
+							vu:Button1Up(Vector2.new(math.floor(vp.X / 2), math.floor(vp.Y / 2)))
 							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 							if ambilPrompt.InputHoldEnd then
 								ambilPrompt:InputHoldEnd()
 							end
 						end)
 					else
-						-- Fallback: Hold F key for 2.75s
+						-- Fallback: Hold F key and touch for 2.75s
 						pcall(function()
 							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 							local tHold = os.clock()
