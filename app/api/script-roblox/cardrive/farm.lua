@@ -94,6 +94,87 @@ local success, err = pcall(function()
 		safeTeleport(CFrame.new(groundPos + Vector3.new(0, 1, 0)), false)
 	end
 
+	-- Smooth Tween Car & Player to Destination (Glide smoothly and prevent wall flinging/collisions)
+	local function safeTweenCar(targetCF, speed)
+		local car = getPlayerCar()
+		if not car then
+			safeTeleport(targetCF, true, speed)
+			return
+		end
+
+		local groundPos = getGroundPosition(targetCF.Position)
+		local destCF = CFrame.new(groundPos) * (targetCF - targetCF.Position)
+		local startCF = car:GetPivot()
+		local dist = (startCF.Position - destCF.Position).Magnitude
+
+		speed = speed or 220
+		local duration = math.clamp(dist / speed, 0.4, 4.5)
+
+		-- Zero out physics velocities before, during, and after tween
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.AssemblyLinearVelocity = Vector3.zero
+				part.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+
+		local t0 = os.clock()
+		local conn
+		local finished = false
+
+		conn = RunService.Heartbeat:Connect(function()
+			if not bcaCourierActive then
+				if conn then conn:Disconnect() end
+				finished = true
+				return
+			end
+
+			local elapsed = os.clock() - t0
+			local alpha = math.clamp(elapsed / duration, 0, 1)
+			-- Smooth sine ease in-out
+			local easedAlpha = -(math.cos(math.pi * alpha) - 1) / 2
+			local currentCF = startCF:Lerp(destCF, easedAlpha)
+
+			pcall(function()
+				car:PivotTo(currentCF)
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+
+				local char = player.Character
+				if char and char:FindFirstChild("HumanoidRootPart") then
+					char.HumanoidRootPart.CFrame = currentCF + Vector3.new(0, 1.5, 3)
+					char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.zero
+				end
+			end)
+
+			if alpha >= 1 then
+				finished = true
+				if conn then conn:Disconnect() end
+			end
+		end)
+
+		while not finished and bcaCourierActive do
+			task.wait(0.02)
+		end
+		if conn then pcall(function() conn:Disconnect() end) end
+
+		-- Settle car firmly on ground
+		pcall(function()
+			car:PivotTo(destCF)
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+		end)
+		safeTeleport(CFrame.new(groundPos + Vector3.new(0, 1.5, 3)), false)
+	end
+
 	------------------------------------------------
 	-- 🚚 SILAMBAT COURIER AUTO FARM
 	------------------------------------------------
@@ -277,7 +358,7 @@ local success, err = pcall(function()
 	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
-	local bcaKoperPos = Vector3.new(1779.29, 23, -4643.79)
+	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
 
 	local function getBankCourierGui()
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -382,9 +463,9 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- 5. Safely position the vehicle right beside the suitcase stack on the driveway curb
+		-- 5. Safely position the vehicle on the asphalt driveway beside the entrance
 		if car then
-			local koperParkCFrame = CFrame.new(1768.5, 24.5, -4636.5) * CFrame.Angles(0, math.rad(-75), 0)
+			local koperParkCFrame = CFrame.new(1774.5, 20.2, -4629.0) * CFrame.Angles(0, math.rad(-75), 0)
 			pcall(function()
 				car:PivotTo(koperParkCFrame)
 				for _, part in ipairs(car:GetDescendants()) do
@@ -397,7 +478,7 @@ local success, err = pcall(function()
 			task.wait(0.5)
 
 			-- Teleport player beside car to register vehicle movement with game
-			safeTeleport(koperParkCFrame + Vector3.new(0, 2, 4))
+			safeTeleport(koperParkCFrame + Vector3.new(0, 1.5, 3))
 			task.wait(0.5)
 		end
 
@@ -414,9 +495,9 @@ local success, err = pcall(function()
 		local timing = jobGui and jobGui:FindFirstChild("Timing")
 		local koperPart = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("KoperSpawn") and workspace.MY_BCA_COLLAB.Job.BankCourier.KoperSpawn:FindFirstChild("Part")
 
-		-- Ensure car is parked right beside the koper stack in the driveway
-		local koperParkCFrame = CFrame.new(1768.5, 24.5, -4636.5) * CFrame.Angles(0, math.rad(-75), 0)
-		if car and (car:GetPivot().Position - Vector3.new(1768.5, 24.5, -4636.5)).Magnitude > 15 then
+		-- Ensure car is parked right on the asphalt driveway
+		local koperParkCFrame = CFrame.new(1774.5, 20.2, -4629.0) * CFrame.Angles(0, math.rad(-75), 0)
+		if car and (car:GetPivot().Position - Vector3.new(1774.5, 20.2, -4629.0)).Magnitude > 15 then
 			pcall(function()
 				car:PivotTo(koperParkCFrame)
 				for _, part in ipairs(car:GetDescendants()) do
@@ -441,7 +522,7 @@ local success, err = pcall(function()
 
 			-- 1. Teleport to Koper Stack & Pickup
 			if koperPart then
-				safeTeleport(koperPart.CFrame + Vector3.new(0, 3, 0))
+				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0))
 				task.wait(0.3)
 				local prompt = koperPart:FindFirstChild("Prompt", true)
 				triggerPrompt(prompt)
@@ -548,7 +629,7 @@ local success, err = pcall(function()
 				safeAtmCF = CFrame.lookAt(groundPos, targetPart.Position)
 			end
 
-			safeTeleportCar(safeAtmCF)
+			safeTweenCar(safeAtmCF, 220)
 			task.wait(0.5)
 
 			-- 2. Take Koper from Bagasi on the ground
@@ -651,7 +732,7 @@ local success, err = pcall(function()
 
 					-- STEP 5: Return to Depot & Claim Reward (When all ATMs are filled)
 					if isAtmDone or stepText:find("3)") then
-						safeTeleportCar(CFrame.new(bcaDepotPos))
+						safeTweenCar(CFrame.new(1774.5, 20.2, -4629.0) * CFrame.Angles(0, math.rad(-75), 0), 220)
 						task.wait(0.5)
 						fireRemote("BankCourier", "Complete")
 						fireRemote("PhoneJobSalary")
