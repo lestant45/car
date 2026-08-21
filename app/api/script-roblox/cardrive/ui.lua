@@ -989,6 +989,10 @@ local success, err = pcall(function()
 			if callback then task.spawn(callback, box.Text, enterPressed) end
 		end)
 
+		box:GetPropertyChangedSignal("Text"):Connect(function()
+			if callback then task.spawn(callback, box.Text, false) end
+		end)
+
 		return {
 			Frame = tbFrame,
 			Get = function() return box.Text end,

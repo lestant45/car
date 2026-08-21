@@ -869,6 +869,8 @@ local success, err = pcall(function()
 		end
 
 		while bcaCourierActive do
+			if checkTargetEarningAndDisconnect() then return end
+
 			jobGui = getBankCourierGui()
 			local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
 			if not hasActiveJobGui then break end
@@ -1006,6 +1008,8 @@ local success, err = pcall(function()
 		local bagasi = car:FindFirstChild("BagasiPoint")
 
 		while bcaCourierActive do
+			if checkTargetEarningAndDisconnect() then return end
+
 			local atmText = jobGui and jobGui.Status.Atm.Text or ""
 			local stepText = jobGui and jobGui.Status.Step.Text or ""
 			local curAtm, totAtm = parseProgress(atmText)
@@ -1399,6 +1403,11 @@ local success, err = pcall(function()
 					else
 						bcaTargetEarningLabel.Text = string.format("🎯 Target: Disabled  |  Live Poket: %s", formatRupiah(livePocket))
 					end
+				end
+
+				-- Real-time auto-disconnect when target earning is reached
+				if bcaCourierActive and checkTargetEarningAndDisconnect() then
+					return
 				end
 
 				if bcaCourierActive then
