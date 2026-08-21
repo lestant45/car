@@ -243,6 +243,16 @@ local success, err = pcall(function()
 		ensureSafetyPlate(targetCF.Position, 55)
 		requestStreamAsync(targetCF.Position)
 
+		-- Auto-destroy all bollards and barriers around BCA Tower Thamrin to clear roads & paths
+		pcall(function()
+			local map = workspace:FindFirstChild("Map")
+			local building = map and map:FindFirstChild("Building")
+			local bcaTower = building and building:FindFirstChild("BCA Tower Thamrin")
+			local property = bcaTower and bcaTower:FindFirstChild("Property")
+			local bollardFolder = property and property:FindFirstChild("Bollard")
+			if bollardFolder then bollardFolder:Destroy() end
+		end)
+
 		-- 1. Enter Driver Seat before moving to claim Network Ownership on the server
 		enterDriveSeat(car)
 		task.wait(0.2)
@@ -254,9 +264,13 @@ local success, err = pcall(function()
 		speed = speed or 180
 		local duration = math.clamp(dist / speed, 0.5, 6.0)
 
-		-- Zero out physics velocities before tween
+		-- Lift car into clear sky arc over buildings if traveling far
+		local arcHeight = (dist > 50) and math.clamp(dist * 0.12, 18, 55) or 0
+
+		-- No-clip vehicle parts during transit so buildings and walls never block or flip car
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
+				part.CanCollide = false
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -277,12 +291,17 @@ local success, err = pcall(function()
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 			-- Smooth sine ease in-out
 			local easedAlpha = -(math.cos(math.pi * alpha) - 1) / 2
-			local currentCF = startCF:Lerp(destCF, easedAlpha)
+
+			-- Interpolate position with parabolic sky arc clearance
+			local arcY = math.sin(alpha * math.pi) * arcHeight
+			local currentPos = startCF.Position:Lerp(destCF.Position, easedAlpha) + Vector3.new(0, arcY, 0)
+			local currentCF = CFrame.new(currentPos) * startCF.Rotation:Lerp(destCF.Rotation, easedAlpha)
 
 			pcall(function()
 				car:PivotTo(currentCF)
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
+						part.CanCollide = false
 						part.AssemblyLinearVelocity = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
 					end
@@ -300,11 +319,12 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Settle car firmly on ground
+		-- Settle car firmly on ground & restore solid collisions
 		pcall(function()
 			car:PivotTo(destCF)
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
+					part.CanCollide = true
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
@@ -1065,6 +1085,16 @@ local success, err = pcall(function()
 						task.wait(1)
 						return
 					end
+
+					-- Auto-destroy all obstacles & bollards around BCA Depot
+					pcall(function()
+						local map = workspace:FindFirstChild("Map")
+						local building = map and map:FindFirstChild("Building")
+						local bcaTower = building and building:FindFirstChild("BCA Tower Thamrin")
+						local property = bcaTower and bcaTower:FindFirstChild("Property")
+						local bollardFolder = property and property:FindFirstChild("Bollard")
+						if bollardFolder then bollardFolder:Destroy() end
+					end)
 
 					local jobGui = getBankCourierGui()
 					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
