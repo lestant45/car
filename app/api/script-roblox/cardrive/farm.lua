@@ -434,6 +434,15 @@ local success, err = pcall(function()
 	local bcaIsCarrying = false
 	local bcaJobPhase = ""
 	local bcaJobComplete = false
+	local currentBcaActivity = "Idle (Toggle to start)"
+	local bcaActivityLabel, bcaProgressLabel, bcaTargetLabel, bcaSalaryLabel
+
+	local function updateBcaActivity(activity)
+		currentBcaActivity = activity
+		if bcaActivityLabel then
+			bcaActivityLabel.Text = "📍 Action: " .. activity
+		end
+	end
 
 	-- Hook BankCourier Remote to auto-solve ATM Skill Checks and track Koper state with 100% precision
 	pcall(function()
@@ -528,6 +537,7 @@ local success, err = pcall(function()
 	end
 
 	local function spawnBankCar()
+		updateBcaActivity("🚶 Approaching Putra NPC (Vehicle Spawner)")
 		local npc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("CAR_SPAWNER_NPC")
 		local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
 
@@ -546,6 +556,7 @@ local success, err = pcall(function()
 		end
 
 		-- 3. Wait for NpcDialog choices and click Yes
+		updateBcaActivity("🚐 Spawning Armored Bank Van...")
 		local dialog = player.PlayerGui:WaitForChild("NpcDialog", 3)
 		local yesBtn = dialog and dialog:FindFirstChild("Yes", true)
 
@@ -582,6 +593,7 @@ local success, err = pcall(function()
 
 		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
 		if car then
+			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.5) -- Wait 1.5s after spawning before moving car
 			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
 			safeTweenCar(koperParkCFrame, 160)
@@ -619,6 +631,7 @@ local success, err = pcall(function()
 			end
 
 			-- 1. Teleport to Koper Stack & Pickup
+			updateBcaActivity("🧳 Grabbing Suitcase from Stack (" .. curKoper .. "/" .. totKoper .. ")")
 			if koperPart then
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0))
 				task.wait(0.3)
@@ -631,6 +644,7 @@ local success, err = pcall(function()
 			task.wait(0.4)
 
 			-- 2. Teleport to Car Bagasi & Trigger Muat
+			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
 			local bagasi = car:FindFirstChild("BagasiPoint")
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
@@ -768,6 +782,7 @@ local success, err = pcall(function()
 				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
 			end
 
+			updateBcaActivity("🎯 Cruising to Destination ATM (180 studs/s)")
 			safeTweenCar(safeAtmCF, 180)
 			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
@@ -776,6 +791,7 @@ local success, err = pcall(function()
 			if respawnBtn and respawnBtn.Visible and respawnBtn.Text:find("TUNGGU") then
 				local waitSeconds = tonumber(respawnBtn.Text:match("(%d+)"))
 				if waitSeconds and waitSeconds > 0 then
+					updateBcaActivity("⏳ Waiting Arrival Cooldown (" .. waitSeconds .. "s)")
 					local t0 = os.clock()
 					while os.clock() - t0 < (waitSeconds + 1) and bcaCourierActive do
 						task.wait(1)
@@ -794,6 +810,7 @@ local success, err = pcall(function()
 			end
 
 			if bagasi then
+				updateBcaActivity("✋ Taking Suitcase from Trunk (2s Hold)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt")
 				local t0 = os.clock()
 				while not isCarryingKoper() and os.clock() - t0 < 8 and bcaCourierActive do
@@ -829,6 +846,7 @@ local success, err = pcall(function()
 				end
 			end
 
+			updateBcaActivity("🏧 Stepping in Front of ATM Machine")
 			safeTeleport(CFrame.new(atmFrontPos))
 			task.wait(0.4)
 
@@ -840,6 +858,7 @@ local success, err = pcall(function()
 					end
 				end
 			end
+			updateBcaActivity("⚡ Filling ATM Machine (Skill Check Rounds)")
 			fireRemote("BankCourier", "FillStart")
 
 			-- 4. Wait for all 3 Skill Check rounds to complete (Strictly do not interrupt while minigame is open!)
@@ -926,15 +945,18 @@ local success, err = pcall(function()
 
 					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary
 					if isAtmDone then
+						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
 						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
 						task.wait(0.5)
 
 						-- Walk inside lobby to approach Andhini (Koordinator Kurir BCA)
+						updateBcaActivity("🚶 Walking Inside Lobby to Andhini NPC")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
 						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
 						task.wait(0.5)
 
 						-- Trigger Andhini's DialogPrompt
+						updateBcaActivity("💰 Speaking to Andhini & Claiming Salary")
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
 						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
 						if andhiniPrompt then
@@ -958,6 +980,7 @@ local success, err = pcall(function()
 						fireRemote("PhoneJobSalary")
 						fireRemote("MyBcaAppOpened")
 						bcaJobComplete = false
+						updateBcaActivity("🎉 Contract Completed! Salary Claimed")
 						task.wait(2.5)
 					end
 				end)
@@ -1039,6 +1062,69 @@ local success, err = pcall(function()
 
 	-- 🏦 BCA Collaboration Event & Bank Courier
 	local bcaSec = UI.AddSection(farmFrame, "🏦 BCA Collaboration Event & Bank Courier", 2)
+
+	-- Real-Time Status & Live Stats Display
+	bcaActivityLabel = UI.AddLabel(bcaSec, "📍 Action: Idle (Toggle Auto Farm to start)", 1, UI.COLORS.accentCyan)
+	bcaProgressLabel = UI.AddLabel(bcaSec, "📦 Van Kopers: 0/0  |  🏧 ATMs Filled: 0/0", 2, UI.COLORS.textSecondary)
+	bcaTargetLabel = UI.AddLabel(bcaSec, "🎯 Target: Standby / None", 3, UI.COLORS.textMuted)
+	bcaSalaryLabel = UI.AddLabel(bcaSec, "💵 Est. Salary: Rp 0  |  Pocket: Rp 0", 4, UI.COLORS.successGreen)
+
+	-- Live Stats Auto-Updater Task
+	task.spawn(function()
+		while true do
+			pcall(function()
+				local jobGui = getBankCourierGui()
+				local kText = jobGui and jobGui.Status.Koper.Text or ""
+				local aText = jobGui and jobGui.Status.Atm.Text or ""
+				local sText = jobGui and jobGui.Status.Salary.Text or ""
+				local pText = jobGui and jobGui.Status:FindFirstChild("Pocket") and jobGui.Status.Pocket.Text or ""
+				local curK, totK = parseProgress(kText)
+				local curA, totA = parseProgress(aText)
+
+				if bcaCourierActive then
+					if bcaActivityLabel then
+						bcaActivityLabel.Text = "📍 Action: " .. currentBcaActivity
+					end
+
+					if bcaProgressLabel then
+						bcaProgressLabel.Text = string.format("📦 Van Kopers: %d/%d  |  🏧 ATMs Filled: %d/%d", curK, totK, curA, totA)
+					end
+
+					if bcaTargetLabel then
+						local targetPos = getBankCourierTargetPos()
+						if targetPos then
+							local char = player.Character
+							local root = char and char:FindFirstChild("HumanoidRootPart")
+							local dist = root and math.floor((root.Position - targetPos).Magnitude) or 0
+							local matchedAtm = "Destination ATM"
+							local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
+							if atms then
+								for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
+									if (spotPos - targetPos).Magnitude < 80 then
+										matchedAtm = atmName
+										break
+									end
+								end
+							end
+							bcaTargetLabel.Text = string.format("🎯 Target: %s (%dm away)", matchedAtm, dist)
+						else
+							bcaTargetLabel.Text = "🎯 Target: Standby / Generating Route"
+						end
+					end
+
+					if bcaSalaryLabel and sText ~= "" then
+						bcaSalaryLabel.Text = string.format("💵 %s %s", sText, (pText ~= "" and (" | " .. pText) or ""))
+					end
+				else
+					if bcaActivityLabel then
+						bcaActivityLabel.Text = "📍 Action: Idle (Toggle Auto Farm to start)"
+					end
+				end
+			end)
+			task.wait(0.5)
+		end
+	end)
+
 	UI.AddToggle(bcaSec, "Auto Farm Bank Courier (ATMs & Briefcases)", Config.farm.bcaCourier, function(v)
 		bcaCourierActive = v
 		Config.farm.bcaCourier = v
@@ -1046,15 +1132,16 @@ local success, err = pcall(function()
 			UI.Notify("BCA Courier Farm Active", "Automating money briefcases & 10 ATMs deliveries!", 3, "success")
 			runBcaCourierFarm()
 		else
+			updateBcaActivity("Paused (Toggle off)")
 			UI.Notify("BCA Courier Farm Stopped", "Bank courier paused.", 2, "warning")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 1)
+	end, 5)
 
 	UI.AddSlider(bcaSec, "Delivery Delay (Seconds)", 0.5, 5.0, bcaCourierDelay, function(v)
 		bcaCourierDelay = v
 		Config.farm.bcaCourierDelay = v
-	end, 2, "s")
+	end, 6, "s")
 
 	UI.AddToggle(bcaSec, "Auto Sync myBCA App (Pocket Rupiah)", Config.farm.bcaAppSync or true, function(v)
 		bcaAppSyncActive = v
@@ -1064,7 +1151,7 @@ local success, err = pcall(function()
 			UI.Notify("myBCA Synced", "Synced Pocket Rupiah & NFC status!", 2, "success")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 3)
+	end, 7)
 
 	UI.AddButton(bcaSec, "Spawn BCA Bank Armored Van", function()
 		pcall(function()
@@ -1076,7 +1163,7 @@ local success, err = pcall(function()
 				UI.Notify("Spawn Failed", "Spawner remote unavailable.", 3, "warning")
 			end
 		end)
-	end, 4)
+	end, 8)
 
 	UI.AddButton(bcaSec, "Claim / Exchange BCA Event Rewards", function()
 		pcall(function()
