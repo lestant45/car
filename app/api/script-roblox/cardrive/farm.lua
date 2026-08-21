@@ -730,24 +730,36 @@ local success, err = pcall(function()
 		end)
 
 		-- 1. Standard Executor Native Hook (Arceus X / Delta / Solara / PC Executors)
-		local success = false
 		pcall(function()
 			if fireproximityprompt then
 				fireproximityprompt(prompt)
-				success = true
+				fireproximityprompt(prompt, 0)
+				if prompt.HoldDuration and prompt.HoldDuration > 0 then
+					fireproximityprompt(prompt, prompt.HoldDuration)
+				end
 			end
 		end)
 
-		-- 2. Fallback to Roblox ProximityPrompt Hold API (if executor lacks fireproximityprompt)
-		if not success then
-			pcall(function()
-				if prompt.InputHoldBegin and prompt.InputHoldEnd then
-					prompt:InputHoldBegin()
-					task.wait(prompt.HoldDuration > 0 and prompt.HoldDuration or 0.1)
-					prompt:InputHoldEnd()
-				end
-			end)
-		end
+		-- 2. Firesignal & Connection Direct Hooks
+		pcall(function()
+			if firesignal then
+				firesignal(prompt.PromptButtonHoldEnded, player)
+				firesignal(prompt.Triggered, player)
+			end
+			if getconnections then
+				for _, c in ipairs(getconnections(prompt.Triggered)) do c:Fire(player) end
+				for _, c in ipairs(getconnections(prompt.PromptButtonHoldEnded)) do c:Fire(player) end
+			end
+		end)
+
+		-- 3. Fallback to Roblox ProximityPrompt Hold API
+		pcall(function()
+			if prompt.InputHoldBegin and prompt.InputHoldEnd then
+				prompt:InputHoldBegin()
+				task.wait(0.05)
+				prompt:InputHoldEnd()
+			end
+		end)
 	end
 
 	-- Function to simulate screen clicks to skip dialogue typewriter text and auto-select choices (Yes / Claim / Finish)
@@ -1118,14 +1130,23 @@ local success, err = pcall(function()
 				end
 			end
 
+			-- Unsit character from car seat upon arrival
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Sit then
+				hum.Sit = false
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+				task.wait(0.3)
+			end
+
 			-- 2. Take Koper from Bagasi on the ground (Verify suitcase is in hand before proceeding)
 			local function isCarryingKoper()
-				local char = player.Character
-				if not char then return false end
+				local c = player.Character
+				if not c then return false end
 				if bcaIsCarrying == true then return true end
-				if char:FindFirstChild("KoperUang") or char:FindFirstChildWhichIsA("Tool") then return true end
-				if char:FindFirstChild("Koper", true) then return true end
-				if char:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
+				if c:FindFirstChild("KoperUang") or c:FindFirstChildWhichIsA("Tool") then return true end
+				if c:FindFirstChild("Koper", true) then return true end
+				if c:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
 				if player:GetAttribute("HidePrompt") == true then return true end
 				return false
 			end
@@ -1134,10 +1155,10 @@ local success, err = pcall(function()
 				updateBcaActivity("✋ Taking Suitcase from Trunk (Ambil Koper)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local t0 = os.clock()
-				while not isCarryingKoper() and os.clock() - t0 < 6 and bcaCourierActive do
-					-- Stand right behind the trunk
-					safeTeleport(bagasi.CFrame + Vector3.new(0, 0.5, 0))
-					task.wait(0.3)
+				while not isCarryingKoper() and os.clock() - t0 < 8 and bcaCourierActive do
+					-- Stand right behind the trunk (facing trunk)
+					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.5 + Vector3.new(0, 0.5, 0))
+					task.wait(0.2)
 
 					if ambilPrompt then
 						triggerPrompt(ambilPrompt)
@@ -1150,7 +1171,7 @@ local success, err = pcall(function()
 						end
 					end
 
-					task.wait(0.6)
+					task.wait(0.5)
 				end
 			end
 
@@ -1191,7 +1212,7 @@ local success, err = pcall(function()
 			for _, p in ipairs(nearbyParts) do
 				for _, prompt in ipairs(p:GetChildren()) do
 					if prompt:IsA("ProximityPrompt") and prompt.Enabled and (prompt.ActionText:lower():find("isi") or prompt.ObjectText:lower():find("atm") or prompt.Name:find("Isi")) then
-						triggerPrompt(prompt, prompt.HoldDuration)
+						triggerPrompt(prompt)
 					end
 				end
 			end
