@@ -228,19 +228,69 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Safe Tree & Foliage Cleaner: Never destroys buildings or towers so internal road/driveway meshes (like Asphalt05_001 in Tower BCA) remain 100% intact
+	-- Smart Tower & Building Destroyer: Safely extracts and preserves all internal driveways, asphalts, ramps, and highways before destroying towers & buildings
 	local function destroyObstacles()
 		local count = 0
 		local map = workspace:FindFirstChild("Map")
-		local treeFolder = map and map:FindFirstChild("Tree")
-		if treeFolder then
-			for _, item in ipairs(treeFolder:GetChildren()) do
+		local baseFolder = map and (map:FindFirstChild("Base") or map) or workspace
+
+		local function isRoadOrEssential(instance)
+			if not instance then return false end
+			local name = instance.Name:lower()
+			return name:find("asphalt") or name:find("aspal") or name:find("road") or name:find("jalan")
+				or name:find("street") or name:find("highway") or name:find("ramp") or name:find("driveway")
+				or name:find("tol") or name:find("toll") or name:find("bridge") or name:find("jembatan")
+				or name:find("flyover") or name:find("base") or name:find("ground") or name:find("floor")
+				or name:find("terrain") or name:find("atm") or name:find("mesin") or name:find("npc")
+				or name:find("koper") or name:find("vehicle") or name:find("car") or name:find("spawn")
+		end
+
+		-- 1. Extract roads/ramps from workspace.Map.Building, then destroy the towers & buildings
+		local buildingFolder = map and map:FindFirstChild("Building")
+		if buildingFolder then
+			for _, building in ipairs(buildingFolder:GetChildren()) do
+				-- Preserve all nested driveway/asphalt parts
+				for _, desc in ipairs(building:GetDescendants()) do
+					if isRoadOrEssential(desc) and desc:IsA("BasePart") then
+						pcall(function() desc.Parent = baseFolder end)
+					end
+				end
 				pcall(function()
 					count = count + 1
-					item:Destroy()
+					building:Destroy()
 				end)
 			end
 		end
+
+		-- 2. Destroy player/ownable houses after preserving roads
+		local houseFolder = map and map:FindFirstChild("OwnableHouse")
+		if houseFolder then
+			for _, house in ipairs(houseFolder:GetChildren()) do
+				for _, desc in ipairs(house:GetDescendants()) do
+					if isRoadOrEssential(desc) and desc:IsA("BasePart") then
+						pcall(function() desc.Parent = baseFolder end)
+					end
+				end
+				pcall(function()
+					count = count + 1
+					house:Destroy()
+				end)
+			end
+		end
+
+		-- 3. Destroy trees so foliage and branches never obstruct travel
+		local treeFolder = map and map:FindFirstChild("Tree")
+		if treeFolder then
+			for _, item in ipairs(treeFolder:GetChildren()) do
+				if not isRoadOrEssential(item) then
+					pcall(function()
+						count = count + 1
+						item:Destroy()
+					end)
+				end
+			end
+		end
+
 		return count
 	end
 
@@ -1278,12 +1328,12 @@ local success, err = pcall(function()
 	local statusSec = UI.AddSection(farmFrame, "Automated Money Farm (CDID Jobs)", 1)
 	UI.AddLabel(statusSec, "Select a job below. Script will automate pickups, deliveries, and rewards.")
 
-	UI.AddButton(statusSec, "🌲 Clear Map Trees (Preserves All Buildings & Roads)", function()
+	UI.AddButton(statusSec, "💥 Destroy Towers & Buildings (Preserves Driveways & Roads)", function()
 		local count = destroyObstacles()
-		UI.Notify("Map Cleaned", string.format("Removed %d trees! All towers, buildings & roads preserved.", count), 3, "success")
+		UI.Notify("Map Cleaned", string.format("Destroyed %d towers & buildings! All asphalt & driveways preserved.", count), 3, "success")
 	end, 1)
 
-	UI.AddToggle(statusSec, "Auto-Clear Trees (Preserve Towers & Roads)", Config.farm.destroyBuildings or false, function(v)
+	UI.AddToggle(statusSec, "Auto-Destroy Towers & Buildings (Preserve Roads)", Config.farm.destroyBuildings or false, function(v)
 		Config.farm.destroyBuildings = v
 		if v then destroyObstacles() end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
