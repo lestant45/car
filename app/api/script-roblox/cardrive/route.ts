@@ -410,7 +410,7 @@ export async function GET(request: NextRequest) {
     const baseUrl = `${proto}://${host}`;
 
     // Place ID check
-    const allowedPlaceIds = ["125927821145949"];
+    const allowedPlaceIds = ["14005966837", "130760175971028", "140063367098641", "2640407187"];
     if ((gameId || placeId) && !allowedPlaceIds.includes(String(gameId)) && !allowedPlaceIds.includes(String(placeId))) {
       const errScript = getErrorGuiLua(
         "Access Denied: This script is locked and can only be executed in authorized games.",
@@ -430,7 +430,10 @@ export async function GET(request: NextRequest) {
 repeat task.wait() until game:IsLoaded()
 
 local allowedPlaceIds = {
-    [125927821145949] = true
+    [14005966837] = true,
+    [130760175971028] = true,
+    [140063367098641] = true,
+    [2640407187] = true,
 }
 
 if not allowedPlaceIds[game.PlaceId] and not allowedPlaceIds[game.GameId] then
@@ -485,7 +488,7 @@ pcall(function()
     encodedExecutor = game:GetService("HttpService"):UrlEncode(executor)
 end)
 
-local url = "${baseUrl}/api/script-roblox/mam?payload=true&hwid=" .. tostring(hwid) .. "&username=" .. tostring(playername) .. "&gameId=" .. tostring(game.GameId) .. "&placeId=" .. tostring(game.PlaceId) .. "&executor=" .. tostring(encodedExecutor) .. "&cb=" .. tostring(math.random(100000, 999999))
+local url = "${baseUrl}/api/script-roblox/cardrive?payload=true&hwid=" .. tostring(hwid) .. "&username=" .. tostring(playername) .. "&gameId=" .. tostring(game.GameId) .. "&placeId=" .. tostring(game.PlaceId) .. "&executor=" .. tostring(encodedExecutor) .. "&cb=" .. tostring(math.random(100000, 999999))
 local success, content
 for i = 1, 3 do
     success, content = pcall(function()
@@ -637,14 +640,14 @@ func()
     }
 
     // Serving main script payload (Keyless)
-    const uiPath = path.join(process.cwd(), "app/api/script-roblox/mam/ui.lua");
-    const espPath = path.join(process.cwd(), "app/api/script-roblox/mam/esp.lua");
-    const shopPath = path.join(process.cwd(), "app/api/script-roblox/mam/shop.lua");
-    const webhookPath = path.join(process.cwd(), "app/api/script-roblox/mam/webhook.lua");
-    const miscPath = path.join(process.cwd(), "app/api/script-roblox/mam/misc.lua");
-    const tradePath = path.join(process.cwd(), "app/api/script-roblox/mam/trade.lua");
-    const settingsPath = path.join(process.cwd(), "app/api/script-roblox/mam/settings.lua");
-    const mainPath = path.join(process.cwd(), "app/api/script-roblox/mam/main.lua");
+    const scriptDir = path.join(process.cwd(), "app/api/script-roblox/cardrive");
+    const uiPath = path.join(scriptDir, "ui.lua");
+    const settingsPath = path.join(scriptDir, "settings.lua");
+    const teleportPath = path.join(scriptDir, "teleport.lua");
+    const visualsPath = path.join(scriptDir, "visuals.lua");
+    const vehiclePath = path.join(scriptDir, "vehicle.lua");
+    const farmPath = path.join(scriptDir, "farm.lua");
+    const mainPath = path.join(scriptDir, "main.lua");
 
     if (!fs.existsSync(uiPath)) {
       const errScript = getErrorGuiLua(
@@ -663,12 +666,11 @@ func()
     let luaScript = `_G.hiphub_key = "KEYLESS"\n_G.hiphub_role = "${userRole}"\n_G.hiphub_url = "${baseUrl}"\nif getgenv then getgenv().hiphub_key = "KEYLESS" end\nif getgenv then getgenv().hiphub_role = "${userRole}" end\nif getgenv then getgenv().hiphub_url = "${baseUrl}" end\n`;
     luaScript += fs.readFileSync(uiPath, "utf8");
 
-    if (fs.existsSync(espPath)) luaScript += "\n" + fs.readFileSync(espPath, "utf8");
-    if (fs.existsSync(shopPath)) luaScript += "\n" + fs.readFileSync(shopPath, "utf8");
-    if (fs.existsSync(webhookPath)) luaScript += "\n" + fs.readFileSync(webhookPath, "utf8");
-    if (fs.existsSync(miscPath)) luaScript += "\n" + fs.readFileSync(miscPath, "utf8");
-    if (fs.existsSync(tradePath)) luaScript += "\n" + fs.readFileSync(tradePath, "utf8");
     if (fs.existsSync(settingsPath)) luaScript += "\n" + fs.readFileSync(settingsPath, "utf8");
+    if (fs.existsSync(teleportPath)) luaScript += "\n" + fs.readFileSync(teleportPath, "utf8");
+    if (fs.existsSync(visualsPath)) luaScript += "\n" + fs.readFileSync(visualsPath, "utf8");
+    if (fs.existsSync(vehiclePath)) luaScript += "\n" + fs.readFileSync(vehiclePath, "utf8");
+    if (fs.existsSync(farmPath)) luaScript += "\n" + fs.readFileSync(farmPath, "utf8");
     if (fs.existsSync(mainPath)) luaScript += "\n" + fs.readFileSync(mainPath, "utf8");
 
     const executor = (searchParams.get("executor") || "").toLowerCase();
@@ -815,7 +817,7 @@ export async function POST(request: NextRequest) {
 
     // Enforce place ID check for game-specific backend operations
     const allowedPlaceIds = [
-      "125927821145949"
+      "14005966837", "130760175971028", "140063367098641", "2640407187"
     ];
     if (placeId && !allowedPlaceIds.includes(String(placeId))) {
       return NextResponse.json({ error: "Access Denied: Invalid Place ID" }, { status: 403 });

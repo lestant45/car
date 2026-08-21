@@ -1,44 +1,56 @@
--- CAB Loader
--- Run this script in your executor. It will load and run the main UI script from your workspace.
+-- 🚀 HipHub CDID — Local Development Loader
+-- Loads and executes all modular CDID tab scripts from workspace in proper dependency order
 
-local FILE_NAME = "ui.lua"
+local MODULE_FILES = {
+	"ui.lua",
+	"settings.lua",
+	"teleport.lua",
+	"visuals.lua",
+	"vehicle.lua",
+	"farm.lua",
+	"main.lua"
+}
 
 local function debugLog(message)
-	-- print("[Loader] " .. tostring(message))
+	print("[HipHub CDID Loader] " .. tostring(message))
 end
 
-local function loadScript()
+local function loadScriptFile(fileName)
 	if not readfile then
-		error("Your executor does not support 'readfile'. Please run the main script directly.")
+		error("Your executor does not support 'readfile'. Please run the bundled script directly.")
 	end
 
-	-- Check if the file exists (if isfile is supported by the executor)
-	if isfile and not isfile(FILE_NAME) then
-		error("Could not find '" ..
-		FILE_NAME .. "' in your executor's workspace folder. Please make sure the file is placed there.")
+	if isfile and not isfile(fileName) then
+		error("Could not find '" .. fileName .. "' in your executor's workspace folder.")
 	end
 
-	debugLog("Loading " .. FILE_NAME .. "...")
-	local content = readfile(FILE_NAME)
-
-	local func, err = loadstring(content, "@" .. FILE_NAME)
+	debugLog("Loading " .. fileName .. "...")
+	local content = readfile(fileName)
+	local func, err = loadstring(content, "@" .. fileName)
 	if not func then
-		error("Failed to compile " .. FILE_NAME .. ": " .. tostring(err))
+		error("Failed to compile " .. fileName .. ": " .. tostring(err))
 	end
 
-	debugLog("Executing " .. FILE_NAME .. "...")
 	task.spawn(func)
-	debugLog("Successfully executed!")
+	debugLog("Successfully executed " .. fileName)
 end
 
-local success, err = pcall(loadScript)
-if not success then
-	-- warn("[Loader Error] " .. tostring(err))
+local function loadAll()
+	for _, file in ipairs(MODULE_FILES) do
+		local success, err = pcall(loadScriptFile, file)
+		if not success then
+			warn("[HipHub Loader Error] Failed to load " .. file .. ": " .. tostring(err))
+		end
+		task.wait(0.1)
+	end
+end
 
-	-- Attempt to show a notification in-game if possible
+local success, err = pcall(loadAll)
+if not success then
+	warn("[HipHub Loader Boot Error]: " .. tostring(err))
 	pcall(function()
 		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title = "Loader Error",
+			Title = "HipHub Loader Error",
 			Text = tostring(err),
 			Duration = 10,
 		})
