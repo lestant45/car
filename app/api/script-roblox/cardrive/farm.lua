@@ -75,6 +75,12 @@ local success, err = pcall(function()
 		ensureSafetyPlate(cframe.Position, 40)
 		requestStreamAsync(cframe.Position)
 
+		-- Unsit if character is seated in driver seat
+		if hum.SeatPart or hum.Sit then
+			hum.Sit = false
+			task.wait(0.15)
+		end
+
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
@@ -1123,34 +1129,51 @@ local success, err = pcall(function()
 				local char = player.Character
 				if not char then return false end
 				if bcaIsCarrying == true then return true end
+				if player:GetAttribute("HidePrompt") == true then return true end
 				if char:FindFirstChild("KoperUang") or char:FindFirstChildWhichIsA("Tool") then return true end
 				if char:FindFirstChild("Koper", true) then return true end
 				if char:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
-				if player:GetAttribute("HidePrompt") == true then return true end
 				return false
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Ambil Koper)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (2.2s Hold)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local t0 = os.clock()
-				while not isCarryingKoper() and os.clock() - t0 < 6 and bcaCourierActive do
-					-- Stand right behind the trunk
-					safeTeleport(bagasi.CFrame + Vector3.new(0, 0.5, 0))
-					task.wait(0.3)
 
-					if ambilPrompt then
-						triggerPrompt(ambilPrompt)
-					end
+				while not isCarryingKoper() and os.clock() - t0 < 12 and bcaCourierActive do
+					-- Stand right behind the trunk (< 3 studs)
+					safeTeleport(bagasi.CFrame * CFrame.new(0, 0, 2.5))
+					task.wait(0.2)
 
-					-- Search vehicle descendants for any Ambil prompts
-					for _, p in ipairs(car:GetDescendants()) do
-						if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
-							triggerPrompt(p)
+					if ambilPrompt and ambilPrompt.Enabled then
+						pcall(function()
+							if fireproximityprompt then
+								fireproximityprompt(ambilPrompt, 2.2)
+							end
+							ambilPrompt:InputHoldBegin()
+						end)
+
+						-- Uninterrupted hold for the required 2.2 seconds
+						local tHold = os.clock()
+						while not isCarryingKoper() and os.clock() - tHold < 2.2 and bcaCourierActive do
+							task.wait(0.1)
 						end
+
+						pcall(function()
+							ambilPrompt:InputHoldEnd()
+						end)
+					else
+						-- Search vehicle descendants for any other Ambil prompts
+						for _, p in ipairs(car:GetDescendants()) do
+							if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
+								triggerPrompt(p)
+							end
+						end
+						task.wait(0.5)
 					end
 
-					task.wait(0.6)
+					task.wait(0.3)
 				end
 			end
 
