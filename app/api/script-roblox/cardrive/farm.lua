@@ -744,11 +744,11 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
+		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane (with +5 Y clearance)
 		if car then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.0) -- Wait 1s after spawning before moving car
-			local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20)
+			local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20) + Vector3.new(0, 5, 0)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -768,8 +768,8 @@ local success, err = pcall(function()
 
 		car = car or getPlayerCar()
 
-		-- Ensure car is parked right on the asphalt driveway at (1762.85, 22.34, -4615.80)
-		local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20)
+		-- Ensure car is parked right on the asphalt driveway at (1762.85, 22.34 + 5, -4615.80)
+		local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20) + Vector3.new(0, 5, 0)
 		if car and (car:GetPivot().Position - bcaKoperDrivewayPos).Magnitude > 25 then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.0)
