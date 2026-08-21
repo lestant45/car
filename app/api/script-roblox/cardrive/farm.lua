@@ -575,6 +575,38 @@ local success, err = pcall(function()
 		return 0
 	end
 
+	-- 🛡️ Anti Staff / Server Join Auto-Disconnect Guardian
+	local antiStaffActive = Config.farm.antiStaff or false
+	local function checkAntiStaff(otherPlayer)
+		if antiStaffActive and otherPlayer and otherPlayer ~= player then
+			pcall(function()
+				game:GetService("Players").LocalPlayer:Kick("Anti Staff Detected.")
+			end)
+		end
+	end
+
+	pcall(function()
+		game:GetService("Players").PlayerAdded:Connect(function(newPlayer)
+			checkAntiStaff(newPlayer)
+		end)
+	end)
+
+	task.spawn(function()
+		while true do
+			if antiStaffActive then
+				for _, otherPlayer in ipairs(game:GetService("Players"):GetPlayers()) do
+					if otherPlayer ~= player then
+						pcall(function()
+							game:GetService("Players").LocalPlayer:Kick("Anti Staff Detected.")
+						end)
+						break
+					end
+				end
+			end
+			task.wait(1)
+		end
+	end)
+
 	local function checkTargetEarningAndDisconnect()
 		if bcaTargetEarning and bcaTargetEarning > 0 then
 			local targetCash = bcaTargetEarning * 1000000
@@ -587,11 +619,17 @@ local success, err = pcall(function()
 				local formattedTarget = formatRupiah(targetCash)
 				local formattedCurrent = formatRupiah(currentCash)
 
-				local kickMsg = string.format("DUIT LU UDAH NYENTUH %s\n(Saldo Poket: %s)", formattedTarget, formattedCurrent)
-				updateBcaActivity("🛑 Target Earning Reached! Disconnecting...")
+				local accName = player.Name
+				local accDisplay = player.DisplayName
+				local accInfo = (accDisplay and accDisplay ~= "" and accDisplay ~= accName) and (accName .. " (" .. accDisplay .. ")") or accName
+
+				local kickMsg = string.format("Auto Farm Selesai di akun %s.\nTarget: %s | Saldo: %s.", accInfo, formattedTarget, formattedCurrent)
+				updateBcaActivity("🛑 Auto Farm Selesai! Disconnecting...")
 				UI.Notify("Target Earning Reached!", kickMsg, 5, "success")
-				task.wait(1.5)
-				player:Kick(kickMsg)
+				task.wait(0.5)
+				pcall(function()
+					game:GetService("Players").LocalPlayer:Kick(kickMsg)
+				end)
 				return true
 			end
 		end
@@ -1405,8 +1443,8 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Real-time auto-disconnect when target earning is reached
-				if bcaCourierActive and checkTargetEarningAndDisconnect() then
+				-- Real-time auto-disconnect when target earning is reached (checked continuously!)
+				if checkTargetEarningAndDisconnect() then
 					return
 				end
 
@@ -1487,6 +1525,25 @@ local success, err = pcall(function()
 	end, 7)
 
 	UI.AddLabel(bcaSec, "💡 Type in millions: 1 = Rp 1.000.000, 10 = Rp 10.000.000, 68 = Rp 68.000.000 (0 = No limit)", 8, UI.COLORS.textMuted)
+
+	UI.AddToggle(bcaSec, "Anti Staff / Auto Disconnect on Player Join", Config.farm.antiStaff or false, function(v)
+		antiStaffActive = v
+		Config.farm.antiStaff = v
+		if v then
+			UI.Notify("Anti Staff Active", "Will auto-disconnect if any player joins server.", 3, "warning")
+			for _, otherPlayer in ipairs(game:GetService("Players"):GetPlayers()) do
+				if otherPlayer ~= player then
+					pcall(function()
+						game:GetService("Players").LocalPlayer:Kick("Anti Staff Detected.")
+					end)
+					break
+				end
+			end
+		else
+			UI.Notify("Anti Staff Disabled", "Player join protection turned off.", 2, "info")
+		end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 9)
 
 	UI.AddToggle(bcaSec, "Auto Sync myBCA App (Pocket Rupiah)", Config.farm.bcaAppSync or true, function(v)
 		bcaAppSyncActive = v
