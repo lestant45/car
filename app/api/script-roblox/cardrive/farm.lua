@@ -52,6 +52,12 @@ local success, err = pcall(function()
 	end
 
 	-- Find player's vehicle
+	local function getPlayerCar()
+		local vehicles = workspace:FindFirstChild("Vehicles")
+		if not vehicles then return nil end
+		return vehicles:FindFirstChild(player.Name .. "sCar") or vehicles:FindFirstChild(player.Name .. "'s Car")
+	end
+
 	-- Helper to find true ground asphalt level below any building roof/ceiling
 	local function getGroundPosition(targetPos)
 		local rayParams = RaycastParams.new()
