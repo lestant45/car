@@ -584,21 +584,39 @@ local success, err = pcall(function()
 				Config.farm.bcaCourier = false
 				if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 
-				local formattedTarget = formatRupiah(targetCash)
-				local formattedCurrent = formatRupiah(currentCash)
-
-				local kickMsg = string.format("Auto Farm Selesai, Uangmu Sekarang %s\nDUIT LU UDAH NYENTUH %s", formattedCurrent, formattedTarget)
-				updateBcaActivity("🛑 Target Earning Reached! Disconnecting...")
-				UI.Notify("Auto Farm Selesai", kickMsg, 5, "success")
-				task.wait(0.5)
-				pcall(function()
-					game:GetService("Players").LocalPlayer:Kick(kickMsg)
+				local kickMsg = "Auto Farm Selesai di akun " .. player.Name .. " ."
+				updateBcaActivity("🛑 " .. kickMsg)
+				task.spawn(function()
+					player:Kick(kickMsg)
 				end)
 				return true
 			end
 		end
 		return false
 	end
+
+	-- Dedicated Real-Time Target Earning Watcher (Continuous 0.2s polling)
+	task.spawn(function()
+		while true do
+			pcall(function()
+				checkTargetEarningAndDisconnect()
+			end)
+			task.wait(0.2)
+		end
+	end)
+
+	-- 🚨 Anti-Staff: Auto Disconnect if any other player joins the server
+	local antiStaffActive = Config.farm.antiStaff ~= false
+	pcall(function()
+		local PlayersService = game:GetService("Players")
+		PlayersService.PlayerAdded:Connect(function(newPlayer)
+			if antiStaffActive and newPlayer and newPlayer ~= player then
+				task.spawn(function()
+					player:Kick("Anti Staff Detected.")
+				end)
+			end
+		end)
+	end)
 
 	local function resetBcaState()
 		bcaCurKoper = 0
@@ -1407,8 +1425,8 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Real-time auto-disconnect when target earning is reached (checks continuously)
-				if checkTargetEarningAndDisconnect() then
+				-- Real-time auto-disconnect when target earning is reached
+				if bcaCourierActive and checkTargetEarningAndDisconnect() then
 					return
 				end
 
@@ -1499,6 +1517,15 @@ local success, err = pcall(function()
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 7)
+
+	UI.AddToggle(bcaSec, "Anti Staff (Auto Disconnect on Player Join)", antiStaffActive, function(v)
+		antiStaffActive = v
+		Config.farm.antiStaff = v
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+		if v then
+			UI.Notify("Anti Staff Active", "Will disconnect immediately if any player joins server.", 2, "info")
+		end
+	end, 8)
 
 	UI.AddButton(bcaSec, "Spawn BCA Bank Armored Van", function()
 		pcall(function()
