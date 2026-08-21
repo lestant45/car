@@ -949,7 +949,7 @@ local success, err = pcall(function()
 			-- 2. Teleport to Car Bagasi & Trigger Muat
 			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
 			car = getPlayerCar() or car
-			local bagasi = car and car:FindFirstChild("BagasiPoint")
+			local bagasi = car and (car:FindFirstChild("BagasiPoint", true) or car:FindFirstChild("Bagasi", true))
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
 				task.wait(0.3)
@@ -1166,7 +1166,7 @@ local success, err = pcall(function()
 			end
 
 			if bagasi or ambilPrompt then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F / Mobile Touch for 2.75s)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F for 2.75s)")
 				local vim = game:GetService("VirtualInputManager")
 				local vu = game:GetService("VirtualUser")
 				local tStart = os.clock()
@@ -1191,26 +1191,23 @@ local success, err = pcall(function()
 					end
 
 					if ambilPrompt then
+						-- Bypass hold duration on mobile / executors so prompt triggers instantly
 						pcall(function()
-							ambilPrompt.Enabled = true
+							ambilPrompt.HoldDuration = 0
 							ambilPrompt.RequiresLineOfSight = false
-							ambilPrompt.MaxActivationDistance = 30
+							ambilPrompt.MaxActivationDistance = 50
+							ambilPrompt.Enabled = true
 						end)
 
-						-- A. Instant Executor ProximityPrompt Hooks with Hold Bypass
+						-- 1. Instant Executor ProximityPrompt Hooks (0s instant tap)
 						pcall(function()
-							local oldHold = ambilPrompt.HoldDuration
-							ambilPrompt.HoldDuration = 0
 							if fireproximityprompt then
 								fireproximityprompt(ambilPrompt, 0)
 								fireproximityprompt(ambilPrompt)
 							end
-							task.delay(0.5, function()
-								pcall(function() ambilPrompt.HoldDuration = oldHold end)
-							end)
 						end)
 
-						-- B. Signal & Connection Direct Dispatches
+						-- 2. Signal & Connection Triggers (direct invocation)
 						pcall(function()
 							if firesignal then
 								firesignal(ambilPrompt.PromptButtonHoldBegan, player)
@@ -1224,7 +1221,32 @@ local success, err = pcall(function()
 							end
 						end)
 
-						-- C. Press and hold down 'F' key & InputHoldBegin for 2.75s (PC + Mobile)
+						-- 3. Click any On-Screen Mobile Prompt Button in PlayerGui (matching "> Ambil Koper" UI)
+						pcall(function()
+							local pgui = player:FindFirstChild("PlayerGui")
+							if pgui then
+								for _, desc in ipairs(pgui:GetDescendants()) do
+									if (desc:IsA("GuiButton") or desc:IsA("ImageButton") or desc:IsA("TextButton")) and desc.Visible then
+										local parent = desc.Parent
+										local text = (desc:IsA("TextButton") and desc.Text) or (parent and parent:FindFirstChildOfClass("TextLabel") and parent:FindFirstChildOfClass("TextLabel").Text) or desc.Name
+										if text:find("Ambil") or text:find("Koper") or text:find("Prompt") or desc.Name:find("Prompt") or desc.Name:find("Button") then
+											if firesignal then
+												firesignal(desc.Activated)
+												firesignal(desc.MouseButton1Down)
+												firesignal(desc.MouseButton1Click)
+											end
+											if getconnections then
+												for _, c in ipairs(getconnections(desc.Activated)) do c:Fire() end
+												for _, c in ipairs(getconnections(desc.MouseButton1Click)) do c:Fire() end
+												for _, c in ipairs(getconnections(desc.MouseButton1Down)) do c:Fire() end
+											end
+										end
+									end
+								end
+							end
+						end)
+
+						-- 4. Sustained Hold via InputHoldBegin & KeyPress
 						pcall(function()
 							if ambilPrompt.InputHoldBegin then
 								ambilPrompt:InputHoldBegin()
@@ -1232,77 +1254,44 @@ local success, err = pcall(function()
 							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 						end)
 
-						-- D. Find the on-screen "[ > ] Ambil Koper (tahan)" pill widget
-						local cam = workspace.CurrentCamera
-						local pgui = player:FindFirstChild("PlayerGui")
-						local foundPill = nil
-						local touchPos = nil
+						-- Mobile touch hold simulation for Arceus X / Delta / Redfinger
+						pcall(function()
+							local cam = workspace.CurrentCamera
+							local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+							vim:SendMouseButtonEvent(math.floor(vp.X / 2), math.floor(vp.Y / 2), 0, true, game, 1)
+							vu:Button1Down(Vector2.new(math.floor(vp.X / 2), math.floor(vp.Y / 2)))
+						end)
 
-						if pgui then
-							for _, desc in ipairs(pgui:GetDescendants()) do
-								if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Visible and (desc.Text:find("Ambil Koper") or desc.Text:find("tahan")) then
-									foundPill = desc
-									touchPos = desc.AbsolutePosition + (desc.AbsoluteSize / 2)
-									break
-								end
-							end
-						end
-
-						-- If not found via GUI scan, project the 3D prompt position to 2D viewport coordinates
-						if not touchPos and cam and standTarget then
-							local sPos, onScreen = cam:WorldToViewportPoint(standTarget.Position + Vector3.new(0, 1, 0))
-							if onScreen then
-								touchPos = Vector2.new(sPos.X, sPos.Y)
-							end
-						end
-
-						-- Simulate Mobile Touch Hold on the "[ > ] Ambil Koper" pill
-						if touchPos then
-							pcall(function()
-								vim:SendMouseButtonEvent(touchPos.X, touchPos.Y, 0, true, game, 1)
-								vu:Button1Down(touchPos)
-								if foundPill and firesignal then
-									firesignal(foundPill.InputBegan)
-									firesignal(foundPill.MouseButton1Down)
-									firesignal(foundPill.Activated)
-								end
-							end)
-						end
-
-						-- Hold continuously for 2.75 seconds or until suitcase is in hand
+						-- Quick verification hold
 						local tHold = os.clock()
-						while not isCarryingKoper() and os.clock() - tHold < 2.75 do
+						while not isCarryingKoper() and os.clock() - tHold < 1.5 do
 							task.wait(0.05)
 						end
 
-						-- Release 'F' key, mobile touch button, and InputHoldEnd
+						-- Release keys and touch
 						pcall(function()
-							if touchPos then
-								vim:SendMouseButtonEvent(touchPos.X, touchPos.Y, 0, false, game, 1)
-								vu:Button1Up(touchPos)
-							end
+							local cam = workspace.CurrentCamera
+							local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+							vim:SendMouseButtonEvent(math.floor(vp.X / 2), math.floor(vp.Y / 2), 0, false, game, 1)
+							vu:Button1Up(Vector2.new(math.floor(vp.X / 2), math.floor(vp.Y / 2)))
 							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 							if ambilPrompt.InputHoldEnd then
 								ambilPrompt:InputHoldEnd()
 							end
-							if foundPill and firesignal then
-								firesignal(foundPill.InputEnded)
-								firesignal(foundPill.MouseButton1Up)
-							end
 						end)
 					else
-						-- Fallback: Hold F key and touch for 2.75s
+						-- Fallback: Key press and touch
 						pcall(function()
 							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 							local tHold = os.clock()
-							while not isCarryingKoper() and os.clock() - tHold < 2.75 do
+							while not isCarryingKoper() and os.clock() - tHold < 1.5 do
 								task.wait(0.05)
 							end
 							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 						end)
 					end
 
-					task.wait(0.4)
+					task.wait(0.3)
 				end
 			end
 
