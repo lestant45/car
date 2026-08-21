@@ -289,10 +289,13 @@ local success, err = pcall(function()
 					fireRemote("SiLambat", "Delivery")
 
 					pcall(function()
-						for _, prompt in pairs(workspace:GetDescendants()) do
-							if prompt:IsA("ProximityPrompt") and prompt.Enabled then
-								if prompt.ActionText:lower():find("deliver") or prompt.ObjectText:lower():find("package") or prompt.ActionText:lower():find("ambil") then
-									fireproximityprompt(prompt)
+						local nearbyParts = workspace:GetPartBoundsInRadius(targetPos, 25)
+						for _, p in ipairs(nearbyParts) do
+							for _, prompt in ipairs(p:GetChildren()) do
+								if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+									if prompt.ActionText:lower():find("deliver") or prompt.ObjectText:lower():find("package") or prompt.ActionText:lower():find("ambil") then
+										if fireproximityprompt then fireproximityprompt(prompt, 0) end
+									end
 								end
 							end
 						end

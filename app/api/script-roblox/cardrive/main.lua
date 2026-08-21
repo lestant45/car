@@ -102,7 +102,7 @@ local success, err = pcall(function()
 	local flySpeed = Config.main.flySpeed or 50
 	local infJump = false
 	local antiRagdoll = Config.main.antiRagdoll or true
-	local instantPrompt = Config.main.instantPrompt or true
+	local instantPrompt = Config.main.instantPrompt or false
 
 	RunService.RenderStepped:Connect(function()
 		local char = player.Character
@@ -194,19 +194,15 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Instant Proximity Prompts
-	task.spawn(function()
-		while true do
-			if instantPrompt then
-				pcall(function()
-					for _, prompt in pairs(workspace:GetDescendants()) do
-						if prompt:IsA("ProximityPrompt") then
-							prompt.HoldDuration = 0
-						end
-					end
-				end)
-			end
-			task.wait(3)
+	-- Instant Proximity Prompts (Event-driven instant trigger without heavy workspace scanning or HoldDuration mutation)
+	local ProximityPromptService = game:GetService("ProximityPromptService")
+	ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+		if instantPrompt and prompt and prompt.Enabled then
+			pcall(function()
+				if fireproximityprompt then
+					fireproximityprompt(prompt, 0)
+				end
+			end)
 		end
 	end)
 
