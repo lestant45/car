@@ -1058,36 +1058,16 @@ local success, err = pcall(function()
 						if not hasActiveJobGui then return end
 					end
 
-					-- STEP 2: Ensure Bank Car is spawned via Putra NPC
-					local car = getPlayerCar()
-					if not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan") then
-						car = spawnBankCar()
-						task.wait(0.5)
-						return
-					end
+					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary (PRIORITY #1 when all ATMs are filled / GAJIAN!)
+					local isAtmDone = bcaJobComplete
+						or (totAtm > 0 and curAtm >= totAtm)
+						or stepText:find("3)")
+						or stepText:find("Kembali")
+						or stepText:find("GAJIAN")
+						or stepText:find("gaji")
+						or hintText:find("terima gaji")
+						or hintText:find("Andhini")
 
-					if not car then
-						task.wait(1)
-						return
-					end
-
-					-- STEP 3: Load Kopers into Car Trunk (ONLY while curKoper < totKoper)
-					local isKoperFull = (totKoper > 0 and curKoper >= totKoper) or stepText:find("2)") or stepText:find("Antar")
-					if not isKoperFull then
-						loadKopersIntoCar(car)
-						task.wait(0.5)
-						return
-					end
-
-					-- STEP 4: Deliver to marked ATMs (ONLY when all kopers are loaded!)
-					local isAtmDone = bcaJobComplete or (totAtm > 0 and curAtm >= totAtm) or stepText:find("3)") or stepText:find("Kembali") or stepText:find("Selesai")
-					if isKoperFull and not isAtmDone then
-						deliverToAtms(car)
-						task.wait(0.5)
-						return
-					end
-
-					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary
 					if isAtmDone then
 						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
 						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
@@ -1104,17 +1084,24 @@ local success, err = pcall(function()
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
 						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
 						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt, andhiniPrompt.HoldDuration)
+							triggerPrompt(andhiniPrompt, 0.2)
 						end
 
 						-- Handle Dialog UI confirmation to claim salary
 						task.wait(0.5)
 						local dialog = player.PlayerGui:FindFirstChild("NpcDialog")
 						if dialog then
-							local yesBtn = dialog:FindFirstChild("Yes", true) or dialog:FindFirstChild("Finish", true) or dialog:FindFirstChild("Claim", true)
-							if yesBtn and firesignal then
-								firesignal(yesBtn.Activated)
-								firesignal(yesBtn.MouseButton1Click)
+							for _, btn in ipairs(dialog:GetDescendants()) do
+								if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+									if firesignal then
+										firesignal(btn.Activated)
+										firesignal(btn.MouseButton1Click)
+									end
+									if getconnections then
+										for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+										for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+									end
+								end
 							end
 						end
 
@@ -1123,9 +1110,38 @@ local success, err = pcall(function()
 						fireRemote("BankCourier", "Complete")
 						fireRemote("PhoneJobSalary")
 						fireRemote("MyBcaAppOpened")
-						bcaJobComplete = false
+						resetBcaState()
 						updateBcaActivity("🎉 Contract Completed! Salary Claimed")
-						task.wait(2.5)
+						task.wait(3.0)
+						return
+					end
+
+					-- STEP 2: Ensure Bank Car is spawned via Putra NPC
+					local car = getPlayerCar()
+					if not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan") then
+						car = spawnBankCar()
+						task.wait(0.5)
+						return
+					end
+
+					if not car then
+						task.wait(1)
+						return
+					end
+
+					-- STEP 3: Load Kopers into Car Trunk (ONLY when in Step 1: Angkut koper uang)
+					local isKoperFull = (totKoper > 0 and curKoper >= totKoper) or stepText:find("2)") or stepText:find("Antar")
+					if not isKoperFull and (stepText:find("1)") or stepText:find("Angkut") or hintText:find("tumpukan")) then
+						loadKopersIntoCar(car)
+						task.wait(0.5)
+						return
+					end
+
+					-- STEP 4: Deliver to marked ATMs (When in Step 2: Antar uang ke ATM)
+					if (stepText:find("2)") or stepText:find("Antar") or isKoperFull) and not isAtmDone then
+						deliverToAtms(car)
+						task.wait(0.5)
+						return
 					end
 				end)
 				task.wait(bcaCourierDelay)
