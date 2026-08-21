@@ -228,29 +228,69 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Remove heavy buildings, trees, and obstructive collision props for 100% smooth flight
+	-- Safe Building & Tree Remover: Exclusively removes buildings & trees while preserving 100% of roads, highways, flyovers, and bridges
 	local function destroyObstacles()
 		local count = 0
 		local map = workspace:FindFirstChild("Map")
-		local foldersToClear = {
-			map and map:FindFirstChild("Building"),
-			map and map:FindFirstChild("Tree"),
-			map and map:FindFirstChild("Prop"),
-			map and map:FindFirstChild("Stuff"),
-			map and map:FindFirstChild("PalangTol"),
-			map and map:FindFirstChild("Toll"),
-			map and map:FindFirstChild("Sementara"),
-			workspace:FindFirstChild("Rambu and props"),
-			workspace:FindFirstChild("StreetLampTemplate"),
-			workspace:FindFirstChild("MELAWAI")
-		}
 
-		for _, folder in ipairs(foldersToClear) do
-			if folder then
-				pcall(function()
-					count = count + #folder:GetChildren()
-					folder:ClearAllChildren()
-				end)
+		local function isRoadOrGround(instance)
+			if not instance then return true end
+			local name = instance.Name:lower()
+			if name:find("road") or name:find("jalan") or name:find("street") or name:find("highway")
+				or name:find("tol") or name:find("toll") or name:find("bridge") or name:find("jembatan")
+				or name:find("flyover") or name:find("aspal") or name:find("asphalt") or name:find("base")
+				or name:find("ground") or name:find("floor") or name:find("terrain") or name:find("lane")
+				or name:find("trotoar") or name:find("sidewalk") or name:find("spawn") or name:find("bca")
+				or name:find("atm") or name:find("npc") or name:find("vehicle") or name:find("car") then
+				return true
+			end
+			local parent = instance.Parent
+			if parent then
+				local pName = parent.Name:lower()
+				if pName:find("road") or pName:find("jalan") or pName:find("highway") or pName:find("base")
+					or pName:find("toll") or pName:find("tol") or pName:find("bridge") or pName:find("my_bca") then
+					return true
+				end
+			end
+			return false
+		end
+
+		-- 1. Remove only buildings inside workspace.Map.Building
+		local buildingFolder = map and map:FindFirstChild("Building")
+		if buildingFolder then
+			for _, item in ipairs(buildingFolder:GetChildren()) do
+				if not isRoadOrGround(item) then
+					pcall(function()
+						count = count + 1
+						item:Destroy()
+					end)
+				end
+			end
+		end
+
+		-- 2. Remove player/ownable house structures
+		local houseFolder = map and map:FindFirstChild("OwnableHouse")
+		if houseFolder then
+			for _, item in ipairs(houseFolder:GetChildren()) do
+				if not isRoadOrGround(item) then
+					pcall(function()
+						count = count + 1
+						item:Destroy()
+					end)
+				end
+			end
+		end
+
+		-- 3. Remove trees so foliage and branches never clip or block vehicle travel
+		local treeFolder = map and map:FindFirstChild("Tree")
+		if treeFolder then
+			for _, item in ipairs(treeFolder:GetChildren()) do
+				if not isRoadOrGround(item) then
+					pcall(function()
+						count = count + 1
+						item:Destroy()
+					end)
+				end
 			end
 		end
 
@@ -1290,12 +1330,12 @@ local success, err = pcall(function()
 	local statusSec = UI.AddSection(farmFrame, "Automated Money Farm (CDID Jobs)", 1)
 	UI.AddLabel(statusSec, "Select a job below. Script will automate pickups, deliveries, and rewards.")
 
-	UI.AddButton(statusSec, "💥 Destroy Buildings & Obstacles (100% Smooth Travel)", function()
+	UI.AddButton(statusSec, "💥 Destroy Buildings & Trees (Preserves Highways & Roads)", function()
 		local count = destroyObstacles()
-		UI.Notify("Map Cleaned", string.format("Cleared %d obstructive buildings, trees & props!", count), 3, "success")
+		UI.Notify("Map Cleaned", string.format("Removed %d buildings & trees! All highways & roads preserved.", count), 3, "success")
 	end, 1)
 
-	UI.AddToggle(statusSec, "Auto-Destroy Buildings on Farm Start", Config.farm.destroyBuildings or false, function(v)
+	UI.AddToggle(statusSec, "Auto-Destroy Buildings (Keep Roads)", Config.farm.destroyBuildings or false, function(v)
 		Config.farm.destroyBuildings = v
 		if v then destroyObstacles() end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
