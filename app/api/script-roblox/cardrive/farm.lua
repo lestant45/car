@@ -722,48 +722,32 @@ local success, err = pcall(function()
 		end
 	end)
 
-	local function triggerPrompt(prompt, holdTime)
-		if not prompt then return end
-		local oldHold = prompt.HoldDuration
-		local duration = (holdTime and holdTime > 0) and holdTime or (oldHold > 0 and oldHold or 0.1)
+	local function triggerPrompt(prompt)
+		if not prompt or not prompt.Parent then return end
 
 		pcall(function()
-			prompt.Enabled = true
-			-- Bypass hold on Arceus X / Android executors so prompt fires instantly without dropping input
-			prompt.HoldDuration = 0
+			if not prompt.Enabled then prompt.Enabled = true end
 		end)
 
-		-- 1. Native Executor ProximityPrompt Trigger (Arceus X / Delta / Codex / Fluxus / Synapse)
+		-- 1. Standard Executor Native Hook (Arceus X / Delta / Solara / PC Executors)
+		local success = false
 		pcall(function()
 			if fireproximityprompt then
-				fireproximityprompt(prompt, 0)
-				fireproximityprompt(prompt, duration)
+				fireproximityprompt(prompt)
+				success = true
 			end
 		end)
 
-		-- 2. Roblox Built-in Hold API
-		pcall(function()
-			if prompt.InputHoldBegin and prompt.InputHoldEnd then
-				prompt:InputHoldBegin()
-				task.wait(0.05)
-				prompt:InputHoldEnd()
-			end
-		end)
-
-		-- 3. VirtualInputManager Keyboard for PC
-		pcall(function()
-			local vim = game:GetService("VirtualInputManager")
-			local keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.F
-			vim:SendKeyEvent(true, keyCode, false, game)
-			task.wait(0.05)
-			vim:SendKeyEvent(false, keyCode, false, game)
-		end)
-
-		task.delay(0.2, function()
+		-- 2. Fallback to Roblox ProximityPrompt Hold API (if executor lacks fireproximityprompt)
+		if not success then
 			pcall(function()
-				prompt.HoldDuration = oldHold
+				if prompt.InputHoldBegin and prompt.InputHoldEnd then
+					prompt:InputHoldBegin()
+					task.wait(prompt.HoldDuration > 0 and prompt.HoldDuration or 0.1)
+					prompt:InputHoldEnd()
+				end
 			end)
-		end)
+		end
 	end
 
 	-- Function to simulate screen clicks to skip dialogue typewriter text and auto-select choices (Yes / Claim / Finish)
@@ -943,7 +927,7 @@ local success, err = pcall(function()
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0))
 				task.wait(0.3)
 				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
-				triggerPrompt(prompt, 0.45)
+				triggerPrompt(prompt)
 			else
 				safeTeleport(CFrame.new(bcaKoperPos))
 			end
@@ -958,7 +942,7 @@ local success, err = pcall(function()
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
 				task.wait(0.3)
 				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
-				triggerPrompt(muatPrompt, 0.35)
+				triggerPrompt(muatPrompt)
 			end
 
 			-- 3. Precise Timing Drop into Slot (matching Picture 2)
@@ -1150,24 +1134,23 @@ local success, err = pcall(function()
 				updateBcaActivity("✋ Taking Suitcase from Trunk (Ambil Koper)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local t0 = os.clock()
-				while not isCarryingKoper() and os.clock() - t0 < 8 and bcaCourierActive do
+				while not isCarryingKoper() and os.clock() - t0 < 6 and bcaCourierActive do
 					-- Stand right behind the trunk
 					safeTeleport(bagasi.CFrame + Vector3.new(0, 0.5, 0))
-					task.wait(0.2)
+					task.wait(0.3)
 
 					if ambilPrompt then
-						pcall(function() ambilPrompt.Enabled = true end)
-						triggerPrompt(ambilPrompt, 0)
+						triggerPrompt(ambilPrompt)
 					end
 
 					-- Search vehicle descendants for any Ambil prompts
 					for _, p in ipairs(car:GetDescendants()) do
 						if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
-							triggerPrompt(p, 0)
+							triggerPrompt(p)
 						end
 					end
 
-					task.wait(0.4)
+					task.wait(0.6)
 				end
 			end
 
@@ -1282,7 +1265,7 @@ local success, err = pcall(function()
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
 						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
 						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt, 0.2)
+							triggerPrompt(andhiniPrompt)
 						end
 
 						skipAndConfirmNpcDialog(3.0)
@@ -1322,7 +1305,7 @@ local success, err = pcall(function()
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
 						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
 						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt, 0.2)
+							triggerPrompt(andhiniPrompt)
 						end
 
 						-- Tap screen to skip dialog text and confirm salary payout
