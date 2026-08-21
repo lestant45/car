@@ -700,28 +700,22 @@ local success, err = pcall(function()
 						local timeToSweet = (sweetAngle / speed)
 						task.wait(warnLead + timeToSweet)
 
-						-- Fire precision press once
-						Network:FireServer("BankCourier", "SkillPress", sweetAngle)
-
+						-- Fire precision press once (prefer button signal, fallback to remote)
 						local jobGui = getBankCourierGui()
 						local keyBtn = jobGui and jobGui:FindFirstChild("Skill") and jobGui.Skill:FindFirstChild("Key")
+						local fired = false
 						if keyBtn and firesignal then
-							firesignal(keyBtn.Activated)
-							firesignal(keyBtn.MouseButton1Click)
+							pcall(function()
+								firesignal(keyBtn.Activated)
+								firesignal(keyBtn.MouseButton1Click)
+								fired = true
+							end)
 						end
-					end)
-				elseif action == "LoadRound" and typeof(data) == "table" then
-					task.spawn(function()
-						local sweetX = (data.greenStart or 0.2) + ((data.greenSize or 0.2) / 2)
-						local dropDelay = math.clamp(sweetX * (data.period or 1.2), 0.05, 3)
-						task.wait(dropDelay)
-						local jobGui = getBankCourierGui()
-						local goBtn = jobGui and jobGui:FindFirstChild("Timing") and jobGui.Timing:FindFirstChild("Go")
-						if goBtn and firesignal then
-							firesignal(goBtn.Activated)
-							firesignal(goBtn.MouseButton1Click)
+						if not fired then
+							pcall(function()
+								Network:FireServer("BankCourier", "SkillPress", sweetAngle)
+							end)
 						end
-						Network:FireServer("BankCourier", "LoadPress")
 					end)
 				end
 			end)
@@ -729,25 +723,46 @@ local success, err = pcall(function()
 	end)
 
 	local function triggerPrompt(prompt, holdTime)
-		if not prompt or not prompt.Enabled then return end
-		local duration = (holdTime and holdTime > 0) and holdTime or (prompt.HoldDuration > 0 and (prompt.HoldDuration + 0.15) or 0.15)
-		local keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.F
+		if not prompt then return end
+		local oldHold = prompt.HoldDuration
+		local duration = (holdTime and holdTime > 0) and holdTime or (oldHold > 0 and oldHold or 0.1)
 
 		pcall(function()
+			prompt.Enabled = true
+			-- Bypass hold on Arceus X / Android executors so prompt fires instantly without dropping input
+			prompt.HoldDuration = 0
+		end)
+
+		-- 1. Native Executor ProximityPrompt Trigger (Arceus X / Delta / Codex / Fluxus / Synapse)
+		pcall(function()
+			if fireproximityprompt then
+				fireproximityprompt(prompt, 0)
+				fireproximityprompt(prompt, duration)
+			end
+		end)
+
+		-- 2. Roblox Built-in Hold API
+		pcall(function()
+			if prompt.InputHoldBegin and prompt.InputHoldEnd then
+				prompt:InputHoldBegin()
+				task.wait(0.05)
+				prompt:InputHoldEnd()
+			end
+		end)
+
+		-- 3. VirtualInputManager Keyboard for PC
+		pcall(function()
 			local vim = game:GetService("VirtualInputManager")
+			local keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.F
 			vim:SendKeyEvent(true, keyCode, false, game)
-			task.wait(duration)
+			task.wait(0.05)
 			vim:SendKeyEvent(false, keyCode, false, game)
 		end)
 
-		pcall(function()
-			if fireproximityprompt then
-				fireproximityprompt(prompt, duration)
-			elseif prompt.InputHoldBegin then
-				prompt:InputHoldBegin()
-				task.wait(duration)
-				prompt:InputHoldEnd()
-			end
+		task.delay(0.2, function()
+			pcall(function()
+				prompt.HoldDuration = oldHold
+			end)
 		end)
 	end
 
@@ -959,28 +974,43 @@ local success, err = pcall(function()
 				local goBtn = timing:FindFirstChild("Go")
 				local t0 = os.clock()
 
-				while timing.Visible and os.clock() - t0 < 3.5 do
+				while timing.Visible and os.clock() - t0 < 4.0 do
 					if koperImg and slot then
 						local kX = koperImg.Position.X.Scale
 						local sX = slot.Position.X.Scale
 						local sW = slot.Size.X.Scale
 
-						-- Drop when koper is within the slot bounds
-						if kX >= sX and kX <= (sX + sW) then
-							if goBtn then
-								if firesignal then
+						-- Drop precisely when suitcase is inside the green slot
+						if kX >= (sX + sW * 0.15) and kX <= (sX + sW * 0.85) then
+							local fired = false
+							if goBtn and firesignal then
+								pcall(function()
 									firesignal(goBtn.Activated)
 									firesignal(goBtn.MouseButton1Click)
-								end
-								if getconnections then
-									for _, c in ipairs(getconnections(goBtn.Activated)) do c:Fire() end
-								end
+									fired = true
+								end)
 							end
-							Network:FireServer("BankCourier", "LoadPress")
+							if not fired and goBtn and getconnections then
+								pcall(function()
+									for _, c in ipairs(getconnections(goBtn.Activated)) do c:Fire() fired = true end
+									for _, c in ipairs(getconnections(goBtn.MouseButton1Click)) do c:Fire() fired = true end
+								end)
+							end
+							if not fired then
+								pcall(function()
+									Network:FireServer("BankCourier", "LoadPress")
+								end)
+							end
 							break
 						end
 					end
-					task.wait(0.02)
+					task.wait(0.01)
+				end
+
+				-- Wait until the minigame UI completes and closes before moving to next suitcase
+				local tClose = os.clock()
+				while timing.Visible and os.clock() - tClose < 2.0 do
+					task.wait(0.05)
 				end
 			end
 
@@ -1108,30 +1138,36 @@ local success, err = pcall(function()
 			local function isCarryingKoper()
 				local char = player.Character
 				if not char then return false end
+				if bcaIsCarrying == true then return true end
 				if char:FindFirstChild("KoperUang") or char:FindFirstChildWhichIsA("Tool") then return true end
+				if char:FindFirstChild("Koper", true) then return true end
 				if char:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
 				if player:GetAttribute("HidePrompt") == true then return true end
 				return false
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (2s Hold)")
-				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Ambil Koper)")
+				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local t0 = os.clock()
 				while not isCarryingKoper() and os.clock() - t0 < 8 and bcaCourierActive do
-					-- Stand right next to the trunk (< 3 studs)
-					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2 + Vector3.new(0, 1, 0))
+					-- Stand right behind the trunk
+					safeTeleport(bagasi.CFrame + Vector3.new(0, 0.5, 0))
 					task.wait(0.2)
 
-					if ambilPrompt and ambilPrompt.Enabled then
-						triggerPrompt(ambilPrompt, ambilPrompt.HoldDuration)
+					if ambilPrompt then
+						pcall(function() ambilPrompt.Enabled = true end)
+						triggerPrompt(ambilPrompt, 0)
 					end
 
-					-- Wait for server confirmation
-					local tCheck = os.clock()
-					while not isCarryingKoper() and os.clock() - tCheck < 1.5 do
-						task.wait(0.1)
+					-- Search vehicle descendants for any Ambil prompts
+					for _, p in ipairs(car:GetDescendants()) do
+						if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
+							triggerPrompt(p, 0)
+						end
 					end
+
+					task.wait(0.4)
 				end
 			end
 
