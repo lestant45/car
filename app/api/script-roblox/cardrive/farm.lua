@@ -462,13 +462,22 @@ local success, err = pcall(function()
 
 	local function triggerPrompt(prompt, holdTime)
 		if not prompt or not prompt.Enabled then return end
+		local duration = (holdTime and holdTime > 0) and holdTime or (prompt.HoldDuration > 0 and (prompt.HoldDuration + 0.15) or 0.15)
+		local keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.F
+
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			vim:SendKeyEvent(true, keyCode, false, game)
+			task.wait(duration)
+			vim:SendKeyEvent(false, keyCode, false, game)
+		end)
+
 		pcall(function()
 			if fireproximityprompt then
-				fireproximityprompt(prompt, 0)
+				fireproximityprompt(prompt, duration)
 			elseif prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
-				local waitDur = (holdTime and holdTime > 0) and holdTime or (prompt.HoldDuration > 0 and (prompt.HoldDuration + 0.1) or 0.1)
-				task.wait(waitDur)
+				task.wait(duration)
 				prompt:InputHoldEnd()
 			end
 		end)
