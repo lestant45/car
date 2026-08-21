@@ -32,12 +32,71 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Safe Character Teleport Function
+	local lastSafeGroundCFrame = CFrame.new(1866.5, 24, -4874.45)
+
+	-- Spawns an invisible, anchored collision safety plate underneath destination so character & car never fall through unrendered chunks
+	local function ensureSafetyPlate(pos, width)
+		width = width or 50
+		local plate = workspace:FindFirstChild("__SafetyPlate")
+		if not plate then
+			plate = Instance.new("Part")
+			plate.Name = "__SafetyPlate"
+			plate.Anchored = true
+			plate.CanCollide = true
+			plate.Transparency = 1
+			plate.CastShadow = false
+			plate.Material = Enum.Material.SmoothPlastic
+			pcall(function() plate.Parent = workspace end)
+		end
+		plate.Size = Vector3.new(width, 2, width)
+		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
+		return plate
+	end
+
+	-- Tells Roblox server to prioritize streaming the destination chunks and waits until ground mesh is loaded
+	local function waitForGroundLoaded(pos, maxWait)
+		maxWait = maxWait or 2.5
+		pcall(function()
+			if player and player.RequestStreamAroundAsync then
+				player:RequestStreamAroundAsync(pos, 2)
+			end
+		end)
+		ensureSafetyPlate(pos, 50)
+
+		local t0 = os.clock()
+		local rayParams = RaycastParams.new()
+		local car = getPlayerCar()
+		local char = player.Character
+		rayParams.FilterDescendantsInstances = { car, char, workspace:FindFirstChild("__SafetyPlate") }
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+		while os.clock() - t0 < maxWait do
+			local hit = workspace:Raycast(pos + Vector3.new(0, 15, 0), Vector3.new(0, -45, 0), rayParams)
+			if hit and hit.Instance and hit.Instance.CanCollide and hit.Position.Y > -50 then
+				return hit.Position.Y
+			end
+			task.wait(0.1)
+		end
+		return pos.Y
+	end
+
+	-- Safe Character Teleport Function with StreamingEnabled & Anti-Void Protection
 	local function safeTeleport(cframe, useTween, speed)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root then return end
+
+		-- 1. Ensure invisible safety plate exists at destination before teleporting
+		ensureSafetyPlate(cframe.Position, 40)
+		pcall(function()
+			if player and player.RequestStreamAroundAsync then
+				player:RequestStreamAroundAsync(cframe.Position, 1)
+			end
+		end)
+
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
 
 		if useTween then
 			speed = speed or 120
@@ -49,6 +108,12 @@ local success, err = pcall(function()
 		else
 			root.CFrame = cframe
 		end
+
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		if cframe.Position.Y > 15 then
+			lastSafeGroundCFrame = cframe
+		end
 	end
 
 	-- Find player's vehicle
@@ -58,16 +123,24 @@ local success, err = pcall(function()
 		return vehicles:FindFirstChild(player.Name .. "sCar") or vehicles:FindFirstChild(player.Name .. "'s Car")
 	end
 
-	-- Universal Safe Ground CFrame Calculator (Ensures wheels are firmly planted on road with horizontal leveling)
+	-- Universal Safe Ground CFrame Calculator with Streaming Protection
 	local function getSafeGroundCFrame(targetPos, desiredAngle)
+		-- Prioritize map rendering around target
+		pcall(function()
+			if player and player.RequestStreamAroundAsync then
+				player:RequestStreamAroundAsync(targetPos, 2)
+			end
+		end)
+		ensureSafetyPlate(targetPos, 50)
+
 		local rayParams = RaycastParams.new()
 		local car = getPlayerCar()
 		local char = player.Character
-		rayParams.FilterDescendantsInstances = { car, char }
+		rayParams.FilterDescendantsInstances = { car, char, workspace:FindFirstChild("__SafetyPlate") }
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Raycast downward from +12 studs above target (below any ceiling/roof)
-		local hit = workspace:Raycast(targetPos + Vector3.new(0, 12, 0), Vector3.new(0, -40, 0), rayParams)
+		-- Raycast downward from +14 studs above target
+		local hit = workspace:Raycast(targetPos + Vector3.new(0, 14, 0), Vector3.new(0, -45, 0), rayParams)
 		local groundY = hit and hit.Position.Y or targetPos.Y
 		local safeY = groundY + 2.0 -- exact suspension clearance so tires touch road perfectly
 
@@ -79,6 +152,39 @@ local success, err = pcall(function()
 		local cf = getSafeGroundCFrame(targetPos)
 		return cf.Position
 	end
+
+	-- Background Anti-Void Guardian: Rescues character immediately if falling through unrendered chunks
+	task.spawn(function()
+		while true do
+			pcall(function()
+				local char = player.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				local humanoid = char and char:FindFirstChild("Humanoid")
+				if root and humanoid and humanoid.Health > 0 then
+					if root.Position.Y > 15 then
+						lastSafeGroundCFrame = root.CFrame
+					elseif root.Position.Y < 5 then
+						-- Falling into the void! Instantly rescue to safe road!
+						root.AssemblyLinearVelocity = Vector3.zero
+						root.AssemblyAngularVelocity = Vector3.zero
+						local rescueCF = lastSafeGroundCFrame or CFrame.new(1866.5, 24, -4874.45)
+						ensureSafetyPlate(rescueCF.Position, 60)
+						root.CFrame = rescueCF + Vector3.new(0, 3, 0)
+						local car = getPlayerCar()
+						if car then
+							car:PivotTo(rescueCF)
+							for _, p in ipairs(car:GetDescendants()) do
+								if p:IsA("BasePart") then
+									p.AssemblyLinearVelocity = Vector3.zero
+								end
+							end
+						end
+					end
+				end
+			end)
+			task.wait(0.1)
+		end
+	end)
 
 	-- Teleport Player & Vehicle together safely directly on the ground
 	local function safeTeleportCar(cframe)
@@ -157,6 +263,10 @@ local success, err = pcall(function()
 			safeTeleport(targetCF, true, speed)
 			return
 		end
+
+		-- Ensure invisible safety platform is created and map chunks are streamed before moving
+		ensureSafetyPlate(targetCF.Position, 55)
+		waitForGroundLoaded(targetCF.Position, 2.0)
 
 		-- 1. Enter Driver Seat before moving to claim Network Ownership on the server
 		enterDriveSeat(car)
