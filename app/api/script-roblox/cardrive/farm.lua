@@ -441,15 +441,15 @@ local success, err = pcall(function()
 	end)
 
 	local function triggerPrompt(prompt, holdTime)
-		if not prompt then return end
+		if not prompt or not prompt.Enabled then return end
 		pcall(function()
-			prompt.HoldDuration = 0
-			if prompt.InputHoldBegin and (holdTime or 0) > 0 then
+			if fireproximityprompt then
+				fireproximityprompt(prompt, 0)
+			elseif prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
-				task.wait(holdTime)
+				local waitDur = (holdTime and holdTime > 0) and holdTime or (prompt.HoldDuration > 0 and (prompt.HoldDuration + 0.1) or 0.1)
+				task.wait(waitDur)
 				prompt:InputHoldEnd()
-			elseif fireproximityprompt then
-				fireproximityprompt(prompt)
 			end
 		end)
 	end
@@ -676,15 +676,27 @@ local success, err = pcall(function()
 			safeTweenCar(safeAtmCF, 220)
 			task.wait(0.5)
 
+			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
+			local respawnBtn = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("RespawnCar")
+			if respawnBtn and respawnBtn.Visible and respawnBtn.Text:find("TUNGGU") then
+				local waitSeconds = tonumber(respawnBtn.Text:match("(%d+)"))
+				if waitSeconds and waitSeconds > 0 then
+					local t0 = os.clock()
+					while os.clock() - t0 < (waitSeconds + 1) and bcaCourierActive do
+						task.wait(1)
+					end
+				end
+			end
+
 			-- 2. Take Koper from Bagasi on the ground
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
-				task.wait(0.3)
+				task.wait(0.4)
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt")
-				triggerPrompt(ambilPrompt, 0.5)
+				triggerPrompt(ambilPrompt)
 			end
 
-			task.wait(0.5)
+			task.wait(0.6)
 
 			-- 3. Teleport character directly in front of ATM at ground level
 			local atmFrontPos = getGroundPosition(targetPart.Position + targetPart.CFrame.LookVector * 2)
