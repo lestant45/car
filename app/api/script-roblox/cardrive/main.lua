@@ -71,21 +71,14 @@ local success, err = pcall(function()
 	minimizeButton.MouseButton1Click:Connect(function()
 		isMinimized = not isMinimized
 		if isMinimized then
-			if UI.contentArea then UI.contentArea.Visible = false end
-			if UI.sidebar then UI.sidebar.Visible = false end
-			for _, child in ipairs(mainFrame:GetChildren()) do
-				if child ~= topBar and child:IsA("GuiObject") then
-					child.Visible = false
-				end
-			end
-			TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 42) }):Play()
+			UI.contentArea.Visible = false
+			mainFrame:FindFirstChild("Sidebar", true).Visible = false
+			TweenService:Create(mainFrame, TweenInfo.new(0.25), { Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 42) }):Play()
 		else
-			local tw = TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = origSize })
+			local tw = TweenService:Create(mainFrame, TweenInfo.new(0.25), { Size = origSize })
 			tw.Completed:Connect(function()
-				if not isMinimized then
-					if UI.contentArea then UI.contentArea.Visible = true end
-					if UI.sidebar then UI.sidebar.Visible = true end
-				end
+				UI.contentArea.Visible = true
+				mainFrame:FindFirstChild("Sidebar", true).Visible = true
 			end)
 			tw:Play()
 		end
