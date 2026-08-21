@@ -58,26 +58,31 @@ local success, err = pcall(function()
 		return vehicles:FindFirstChild(player.Name .. "sCar") or vehicles:FindFirstChild(player.Name .. "'s Car")
 	end
 
-	-- Helper to find true ground asphalt level below any building roof/ceiling
-	local function getGroundPosition(targetPos)
+	-- Universal Safe Ground CFrame Calculator (Ensures wheels are firmly planted on road with horizontal leveling)
+	local function getSafeGroundCFrame(targetPos, desiredAngle)
 		local rayParams = RaycastParams.new()
 		local car = getPlayerCar()
 		local char = player.Character
 		rayParams.FilterDescendantsInstances = { car, char }
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Raycast downward starting +2.5 studs above targetPos (below any ceiling)
-		local hit = workspace:Raycast(targetPos + Vector3.new(0, 2.5, 0), Vector3.new(0, -35, 0), rayParams)
-		if hit then
-			return Vector3.new(targetPos.X, hit.Position.Y + 1.2, targetPos.Z)
-		end
-		return targetPos
+		-- Raycast downward from +12 studs above target (below any ceiling/roof)
+		local hit = workspace:Raycast(targetPos + Vector3.new(0, 12, 0), Vector3.new(0, -40, 0), rayParams)
+		local groundY = hit and hit.Position.Y or targetPos.Y
+		local safeY = groundY + 2.0 -- exact suspension clearance so tires touch road perfectly
+
+		local rot = desiredAngle and CFrame.Angles(0, math.rad(desiredAngle), 0) or CFrame.new()
+		return CFrame.new(targetPos.X, safeY, targetPos.Z) * rot
+	end
+
+	local function getGroundPosition(targetPos)
+		local cf = getSafeGroundCFrame(targetPos)
+		return cf.Position
 	end
 
 	-- Teleport Player & Vehicle together safely directly on the ground
 	local function safeTeleportCar(cframe)
-		local groundPos = getGroundPosition(cframe.Position)
-		local safeCF = CFrame.new(groundPos) * (cframe - cframe.Position)
+		local safeCF = getSafeGroundCFrame(cframe.Position) * (cframe - cframe.Position)
 		local car = getPlayerCar()
 
 		if car then
@@ -91,7 +96,7 @@ local success, err = pcall(function()
 				end
 			end)
 		end
-		safeTeleport(CFrame.new(groundPos + Vector3.new(0, 1, 0)), false)
+		safeTeleport(safeCF + Vector3.new(0, 1.0, 3), false)
 	end
 
 	-- Smooth Tween Car & Player to Destination (Glide smoothly and prevent wall flinging/collisions)
@@ -102,8 +107,7 @@ local success, err = pcall(function()
 			return
 		end
 
-		local groundPos = getGroundPosition(targetCF.Position)
-		local destCF = CFrame.new(groundPos) * (targetCF - targetCF.Position)
+		local destCF = getSafeGroundCFrame(targetCF.Position) * (targetCF - targetCF.Position)
 		local startCF = car:GetPivot()
 		local dist = (startCF.Position - destCF.Position).Magnitude
 
@@ -172,7 +176,7 @@ local success, err = pcall(function()
 				end
 			end
 		end)
-		safeTeleport(CFrame.new(groundPos + Vector3.new(0, 1.5, 3)), false)
+		safeTeleport(destCF + Vector3.new(0, 1.0, 3), false)
 	end
 
 	------------------------------------------------
@@ -465,7 +469,7 @@ local success, err = pcall(function()
 
 		-- 5. Safely position the vehicle on the asphalt driveway beside the entrance
 		if car then
-			local koperParkCFrame = CFrame.new(1774.5, 20.2, -4629.0) * CFrame.Angles(0, math.rad(-75), 0)
+			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
 			pcall(function()
 				car:PivotTo(koperParkCFrame)
 				for _, part in ipairs(car:GetDescendants()) do
@@ -478,7 +482,7 @@ local success, err = pcall(function()
 			task.wait(0.5)
 
 			-- Teleport player beside car to register vehicle movement with game
-			safeTeleport(koperParkCFrame + Vector3.new(0, 1.5, 3))
+			safeTeleport(koperParkCFrame + Vector3.new(0, 1.0, 3))
 			task.wait(0.5)
 		end
 
@@ -496,8 +500,8 @@ local success, err = pcall(function()
 		local koperPart = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("KoperSpawn") and workspace.MY_BCA_COLLAB.Job.BankCourier.KoperSpawn:FindFirstChild("Part")
 
 		-- Ensure car is parked right on the asphalt driveway
-		local koperParkCFrame = CFrame.new(1774.5, 20.2, -4629.0) * CFrame.Angles(0, math.rad(-75), 0)
-		if car and (car:GetPivot().Position - Vector3.new(1774.5, 20.2, -4629.0)).Magnitude > 15 then
+		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
+		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 15 then
 			pcall(function()
 				car:PivotTo(koperParkCFrame)
 				for _, part in ipairs(car:GetDescendants()) do
@@ -732,7 +736,7 @@ local success, err = pcall(function()
 
 					-- STEP 5: Return to Depot & Claim Reward (When all ATMs are filled)
 					if isAtmDone or stepText:find("3)") then
-						safeTweenCar(CFrame.new(1774.5, 20.2, -4629.0) * CFrame.Angles(0, math.rad(-75), 0), 220)
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 220)
 						task.wait(0.5)
 						fireRemote("BankCourier", "Complete")
 						fireRemote("PhoneJobSalary")
