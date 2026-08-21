@@ -151,8 +151,8 @@ local success, err = pcall(function()
 		local startCF = car:GetPivot()
 		local dist = (startCF.Position - destCF.Position).Magnitude
 
-		speed = speed or 250
-		local duration = math.clamp(dist / speed, 0.5, 5.0)
+		speed = speed or 180
+		local duration = math.clamp(dist / speed, 0.5, 6.0)
 
 		-- Zero out physics velocities before tween
 		for _, part in ipairs(car:GetDescendants()) do
@@ -216,7 +216,9 @@ local success, err = pcall(function()
 		-- 2. Exit Driver Seat now that vehicle has physically traveled to destination on server
 		exitDriveSeat()
 		task.wait(0.2)
-		safeTeleport(destCF + Vector3.new(0, 1.0, 3), false)
+		local bagasi = car:FindFirstChild("BagasiPoint")
+		local exitPos = bagasi and (bagasi.CFrame + Vector3.new(0, 1.0, 0)) or (destCF + Vector3.new(0, 1.0, 3))
+		safeTeleport(exitPos, false)
 	end
 
 	------------------------------------------------
@@ -507,22 +509,10 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- 5. Safely position the vehicle on the asphalt driveway beside the entrance
+		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
 		if car then
 			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
-			pcall(function()
-				car:PivotTo(koperParkCFrame)
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-			end)
-			task.wait(0.5)
-
-			-- Teleport player beside car to register vehicle movement with game
-			safeTeleport(koperParkCFrame + Vector3.new(0, 1.0, 3))
+			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
 
@@ -541,16 +531,8 @@ local success, err = pcall(function()
 
 		-- Ensure car is parked right on the asphalt driveway
 		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
-		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 15 then
-			pcall(function()
-				car:PivotTo(koperParkCFrame)
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-			end)
+		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 25 then
+			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.3)
 		end
 
@@ -739,7 +721,7 @@ local success, err = pcall(function()
 
 					-- STEP 1: Ensure Bank Courier Job is active
 					if not jobGui or not jobGui.Status.Visible then
-						safeTeleport(CFrame.new(bcaDepotPos))
+						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
 						task.wait(0.5)
 						fireRemote("Job", "BankCourier")
 						task.wait(1)
