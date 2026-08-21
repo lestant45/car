@@ -528,6 +528,30 @@ local success, err = pcall(function()
 	local bcaTargetEarning = tonumber(Config.farm.bcaTargetEarning) or 0
 	local bcaTargetEarningLabel = nil
 
+	local function parseProgress(text)
+		local cur, total = string.match(text or "", "(%d+)/(%d+)")
+		return tonumber(cur) or 0, tonumber(total) or 0
+	end
+
+	local function isInBankMinigame()
+		local jobGui = getBankCourierGui()
+		if not jobGui then return false end
+		local timing = jobGui:FindFirstChild("Timing")
+		local skill = jobGui:FindFirstChild("Skill")
+		return (timing and timing.Visible == true) or (skill and skill.Visible == true)
+	end
+
+	local function hasActiveBankCourierJob()
+		local jobGui = getBankCourierGui()
+		if not jobGui then return false end
+		local kText = jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+		local aText = jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+		local sText = jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
+		local curK, totK = parseProgress(kText)
+		local curA, totA = parseProgress(aText)
+		return (totK > 0 or totA > 0 or sText ~= "" or (jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true))
+	end
+
 	local function parseRupiahNumber(str)
 		if not str then return 0 end
 		local cleaned = string.gsub(str, "[^%d]", "")
@@ -1265,21 +1289,21 @@ local success, err = pcall(function()
 					if checkTargetEarningAndDisconnect() then return end
 
 					local jobGui = getBankCourierGui()
-					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
-					if not hasActiveJobGui then
+					local hasActiveJob = hasActiveBankCourierJob()
+					if not hasActiveJob then
 						resetBcaState()
 					end
 
-					local hintText = hasActiveJobGui and jobGui.Status.Hint.Text or ""
-					local koperText = hasActiveJobGui and jobGui.Status.Koper.Text or ""
-					local atmText = hasActiveJobGui and jobGui.Status.Atm.Text or ""
-					local stepText = hasActiveJobGui and jobGui.Status.Step.Text or ""
+					local hintText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Hint") and jobGui.Status.Hint.Text or ""
+					local koperText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+					local atmText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+					local stepText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
 
 					local curKoper, totKoper = parseProgress(koperText)
 					local curAtm, totAtm = parseProgress(atmText)
 
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
-					if not hasActiveJobGui then
+					if not hasActiveJob then
 						updateBcaActivity("🚶 Tweening to Andhini NPC (200 studs/s)")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
 						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
@@ -1297,9 +1321,7 @@ local success, err = pcall(function()
 						fireRemote("NpcDialog", "Finish", 1)
 						fireRemote("NpcDialog", "Finish", "BankCourier")
 						task.wait(1.5)
-						jobGui = getBankCourierGui()
-						hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
-						if not hasActiveJobGui then return end
+						if not hasActiveBankCourierJob() then return end
 					end
 
 					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary (PRIORITY #1 when all ATMs are filled / GAJIAN!)
@@ -1466,11 +1488,11 @@ local success, err = pcall(function()
 		while true do
 			pcall(function()
 				local jobGui = getBankCourierGui()
-				local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
-				local kText = hasActiveJobGui and jobGui.Status.Koper.Text or ""
-				local aText = hasActiveJobGui and jobGui.Status.Atm.Text or ""
-				local sText = hasActiveJobGui and jobGui.Status.Salary.Text or ""
-				local pText = hasActiveJobGui and jobGui.Status:FindFirstChild("Pocket") and jobGui.Status.Pocket.Text or ""
+				local hasActiveJob = hasActiveBankCourierJob()
+				local kText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+				local aText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+				local sText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Salary") and jobGui.Status.Salary.Text or ""
+				local pText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Pocket") and jobGui.Status.Pocket.Text or ""
 				local curK, totK = parseProgress(kText)
 				local curA, totA = parseProgress(aText)
 
@@ -1501,7 +1523,7 @@ local success, err = pcall(function()
 
 					if bcaTargetLabel then
 						local targetPos = getBankCourierTargetPos()
-						if targetPos and hasActiveJobGui then
+						if targetPos and hasActiveJob then
 							local char = player.Character
 							local root = char and char:FindFirstChild("HumanoidRootPart")
 							local dist = root and math.floor((root.Position - targetPos).Magnitude) or 0
@@ -1517,7 +1539,7 @@ local success, err = pcall(function()
 							end
 							bcaTargetLabel.Text = string.format("🎯 Target: %s (%dm away)", matchedAtm, dist)
 						else
-							bcaTargetLabel.Text = hasActiveJobGui and "🎯 Target: Standby / Generating Route" or "🎯 Target: None (Starting Job...)"
+							bcaTargetLabel.Text = hasActiveJob and "🎯 Target: Standby / Generating Route" or "🎯 Target: None (Starting Job...)"
 						end
 					end
 
