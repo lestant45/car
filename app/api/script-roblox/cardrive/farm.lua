@@ -521,7 +521,6 @@ local success, err = pcall(function()
 	local bcaJobComplete = false
 	local bcaTargetEarning = tonumber(Config.farm.bcaTargetEarning) or 0
 	local bcaTargetEarningLabel = nil
-	local initialPocketCash = 0
 
 	local function parseRupiahNumber(str)
 		if not str then return 0 end
@@ -580,39 +579,22 @@ local success, err = pcall(function()
 		if bcaTargetEarning and bcaTargetEarning > 0 then
 			local targetCash = bcaTargetEarning * 1000000
 			local currentCash = getPocketRupiahCash()
-			if currentCash > 0 then
-				if initialPocketCash == 0 then
-					initialPocketCash = currentCash
-				end
+			if currentCash > 0 and currentCash >= targetCash then
+				bcaCourierActive = false
+				Config.farm.bcaCourier = false
+				if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 
-				if currentCash >= targetCash then
-					bcaCourierActive = false
-					Config.farm.bcaCourier = false
-					if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+				local formattedTarget = formatRupiah(targetCash)
+				local formattedCurrent = formatRupiah(currentCash)
 
-					local increase = math.max(0, currentCash - initialPocketCash)
-					local formattedTarget = formatRupiah(targetCash)
-					local formattedCurrent = formatRupiah(currentCash)
-					local formattedIncrease = formatRupiah(increase)
-
-					local kickMsg = string.format(
-						"Auto Farm Selesai!\n" ..
-						"💵 Uang Sekarang: %s\n" ..
-						"📈 Pertambahan Uang: +%s\n" ..
-						"🎯 DUIT LU UDAH NYENTUH %s",
-						formattedCurrent,
-						formattedIncrease,
-						formattedTarget
-					)
-
-					updateBcaActivity("🛑 Target Earning Reached! Disconnecting...")
-					UI.Notify("Auto Farm Selesai", kickMsg, 5, "success")
-					task.wait(0.5)
-					pcall(function()
-						game:GetService("Players").LocalPlayer:Kick(kickMsg)
-					end)
-					return true
-				end
+				local kickMsg = string.format("Auto Farm Selesai, Uangmu Sekarang %s\nDUIT LU UDAH NYENTUH %s", formattedCurrent, formattedTarget)
+				updateBcaActivity("🛑 Target Earning Reached! Disconnecting...")
+				UI.Notify("Auto Farm Selesai", kickMsg, 5, "success")
+				task.wait(0.5)
+				pcall(function()
+					game:GetService("Players").LocalPlayer:Kick(kickMsg)
+				end)
+				return true
 			end
 		end
 		return false
@@ -1415,18 +1397,13 @@ local success, err = pcall(function()
 				local curA, totA = parseProgress(aText)
 
 				local livePocket = getPocketRupiahCash()
-				if livePocket > 0 and initialPocketCash == 0 then
-					initialPocketCash = livePocket
-				end
-				local liveIncrease = (livePocket > 0 and initialPocketCash > 0) and math.max(0, livePocket - initialPocketCash) or 0
-
 				if bcaTargetEarningLabel then
 					if bcaTargetEarning > 0 then
 						local targetCash = bcaTargetEarning * 1000000
 						local pct = math.clamp(math.floor((livePocket / targetCash) * 100), 0, 100)
-						bcaTargetEarningLabel.Text = string.format("🎯 Target: %s  |  Live Poket: %s (+%s) [%d%%]", formatRupiah(targetCash), formatRupiah(livePocket), formatRupiah(liveIncrease), pct)
+						bcaTargetEarningLabel.Text = string.format("🎯 Target: %s  |  Live Poket: %s (%d%%)", formatRupiah(targetCash), formatRupiah(livePocket), pct)
 					else
-						bcaTargetEarningLabel.Text = string.format("🎯 Target: Disabled  |  Live Poket: %s (+%s)", formatRupiah(livePocket), formatRupiah(liveIncrease))
+						bcaTargetEarningLabel.Text = string.format("🎯 Target: Disabled  |  Live Poket: %s", formatRupiah(livePocket))
 					end
 				end
 
@@ -1483,7 +1460,6 @@ local success, err = pcall(function()
 		bcaCourierActive = v
 		Config.farm.bcaCourier = v
 		if v then
-			initialPocketCash = getPocketRupiahCash()
 			UI.Notify("BCA Courier Farm Active", "Automating money briefcases & 10 ATMs deliveries!", 3, "success")
 			runBcaCourierFarm()
 		else
