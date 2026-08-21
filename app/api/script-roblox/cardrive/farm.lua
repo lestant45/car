@@ -663,14 +663,20 @@ local success, err = pcall(function()
 		if not btn then return end
 		pcall(function()
 			if firesignal then
-				firesignal(btn.Activated)
-				firesignal(btn.MouseButton1Click)
+				if btn:IsA("GuiButton") then
+					firesignal(btn.Activated)
+					firesignal(btn.MouseButton1Click)
+					pcall(function() firesignal(btn.TouchTap) end)
+				end
 			end
 		end)
 		pcall(function()
 			if getconnections then
 				for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
 				for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+				pcall(function()
+					for _, c in ipairs(getconnections(btn.TouchTap)) do c:Fire() end
+				end)
 			end
 		end)
 		pcall(function()
@@ -740,38 +746,60 @@ local success, err = pcall(function()
 		if not prompt or not prompt.Parent then return end
 
 		pcall(function()
-			if not prompt.Enabled then prompt.Enabled = true end
+			prompt.Enabled = true
+			prompt.RequiresLineOfSight = false
+			prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 35)
+			prompt.HoldDuration = 0
 		end)
 
-		-- 1. Standard Executor Native Hook (Arceus X / Delta / Solara / PC Executors)
+		-- 1. Standard Executor Native Hook (Single clean trigger)
 		pcall(function()
 			if fireproximityprompt then
 				fireproximityprompt(prompt)
-				fireproximityprompt(prompt, 0)
-				if prompt.HoldDuration and prompt.HoldDuration > 0 then
-					fireproximityprompt(prompt, prompt.HoldDuration)
+			end
+		end)
+
+		-- 2. Direct Roblox Engine InputHold API Simulation (Universal PC + Mobile)
+		pcall(function()
+			if prompt.InputHoldBegin and prompt.InputHoldEnd then
+				prompt:InputHoldBegin()
+				task.wait(0.05)
+				prompt:InputHoldEnd()
+			end
+		end)
+
+		-- 3. Trigger Custom GUI Pill Tap if generated on Mobile/PC
+		pcall(function()
+			local pgui = player:FindFirstChild("PlayerGui")
+			if pgui then
+				for _, gui in ipairs(pgui:GetChildren()) do
+					if gui.Name == "BankCourierPrompt" or gui:FindFirstChild("Pill") then
+						local tap = gui:FindFirstChild("Tap", true)
+						if tap then
+							if firesignal then
+								firesignal(tap.Activated)
+								firesignal(tap.MouseButton1Click)
+							end
+							if getconnections then
+								for _, c in ipairs(getconnections(tap.Activated)) do c:Fire() end
+								for _, c in ipairs(getconnections(tap.MouseButton1Click)) do c:Fire() end
+							end
+						end
+					end
 				end
 			end
 		end)
 
-		-- 2. Firesignal & Connection Direct Hooks
+		-- 4. Firesignal & Connection Direct Hooks
 		pcall(function()
 			if firesignal then
+				firesignal(prompt.PromptButtonHoldBegan, player)
 				firesignal(prompt.PromptButtonHoldEnded, player)
 				firesignal(prompt.Triggered, player)
 			end
 			if getconnections then
 				for _, c in ipairs(getconnections(prompt.Triggered)) do c:Fire(player) end
 				for _, c in ipairs(getconnections(prompt.PromptButtonHoldEnded)) do c:Fire(player) end
-			end
-		end)
-
-		-- 3. Fallback to Roblox ProximityPrompt Hold API
-		pcall(function()
-			if prompt.InputHoldBegin and prompt.InputHoldEnd then
-				prompt:InputHoldBegin()
-				task.wait(0.05)
-				prompt:InputHoldEnd()
 			end
 		end)
 	end
@@ -1152,7 +1180,7 @@ local success, err = pcall(function()
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding F for 2.5s)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Instant / Mobile Supported)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
@@ -1160,7 +1188,7 @@ local success, err = pcall(function()
 				while not isCarryingKoper() and os.clock() - tStart < 20 and bcaCourierActive do
 					-- 1. Position character right behind the trunk facing the trunk door (< 2.2 studs)
 					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.2 + Vector3.new(0, 0.5, 0))
-					task.wait(0.2)
+					task.wait(0.15)
 
 					ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 					if not ambilPrompt then
@@ -1173,17 +1201,52 @@ local success, err = pcall(function()
 					end
 
 					if ambilPrompt then
-						pcall(function() ambilPrompt.Enabled = true end)
+						pcall(function()
+							ambilPrompt.Enabled = true
+							ambilPrompt.RequiresLineOfSight = false
+							ambilPrompt.MaxActivationDistance = math.max(ambilPrompt.MaxActivationDistance or 9, 35)
+							ambilPrompt.HoldDuration = 0
+						end)
 
-						-- A. Trigger executor proximity prompt hooks with 2.5s hold duration
+						-- A. Standard Executor Native Hook (Arceus X / Delta / Solara / PC Executors)
 						pcall(function()
 							if fireproximityprompt then
-								fireproximityprompt(ambilPrompt, 2.5)
-								fireproximityprompt(ambilPrompt, 0)
 								fireproximityprompt(ambilPrompt)
 							end
 						end)
 
+						-- B. Direct Roblox Engine InputHold API (Universal on Mobile + PC)
+						pcall(function()
+							if ambilPrompt.InputHoldBegin and ambilPrompt.InputHoldEnd then
+								ambilPrompt:InputHoldBegin()
+								task.wait(0.08)
+								ambilPrompt:InputHoldEnd()
+							end
+						end)
+
+						-- C. Trigger Mobile / Custom UI Pill Tap
+						pcall(function()
+							local pgui = player:FindFirstChild("PlayerGui")
+							if pgui then
+								for _, gui in ipairs(pgui:GetChildren()) do
+									if gui.Name == "BankCourierPrompt" or gui:FindFirstChild("Pill") then
+										local tap = gui:FindFirstChild("Tap", true)
+										if tap then
+											if firesignal then
+												firesignal(tap.Activated)
+												firesignal(tap.MouseButton1Click)
+											end
+											if getconnections then
+												for _, c in ipairs(getconnections(tap.Activated)) do c:Fire() end
+												for _, c in ipairs(getconnections(tap.MouseButton1Click)) do c:Fire() end
+											end
+										end
+									end
+								end
+							end
+						end)
+
+						-- D. Firesignal & Connection Direct Hooks
 						pcall(function()
 							if firesignal then
 								firesignal(ambilPrompt.PromptButtonHoldBegan, player)
@@ -1196,40 +1259,18 @@ local success, err = pcall(function()
 							end
 						end)
 
-						-- B. Press and hold down 'F' key & InputHoldBegin for 2.5s
+						-- E. Keyboard F fallback for PC
 						pcall(function()
-							if ambilPrompt.InputHoldBegin then
-								ambilPrompt:InputHoldBegin()
+							local uis = game:GetService("UserInputService")
+							if uis.KeyboardEnabled then
+								vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+								task.wait(0.1)
+								vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 							end
-							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-						end)
-
-						-- Hold continuously for 2.5 seconds or until suitcase is in hand
-						local tHold = os.clock()
-						while not isCarryingKoper() and os.clock() - tHold < 2.5 do
-							task.wait(0.05)
-						end
-
-						-- Release 'F' key
-						pcall(function()
-							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-							if ambilPrompt.InputHoldEnd then
-								ambilPrompt:InputHoldEnd()
-							end
-						end)
-					else
-						-- Fallback: Hold F key for 2.5s
-						pcall(function()
-							vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-							local tHold = os.clock()
-							while not isCarryingKoper() and os.clock() - tHold < 2.5 do
-								task.wait(0.05)
-							end
-							vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 						end)
 					end
 
-					task.wait(0.4)
+					task.wait(0.3)
 				end
 			end
 
