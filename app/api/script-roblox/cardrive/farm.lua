@@ -99,7 +99,43 @@ local success, err = pcall(function()
 		safeTeleport(safeCF + Vector3.new(0, 1.0, 3), false)
 	end
 
-	-- Smooth Tween Car & Player to Destination (Glide smoothly and prevent wall flinging/collisions)
+	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
+	local function enterDriveSeat(car)
+		if not car then return false end
+		local seat = car:FindFirstChild("DriveSeat")
+		local char = player.Character
+		if not seat or not char or not char:FindFirstChild("Humanoid") then return false end
+
+		if char.Humanoid.Sit and char.Humanoid.SeatPart == seat then
+			return true
+		end
+
+		pcall(function()
+			char.HumanoidRootPart.CFrame = seat.CFrame + Vector3.new(0, 1.5, 0)
+			seat:Sit(char.Humanoid)
+		end)
+
+		local t0 = os.clock()
+		while (not char.Humanoid.Sit or char.Humanoid.SeatPart ~= seat) and os.clock() - t0 < 1.5 do
+			task.wait(0.05)
+		end
+
+		return char.Humanoid.Sit and char.Humanoid.SeatPart == seat
+	end
+
+	-- Function to safely exit DriveSeat
+	local function exitDriveSeat()
+		local char = player.Character
+		if char and char:FindFirstChild("Humanoid") and char.Humanoid.Sit then
+			char.Humanoid.Sit = false
+			pcall(function()
+				char.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end)
+			task.wait(0.2)
+		end
+	end
+
+	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics Replication)
 	local function safeTweenCar(targetCF, speed)
 		local car = getPlayerCar()
 		if not car then
@@ -107,14 +143,18 @@ local success, err = pcall(function()
 			return
 		end
 
+		-- 1. Enter Driver Seat before moving to claim Network Ownership on the server
+		enterDriveSeat(car)
+		task.wait(0.2)
+
 		local destCF = getSafeGroundCFrame(targetCF.Position) * (targetCF - targetCF.Position)
 		local startCF = car:GetPivot()
 		local dist = (startCF.Position - destCF.Position).Magnitude
 
-		speed = speed or 220
-		local duration = math.clamp(dist / speed, 0.4, 4.5)
+		speed = speed or 250
+		local duration = math.clamp(dist / speed, 0.5, 5.0)
 
-		-- Zero out physics velocities before, during, and after tween
+		-- Zero out physics velocities before tween
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.AssemblyLinearVelocity = Vector3.zero
@@ -147,12 +187,6 @@ local success, err = pcall(function()
 						part.AssemblyAngularVelocity = Vector3.zero
 					end
 				end
-
-				local char = player.Character
-				if char and char:FindFirstChild("HumanoidRootPart") then
-					char.HumanoidRootPart.CFrame = currentCF + Vector3.new(0, 1.5, 3)
-					char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.zero
-				end
 			end)
 
 			if alpha >= 1 then
@@ -176,6 +210,12 @@ local success, err = pcall(function()
 				end
 			end
 		end)
+
+		task.wait(0.25)
+
+		-- 2. Exit Driver Seat now that vehicle has physically traveled to destination on server
+		exitDriveSeat()
+		task.wait(0.2)
 		safeTeleport(destCF + Vector3.new(0, 1.0, 3), false)
 	end
 
