@@ -745,16 +745,20 @@ local success, err = pcall(function()
 	local function triggerPrompt(prompt)
 		if not prompt or not prompt.Parent then return end
 
+		local holdTime = 0
 		pcall(function()
 			prompt.Enabled = true
 			prompt.RequiresLineOfSight = false
 			prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 35)
-			prompt.HoldDuration = 0
+			holdTime = tonumber(prompt.HoldDuration) or 0
 		end)
 
-		-- 1. Standard Executor Native Hook (Single clean trigger)
+		-- 1. Standard Executor Native Hook
 		pcall(function()
 			if fireproximityprompt then
+				if holdTime > 0 then
+					fireproximityprompt(prompt, holdTime)
+				end
 				fireproximityprompt(prompt)
 			end
 		end)
@@ -763,7 +767,7 @@ local success, err = pcall(function()
 		pcall(function()
 			if prompt.InputHoldBegin and prompt.InputHoldEnd then
 				prompt:InputHoldBegin()
-				task.wait(0.05)
+				task.wait(holdTime > 0 and (holdTime + 0.15) or 0.05)
 				prompt:InputHoldEnd()
 			end
 		end)
@@ -1180,15 +1184,17 @@ local success, err = pcall(function()
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Instant / Mobile Supported)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding for 2.2s)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
 
 				while not isCarryingKoper() and os.clock() - tStart < 20 and bcaCourierActive do
-					-- 1. Position character right behind the trunk facing the trunk door (< 2.2 studs)
-					safeTeleport(bagasi.CFrame + bagasi.CFrame.LookVector * -2.2 + Vector3.new(0, 0.5, 0))
-					task.wait(0.15)
+					-- 1. Position character right behind the trunk on the ground facing the trunk
+					local trunkPos = bagasi.Position
+					local standCF = CFrame.new(trunkPos + (bagasi.CFrame.LookVector * -2.5) + Vector3.new(0, 0.5, 0), trunkPos)
+					safeTeleport(standCF)
+					task.wait(0.2)
 
 					ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 					if not ambilPrompt then
@@ -1201,26 +1207,29 @@ local success, err = pcall(function()
 					end
 
 					if ambilPrompt then
+						local holdSec = tonumber(ambilPrompt.HoldDuration) or 2.0
 						pcall(function()
 							ambilPrompt.Enabled = true
 							ambilPrompt.RequiresLineOfSight = false
 							ambilPrompt.MaxActivationDistance = math.max(ambilPrompt.MaxActivationDistance or 9, 35)
-							ambilPrompt.HoldDuration = 0
 						end)
 
-						-- A. Standard Executor Native Hook (Arceus X / Delta / Solara / PC Executors)
+						-- A. Standard Executor Native Hook
 						pcall(function()
 							if fireproximityprompt then
+								fireproximityprompt(ambilPrompt, holdSec)
 								fireproximityprompt(ambilPrompt)
 							end
 						end)
 
-						-- B. Direct Roblox Engine InputHold API (Universal on Mobile + PC)
+						-- B. Press and hold down 'F' key & InputHoldBegin for full duration
 						pcall(function()
-							if ambilPrompt.InputHoldBegin and ambilPrompt.InputHoldEnd then
+							if ambilPrompt.InputHoldBegin then
 								ambilPrompt:InputHoldBegin()
-								task.wait(0.08)
-								ambilPrompt:InputHoldEnd()
+							end
+							local uis = game:GetService("UserInputService")
+							if uis.KeyboardEnabled then
+								vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 							end
 						end)
 
@@ -1246,6 +1255,23 @@ local success, err = pcall(function()
 							end
 						end)
 
+						-- Hold continuously for required hold duration (2.2s) or until suitcase is in hand
+						local tHold = os.clock()
+						while not isCarryingKoper() and os.clock() - tHold < (holdSec + 0.3) do
+							task.wait(0.05)
+						end
+
+						-- Release 'F' key & InputHoldEnd
+						pcall(function()
+							local uis = game:GetService("UserInputService")
+							if uis.KeyboardEnabled then
+								vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+							end
+							if ambilPrompt.InputHoldEnd then
+								ambilPrompt:InputHoldEnd()
+							end
+						end)
+
 						-- D. Firesignal & Connection Direct Hooks
 						pcall(function()
 							if firesignal then
@@ -1256,16 +1282,6 @@ local success, err = pcall(function()
 							if getconnections then
 								for _, c in ipairs(getconnections(ambilPrompt.Triggered)) do c:Fire(player) end
 								for _, c in ipairs(getconnections(ambilPrompt.PromptButtonHoldEnded)) do c:Fire(player) end
-							end
-						end)
-
-						-- E. Keyboard F fallback for PC
-						pcall(function()
-							local uis = game:GetService("UserInputService")
-							if uis.KeyboardEnabled then
-								vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-								task.wait(0.1)
-								vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 							end
 						end)
 					end
