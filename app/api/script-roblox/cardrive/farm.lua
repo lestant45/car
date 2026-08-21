@@ -228,72 +228,6 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Smart Tower & Building Destroyer: Safely extracts and preserves all internal driveways, asphalts, ramps, and highways before destroying towers & buildings
-	local function destroyObstacles()
-		local count = 0
-		local map = workspace:FindFirstChild("Map")
-		local baseFolder = map and (map:FindFirstChild("Base") or map) or workspace
-
-		local function isRoadOrEssential(instance)
-			if not instance then return false end
-			local name = instance.Name:lower()
-			return name:find("asphalt") or name:find("aspal") or name:find("road") or name:find("jalan")
-				or name:find("street") or name:find("highway") or name:find("ramp") or name:find("driveway")
-				or name:find("tol") or name:find("toll") or name:find("bridge") or name:find("jembatan")
-				or name:find("flyover") or name:find("base") or name:find("ground") or name:find("floor")
-				or name:find("terrain") or name:find("atm") or name:find("mesin") or name:find("npc")
-				or name:find("koper") or name:find("vehicle") or name:find("car") or name:find("spawn")
-		end
-
-		-- 1. Extract roads/ramps from workspace.Map.Building, then destroy the towers & buildings
-		local buildingFolder = map and map:FindFirstChild("Building")
-		if buildingFolder then
-			for _, building in ipairs(buildingFolder:GetChildren()) do
-				-- Preserve all nested driveway/asphalt parts
-				for _, desc in ipairs(building:GetDescendants()) do
-					if isRoadOrEssential(desc) and desc:IsA("BasePart") then
-						pcall(function() desc.Parent = baseFolder end)
-					end
-				end
-				pcall(function()
-					count = count + 1
-					building:Destroy()
-				end)
-			end
-		end
-
-		-- 2. Destroy player/ownable houses after preserving roads
-		local houseFolder = map and map:FindFirstChild("OwnableHouse")
-		if houseFolder then
-			for _, house in ipairs(houseFolder:GetChildren()) do
-				for _, desc in ipairs(house:GetDescendants()) do
-					if isRoadOrEssential(desc) and desc:IsA("BasePart") then
-						pcall(function() desc.Parent = baseFolder end)
-					end
-				end
-				pcall(function()
-					count = count + 1
-					house:Destroy()
-				end)
-			end
-		end
-
-		-- 3. Destroy trees so foliage and branches never obstruct travel
-		local treeFolder = map and map:FindFirstChild("Tree")
-		if treeFolder then
-			for _, item in ipairs(treeFolder:GetChildren()) do
-				if not isRoadOrEssential(item) then
-					pcall(function()
-						count = count + 1
-						item:Destroy()
-					end)
-				end
-			end
-		end
-
-		return count
-	end
-
 	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics Replication)
 	local function safeTweenCar(targetCF, speed)
 		while isInBankMinigame() and bcaCourierActive do
@@ -320,10 +254,9 @@ local success, err = pcall(function()
 		speed = speed or 180
 		local duration = math.clamp(dist / speed, 0.5, 6.0)
 
-		-- Zero out physics velocities before tween & disable body part collisions
+		-- Zero out physics velocities before tween
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.CanCollide = false
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -350,17 +283,8 @@ local success, err = pcall(function()
 				car:PivotTo(currentCF)
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.CanCollide = false
 						part.AssemblyLinearVelocity = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-				local char = player.Character
-				if char then
-					for _, part in ipairs(char:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-						end
 					end
 				end
 			end)
@@ -583,8 +507,7 @@ local success, err = pcall(function()
 	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
-	local bcaKoperPos = Vector3.new(1779.29, 22.0, -4643.79)
-	local bcaDrivewayPos = Vector3.new(1776.05, 22.0, -4620.03) -- Safely centered on top of Asphalt05_001 (Y=19.25)
+	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
 
 	local function getBankCourierGui()
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -804,7 +727,7 @@ local success, err = pcall(function()
 		if car then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.5) -- Wait 1.5s after spawning before moving car
-			local koperParkCFrame = getSafeGroundCFrame(bcaDrivewayPos, 20)
+			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -824,9 +747,9 @@ local success, err = pcall(function()
 
 		car = car or getPlayerCar()
 
-		-- Ensure car is parked right on top of Asphalt05_001
-		local koperParkCFrame = getSafeGroundCFrame(bcaDrivewayPos, 20)
-		if car and (car:GetPivot().Position - bcaDrivewayPos).Magnitude > 25 then
+		-- Ensure car is parked right on the asphalt driveway
+		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
+		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 25 then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.5)
 			safeTweenCar(koperParkCFrame, 160)
@@ -1129,9 +1052,6 @@ local success, err = pcall(function()
 	end
 
 	local function runBcaCourierFarm()
-		if Config.farm.destroyBuildings then
-			pcall(destroyObstacles)
-		end
 		task.spawn(function()
 			while bcaCourierActive do
 				pcall(function()
@@ -1193,7 +1113,7 @@ local success, err = pcall(function()
 
 					if isAtmDone then
 						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(bcaDrivewayPos, 20), 180)
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
 						task.wait(0.5)
 
 						-- Walk inside lobby to approach Andhini (Koordinator Kurir BCA)
@@ -1327,17 +1247,6 @@ local success, err = pcall(function()
 	-- Quick Status Card
 	local statusSec = UI.AddSection(farmFrame, "Automated Money Farm (CDID Jobs)", 1)
 	UI.AddLabel(statusSec, "Select a job below. Script will automate pickups, deliveries, and rewards.")
-
-	UI.AddButton(statusSec, "💥 Destroy Towers & Buildings (Preserves Driveways & Roads)", function()
-		local count = destroyObstacles()
-		UI.Notify("Map Cleaned", string.format("Destroyed %d towers & buildings! All asphalt & driveways preserved.", count), 3, "success")
-	end, 1)
-
-	UI.AddToggle(statusSec, "Auto-Destroy Towers & Buildings (Preserve Roads)", Config.farm.destroyBuildings or false, function(v)
-		Config.farm.destroyBuildings = v
-		if v then destroyObstacles() end
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 2)
 
 	-- 🏦 BCA Collaboration Event & Bank Courier
 	local bcaSec = UI.AddSection(farmFrame, "🏦 BCA Collaboration Event & Bank Courier", 2)
