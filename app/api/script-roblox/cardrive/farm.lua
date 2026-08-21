@@ -79,7 +79,7 @@ local success, err = pcall(function()
 		root.AssemblyAngularVelocity = Vector3.zero
 
 		if useTween then
-			speed = speed or 120
+			speed = speed or 200
 			local dist = (root.Position - cframe.Position).Magnitude
 			local time = math.clamp(dist / speed, 0.2, 3)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
@@ -528,6 +528,7 @@ local success, err = pcall(function()
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
 	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
+	local bcaKoperDrivewayPos = Vector3.new(1762.85, 22.34, -4615.80)
 
 	local function getBankCourierGui()
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -746,8 +747,8 @@ local success, err = pcall(function()
 		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
 		if car then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
-			task.wait(1.5) -- Wait 1.5s after spawning before moving car
-			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
+			task.wait(1.0) -- Wait 1s after spawning before moving car
+			local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -767,11 +768,11 @@ local success, err = pcall(function()
 
 		car = car or getPlayerCar()
 
-		-- Ensure car is parked right on the asphalt driveway
-		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
-		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 25 then
+		-- Ensure car is parked right on the asphalt driveway at (1762.85, 22.34, -4615.80)
+		local koperParkCFrame = getSafeGroundCFrame(bcaKoperDrivewayPos, 20)
+		if car and (car:GetPivot().Position - bcaKoperDrivewayPos).Magnitude > 25 then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
-			task.wait(1.5)
+			task.wait(1.0)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -858,7 +859,7 @@ local success, err = pcall(function()
 
 	-- Safe Open Parking Spots for Vehicle (Clear sky, open asphalt, no pillars or ceilings)
 	local ATM_PARKING_SPOTS = {
-		["ATM1"] = Vector3.new(1860.0, 24.5, -4850.0),
+		["ATM1"] = Vector3.new(1762.85, 22.34, -4615.80),
 		["ATM2"] = Vector3.new(2212.55, 27.5, -4594.36),
 		["ATM3"] = Vector3.new(825.0, 24.2, -3810.0),
 		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
@@ -1112,9 +1113,9 @@ local success, err = pcall(function()
 
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
 					if not hasActiveJobGui then
-						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC")
+						updateBcaActivity("🚶 Starting Bank Courier Job at Andhini NPC (200 studs/s)")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
 						task.wait(0.5)
 
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
@@ -1143,13 +1144,13 @@ local success, err = pcall(function()
 
 					if isAtmDone then
 						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
+						safeTweenCar(getSafeGroundCFrame(bcaKoperDrivewayPos, 20), 180)
 						task.wait(0.5)
 
 						-- Walk inside lobby to approach Andhini (Koordinator Kurir BCA)
-						updateBcaActivity("🚶 Walking Inside Lobby to Andhini NPC")
+						updateBcaActivity("🚶 Walking Inside Lobby to Andhini NPC (200 studs/s)")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 140)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
 						task.wait(0.5)
 
 						-- Trigger Andhini's DialogPrompt
