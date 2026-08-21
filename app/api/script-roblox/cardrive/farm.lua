@@ -740,8 +740,13 @@ local success, err = pcall(function()
 
 			local targetPos = getBankCourierTargetPos()
 			if not targetPos then
-				task.wait(1)
-				targetPos = getBankCourierTargetPos()
+				local tWait = os.clock()
+				while not targetPos and os.clock() - tWait < 6 and bcaCourierActive do
+					task.wait(0.5)
+					targetPos = getBankCourierTargetPos()
+					local curA, totA = parseProgress(jobGui and jobGui.Status.Atm.Text or "")
+					if bcaJobComplete or (totA > 0 and curA >= totA) then break end
+				end
 				if not targetPos then break end
 			end
 
@@ -871,15 +876,6 @@ local success, err = pcall(function()
 
 					local jobGui = getBankCourierGui()
 
-					-- STEP 1: Ensure Bank Courier Job is active
-					if not jobGui or not jobGui.Status.Visible then
-						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
-						task.wait(0.5)
-						fireRemote("Job", "BankCourier")
-						task.wait(1)
-						jobGui = getBankCourierGui()
-					end
-
 					local hintText = jobGui and jobGui.Status.Hint.Text or ""
 					local koperText = jobGui and jobGui.Status.Koper.Text or ""
 					local atmText = jobGui and jobGui.Status.Atm.Text or ""
@@ -888,9 +884,20 @@ local success, err = pcall(function()
 					local curKoper, totKoper = parseProgress(koperText)
 					local curAtm, totAtm = parseProgress(atmText)
 
-					-- STEP 2: Ensure Bank Car is spawned via Putra NPC (NEVER touch suitcases before this!)
+					local isContractActive = (totKoper > 0) or (curKoper > 0) or (curAtm > 0) or (bcaCurKoper > 0) or (bcaCurAtm > 0) or stepText:find("2)") or stepText:find("Antar")
+
+					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
+					if not isContractActive and (not jobGui or not jobGui.Status.Visible) then
+						safeTeleport(CFrame.new(bcaDepotPos), true, 140)
+						task.wait(0.5)
+						fireRemote("Job", "BankCourier")
+						task.wait(1)
+						jobGui = getBankCourierGui()
+					end
+
+					-- STEP 2: Ensure Bank Car is spawned via Putra NPC (ONLY during initial vehicle spawn)
 					local car = getPlayerCar()
-					if not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan") then
+					if not isContractActive and (not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan")) then
 						car = spawnBankCar()
 						task.wait(0.5)
 						return
