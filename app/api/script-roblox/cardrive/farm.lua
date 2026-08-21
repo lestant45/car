@@ -659,6 +659,29 @@ local success, err = pcall(function()
 		end
 	end
 
+	local function clickGuiButton(btn)
+		if not btn then return end
+		pcall(function()
+			if firesignal then
+				firesignal(btn.Activated)
+				firesignal(btn.MouseButton1Click)
+			end
+		end)
+		pcall(function()
+			if getconnections then
+				for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+				for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+			end
+		end)
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+			vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+			task.wait(0.02)
+			vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+		end)
+	end
+
 	-- Hook BankCourier Remote to auto-solve ATM Skill Checks and track Koper state with 100% precision
 	pcall(function()
 		if Network and Network.OnClientEvent then
@@ -698,24 +721,15 @@ local success, err = pcall(function()
 
 						-- Wait until the needle reaches the exact center of the Great zone
 						local timeToSweet = (sweetAngle / speed)
-						task.wait(warnLead + timeToSweet)
+						task.wait(math.clamp(warnLead + timeToSweet, 0.05, 4.0))
 
-						-- Fire precision press once (prefer button signal, fallback to remote)
+						-- 1. Direct Server Remote (Always sent!)
+						fireRemote("BankCourier", "SkillPress", sweetAngle)
+
+						-- 2. Click Key button in UI
 						local jobGui = getBankCourierGui()
 						local keyBtn = jobGui and jobGui:FindFirstChild("Skill") and jobGui.Skill:FindFirstChild("Key")
-						local fired = false
-						if keyBtn and firesignal then
-							pcall(function()
-								firesignal(keyBtn.Activated)
-								firesignal(keyBtn.MouseButton1Click)
-								fired = true
-							end)
-						end
-						if not fired then
-							pcall(function()
-								Network:FireServer("BankCourier", "SkillPress", sweetAngle)
-							end)
-						end
+						clickGuiButton(keyBtn)
 					end)
 				end
 			end)
@@ -978,25 +992,11 @@ local success, err = pcall(function()
 
 						-- Drop precisely when suitcase is inside the green slot
 						if kX >= (sX + sW * 0.15) and kX <= (sX + sW * 0.85) then
-							local fired = false
-							if goBtn and firesignal then
-								pcall(function()
-									firesignal(goBtn.Activated)
-									firesignal(goBtn.MouseButton1Click)
-									fired = true
-								end)
-							end
-							if not fired and goBtn and getconnections then
-								pcall(function()
-									for _, c in ipairs(getconnections(goBtn.Activated)) do c:Fire() fired = true end
-									for _, c in ipairs(getconnections(goBtn.MouseButton1Click)) do c:Fire() fired = true end
-								end)
-							end
-							if not fired then
-								pcall(function()
-									Network:FireServer("BankCourier", "LoadPress")
-								end)
-							end
+							-- 1. Direct Server Remote (Always sent!)
+							fireRemote("BankCourier", "LoadPress")
+
+							-- 2. Click Go button in UI
+							clickGuiButton(goBtn)
 							break
 						end
 					end

@@ -71,18 +71,22 @@ local success, err = pcall(function()
 	minimizeButton.MouseButton1Click:Connect(function()
 		isMinimized = not isMinimized
 		if isMinimized then
-			UI.contentArea.Visible = false
-			mainFrame:FindFirstChild("Sidebar", true).Visible = false
-			TweenService:Create(mainFrame, TweenInfo.new(0.25), { Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 42) }):Play()
+			if UI.contentArea then UI.contentArea.Visible = false end
+			if UI.sidebar then UI.sidebar.Visible = false end
+			local side = mainFrame:FindFirstChild("Sidebar", true)
+			if side then side.Visible = false end
+			TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 42) }):Play()
 		else
-			local tw = TweenService:Create(mainFrame, TweenInfo.new(0.25), { Size = origSize })
+			local tw = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = origSize })
 			tw.Completed:Connect(function()
-				UI.contentArea.Visible = true
-				mainFrame:FindFirstChild("Sidebar", true).Visible = true
+				if UI.contentArea then UI.contentArea.Visible = true end
+				if UI.sidebar then UI.sidebar.Visible = true end
+				local side = mainFrame:FindFirstChild("Sidebar", true)
+				if side then side.Visible = true end
 			end)
 			tw:Play()
 		end
-		task.delay(0.26, syncShadow)
+		task.delay(0.24, syncShadow)
 	end)
 
 	closeButton.MouseButton1Click:Connect(function()

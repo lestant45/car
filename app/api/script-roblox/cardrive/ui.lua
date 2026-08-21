@@ -340,6 +340,7 @@ local success, err = pcall(function()
 	-- 📂 SIDEBAR
 	------------------------------------------------
 	local sidebar = Instance.new("Frame")
+	sidebar.Name = "Sidebar"
 	sidebar.Size = UDim2.new(0, 145, 1, -42)
 	sidebar.Position = UDim2.new(0, 0, 0, 42)
 	sidebar.BackgroundColor3 = COLORS.glassSurface
@@ -1105,6 +1106,7 @@ local success, err = pcall(function()
 		mainFrame = mainFrame,
 		shadowFrame = shadowFrame,
 		topBar = topBar,
+		sidebar = sidebar,
 		closeButton = closeButton,
 		minimizeButton = minimizeButton,
 		fullscreenButton = fullscreenButton,
