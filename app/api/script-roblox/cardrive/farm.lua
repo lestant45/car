@@ -528,7 +528,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🏦 BCA EVENT & BANK COURIER AUTO FARM (FULL QUEST AUTOMATION)
 	------------------------------------------------
-	local bcaCourierActive = false
+	local bcaCourierActive = Config.farm.bcaCourier or false
 	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
@@ -736,16 +736,24 @@ local success, err = pcall(function()
 		local timing = jobGui and jobGui:FindFirstChild("Timing")
 		local koperPart = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("KoperSpawn") and workspace.MY_BCA_COLLAB.Job.BankCourier.KoperSpawn:FindFirstChild("Part")
 
+		car = car or getPlayerCar()
+
 		-- Ensure car is parked right on the asphalt driveway
 		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
 		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 25 then
+			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
+			task.wait(1.5)
 			safeTweenCar(koperParkCFrame, 160)
-			task.wait(0.3)
+			task.wait(0.5)
 		end
 
 		while bcaCourierActive do
-			local koperText = jobGui and jobGui.Status.Koper.Text or ""
-			local stepText = jobGui and jobGui.Status.Step.Text or ""
+			jobGui = getBankCourierGui()
+			local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+			if not hasActiveJobGui then break end
+
+			local koperText = jobGui.Status.Koper.Text or ""
+			local stepText = jobGui.Status.Step.Text or ""
 			local curKoper, totKoper = parseProgress(koperText)
 
 			-- If already full or in step 2 (delivering), stop loading
@@ -754,12 +762,12 @@ local success, err = pcall(function()
 			end
 
 			-- 1. Teleport to Koper Stack & Pickup
-			updateBcaActivity("🧳 Grabbing Suitcase from Stack (" .. curKoper .. "/" .. totKoper .. ")")
+			updateBcaActivity(string.format("🧳 Grabbing Suitcase from Stack (%d/%d)", curKoper, totKoper))
 			if koperPart then
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0))
 				task.wait(0.3)
-				local prompt = koperPart:FindFirstChild("Prompt", true)
-				triggerPrompt(prompt)
+				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+				triggerPrompt(prompt, 0.45)
 			else
 				safeTeleport(CFrame.new(bcaKoperPos))
 			end
@@ -768,15 +776,17 @@ local success, err = pcall(function()
 
 			-- 2. Teleport to Car Bagasi & Trigger Muat
 			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
-			local bagasi = car:FindFirstChild("BagasiPoint")
+			car = getPlayerCar() or car
+			local bagasi = car and car:FindFirstChild("BagasiPoint")
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
 				task.wait(0.3)
-				local muatPrompt = bagasi:FindFirstChild("MuatPrompt")
-				triggerPrompt(muatPrompt)
+				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
+				triggerPrompt(muatPrompt, 0.35)
 			end
 
 			-- 3. Precise Timing Drop into Slot (matching Picture 2)
+			timing = jobGui and jobGui:FindFirstChild("Timing")
 			local tStart = os.clock()
 			while timing and not timing.Visible and os.clock() - tStart < 2.5 do
 				task.wait(0.02)
@@ -793,7 +803,6 @@ local success, err = pcall(function()
 						local kX = koperImg.Position.X.Scale
 						local sX = slot.Position.X.Scale
 						local sW = slot.Size.X.Scale
-						local targetX = sX + (sW / 2)
 
 						-- Drop when koper is within the slot bounds
 						if kX >= sX and kX <= (sX + sW) then
@@ -806,15 +815,10 @@ local success, err = pcall(function()
 									for _, c in ipairs(getconnections(goBtn.Activated)) do c:Fire() end
 								end
 							end
-							fireRemote("BankCourier", "LoadPress")
+							Network:FireServer("BankCourier", "LoadPress")
 							break
 						end
 					end
-					task.wait(0.005)
-				end
-			else
-				fireRemote("BankCourier", "LoadPress")
-			end
 
 			task.wait(0.8)
 		end
@@ -1341,6 +1345,11 @@ local success, err = pcall(function()
 			end
 		end)
 	end, 5)
+
+	-- Launch BCA Courier thread immediately if enabled in saved config
+	if bcaCourierActive then
+		runBcaCourierFarm()
+	end
 
 	-- SiLambat Courier
 	local siLambatSec = UI.AddSection(farmFrame, "📦 SiLambat Express Delivery", 3)
