@@ -421,13 +421,18 @@ local success, err = pcall(function()
 				if not bcaCourierActive then return end
 				if action == "SkillCheck" and typeof(data) == "table" then
 					task.spawn(function()
-						local warnLead = data.warnLead or 0.05
+						local warnLead = data.warnLead or 0.04
 						local speed = data.speed or 360
-						local greatSize = data.greatSize or (data.zoneSize and (data.zoneSize / 2) or 30)
-						local sweetAngle = (data.zoneStart or 180) + (greatSize / 2)
-						local timeToSweet = math.clamp(sweetAngle / speed, 0.05, 3.0)
+						local zoneStart = data.zoneStart or 0
+						local zoneSize = data.zoneSize or 40
+						local greatSize = data.greatSize or (zoneSize / 2)
+						local sweetAngle = (zoneStart + (greatSize / 2)) % 360
 
+						-- Wait until the needle reaches the exact center of the Great zone
+						local timeToSweet = (sweetAngle / speed)
 						task.wait(warnLead + timeToSweet)
+
+						-- Fire precision press once
 						Network:FireServer("BankCourier", "SkillPress", sweetAngle)
 
 						local jobGui = getBankCourierGui()
@@ -524,6 +529,7 @@ local success, err = pcall(function()
 
 		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
 		if car then
+			task.wait(1.5) -- Wait 1.5s after spawning before moving car
 			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
@@ -703,7 +709,7 @@ local success, err = pcall(function()
 			end
 
 			safeTweenCar(safeAtmCF, 180)
-			task.wait(0.5)
+			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
 			local respawnBtn = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("RespawnCar")
@@ -742,19 +748,11 @@ local success, err = pcall(function()
 			end
 			fireRemote("BankCourier", "FillStart")
 
-			-- 4. Solve all Skill Check rounds (1 to 3)
+			-- 4. Wait for all 3 Skill Check rounds to complete
 			local skill = jobGui and jobGui:FindFirstChild("Skill")
 			local t0 = os.clock()
 			while os.clock() - t0 < 12 and bcaCourierActive do
-				if skill and skill.Visible then
-					local key = skill:FindFirstChild("Key")
-					if key and firesignal then
-						firesignal(key.Activated)
-						firesignal(key.MouseButton1Click)
-					end
-					fireRemote("BankCourier", "SkillPress", 180)
-				else
-					-- Check if step changed to delivering next ATM or done
+				if not skill or not skill.Visible then
 					local curAtm, totAtm = parseProgress(jobGui and jobGui.Status.Atm.Text or "")
 					if curAtm > 0 or (jobGui and jobGui.Status.Step.Text:find("3)")) then
 						break
