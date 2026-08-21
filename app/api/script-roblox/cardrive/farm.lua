@@ -421,14 +421,24 @@ local success, err = pcall(function()
 				if not bcaCourierActive then return end
 				if action == "SkillCheck" and typeof(data) == "table" then
 					task.spawn(function()
-						task.wait(data.warnLead or 0.1)
-						local greatSize = data.greatSize or (data.zoneSize / 2)
-						local sweetAngle = (data.zoneStart or 0) + (greatSize / 2)
+						local warnLead = data.warnLead or 0.05
+						local speed = data.speed or 360
+						local greatSize = data.greatSize or (data.zoneSize and (data.zoneSize / 2) or 30)
+						local sweetAngle = (data.zoneStart or 180) + (greatSize / 2)
+						local timeToSweet = math.clamp(sweetAngle / speed, 0.05, 3.0)
+
+						task.wait(warnLead + timeToSweet)
 						Network:FireServer("BankCourier", "SkillPress", sweetAngle)
+
+						local jobGui = getBankCourierGui()
+						local keyBtn = jobGui and jobGui:FindFirstChild("Skill") and jobGui.Skill:FindFirstChild("Key")
+						if keyBtn and firesignal then
+							firesignal(keyBtn.Activated)
+							firesignal(keyBtn.MouseButton1Click)
+						end
 					end)
 				elseif action == "LoadRound" and typeof(data) == "table" then
 					task.spawn(function()
-						-- Calculate exact time when koper reaches the center of the slot
 						local sweetX = (data.greenStart or 0.2) + ((data.greenSize or 0.2) / 2)
 						local dropDelay = math.clamp(sweetX * (data.period or 1.2), 0.05, 3)
 						task.wait(dropDelay)
@@ -624,6 +634,35 @@ local success, err = pcall(function()
 		["ATM10"] = CFrame.new(1975.0, 24.2, -3540.0),
 	}
 
+	local function getBankCourierTargetPos()
+		-- 1. Check BankCourierRoute Beam in workspace
+		local route = workspace:FindFirstChild("BankCourierRoute")
+		if route and route:FindFirstChild("To") then
+			local pos = route.To.WorldPosition
+			if pos and (pos - bcaDepotPos).Magnitude > 30 then
+				return pos
+			end
+		end
+
+		-- 2. Check __BankCourierTarget
+		local targetPart = workspace:FindFirstChild("__BankCourierTarget")
+		if targetPart and (targetPart.Position - bcaDepotPos).Magnitude > 30 then
+			return targetPart.Position
+		end
+
+		-- 3. Check Waypoints
+		local waypoints = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("Waypoint")
+		if waypoints and #waypoints:GetChildren() > 0 then
+			for _, wp in ipairs(waypoints:GetChildren()) do
+				if wp:IsA("BasePart") and (wp.Position - bcaDepotPos).Magnitude > 30 then
+					return wp.Position
+				end
+			end
+		end
+
+		return nil
+	end
+
 	local function deliverToAtms(car)
 		local jobGui = getBankCourierGui()
 		local bagasi = car:FindFirstChild("BagasiPoint")
@@ -638,27 +677,17 @@ local success, err = pcall(function()
 				break
 			end
 
-			local targetPart = workspace:FindFirstChild("__BankCourierTarget")
-			if not targetPart or (targetPart.Position - bcaDepotPos).Magnitude < 40 then break end
-
-			-- 1. Get dedicated safe open parking position (or dynamically calculate in open lot)
-			local safeAtmCF = nil
-			for atmName, spotCF in pairs(ATM_PARKING_SPOTS) do
-				local atmObj = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs") and workspace.MY_BCA_COLLAB.Job.BankCourier.ATMs:FindFirstChild(atmName)
-				local atmPart = atmObj and atmObj:FindFirstChildWhichIsA("BasePart", true)
-				if atmPart and (atmPart.Position - targetPart.Position).Magnitude < 15 then
-					safeAtmCF = spotCF
-					break
-				end
+			local targetPos = getBankCourierTargetPos()
+			if not targetPos then
+				task.wait(1)
+				targetPos = getBankCourierTargetPos()
+				if not targetPos then break end
 			end
 
-			if not safeAtmCF then
-				local openLotPos = targetPart.Position + Vector3.new(-14, 0, 10)
-				local groundPos = getGroundPosition(openLotPos)
-				safeAtmCF = CFrame.lookAt(groundPos, targetPart.Position)
-			end
+			-- 1. Calculate safe open road parking spot near destination ATM
+			local safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
 
-			safeTweenCar(safeAtmCF, 220)
+			safeTweenCar(safeAtmCF, 180)
 			task.wait(0.5)
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
@@ -684,29 +713,42 @@ local success, err = pcall(function()
 			task.wait(0.6)
 
 			-- 3. Teleport character directly in front of ATM at ground level
-			local atmFrontPos = getGroundPosition(targetPart.Position + targetPart.CFrame.LookVector * 2)
+			local atmFrontPos = getGroundPosition(targetPos)
 			safeTeleport(CFrame.new(atmFrontPos))
 			task.wait(0.3)
 
-			local isiPrompt = targetPart:FindFirstChild("IsiAtmPrompt") or targetPart.Parent:FindFirstChild("IsiAtmPrompt", true)
-			triggerPrompt(isiPrompt)
+			local nearbyParts = workspace:GetPartBoundsInRadius(targetPos, 25)
+			for _, p in ipairs(nearbyParts) do
+				for _, prompt in ipairs(p:GetChildren()) do
+					if prompt:IsA("ProximityPrompt") and prompt.Enabled and (prompt.ActionText:lower():find("isi") or prompt.ObjectText:lower():find("atm") or prompt.Name:find("Isi")) then
+						triggerPrompt(prompt)
+					end
+				end
+			end
 			fireRemote("BankCourier", "FillStart")
 
-			-- 4. Solve Skill Check
+			-- 4. Solve all Skill Check rounds (1 to 3)
 			local skill = jobGui and jobGui:FindFirstChild("Skill")
 			local t0 = os.clock()
-			while os.clock() - t0 < 5 do
+			while os.clock() - t0 < 12 and bcaCourierActive do
 				if skill and skill.Visible then
-					fireRemote("BankCourier", "SkillPress", 180)
-					if firesignal and skill:FindFirstChild("Key") then
-						firesignal(skill.Key.Activated)
+					local key = skill:FindFirstChild("Key")
+					if key and firesignal then
+						firesignal(key.Activated)
+						firesignal(key.MouseButton1Click)
 					end
-					break
+					fireRemote("BankCourier", "SkillPress", 180)
+				else
+					-- Check if step changed to delivering next ATM or done
+					local curAtm, totAtm = parseProgress(jobGui and jobGui.Status.Atm.Text or "")
+					if curAtm > 0 or (jobGui and jobGui.Status.Step.Text:find("3)")) then
+						break
+					end
 				end
-				task.wait(0.05)
+				task.wait(0.2)
 			end
 
-			task.wait(1.5)
+			task.wait(1.0)
 		end
 	end
 
@@ -763,12 +805,9 @@ local success, err = pcall(function()
 					-- STEP 4: Deliver to marked ATMs (ONLY when all kopers are loaded!)
 					local isAtmDone = (totAtm > 0 and curAtm >= totAtm) or stepText:find("3)")
 					if isKoperFull and not isAtmDone then
-						local targetPart = workspace:FindFirstChild("__BankCourierTarget")
-						if targetPart and (targetPart.Position - bcaDepotPos).Magnitude > 40 then
-							deliverToAtms(car)
-							task.wait(0.5)
-							return
-						end
+						deliverToAtms(car)
+						task.wait(0.5)
+						return
 					end
 
 					-- STEP 5: Return to Depot & Claim Reward (When all ATMs are filled)
