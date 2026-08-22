@@ -984,14 +984,14 @@ local success, err = pcall(function()
 			updateBcaActivity(string.format("🧳 Grabbing Suitcase from Stack (%d/%d)", curKoper, totKoper))
 			if koperPart then
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0))
-				task.wait(0.3)
+				task.wait(0.4)
 				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
 				triggerPrompt(prompt)
 			else
 				safeTeleport(CFrame.new(bcaKoperPos))
 			end
 
-			task.wait(0.4)
+			task.wait(0.6)
 
 			-- 2. Teleport to Car Bagasi & Trigger Muat
 			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
@@ -999,7 +999,7 @@ local success, err = pcall(function()
 			local bagasi = car and car:FindFirstChild("BagasiPoint")
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
-				task.wait(0.3)
+				task.wait(0.4)
 				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				triggerPrompt(muatPrompt)
 			end
@@ -1043,7 +1043,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			task.wait(0.8)
+			task.wait(1.0)
 		end
 	end
 
@@ -1055,7 +1055,7 @@ local success, err = pcall(function()
 		["ATM4"] = Vector3.new(2291.25, 27.96, -4882.77),
 		["ATM7"] = Vector3.new(-475.64, 26.27, 8732.79),
 		["ATM8"] = Vector3.new(-223.75, 21.93, 10705.88),
-		["ATM9"] = Vector3.new(1585.46, 51.14, 870.47),
+		["ATM9"] = Vector3.new(1550.03, 50.14, 875.15),
 		["ATM10"] = Vector3.new(2023.20, 21.44, -3538.69),
 	}
 
@@ -1304,7 +1304,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			task.wait(0.5)
+			task.wait(0.6)
 
 			-- 3. Teleport character directly in front of ATM Screen (< 3 studs away)
 			local atmFrontPos = nil
@@ -1335,7 +1335,7 @@ local success, err = pcall(function()
 
 			updateBcaActivity("🏧 Stepping in Front of ATM Machine")
 			safeTeleport(CFrame.new(atmFrontPos))
-			task.wait(0.4)
+			task.wait(0.6)
 
 			local nearbyParts = workspace:GetPartBoundsInRadius(atmFrontPos, 25)
 			for _, p in ipairs(nearbyParts) do
@@ -1361,7 +1361,7 @@ local success, err = pcall(function()
 				task.wait(0.2)
 			end
 
-			task.wait(1.2)
+			task.wait(1.5)
 
 			-- Check if all assigned ATMs are filled (e.g. 2/2, 3/3, 4/4) or Step 3 reached
 			jobGui = getBankCourierGui()
