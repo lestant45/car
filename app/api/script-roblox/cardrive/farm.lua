@@ -81,7 +81,7 @@ local success, err = pcall(function()
 		if useTween then
 			speed = speed or 120
 			local dist = (root.Position - cframe.Position).Magnitude
-			local time = math.clamp(dist / speed, 0.2, 3)
+			local time = math.clamp(dist / speed, 0.1, 8.0)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
 			tw:Play()
 			tw.Completed:Wait()
@@ -758,8 +758,9 @@ local success, err = pcall(function()
 			if fireproximityprompt then
 				if holdTime > 0 then
 					fireproximityprompt(prompt, holdTime)
+				else
+					fireproximityprompt(prompt)
 				end
-				fireproximityprompt(prompt)
 			end
 		end)
 
@@ -767,7 +768,7 @@ local success, err = pcall(function()
 		pcall(function()
 			if prompt.InputHoldBegin and prompt.InputHoldEnd then
 				prompt:InputHoldBegin()
-				task.wait(holdTime > 0 and (holdTime + 0.15) or 0.05)
+				task.wait(holdTime > 0 and (holdTime + 0.35) or 0.08)
 				prompt:InputHoldEnd()
 			end
 		end)
@@ -1166,9 +1167,13 @@ local success, err = pcall(function()
 			local char = player.Character
 			local hum = char and char:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Sit then
-				hum.Sit = false
-				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
-				task.wait(0.3)
+				for _ = 1, 5 do
+					if not hum.Sit then break end
+					hum.Sit = false
+					pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+					task.wait(0.15)
+				end
+				task.wait(0.4)
 			end
 
 			-- 2. Take Koper from Bagasi on the ground (Verify suitcase is in hand before proceeding)
@@ -1180,16 +1185,21 @@ local success, err = pcall(function()
 				if c:FindFirstChild("Koper", true) then return true end
 				if c:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
 				if player:GetAttribute("HidePrompt") == true then return true end
+				local jobGui = getBankCourierGui()
+				local hintText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Hint") and jobGui.Status.Hint.Text or ""
+				if hintText:find("ATM") and (hintText:find("Isi") or hintText:find("bawa") or hintText:find("Bawa")) then
+					return true
+				end
 				return false
 			end
 
 			if bagasi then
-				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding for 2.2s)")
+				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding for 2.7s)")
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
 
-				while not isCarryingKoper() and os.clock() - tStart < 20 and bcaCourierActive do
+				while not isCarryingKoper() and os.clock() - tStart < 25 and bcaCourierActive do
 					-- 1. Position character right behind the trunk on the ground facing the trunk
 					local trunkPos = bagasi.Position
 					local standCF = CFrame.new(trunkPos + (bagasi.CFrame.LookVector * -2.5) + Vector3.new(0, 0.5, 0), trunkPos)
@@ -1217,8 +1227,11 @@ local success, err = pcall(function()
 						-- A. Standard Executor Native Hook
 						pcall(function()
 							if fireproximityprompt then
-								fireproximityprompt(ambilPrompt, holdSec)
-								fireproximityprompt(ambilPrompt)
+								if holdSec > 0 then
+									fireproximityprompt(ambilPrompt, holdSec)
+								else
+									fireproximityprompt(ambilPrompt)
+								end
 							end
 						end)
 
@@ -1255,9 +1268,9 @@ local success, err = pcall(function()
 							end
 						end)
 
-						-- Hold continuously for required hold duration (2.2s) or until suitcase is in hand
+						-- Hold continuously for required hold duration (2.7s for cloud jitter safety) or until suitcase is in hand
 						local tHold = os.clock()
-						while not isCarryingKoper() and os.clock() - tHold < (holdSec + 0.3) do
+						while not isCarryingKoper() and os.clock() - tHold < (holdSec + 0.7) do
 							task.wait(0.05)
 						end
 
@@ -1286,7 +1299,8 @@ local success, err = pcall(function()
 						end)
 					end
 
-					task.wait(0.3)
+					-- Grace period for server to replicate suitcase to character before retrying
+					task.wait(0.6)
 				end
 			end
 
