@@ -1198,15 +1198,73 @@ local success, err = pcall(function()
 				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
+				local failedGrabAttempts = 0
 
-				while not isCarryingKoper() and os.clock() - tStart < 25 and bcaCourierActive do
+				while not isCarryingKoper() and os.clock() - tStart < 40 and bcaCourierActive do
+					-- Check if failed 3 times: Auto re-park closer to ATM
+					if failedGrabAttempts >= 3 then
+						local carPivot = car and car:GetPivot()
+						local carPos = carPivot and carPivot.Position or Vector3.zero
+						local distToAtm = (carPos - targetPos).Magnitude
+						updateBcaActivity(string.format("⚠️ Grab failed 3x (Dist: %.1f) -> Auto Re-parking 12 studs next to ATM...", distToAtm))
+
+						-- Re-enter driver seat to claim network ownership
+						enterDriveSeat(car)
+						task.wait(0.2)
+
+						-- Calculate close CFrame oriented with trunk facing ATM
+						local closePos = getSafeGroundCFrame(targetPos + Vector3.new(-8, 0, 8), 15).Position
+						local closeCF = CFrame.new(closePos, closePos + (closePos - targetPos))
+						safeTweenCar(closeCF, 120)
+						task.wait(1.0)
+
+						-- Settle physics & Unsit
+						for _, part in ipairs(car:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.AssemblyLinearVelocity = Vector3.zero
+								part.AssemblyAngularVelocity = Vector3.zero
+							end
+						end
+
+						local char = player.Character
+						local hum = char and char:FindFirstChildOfClass("Humanoid")
+						if hum and hum.Sit then
+							for _ = 1, 5 do
+								if not hum.Sit then break end
+								hum.Sit = false
+								pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+								task.wait(0.15)
+							end
+							task.wait(0.4)
+						end
+
+						bagasi = car:FindFirstChild("BagasiPoint")
+						failedGrabAttempts = 0
+						task.wait(0.5)
+					end
+
+					-- If failed 6+ times (e.g. car stuck under geometry), trigger Emergency Car Recall
+					if failedGrabAttempts >= 5 then
+						local respawnBtn = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("RespawnCar")
+						if respawnBtn and respawnBtn.Visible and not respawnBtn.Text:find("TUNGGU") then
+							updateBcaActivity("🆘 Car Stalled -> Triggering Panggil Mobil...")
+							fireRemote("BankCourier", "RespawnCar")
+							clickGuiButton(respawnBtn)
+							task.wait(2.0)
+							car = getPlayerCar() or car
+							bagasi = car and car:FindFirstChild("BagasiPoint")
+							failedGrabAttempts = 0
+						end
+					end
+
 					-- 1. Position character right behind the trunk on the ground facing the trunk
-					local trunkPos = bagasi.Position
-					local standCF = CFrame.new(trunkPos + (bagasi.CFrame.LookVector * -2.5) + Vector3.new(0, 0.5, 0), trunkPos)
+					local trunkPos = bagasi and bagasi.Position or (car:GetPivot().Position - car:GetPivot().LookVector * 5)
+					local trunkLook = bagasi and bagasi.CFrame.LookVector or car:GetPivot().LookVector
+					local standCF = CFrame.new(trunkPos + (trunkLook * -2.5) + Vector3.new(0, 0.5, 0), trunkPos)
 					safeTeleport(standCF)
 					task.wait(0.2)
 
-					ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
+					ambilPrompt = bagasi and (bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true))
 					if not ambilPrompt then
 						for _, p in ipairs(car:GetDescendants()) do
 							if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
@@ -1301,6 +1359,10 @@ local success, err = pcall(function()
 
 					-- Grace period for server to replicate suitcase to character before retrying
 					task.wait(0.6)
+
+					if not isCarryingKoper() then
+						failedGrabAttempts = failedGrabAttempts + 1
+					end
 				end
 			end
 
