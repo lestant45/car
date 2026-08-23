@@ -285,8 +285,8 @@ local success, err = pcall(function()
 		local destP = destCF.Position
 		local dist = (startP - destP).Magnitude
 
-		-- Consistent cruise speed (~150 studs/s) exactly matching metotcdid.mp4
-		speed = speed or 150
+		-- Consistent cruise speed (~160 studs/s) exactly matching metotcdid.mp4
+		speed = speed or 160
 		local duration = math.clamp(dist / speed, 1.2, 50.0)
 
 		-- Engage A-Chassis engine & release handbrake
@@ -302,6 +302,15 @@ local success, err = pcall(function()
 		if seat and seat:IsA("VehicleSeat") then
 			seat.Throttle = 1
 			seat.ThrottleFloat = 1
+		end
+
+		-- Anchor vehicle parts during transit so physics cannot drag, bounce, or fling the car
+		local anchoredParts = {}
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") and not part.Anchored then
+				table.insert(anchoredParts, part)
+				part.Anchored = true
+			end
 		end
 
 		local t0 = os.clock()
@@ -330,7 +339,7 @@ local success, err = pcall(function()
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 150 km/h)", remainingDist))
+			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 160 km/h)", remainingDist))
 
 			local currentCF
 			if alpha < 0.92 and remainingDist > 6 then
@@ -341,15 +350,6 @@ local success, err = pcall(function()
 
 			pcall(function()
 				car:PivotTo(currentCF)
-
-				-- Maintain forward velocity on chassis so wheels spin and speed registers on server
-				local currentVelocity = Vector3.new(flatLook.X * speed, 0, flatLook.Z * speed)
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = currentVelocity
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
 
 				-- Keep player synchronized inside vehicle seat during the drive
 				local char = player.Character
@@ -372,8 +372,16 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Apply brakes & settle car firmly at final parking spot
+		-- Unanchor vehicle parts, apply brakes & settle car firmly at final parking spot
 		pcall(function()
+			car:PivotTo(destCF)
+			for _, part in ipairs(anchoredParts) do
+				if part and part.Parent then
+					part.Anchored = false
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
 			if aValues then
 				if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 0 end
 				if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 1 end
@@ -383,13 +391,6 @@ local success, err = pcall(function()
 				seat.Throttle = 0
 				seat.ThrottleFloat = 0
 			end
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
-			end
-			car:PivotTo(destCF)
 		end)
 
 		task.wait(0.4)
@@ -1227,8 +1228,8 @@ local success, err = pcall(function()
 				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
 			end
 
-			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (150 studs/s)")
-			safeTweenCar(safeAtmCF, 150)
+			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (160 studs/s)")
+			safeTweenCar(safeAtmCF, 160)
 			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
@@ -1583,8 +1584,8 @@ local success, err = pcall(function()
 						or hintText:find("Andhini")
 
 					if isAtmDone then
-						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (150 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 150)
+						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (160 studs/s)")
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 160)
 						task.wait(0.5)
 
 						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
