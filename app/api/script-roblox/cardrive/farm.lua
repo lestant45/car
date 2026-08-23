@@ -195,25 +195,32 @@ local success, err = pcall(function()
 	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
 	local function enterDriveSeat(car)
 		if not car or isInBankMinigame() then return false end
-		local seat = car:FindFirstChild("DriveSeat")
+		local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
+			or car:FindFirstChild("DriveSeat", true)
+			or car:FindFirstChildWhichIsA("Seat", true)
 		local char = player.Character
-		if not seat or not char or not char:FindFirstChild("Humanoid") then return false end
+		if not seat or not char or not char:FindFirstChild("Humanoid") or not char:FindFirstChild("HumanoidRootPart") then return false end
 
 		if char.Humanoid.Sit and char.Humanoid.SeatPart == seat then
 			return true
 		end
 
 		pcall(function()
-			char.HumanoidRootPart.CFrame = seat.CFrame + Vector3.new(0, 1.5, 0)
+			char.HumanoidRootPart.CFrame = seat.CFrame + Vector3.new(0, 1.2, 0)
+			char.Humanoid.Sit = true
 			seat:Sit(char.Humanoid)
 		end)
 
 		local t0 = os.clock()
-		while (not char.Humanoid.Sit or char.Humanoid.SeatPart ~= seat) and os.clock() - t0 < 1.5 do
-			task.wait(0.05)
+		while (not char.Humanoid.Sit or char.Humanoid.SeatPart ~= seat) and os.clock() - t0 < 2.0 do
+			pcall(function()
+				char.HumanoidRootPart.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+				seat:Sit(char.Humanoid)
+			end)
+			task.wait(0.08)
 		end
 
-		return char.Humanoid.Sit and char.Humanoid.SeatPart == seat
+		return char.Humanoid.Sit
 	end
 
 	-- Function to safely exit DriveSeat
@@ -233,10 +240,17 @@ local success, err = pcall(function()
 		while isInBankMinigame() and bcaCourierActive do
 			task.wait(0.2)
 		end
+
 		local car = getPlayerCar()
 		if not car then
-			return
+			for _ = 1, 10 do
+				task.wait(0.2)
+				car = getPlayerCar()
+				if car then break end
+			end
 		end
+
+		if not car then return end
 
 		-- Ensure invisible safety platform is created and map chunks are streamed before moving
 		ensureSafetyPlate(targetCF.Position, 55)
@@ -244,7 +258,11 @@ local success, err = pcall(function()
 
 		-- 1. Enter Driver Seat before moving to claim Network Ownership & accumulate driving distance
 		enterDriveSeat(car)
-		task.wait(0.3)
+		task.wait(0.4)
+
+		local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
+			or car:FindFirstChild("DriveSeat", true)
+			or car:FindFirstChildWhichIsA("Seat", true)
 
 		local destCF = getSafeGroundCFrame(targetCF.Position) * (targetCF - targetCF.Position)
 		local startCF = car:GetPivot()
@@ -252,7 +270,7 @@ local success, err = pcall(function()
 
 		-- Realistic driving cruise speed (~120 studs/s) for appropriate vehicle speed & maximum CDID cash payout
 		speed = speed or 120
-		local duration = math.clamp(dist / speed, 1.0, 45.0)
+		local duration = math.clamp(dist / speed, 1.2, 45.0)
 
 		-- Zero out physics velocities before drive
 		for _, part in ipairs(car:GetDescendants()) do
@@ -289,6 +307,16 @@ local success, err = pcall(function()
 
 			pcall(function()
 				car:PivotTo(currentCF)
+
+				-- Keep player synchronized inside vehicle seat during the drive
+				local char = player.Character
+				local hum = char and char:FindFirstChild("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and seat and (not hum or not hum.Sit or not hum.SeatPart) then
+					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					if hum then hum.Sit = true; seat:Sit(hum) end
+				end
+
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.AssemblyLinearVelocity = Vector3.zero
