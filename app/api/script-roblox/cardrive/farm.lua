@@ -197,6 +197,86 @@ local success, err = pcall(function()
 		return false
 	end
 
+	local function getDriveSeat(car)
+		if not car then return nil end
+		return car:FindFirstChild("DriveSeat")
+			or car:FindFirstChildWhichIsA("VehicleSeat", true)
+			or car:FindFirstChildWhichIsA("Seat", true)
+	end
+
+	local isSettling = false
+	local function safelySettleAndUnanchor(car)
+		if not car or isSettling then return end
+		isSettling = true
+		pcall(function()
+			local root = car.PrimaryPart or getDriveSeat(car)
+			if root then
+				local currentPos = root.Position
+				local currentRot = car:GetPivot().Rotation
+				local rayParams = RaycastParams.new()
+				local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
+				local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
+				rayParams.FilterDescendantsInstances = { car, player.Character, mapBase, safetyPlate }
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+				local hit = workspace:Raycast(currentPos + Vector3.new(0, 15, 0), Vector3.new(0, -80, 0), rayParams)
+				local surfaceY = hit and hit.Position.Y or (currentPos.Y > 21.0 and currentPos.Y or 22.2)
+				local groundY = math.max(surfaceY + 2.2, 22.2)
+
+				-- Create solid parking plate under the vehicle so it never sinks into Map.Base.BAse
+				ensureSafetyPlate(Vector3.new(currentPos.X, groundY - 2.2, currentPos.Z), 50)
+
+				-- Smooth gentle descent to ground level (over ~0.25s)
+				local startY = currentPos.Y
+				local tDown = os.clock()
+				while os.clock() - tDown < 0.25 do
+					local a = math.clamp((os.clock() - tDown) / 0.25, 0, 1)
+					local easedA = -(math.cos(math.pi * a) - 1) / 2
+					local curY = startY + (groundY - startY) * easedA
+					car:PivotTo(CFrame.new(currentPos.X, curY, currentPos.Z) * currentRot)
+					RunService.Heartbeat:Wait()
+				end
+				car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * currentRot)
+			end
+
+			-- Zero out velocities and unanchor smoothly
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+					part.Anchored = false
+				end
+			end
+
+			-- Restore wheel collision ONLY on outer wheels, NEVER on internal suspension parts (base, arm, weight)
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					local name = part.Name:lower()
+					if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+						part.CanCollide = true
+					elseif name == "base" or name:find("arm") or name:find("weight") or name:find("spindle") or name:find("hub") or name:find("steer") then
+						part.CanCollide = false
+					end
+				end
+			end
+
+			-- Apply brakes on A-Chassis
+			local pgui = player:FindFirstChild("PlayerGui")
+			local aValues = pgui and pgui:FindFirstChild("A-Chassis Interface") and pgui["A-Chassis Interface"]:FindFirstChild("Values")
+			if aValues then
+				if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 0 end
+				if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 1 end
+				if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = true end
+			end
+			local seat = getDriveSeat(car)
+			if seat and seat:IsA("VehicleSeat") then
+				seat.Throttle = 0
+				seat.ThrottleFloat = 0
+			end
+		end)
+		isSettling = false
+	end
+
 	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
 	local function enterDriveSeat(car)
 		if not car or isInBankMinigame() then return false end
@@ -211,7 +291,17 @@ local success, err = pcall(function()
 			ensureSafetyPlate(currentP, 45)
 		end
 
-		local seat = car:FindFirstChild("DriveSeat") or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)
+		-- Restore wheel collision so car doesn't fall through ground while getting in
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") then
+				local name = part.Name:lower()
+				if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+					part.CanCollide = true
+				end
+			end
+		end
+
+		local seat = getDriveSeat(car)
 		local char = player.Character
 		local hum = char and char:FindFirstChild("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -266,8 +356,7 @@ local success, err = pcall(function()
 	local function exitDriveSeat()
 		local car = getPlayerCar()
 		if car then
-			local p = car:GetPivot().Position
-			ensureSafetyPlate(p, 50)
+			safelySettleAndUnanchor(car)
 		end
 		local char = player.Character
 		if char and char:FindFirstChild("Humanoid") and char.Humanoid.Sit then
@@ -279,12 +368,11 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 		if car then
-			local p = car:GetPivot().Position
-			ensureSafetyPlate(p, 50)
+			safelySettleAndUnanchor(car)
 		end
 	end
 
-	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics & Distance Payout)
+	-- Smooth Tween Car & Player to Destination (Exact working implementation from autodrive.lua)
 	local function safeTweenCar(targetCF, speed)
 		print(string.format("[BCA-TRACE][CRUISE] safeTweenCar CALLED -> Target: %s | Requested Speed: %s studs/s", 
 			tostring(targetCF.Position), tostring(speed)))
@@ -315,10 +403,7 @@ local success, err = pcall(function()
 		enterDriveSeat(car)
 		task.wait(0.4)
 
-		local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
-			or car:FindFirstChild("DriveSeat", true)
-			or car:FindFirstChildWhichIsA("Seat", true)
-
+		local seat = getDriveSeat(car)
 		local targetRot = (typeof(targetCF) == "CFrame") and targetCF.Rotation or CFrame.new()
 		local destCF = getSafeGroundCFrame(targetCF.Position) * targetRot
 		local startCF = car:GetPivot()
@@ -348,13 +433,15 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
+		-- Ghost mode: Disable collision on body/wheels and anchor during travel to prevent wall flings/falling
+		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
-				part.Anchored = false
-				part.AssemblyLinearVelocity = Vector3.zero
-				part.AssemblyAngularVelocity = Vector3.zero
+				if not part.Anchored then
+					table.insert(anchoredParts, part)
+					part.Anchored = true
+				end
 			end
 		end
 
@@ -365,7 +452,7 @@ local success, err = pcall(function()
 		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
-		-- Synchronous Frame-by-Frame Cruise Loop (Guaranteed continuous travel at target speed with 100% server network replication)
+		-- Synchronous Frame-by-Frame Cruise Loop (Guaranteed continuous travel at target speed)
 		while (os.clock() - t0) < duration do
 			RunService.Heartbeat:Wait()
 
@@ -408,12 +495,10 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Keep collision off and velocities zeroed during drive
+				-- Keep collision off during drive
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
 					end
 				end
 
@@ -430,57 +515,8 @@ local success, err = pcall(function()
 
 		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory completed after %.2fs of %.2fs. Initiating soft landing...", os.clock() - t0, duration))
 
-		-- Safe landing on ground, unanchor vehicle parts & apply brakes
-		pcall(function()
-			local root = car.PrimaryPart or seat
-			local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
-			local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
-			local rayParams = RaycastParams.new()
-			rayParams.FilterDescendantsInstances = { car, player.Character, mapBase, safetyPlate }
-			rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-			local hit = workspace:Raycast(destP + Vector3.new(0, 15, 0), Vector3.new(0, -80, 0), rayParams)
-			local surfaceY = hit and hit.Position.Y or (destP.Y > 21.0 and destP.Y or 22.2)
-			local groundY = math.max(surfaceY + 2.2, 22.2)
-
-			ensureSafetyPlate(Vector3.new(destP.X, groundY - 2.2, destP.Z), 50)
-			local currentRot = destCF.Rotation
-
-			-- Smooth gentle descent to ground level (over ~0.25s)
-			local startY = car:GetPivot().Position.Y
-			local tDown = os.clock()
-			while os.clock() - tDown < 0.25 do
-				local a = math.clamp((os.clock() - tDown) / 0.25, 0, 1)
-				local easedA = -(math.cos(math.pi * a) - 1) / 2
-				local curY = startY + (groundY - startY) * easedA
-				car:PivotTo(CFrame.new(destP.X, curY, destP.Z) * currentRot)
-				RunService.Heartbeat:Wait()
-			end
-			car:PivotTo(CFrame.new(destP.X, groundY, destP.Z) * currentRot)
-
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-					part.Anchored = false
-					local name = part.Name:lower()
-					if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
-						part.CanCollide = true
-					elseif name == "base" or name:find("arm") or name:find("weight") or name:find("spindle") or name:find("hub") or name:find("steer") then
-						part.CanCollide = false
-					end
-				end
-			end
-			if aValues then
-				if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 0 end
-				if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 1 end
-				if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = true end
-			end
-			if seat and seat:IsA("VehicleSeat") then
-				seat.Throttle = 0
-				seat.ThrottleFloat = 0
-			end
-		end)
+		-- Safe landing on ground, unanchor vehicle parts & apply brakes (from autodrive.lua)
+		safelySettleAndUnanchor(car)
 
 		task.wait(0.3)
 
