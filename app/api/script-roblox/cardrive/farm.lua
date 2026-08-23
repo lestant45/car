@@ -1144,14 +1144,9 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- 5. Sit in car and smoothly drive from NPC spawn point to the Koper driveway lane
-		if car then
-			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
-			task.wait(1.5) -- Wait 1.5s after spawning before moving car
-			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20)
-			safeTweenCar(koperParkCFrame, 160)
-			task.wait(0.5)
-		end
+		-- 5. Car spawned successfully in parking lot
+		updateBcaActivity("✅ Bank Van Ready -> Loading Suitcases")
+		task.wait(0.5)
 
 		return getPlayerCar()
 	end
@@ -1167,15 +1162,6 @@ local success, err = pcall(function()
 		local koperPart = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("KoperSpawn") and workspace.MY_BCA_COLLAB.Job.BankCourier.KoperSpawn:FindFirstChild("Part")
 
 		car = car or getPlayerCar()
-
-		-- Ensure car is parked right on the asphalt driveway
-		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20)
-		if car and (car:GetPivot().Position - Vector3.new(1781.04, 22.22, -4615.77)).Magnitude > 25 then
-			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
-			task.wait(1.5)
-			safeTweenCar(koperParkCFrame, 160)
-			task.wait(0.5)
-		end
 
 		while bcaCourierActive do
 			if checkTargetEarningAndDisconnect() then return end
