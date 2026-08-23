@@ -388,7 +388,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- 🚗 Reusable Vehicle Movement Engine (Extracted directly from autodrive.lua)
+	-- 🚗 Reusable Vehicle Movement Engine (Exact 1:1 Implementation from autodrive.lua)
 	local function driveTo(targetPos)
 		if typeof(targetPos) ~= "Vector3" then
 			if typeof(targetPos) == "CFrame" then
@@ -413,18 +413,14 @@ local success, err = pcall(function()
 			return false
 		end
 
+		-- Enter Driver Seat
+		enterDriveSeat(car)
+		task.wait(0.3)
+
 		local seat = getDriveSeat(car)
 		if not seat then
 			warn("[BCA] driveTo failed: Driver seat not found in vehicle")
 			return false
-		end
-
-		-- 1. Ensure player is seated in driver seat
-		local char = player.Character
-		local hum = char and char:FindFirstChild("Humanoid")
-		if not hum or not hum.Sit or hum.SeatPart ~= seat then
-			enterDriveSeat(car)
-			task.wait(0.3)
 		end
 
 		local startCF = car:GetPivot()
@@ -432,8 +428,7 @@ local success, err = pcall(function()
 		local destP = targetPos
 		local dist = (startP - destP).Magnitude
 
-		print(string.format("[BCA] Starting drive to target: %s", tostring(targetPos)))
-		print(string.format("[BCA] Distance: %.1f studs", dist))
+		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs", tostring(targetPos), dist))
 
 		if dist < 15 then
 			print(string.format("[BCA] Already at target destination (Distance: %.1f studs)", dist))
@@ -441,17 +436,14 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Stream region & prepare landing plate
-		ensureSafetyPlate(destP, 55)
-		requestStreamAsync(destP)
-
-		local speed = 160
-		local duration = math.clamp(dist / speed, 1.0, 50.0)
+		-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
 		local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
+		local speed = 160
+		local duration = math.clamp(dist / speed, 0.5, 40.0)
 
 		print(string.format("[BCA] Drive started -> Speed: %d studs/s | Duration: %.2fs", speed, duration))
 
-		-- Engage A-Chassis engine & release handbrake (from autodrive.lua)
+		-- Engage A-Chassis throttle & handbrake
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -466,7 +458,7 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Ghost mode: Disable collision on body/wheels and anchor during travel (from autodrive.lua)
+		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
 		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
@@ -488,6 +480,12 @@ local success, err = pcall(function()
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
 		conn = RunService.Heartbeat:Connect(function()
+			if not bcaCourierActive then
+				if conn then conn:Disconnect() end
+				finished = true
+				return
+			end
+
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
@@ -496,33 +494,28 @@ local success, err = pcall(function()
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
 			if alpha < 0.12 then
+				-- Smooth lift-off
 				local liftA = alpha / 0.12
 				curY = startP.Y + (cruiseAlt - startP.Y) * liftA
 			elseif alpha <= 0.88 then
+				-- High altitude cruise
 				curY = cruiseAlt
 			else
+				-- Gentle landing descent
 				local landA = (alpha - 0.88) / 0.12
 				curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
 			end
 			local curPos = Vector3.new(curX, curY, curZ)
 
-			-- Keep invisible safety plate gliding directly underneath vehicle tires
-			ensureSafetyPlate(Vector3.new(curPos.X, curPos.Y - 2.2, curPos.Z), 45)
-
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f studs left | 160 km/h)", remainingDist))
+			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f stud left | 160 km/h)", remainingDist))
 
 			if os.clock() - lastLogTime >= 1.0 then
 				lastLogTime = os.clock()
 				print(string.format("[BCA] Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
 			end
 
-			local currentCF
-			if flatLook.Magnitude > 0.05 and remainingDist > 6 and alpha < 0.95 then
-				currentCF = CFrame.lookAt(curPos, curPos + flatLook)
-			else
-				currentCF = startCF:Lerp(CFrame.new(destP), alpha)
-			end
+			local currentCF = CFrame.lookAt(curPos, curPos + flatLook)
 
 			pcall(function()
 				car:PivotTo(currentCF)
@@ -534,13 +527,13 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Keep player seated in driver seat
-				local c = player.Character
-				local h = c and c:FindFirstChild("Humanoid")
-				local r = c and c:FindFirstChild("HumanoidRootPart")
-				if r and seat and (not h or not h.Sit or not h.SeatPart) then
-					r.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-					if h then h.Sit = true; seat:Sit(h) end
+				-- Keep player seated
+				local char = player.Character
+				local hum = char and char:FindFirstChild("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and seat and (not hum or not hum.Sit or not hum.SeatPart) then
+					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
 
@@ -550,20 +543,17 @@ local success, err = pcall(function()
 			end
 		end)
 
-		while not finished do
+		while not finished and bcaCourierActive do
 			task.wait(0.02)
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Arrival Condition Verification
-		local arrivalRemaining = (car:GetPivot().Position - destP).Magnitude
-		print(string.format("[BCA] Drive completed. Arrival distance: %.1f studs", arrivalRemaining))
-
-		-- Smoothly settle and unanchor on the road with collision restoration (from autodrive.lua)
+		-- Settle & Unanchor smoothly on the road with clear collision restoration
 		safelySettleAndUnanchor(car)
 
-		local isSuccess = arrivalRemaining <= 25
-		return isSuccess
+		local arrivalRemaining = (car:GetPivot().Position - destP).Magnitude
+		print(string.format("[BCA] Drive completed. Arrival distance: %.1f studs", arrivalRemaining))
+		return arrivalRemaining <= 35
 	end
 
 	------------------------------------------------
