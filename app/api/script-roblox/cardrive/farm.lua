@@ -1328,6 +1328,18 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- 4. Check Active Target ATM in MY_BCA_COLLAB
+		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
+		if atms then
+			for _, atm in ipairs(atms:GetChildren()) do
+				local prompt = atm:FindFirstChildOfClass("ProximityPrompt") or atm:FindFirstChild("Prompt", true)
+				local p = atm:FindFirstChildOfClass("BasePart") or (prompt and prompt.Parent)
+				if prompt and prompt.Enabled and p and (p.Position - bcaDepotPos).Magnitude > 30 then
+					return p.Position
+				end
+			end
+		end
+
 		return nil
 	end
 
