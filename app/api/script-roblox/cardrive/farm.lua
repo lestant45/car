@@ -1197,7 +1197,15 @@ local success, err = pcall(function()
 				end
 			end
 
-			task.wait(1.0)
+			task.wait(0.8)
+		end
+
+		-- Confirm all 4 suitcases loaded and seat player in driver seat
+		car = getPlayerCar() or car
+		if car then
+			updateBcaActivity("✅ 4/4 Suitcases Loaded -> Entering Driver Seat to Cruise")
+			enterDriveSeat(car)
+			task.wait(0.4)
 		end
 	end
 
@@ -1315,19 +1323,6 @@ local success, err = pcall(function()
 						task.wait(1)
 					end
 				end
-			end
-
-			-- Unsit character from car seat upon arrival
-			local char = player.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			if hum and hum.Sit then
-				for _ = 1, 5 do
-					if not hum.Sit then break end
-					hum.Sit = false
-					pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
-					task.wait(0.15)
-				end
-				task.wait(0.4)
 			end
 
 			-- 2. Take Koper from Bagasi on the ground (Verify suitcase is in hand before proceeding)
