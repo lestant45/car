@@ -34,6 +34,22 @@ local success, err = pcall(function()
 
 	local lastSafeGroundCFrame = CFrame.new(1866.5, 24, -4874.45)
 
+	------------------------------------------------
+	-- 🏦 BCA EVENT STATE & CONFIGURATION (TOP-LEVEL)
+	------------------------------------------------
+	local bcaCourierActive = Config.farm.bcaCourier or false
+	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
+	local bcaAppSyncActive = false
+	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
+	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
+	local bcaCurKoper, bcaTotKoper = 0, 0
+	local bcaCurAtm, bcaTotAtm = 0, 0
+	local bcaIsCarrying = false
+	local bcaJobPhase = ""
+	local bcaJobComplete = false
+	local bcaTargetEarning = tonumber(Config.farm.bcaTargetEarning) or 0
+	local bcaTargetEarningLabel = nil
+
 	-- Spawns an invisible, anchored collision safety plate underneath destination so character & car never fall through unrendered chunks
 	local function ensureSafetyPlate(pos, width)
 		width = width or 50
@@ -472,12 +488,6 @@ local success, err = pcall(function()
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
 		conn = RunService.Heartbeat:Connect(function()
-			if not bcaCourierActive then
-				if conn then conn:Disconnect() end
-				finished = true
-				return
-			end
-
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
@@ -537,7 +547,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		while not finished and bcaCourierActive do
+		while not finished do
 			task.wait(0.02)
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
@@ -735,24 +745,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🏦 BCA EVENT & BANK COURIER AUTO FARM (FULL QUEST AUTOMATION)
 	------------------------------------------------
-	local bcaCourierActive = Config.farm.bcaCourier or false
-	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
-	local bcaAppSyncActive = false
-	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
-	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
-
 	local function getBankCourierGui()
-		local pgui = player:FindFirstChild("PlayerGui")
-		return pgui and pgui:FindFirstChild("Job") and pgui.Job:FindFirstChild("BankCourier")
-	end
-
-	local bcaCurKoper, bcaTotKoper = 0, 0
-	local bcaCurAtm, bcaTotAtm = 0, 0
-	local bcaIsCarrying = false
-	local bcaJobPhase = ""
-	local bcaJobComplete = false
-	local bcaTargetEarning = tonumber(Config.farm.bcaTargetEarning) or 0
-	local bcaTargetEarningLabel = nil
 
 	local function parseRupiahNumber(str)
 		if not str then return 0 end
