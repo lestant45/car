@@ -283,9 +283,9 @@ local success, err = pcall(function()
 		local startCF = car:GetPivot()
 		local dist = (startCF.Position - destCF.Position).Magnitude
 
-		-- Realistic driving cruise speed (~120 studs/s) for appropriate vehicle speed & maximum CDID cash payout
-		speed = speed or 120
-		local duration = math.clamp(dist / speed, 1.2, 45.0)
+		-- Realistic driving cruise speed (~95 studs/s) for appropriate vehicle speed & maximum CDID cash payout
+		speed = speed or 95
+		local duration = math.clamp(dist / speed, 1.5, 60.0)
 
 		-- Zero out physics velocities before drive
 		for _, part in ipairs(car:GetDescendants()) do
@@ -298,6 +298,10 @@ local success, err = pcall(function()
 		local t0 = os.clock()
 		local conn
 		local finished = false
+
+		local rayParams = RaycastParams.new()
+		rayParams.FilterDescendantsInstances = { car, player.Character, workspace:FindFirstChild("__SafetyPlate") }
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		conn = RunService.Heartbeat:Connect(function()
 			if not bcaCourierActive then
@@ -312,10 +316,21 @@ local success, err = pcall(function()
 			local easedAlpha = -(math.cos(math.pi * alpha) - 1) / 2
 			local currentPos = startCF.Position:Lerp(destCF.Position, easedAlpha)
 
+			-- Sample ground elevation so vehicle stays grounded on the road
+			local hit = workspace:Raycast(Vector3.new(currentPos.X, currentPos.Y + 20, currentPos.Z), Vector3.new(0, -45, 0), rayParams)
+			local safeMinY = math.min(startCF.Position.Y, destCF.Position.Y) - 4
+			local safeMaxY = math.max(startCF.Position.Y, destCF.Position.Y) + 12
+			local groundY = currentPos.Y
+			if hit and hit.Position.Y >= safeMinY and hit.Position.Y <= safeMaxY then
+				groundY = hit.Position.Y + 2.0
+			end
+			local groundedPos = Vector3.new(currentPos.X, groundY, currentPos.Z)
+
 			-- Orient car towards the destination direction during transit, and lerp to final destination rotation near the end
 			local currentCF
-			if alpha < 0.85 and (destCF.Position - currentPos).Magnitude > 4 then
-				currentCF = CFrame.new(currentPos, currentPos + (destCF.Position - startCF.Position))
+			if alpha < 0.88 and (destCF.Position - currentPos).Magnitude > 4 then
+				local moveDir = (destCF.Position - startCF.Position).Unit
+				currentCF = CFrame.lookAt(groundedPos, groundedPos + Vector3.new(moveDir.X, 0, moveDir.Z))
 			else
 				currentCF = startCF:Lerp(destCF, easedAlpha)
 			end
@@ -1197,8 +1212,8 @@ local success, err = pcall(function()
 				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
 			end
 
-			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (120 studs/s)")
-			safeTweenCar(safeAtmCF, 120)
+			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (95 studs/s)")
+			safeTweenCar(safeAtmCF, 95)
 			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
@@ -1553,8 +1568,8 @@ local success, err = pcall(function()
 						or hintText:find("Andhini")
 
 					if isAtmDone then
-						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (120 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 120)
+						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (95 studs/s)")
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 95)
 						task.wait(0.5)
 
 						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
