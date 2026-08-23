@@ -372,13 +372,15 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Smooth Tween Car & Player to Destination (Preserves unbroken server physics network ownership)
-	local function safeTweenCar(targetCF, speed)
-		print(string.format("[BCA-TRACE][CRUISE] safeTweenCar CALLED -> Target: %s | Requested Speed: %s studs/s", 
-			tostring(targetCF.Position), tostring(speed)))
-
-		while isInBankMinigame() and bcaCourierActive do
-			task.wait(0.2)
+	-- 🚗 Reusable Vehicle Movement Engine (Extracted directly from autodrive.lua)
+	local function driveTo(targetPos)
+		if typeof(targetPos) ~= "Vector3" then
+			if typeof(targetPos) == "CFrame" then
+				targetPos = targetPos.Position
+			else
+				warn("[BCA] driveTo failed: targetPos must be a Vector3")
+				return false
+			end
 		end
 
 		local car = getPlayerCar()
@@ -390,35 +392,50 @@ local success, err = pcall(function()
 			end
 		end
 
-		if not car then 
-			warn("[BCA-TRACE][CRUISE] safeTweenCar ABORTED: No vehicle found in workspace.Vehicles")
-			return 
+		if not car then
+			warn("[BCA] driveTo failed: No vehicle found for player")
+			return false
 		end
 
-		-- Ensure invisible safety platform is created and map chunks are streamed before moving
-		ensureSafetyPlate(targetCF.Position, 55)
-		requestStreamAsync(targetCF.Position)
-
-		-- 1. Enter Driver Seat before moving to claim Network Ownership & accumulate driving distance
-		enterDriveSeat(car)
-		task.wait(0.4)
-
 		local seat = getDriveSeat(car)
-		local targetRot = (typeof(targetCF) == "CFrame") and targetCF.Rotation or CFrame.new()
-		local destCF = getSafeGroundCFrame(targetCF.Position) * targetRot
+		if not seat then
+			warn("[BCA] driveTo failed: Driver seat not found in vehicle")
+			return false
+		end
+
+		-- 1. Ensure player is seated in driver seat
+		local char = player.Character
+		local hum = char and char:FindFirstChild("Humanoid")
+		if not hum or not hum.Sit or hum.SeatPart ~= seat then
+			enterDriveSeat(car)
+			task.wait(0.3)
+		end
+
 		local startCF = car:GetPivot()
 		local startP = startCF.Position
-		local destP = destCF.Position
+		local destP = targetPos
 		local dist = (startP - destP).Magnitude
 
-		-- Consistent cruise speed (~160 studs/s) exactly matching metotcdid.mp4
-		speed = speed or 160
-		local duration = math.clamp(dist / speed, 1.2, 50.0)
+		print(string.format("[BCA] Starting drive to target: %s", tostring(targetPos)))
+		print(string.format("[BCA] Distance: %.1f studs", dist))
 
-		print(string.format("[BCA-TRACE][CRUISE] Starting continuous vehicle cruise: Start=%s | Dest=%s | Distance=%.1f studs | Duration=%.2fs | Speed=%d studs/s",
-			tostring(startP), tostring(destP), dist, duration, speed))
+		if dist < 15 then
+			print(string.format("[BCA] Already at target destination (Distance: %.1f studs)", dist))
+			safelySettleAndUnanchor(car)
+			return true
+		end
 
-		-- Start A-Chassis engine & release parking brake to simulate human driving
+		-- Stream region & prepare landing plate
+		ensureSafetyPlate(destP, 55)
+		requestStreamAsync(destP)
+
+		local speed = 160
+		local duration = math.clamp(dist / speed, 1.0, 50.0)
+		local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
+
+		print(string.format("[BCA] Drive started -> Speed: %d studs/s | Duration: %.2fs", speed, duration))
+
+		-- Engage A-Chassis engine & release handbrake (from autodrive.lua)
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -428,114 +445,112 @@ local success, err = pcall(function()
 			if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
 			if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
 		end
-		if seat and seat:IsA("VehicleSeat") then
+		if seat:IsA("VehicleSeat") then
 			seat.Throttle = 1
 			seat.ThrottleFloat = 1
 		end
 
-		-- Ghost mode: Disable collision on body parts, keep wheels collidable with dynamic sliding SafetyPlate
+		-- Ghost mode: Disable collision on body/wheels and anchor during travel (from autodrive.lua)
+		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.Anchored = false
-				local name = part.Name:lower()
-				if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
-					part.CanCollide = true
-				else
-					part.CanCollide = false
+				part.CanCollide = false
+				if not part.Anchored then
+					table.insert(anchoredParts, part)
+					part.Anchored = true
 				end
 			end
 		end
 
 		local t0 = os.clock()
+		local conn
+		local finished = false
 		local lastLogTime = 0
 
 		local rawDir = (destP - startP)
 		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
-		-- Synchronous Frame-by-Frame Cruise Loop with Dynamic Under-Car SafetyPlate
-		while (os.clock() - t0) < duration do
-			RunService.Heartbeat:Wait()
+		conn = RunService.Heartbeat:Connect(function()
+			if not bcaCourierActive then
+				if conn then conn:Disconnect() end
+				finished = true
+				return
+			end
 
-			local sTick, errTick = pcall(function()
-				local elapsed = os.clock() - t0
-				local alpha = math.clamp(elapsed / duration, 0, 1)
-				local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
-				local curX = startP.X + (destP.X - startP.X) * alpha
-				local curZ = startP.Z + (destP.Z - startP.Z) * alpha
-				local curY
-				if alpha < 0.12 then
-					-- Smooth lift-off (+12 Y above start ground)
-					local liftA = alpha / 0.12
-					curY = startP.Y + (cruiseAlt - startP.Y) * liftA
-				elseif alpha <= 0.88 then
-					-- High altitude cruise
-					curY = cruiseAlt
-				else
-					-- Gentle landing descent
-					local landA = (alpha - 0.88) / 0.12
-					curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
-				end
-				local curPos = Vector3.new(curX, curY, curZ)
+			local elapsed = os.clock() - t0
+			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-				-- Keep invisible safety plate gliding directly underneath vehicle tires
-				ensureSafetyPlate(Vector3.new(curPos.X, curPos.Y - 2.2, curPos.Z), 45)
+			-- 3-Phase Altitude Cruise: Rise up (+12 Y) -> Cruise -> Smooth landing descent
+			local curX = startP.X + (destP.X - startP.X) * alpha
+			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
+			local curY
+			if alpha < 0.12 then
+				local liftA = alpha / 0.12
+				curY = startP.Y + (cruiseAlt - startP.Y) * liftA
+			elseif alpha <= 0.88 then
+				curY = cruiseAlt
+			else
+				local landA = (alpha - 0.88) / 0.12
+				curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
+			end
+			local curPos = Vector3.new(curX, curY, curZ)
 
-				local remainingDist = (destP - curPos).Magnitude
-				updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 160 km/h)", remainingDist))
+			local remainingDist = (destP - curPos).Magnitude
+			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f studs left | 160 km/h)", remainingDist))
 
-				if os.clock() - lastLogTime >= 1.0 then
-					lastLogTime = os.clock()
-					print(string.format("[BCA-TRACE][CRUISE-HEARTBEAT] Progress: %.1f%% | curPos: %s | remainingDist: %.1f studs | Elapsed: %.1fs/%.1fs", 
-						alpha * 100, tostring(curPos), remainingDist, elapsed, duration))
-				end
+			if os.clock() - lastLogTime >= 1.0 then
+				lastLogTime = os.clock()
+				print(string.format("[BCA] Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
+			end
 
-				local currentCF
-				if flatLook and flatLook.Magnitude > 0.05 and remainingDist > 6 and alpha < 0.95 then
-					currentCF = CFrame.lookAt(curPos, curPos + flatLook)
-				else
-					currentCF = startCF:Lerp(destCF, alpha)
-				end
+			local currentCF
+			if flatLook.Magnitude > 0.05 and remainingDist > 6 and alpha < 0.95 then
+				currentCF = CFrame.lookAt(curPos, curPos + flatLook)
+			else
+				currentCF = startCF:Lerp(CFrame.new(destP), alpha)
+			end
 
+			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Zero out internal velocities to prevent physics flings while maintaining network ownership
+				-- Keep collision off during drive
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
+						part.CanCollide = false
 					end
 				end
 
-				-- Keep player synchronized inside vehicle seat during the drive
-				local char = player.Character
-				local hum = char and char:FindFirstChild("Humanoid")
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root and seat and (not hum or not hum.Sit or not hum.SeatPart) then
-					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-					if hum then hum.Sit = true; seat:Sit(hum) end
+				-- Keep player seated in driver seat
+				local c = player.Character
+				local h = c and c:FindFirstChild("Humanoid")
+				local r = c and c:FindFirstChild("HumanoidRootPart")
+				if r and seat and (not h or not h.Sit or not h.SeatPart) then
+					r.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					if h then h.Sit = true; seat:Sit(h) end
 				end
 			end)
 
-			if not sTick then
-				warn("[BCA-TRACE][CRUISE-TICK-ERROR]", errTick)
+			if alpha >= 1 then
+				finished = true
+				if conn then conn:Disconnect() end
 			end
+		end)
+
+		while not finished and bcaCourierActive do
+			task.wait(0.02)
 		end
+		if conn then pcall(function() conn:Disconnect() end) end
 
-		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory completed after %.2fs of %.2fs. Initiating soft landing...", os.clock() - t0, duration))
+		-- Arrival Condition Verification
+		local arrivalRemaining = (car:GetPivot().Position - destP).Magnitude
+		print(string.format("[BCA] Drive completed. Arrival distance: %.1f studs", arrivalRemaining))
 
-		-- Safe landing on ground, settle vehicle parts & apply brakes (from autodrive.lua)
+		-- Smoothly settle and unanchor on the road with collision restoration (from autodrive.lua)
 		safelySettleAndUnanchor(car)
 
-		task.wait(0.3)
-
-		-- 2. Exit Driver Seat now that vehicle has physically driven to destination on server
-		print("[BCA-TRACE][CRUISE] Vehicle parked safely at destination. Exiting driver seat...")
-		exitDriveSeat()
-		task.wait(0.3)
-		local bagasi = car:FindFirstChild("BagasiPoint")
-		local exitPos = bagasi and (bagasi.CFrame + Vector3.new(0, 1.0, 0)) or (destCF + Vector3.new(0, 1.0, 3))
-		safeTeleport(exitPos, false)
+		local isSuccess = arrivalRemaining <= 25
+		return isSuccess
 	end
 
 	------------------------------------------------
@@ -1368,11 +1383,17 @@ local success, err = pcall(function()
 				print(string.format("[BCA-TRACE][DELIVERY] Using raycasted fallback ground spot: %s", tostring(safeAtmCF.Position)))
 			end
 
-			print(string.format("[BCA-TRACE][DELIVERY] Calling safeTweenCar to %s at 160 studs/s", tostring(safeAtmCF.Position)))
+			local targetDrivePos = safeAtmCF and safeAtmCF.Position or targetPos
+			print(string.format("[BCA] Starting drive to ATM target (%s)", tostring(targetDrivePos)))
 			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (160 studs/s)")
-			safeTweenCar(safeAtmCF, 160)
-			print(string.format("[BCA-TRACE][DELIVERY] safeTweenCar return. Car is now at %s", tostring(car and car:GetPivot().Position)))
-			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
+			local driveSuccess = driveTo(targetDrivePos)
+			if not driveSuccess then
+				warn("[BCA] driveTo failed to reach target ATM. Aborting delivery step.")
+				break
+			end
+			print(string.format("[BCA] Arrived at destination ATM. Car is now at %s", tostring(car and car:GetPivot().Position)))
+			exitDriveSeat()
+			task.wait(1.0) -- Wait 1.0s after parking car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
 			local respawnBtn = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("RespawnCar")
@@ -1714,8 +1735,11 @@ local success, err = pcall(function()
 
 					if isAtmDone then
 						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (160 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 160)
-						task.wait(0.5)
+						local arrivedDepot = driveTo(Vector3.new(1781.04, 22.22, -4615.77))
+						if arrivedDepot then
+							exitDriveSeat()
+							task.wait(0.5)
+						end
 
 						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
 						updateBcaActivity("🚶 Tweening to Andhini NPC (200 studs/s)")
