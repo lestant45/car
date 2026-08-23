@@ -216,8 +216,8 @@ local success, err = pcall(function()
 	local function getDriveSeat(car)
 		if not car then return nil end
 		return car:FindFirstChild("DriveSeat")
-			or car:FindFirstChildWhichIsA("VehicleSeat")
-			or car:FindFirstChildWhichIsA("Seat")
+			or car:FindFirstChildOfClass("VehicleSeat")
+			or car:FindFirstChildOfClass("Seat")
 	end
 
 	local isSettling = false
@@ -333,7 +333,7 @@ local success, err = pcall(function()
 
 		print("[BCA-TRACE][SEAT] Attempting to seat player in DriveSeat...")
 		-- 1. Trigger Official CDID PromptDriveSeat ProximityPrompt
-		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt")
+		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildOfClass("ProximityPrompt")
 		if prompt then
 			pcall(function()
 				prompt.Enabled = true
@@ -1204,7 +1204,7 @@ local success, err = pcall(function()
 			if koperPart then
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0), true, 40)
 				task.wait(0.3)
-				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt")
+				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildOfClass("ProximityPrompt")
 				triggerPrompt(prompt)
 			else
 				safeTeleport(CFrame.new(bcaKoperPos), true, 40)
@@ -1220,7 +1220,7 @@ local success, err = pcall(function()
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0), true, 40)
 				task.wait(0.3)
-				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt")
+				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildOfClass("ProximityPrompt")
 				triggerPrompt(muatPrompt)
 			end
 
@@ -1367,7 +1367,7 @@ local success, err = pcall(function()
 			if atms then
 				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
 					local atm = atms:FindFirstChild(atmName)
-					local p = atm and atm:FindFirstChildWhichIsA("BasePart")
+					local p = atm and atm:FindFirstChildOfClass("BasePart")
 					if (p and (p.Position - targetPos).Magnitude < 50) or (spotPos - targetPos).Magnitude < 80 then
 						safeAtmCF = CFrame.new(spotPos)
 						print(string.format("[BCA-TRACE][DELIVERY] Matched targetPos %s to designated spot %s (%s)", 
@@ -1412,8 +1412,7 @@ local success, err = pcall(function()
 				local c = player.Character
 				if not c then return false end
 				if bcaIsCarrying == true then return true end
-				if c:FindFirstChild("KoperUang") or c:FindFirstChildWhichIsA("Tool") then return true end
-				if c:FindFirstChild("Koper", true) then return true end
+				if c:FindFirstChild("KoperUang") or c:FindFirstChildOfClass() then return true end
 				if c:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
 				if player:GetAttribute("HidePrompt") == true then return true end
 				local jobGui = getBankCourierGui()
@@ -1426,7 +1425,7 @@ local success, err = pcall(function()
 
 			if bagasi then
 				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding for 2.7s)")
-				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt")
+				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildOfClass("ProximityPrompt")
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
 				local failedGrabAttempts = 0
@@ -1495,7 +1494,7 @@ local success, err = pcall(function()
 					safeTeleport(standCF)
 					task.wait(0.2)
 
-					ambilPrompt = bagasi and (bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt"))
+					ambilPrompt = bagasi and (bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildOfClass("ProximityPrompt"))
 					if not ambilPrompt then
 						for _, p in ipairs(car:GetDescendants()) do
 							if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
@@ -1604,8 +1603,8 @@ local success, err = pcall(function()
 			local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
 			if atms then
 				for _, atm in ipairs(atms:GetChildren()) do
-					local prompt = atm:FindFirstChildWhichIsA("ProximityPrompt")
-					local screen = atm:FindFirstChild("Screen_ATM_01", true) or (prompt and prompt.Parent) or atm:FindFirstChildWhichIsA("BasePart")
+					local prompt = atm:FindFirstChildOfClass("ProximityPrompt") or atm:FindFirstChild("Prompt", true)
+					local screen = atm:FindFirstChild("Screen_ATM_01", true) or (prompt and prompt.Parent) or atm:FindFirstChildOfClass("BasePart")
 					if screen and screen:IsA("BasePart") and (screen.Position - targetPos).Magnitude < 100 then
 						atmFrontPos = screen.Position + screen.CFrame.LookVector * 2.5
 						break
@@ -1706,7 +1705,7 @@ local success, err = pcall(function()
 						task.wait(0.5)
 
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt")
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildOfClass("ProximityPrompt")
 						if andhiniPrompt then
 							triggerPrompt(andhiniPrompt)
 						end
@@ -1749,7 +1748,7 @@ local success, err = pcall(function()
 						-- Trigger Andhini's DialogPrompt
 						updateBcaActivity("💰 Speaking to Andhini & Claiming Salary")
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt")
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildOfClass("ProximityPrompt")
 						if andhiniPrompt then
 							triggerPrompt(andhiniPrompt)
 						end
@@ -2037,7 +2036,7 @@ local success, err = pcall(function()
 			local collab = workspace:FindFirstChild("MY_BCA_COLLAB")
 			local exchangeNpc = collab and collab:FindFirstChild("NPC_EXCHANGE_REWARD")
 			if exchangeNpc then
-				local root = exchangeNpc:FindFirstChild("HumanoidRootPart") or exchangeNpc:FindFirstChildWhichIsA("BasePart")
+				local root = exchangeNpc:FindFirstChild("HumanoidRootPart") or exchangeNpc:FindFirstChildOfClass("BasePart")
 				if root then
 					safeTeleport(root.CFrame + Vector3.new(0, 3, 3))
 				end
