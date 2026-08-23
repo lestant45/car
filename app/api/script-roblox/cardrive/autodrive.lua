@@ -136,8 +136,8 @@ end
 local function getDriveSeat(car)
 	if not car then return nil end
 	return car:FindFirstChild("DriveSeat")
-		or car:FindFirstChildOfClass("VehicleSeat")
-		or car:FindFirstChildOfClass("Seat")
+		or car:FindFirstChildWhichIsA("VehicleSeat", true)
+		or car:FindFirstChildWhichIsA("Seat", true)
 end
 
 local function enterDriveSeat(car)
@@ -165,7 +165,7 @@ local function enterDriveSeat(car)
 	end
 
 	-- Trigger PromptDriveSeat
-	local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildOfClass("ProximityPrompt")
+	local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if prompt then
 		pcall(function()
 			prompt.Enabled = true
@@ -593,7 +593,7 @@ local function safelySettleAndUnanchor(car)
 		local root = car.PrimaryPart or getDriveSeat(car)
 		if root then
 			local currentPos = root.Position
-			local currentRot = car:GetPivot().Rotation
+			local currentRot = car:GetPivot() - car:GetPivot().Position
 			local rayParams = RaycastParams.new()
 			local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
 			local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
