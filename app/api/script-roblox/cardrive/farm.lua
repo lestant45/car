@@ -239,7 +239,7 @@ local success, err = pcall(function()
 				car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * currentRot)
 			end
 
-			-- Zero out velocities and unanchor smoothly
+			-- Zero out velocities and keep unanchored
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.AssemblyLinearVelocity = Vector3.zero
@@ -372,7 +372,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Smooth Tween Car & Player to Destination (Exact working implementation from autodrive.lua)
+	-- Smooth Tween Car & Player to Destination (Preserves unbroken server physics network ownership)
 	local function safeTweenCar(targetCF, speed)
 		print(string.format("[BCA-TRACE][CRUISE] safeTweenCar CALLED -> Target: %s | Requested Speed: %s studs/s", 
 			tostring(targetCF.Position), tostring(speed)))
@@ -418,7 +418,7 @@ local success, err = pcall(function()
 		print(string.format("[BCA-TRACE][CRUISE] Starting continuous vehicle cruise: Start=%s | Dest=%s | Distance=%.1f studs | Duration=%.2fs | Speed=%d studs/s",
 			tostring(startP), tostring(destP), dist, duration, speed))
 
-		-- Engage A-Chassis engine & release handbrake
+		-- Start A-Chassis engine & release parking brake to simulate human driving
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -433,14 +433,15 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Ghost mode: Disable collision on body/wheels and anchor during travel to prevent wall flings/falling
-		local anchoredParts = {}
+		-- Ghost mode: Disable collision on body parts, keep wheels collidable with dynamic sliding SafetyPlate
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.CanCollide = false
-				if not part.Anchored then
-					table.insert(anchoredParts, part)
-					part.Anchored = true
+				part.Anchored = false
+				local name = part.Name:lower()
+				if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+					part.CanCollide = true
+				else
+					part.CanCollide = false
 				end
 			end
 		end
@@ -452,7 +453,7 @@ local success, err = pcall(function()
 		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
-		-- Synchronous Frame-by-Frame Cruise Loop (Guaranteed continuous travel at target speed)
+		-- Synchronous Frame-by-Frame Cruise Loop with Dynamic Under-Car SafetyPlate
 		while (os.clock() - t0) < duration do
 			RunService.Heartbeat:Wait()
 
@@ -476,6 +477,9 @@ local success, err = pcall(function()
 			end
 			local curPos = Vector3.new(curX, curY, curZ)
 
+			-- Keep invisible safety plate gliding directly underneath vehicle tires
+			ensureSafetyPlate(Vector3.new(curPos.X, curPos.Y - 2.2, curPos.Z), 45)
+
 			local remainingDist = (destP - curPos).Magnitude
 			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 160 km/h)", remainingDist))
 
@@ -495,10 +499,11 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Keep collision off during drive
+				-- Zero out internal velocities to prevent physics flings while maintaining network ownership
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.CanCollide = false
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
 					end
 				end
 
@@ -515,7 +520,7 @@ local success, err = pcall(function()
 
 		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory completed after %.2fs of %.2fs. Initiating soft landing...", os.clock() - t0, duration))
 
-		-- Safe landing on ground, unanchor vehicle parts & apply brakes (from autodrive.lua)
+		-- Safe landing on ground, settle vehicle parts & apply brakes (from autodrive.lua)
 		safelySettleAndUnanchor(car)
 
 		task.wait(0.3)
