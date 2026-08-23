@@ -64,25 +64,24 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Safe Character Movement Function with Smooth Human Walking Tween & Anti-Void Protection
+	-- Safe Character Teleport Function with StreamingEnabled & Anti-Void Protection
 	local function safeTeleport(cframe, useTween, speed)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root then return end
 
-		-- 1. Ensure invisible safety plate exists at destination before moving
+		-- 1. Ensure invisible safety plate exists at destination before teleporting
 		ensureSafetyPlate(cframe.Position, 40)
 		requestStreamAsync(cframe.Position)
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
-		-- Default to smooth human walking/running tween unless explicitly disabled for void rescue
-		if useTween ~= false then
+		if useTween then
+			speed = speed or 120
 			local dist = (root.Position - cframe.Position).Magnitude
-			speed = speed or (dist > 80 and 95 or 32)
-			local time = math.clamp(dist / speed, 0.1, 10.0)
+			local time = math.clamp(dist / speed, 0.1, 8.0)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
 			tw:Play()
 			tw.Completed:Wait()
@@ -282,11 +281,13 @@ local success, err = pcall(function()
 
 		local destCF = getSafeGroundCFrame(targetCF.Position) * (targetCF - targetCF.Position)
 		local startCF = car:GetPivot()
-		local dist = (startCF.Position - destCF.Position).Magnitude
+		local startP = startCF.Position
+		local destP = destCF.Position
+		local dist = (startP - destP).Magnitude
 
-		-- Realistic driving cruise speed (~95 studs/s) for appropriate vehicle speed & maximum CDID cash payout
-		speed = speed or 95
-		local duration = math.clamp(dist / speed, 1.5, 60.0)
+		-- Consistent cruise speed (~150 studs/s) exactly matching metotcdid.mp4
+		speed = speed or 150
+		local duration = math.clamp(dist / speed, 1.2, 50.0)
 
 		-- Engage A-Chassis engine & release handbrake
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -307,9 +308,9 @@ local success, err = pcall(function()
 		local conn
 		local finished = false
 
-		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { car, player.Character, workspace:FindFirstChild("__SafetyPlate") }
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local rawDir = (destP - startP)
+		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
+		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
 		conn = RunService.Heartbeat:Connect(function()
 			if not bcaCourierActive then
@@ -320,34 +321,29 @@ local success, err = pcall(function()
 
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
-			-- Smooth sine ease in-out
-			local easedAlpha = -(math.cos(math.pi * alpha) - 1) / 2
-			local currentPos = startCF.Position:Lerp(destCF.Position, easedAlpha)
 
-			-- Sample ground elevation so vehicle stays grounded on the road
-			local hit = workspace:Raycast(Vector3.new(currentPos.X, currentPos.Y + 20, currentPos.Z), Vector3.new(0, -45, 0), rayParams)
-			local safeMinY = math.min(startCF.Position.Y, destCF.Position.Y) - 4
-			local safeMaxY = math.max(startCF.Position.Y, destCF.Position.Y) + 12
-			local groundY = currentPos.Y
-			if hit and hit.Position.Y >= safeMinY and hit.Position.Y <= safeMaxY then
-				groundY = hit.Position.Y + 2.0
-			end
-			local groundedPos = Vector3.new(currentPos.X, groundY, currentPos.Z)
+			-- Smooth altitude arch (rises ~5 studs during transit to glide cleanly above terrain, lands softly at destP)
+			local archY = math.sin(alpha * math.pi) * 5.0
+			local curX = startP.X + (destP.X - startP.X) * alpha
+			local curY = startP.Y + (destP.Y - startP.Y) * alpha + archY
+			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
+			local curPos = Vector3.new(curX, curY, curZ)
 
-			-- Orient car towards the destination direction during transit, and lerp to final destination rotation near the end
-			local moveDir = (destCF.Position - startCF.Position).Unit
+			local remainingDist = (destP - curPos).Magnitude
+			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 150 km/h)", remainingDist))
+
 			local currentCF
-			if alpha < 0.88 and (destCF.Position - currentPos).Magnitude > 4 then
-				currentCF = CFrame.lookAt(groundedPos, groundedPos + Vector3.new(moveDir.X, 0, moveDir.Z))
+			if alpha < 0.92 and remainingDist > 6 then
+				currentCF = CFrame.lookAt(curPos, curPos + flatLook)
 			else
-				currentCF = startCF:Lerp(destCF, easedAlpha)
+				currentCF = startCF:Lerp(destCF, alpha)
 			end
 
 			pcall(function()
 				car:PivotTo(currentCF)
 
 				-- Maintain forward velocity on chassis so wheels spin and speed registers on server
-				local currentVelocity = Vector3.new(moveDir.X * speed, 0, moveDir.Z * speed)
+				local currentVelocity = Vector3.new(flatLook.X * speed, 0, flatLook.Z * speed)
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.AssemblyLinearVelocity = currentVelocity
@@ -1231,8 +1227,8 @@ local success, err = pcall(function()
 				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
 			end
 
-			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (95 studs/s)")
-			safeTweenCar(safeAtmCF, 95)
+			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (150 studs/s)")
+			safeTweenCar(safeAtmCF, 150)
 			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
@@ -1517,18 +1513,6 @@ local success, err = pcall(function()
 			if (totA > 0 and curA >= totA) or bcaJobComplete or stepT:find("3)") or stepT:find("Kembali") or stepT:find("Selesai") then
 				bcaJobComplete = true
 				break
-			else
-				-- More ATMs left: Walk smoothly back to car door and enter driver seat before driving to the next ATM
-				updateBcaActivity("🚶 Walking back to Driver Seat for Next ATM...")
-				car = getPlayerCar() or car
-				local seat = car and (car:FindFirstChild("DriveSeat") or car:FindFirstChildWhichIsA("VehicleSeat", true))
-				if seat then
-					local doorPos = seat.CFrame.Position + (seat.CFrame.RightVector * -3.5) + Vector3.new(0, 1.0, 0)
-					safeTeleport(CFrame.new(doorPos), true, 30)
-					task.wait(0.3)
-					enterDriveSeat(car)
-					task.wait(0.4)
-				end
 			end
 		end
 	end
@@ -1599,8 +1583,8 @@ local success, err = pcall(function()
 						or hintText:find("Andhini")
 
 					if isAtmDone then
-						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (95 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 95)
+						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (150 studs/s)")
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 150)
 						task.wait(0.5)
 
 						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
