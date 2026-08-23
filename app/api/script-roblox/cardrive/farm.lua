@@ -457,46 +457,46 @@ local success, err = pcall(function()
 		while (os.clock() - t0) < duration do
 			RunService.Heartbeat:Wait()
 
-			local elapsed = os.clock() - t0
-			local alpha = math.clamp(elapsed / duration, 0, 1)
-			local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
-			local curX = startP.X + (destP.X - startP.X) * alpha
-			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
-			local curY
-			if alpha < 0.12 then
-				-- Smooth lift-off (+12 Y above start ground)
-				local liftA = alpha / 0.12
-				curY = startP.Y + (cruiseAlt - startP.Y) * liftA
-			elseif alpha <= 0.88 then
-				-- High altitude cruise
-				curY = cruiseAlt
-			else
-				-- Gentle landing descent
-				local landA = (alpha - 0.88) / 0.12
-				curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
-			end
-			local curPos = Vector3.new(curX, curY, curZ)
+			local sTick, errTick = pcall(function()
+				local elapsed = os.clock() - t0
+				local alpha = math.clamp(elapsed / duration, 0, 1)
+				local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
+				local curX = startP.X + (destP.X - startP.X) * alpha
+				local curZ = startP.Z + (destP.Z - startP.Z) * alpha
+				local curY
+				if alpha < 0.12 then
+					-- Smooth lift-off (+12 Y above start ground)
+					local liftA = alpha / 0.12
+					curY = startP.Y + (cruiseAlt - startP.Y) * liftA
+				elseif alpha <= 0.88 then
+					-- High altitude cruise
+					curY = cruiseAlt
+				else
+					-- Gentle landing descent
+					local landA = (alpha - 0.88) / 0.12
+					curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
+				end
+				local curPos = Vector3.new(curX, curY, curZ)
 
-			-- Keep invisible safety plate gliding directly underneath vehicle tires
-			ensureSafetyPlate(Vector3.new(curPos.X, curPos.Y - 2.2, curPos.Z), 45)
+				-- Keep invisible safety plate gliding directly underneath vehicle tires
+				ensureSafetyPlate(Vector3.new(curPos.X, curPos.Y - 2.2, curPos.Z), 45)
 
-			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 160 km/h)", remainingDist))
+				local remainingDist = (destP - curPos).Magnitude
+				updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 160 km/h)", remainingDist))
 
-			if os.clock() - lastLogTime >= 1.0 then
-				lastLogTime = os.clock()
-				print(string.format("[BCA-TRACE][CRUISE-HEARTBEAT] Progress: %.1f%% | curPos: %s | remainingDist: %.1f studs | Elapsed: %.1fs/%.1fs", 
-					alpha * 100, tostring(curPos), remainingDist, elapsed, duration))
-			end
+				if os.clock() - lastLogTime >= 1.0 then
+					lastLogTime = os.clock()
+					print(string.format("[BCA-TRACE][CRUISE-HEARTBEAT] Progress: %.1f%% | curPos: %s | remainingDist: %.1f studs | Elapsed: %.1fs/%.1fs", 
+						alpha * 100, tostring(curPos), remainingDist, elapsed, duration))
+				end
 
-			local currentCF
-			if alpha < 0.92 and remainingDist > 6 then
-				currentCF = CFrame.lookAt(curPos, curPos + flatLook)
-			else
-				currentCF = startCF:Lerp(destCF, alpha)
-			end
+				local currentCF
+				if flatLook and flatLook.Magnitude > 0.05 and remainingDist > 6 and alpha < 0.95 then
+					currentCF = CFrame.lookAt(curPos, curPos + flatLook)
+				else
+					currentCF = startCF:Lerp(destCF, alpha)
+				end
 
-			pcall(function()
 				car:PivotTo(currentCF)
 
 				-- Zero out internal velocities to prevent physics flings while maintaining network ownership
@@ -516,6 +516,10 @@ local success, err = pcall(function()
 					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
+
+			if not sTick then
+				warn("[BCA-TRACE][CRUISE-TICK-ERROR]", errTick)
+			end
 		end
 
 		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory completed after %.2fs of %.2fs. Initiating soft landing...", os.clock() - t0, duration))
