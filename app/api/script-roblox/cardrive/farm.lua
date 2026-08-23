@@ -361,20 +361,15 @@ local success, err = pcall(function()
 		end
 
 		local t0 = os.clock()
-		local conn
-		local finished = false
 		local lastLogTime = 0
 
 		local rawDir = (destP - startP)
 		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
-		conn = RunService.Heartbeat:Connect(function()
-			if not bcaCourierActive then
-				if conn then conn:Disconnect() end
-				finished = true
-				return
-			end
+		-- Synchronous Frame-by-Frame Cruise Loop (Guaranteed continuous travel at target speed)
+		while (os.clock() - t0) < duration do
+			RunService.Heartbeat:Wait()
 
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
@@ -401,8 +396,8 @@ local success, err = pcall(function()
 
 			if os.clock() - lastLogTime >= 1.0 then
 				lastLogTime = os.clock()
-				print(string.format("[BCA-TRACE][CRUISE-HEARTBEAT] Progress: %.1f%% | curPos: %s | remainingDist: %.1f studs", 
-					alpha * 100, tostring(curPos), remainingDist))
+				print(string.format("[BCA-TRACE][CRUISE-HEARTBEAT] Progress: %.1f%% | curPos: %s | remainingDist: %.1f studs | Elapsed: %.1fs/%.1fs", 
+					alpha * 100, tostring(curPos), remainingDist, elapsed, duration))
 			end
 
 			local currentCF
@@ -412,7 +407,7 @@ local success, err = pcall(function()
 				currentCF = startCF:Lerp(destCF, alpha)
 			end
 
-			local sPivot, errPivot = pcall(function()
+			pcall(function()
 				car:PivotTo(currentCF)
 
 				-- Keep collision off during drive
@@ -431,23 +426,9 @@ local success, err = pcall(function()
 					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
-
-			if not sPivot then
-				warn("[BCA-TRACE][CRUISE-ERROR] car:PivotTo threw error in Heartbeat:", errPivot)
-			end
-
-			if alpha >= 1 then
-				finished = true
-				if conn then conn:Disconnect() end
-			end
-		end)
-
-		while not finished and bcaCourierActive do
-			task.wait(0.02)
 		end
-		if conn then pcall(function() conn:Disconnect() end) end
 
-		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory finished after %.2fs. Initiating soft landing...", os.clock() - t0))
+		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory completed after %.2fs of %.2fs. Initiating soft landing...", os.clock() - t0, duration))
 
 		-- Safe landing on ground, unanchor vehicle parts & apply brakes
 		pcall(function()
