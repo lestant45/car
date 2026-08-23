@@ -299,7 +299,8 @@ local success, err = pcall(function()
 			or car:FindFirstChild("DriveSeat", true)
 			or car:FindFirstChildWhichIsA("Seat", true)
 
-		local destCF = getSafeGroundCFrame(targetCF.Position) * (targetCF - targetCF.Position)
+		local targetRot = (typeof(targetCF) == "CFrame") and targetCF.Rotation or CFrame.new()
+		local destCF = getSafeGroundCFrame(targetCF.Position) * targetRot
 		local startCF = car:GetPivot()
 		local startP = startCF.Position
 		local destP = destCF.Position
@@ -426,7 +427,7 @@ local success, err = pcall(function()
 			local groundY = math.max(surfaceY + 2.2, 22.2)
 
 			ensureSafetyPlate(Vector3.new(destP.X, groundY - 2.2, destP.Z), 50)
-			local currentRot = destCF - destCF.Position
+			local currentRot = destCF.Rotation
 
 			-- Smooth gentle descent to ground level (over ~0.25s)
 			local startY = car:GetPivot().Position.Y
@@ -1133,26 +1134,26 @@ local success, err = pcall(function()
 				break
 			end
 
-			-- 1. Teleport to Koper Stack & Pickup
+			-- 1. Walk/Tween to Koper Stack & Pickup
 			updateBcaActivity(string.format("🧳 Grabbing Suitcase from Stack (%d/%d)", curKoper, totKoper))
 			if koperPart then
-				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0))
-				task.wait(0.4)
+				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0), true, 40)
+				task.wait(0.3)
 				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
 				triggerPrompt(prompt)
 			else
-				safeTeleport(CFrame.new(bcaKoperPos))
+				safeTeleport(CFrame.new(bcaKoperPos), true, 40)
 			end
 
-			task.wait(0.6)
+			task.wait(0.5)
 
-			-- 2. Teleport to Car Bagasi & Trigger Muat
+			-- 2. Walk/Tween to Car Bagasi & Trigger Muat
 			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
 			car = getPlayerCar() or car
 			local bagasi = car and car:FindFirstChild("BagasiPoint")
 			if bagasi then
-				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0))
-				task.wait(0.4)
+				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0), true, 40)
+				task.wait(0.3)
 				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
 				triggerPrompt(muatPrompt)
 			end
@@ -1549,8 +1550,8 @@ local success, err = pcall(function()
 			end
 
 			updateBcaActivity("🏧 Stepping in Front of ATM Machine")
-			safeTeleport(CFrame.new(atmFrontPos))
-			task.wait(0.6)
+			safeTeleport(CFrame.new(atmFrontPos), true, 30)
+			task.wait(0.5)
 
 			local nearbyParts = workspace:GetPartBoundsInRadius(atmFrontPos, 25)
 			for _, p in ipairs(nearbyParts) do

@@ -593,7 +593,7 @@ local function safelySettleAndUnanchor(car)
 		local root = car.PrimaryPart or getDriveSeat(car)
 		if root then
 			local currentPos = root.Position
-			local currentRot = car:GetPivot() - car:GetPivot().Position
+			local currentRot = car:GetPivot().Rotation
 			local rayParams = RaycastParams.new()
 			local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
 			local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
