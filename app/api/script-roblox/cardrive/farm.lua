@@ -195,32 +195,47 @@ local success, err = pcall(function()
 	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
 	local function enterDriveSeat(car)
 		if not car or isInBankMinigame() then return false end
-		local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
-			or car:FindFirstChild("DriveSeat", true)
-			or car:FindFirstChildWhichIsA("Seat", true)
+		local seat = car:FindFirstChild("DriveSeat") or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)
 		local char = player.Character
-		if not seat or not char or not char:FindFirstChild("Humanoid") or not char:FindFirstChild("HumanoidRootPart") then return false end
+		local hum = char and char:FindFirstChild("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not seat or not hum or not root then return false end
 
-		if char.Humanoid.Sit and char.Humanoid.SeatPart == seat then
+		if hum.Sit and hum.SeatPart == seat then
 			return true
 		end
 
-		pcall(function()
-			char.HumanoidRootPart.CFrame = seat.CFrame + Vector3.new(0, 1.2, 0)
-			char.Humanoid.Sit = true
-			seat:Sit(char.Humanoid)
-		end)
-
-		local t0 = os.clock()
-		while (not char.Humanoid.Sit or char.Humanoid.SeatPart ~= seat) and os.clock() - t0 < 2.0 do
+		-- 1. Trigger Official CDID PromptDriveSeat ProximityPrompt
+		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt then
 			pcall(function()
-				char.HumanoidRootPart.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-				seat:Sit(char.Humanoid)
+				prompt.Enabled = true
+				prompt.RequiresLineOfSight = false
+				prompt.MaxActivationDistance = 40
+				if fireproximityprompt then
+					fireproximityprompt(prompt)
+				elseif prompt.InputHoldBegin then
+					prompt:InputHoldBegin()
+					task.wait(0.05)
+					prompt:InputHoldEnd()
+				end
 			end)
-			task.wait(0.08)
 		end
 
-		return char.Humanoid.Sit
+		-- 2. Direct Engine Sit fallback
+		if not hum.Sit or hum.SeatPart ~= seat then
+			pcall(function()
+				root.CFrame = seat.CFrame + Vector3.new(0, 1.0, 0)
+				seat:Sit(hum)
+			end)
+		end
+
+		local t0 = os.clock()
+		while (not hum.Sit or hum.SeatPart ~= seat) and os.clock() - t0 < 1.0 do
+			task.wait(0.1)
+		end
+
+		return hum.Sit and hum.SeatPart == seat
 	end
 
 	-- Function to safely exit DriveSeat
