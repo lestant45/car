@@ -6,6 +6,6 @@ firesignal(Event.OnClientEvent,
     "Koper",
     1,
     1,
-    3,
+    4,
     true
 )
