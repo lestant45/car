@@ -287,12 +287,19 @@ local success, err = pcall(function()
 		speed = speed or 95
 		local duration = math.clamp(dist / speed, 1.5, 60.0)
 
-		-- Zero out physics velocities before drive
-		for _, part in ipairs(car:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.AssemblyLinearVelocity = Vector3.zero
-				part.AssemblyAngularVelocity = Vector3.zero
-			end
+		-- Engage A-Chassis engine & release handbrake
+		local pgui = player:FindFirstChild("PlayerGui")
+		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
+		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
+		if aChassisGui and aChassisGui:FindFirstChild("IsOn") then aChassisGui.IsOn.Value = true end
+		if aValues then
+			if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
+			if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
+			if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+		end
+		if seat and seat:IsA("VehicleSeat") then
+			seat.Throttle = 1
+			seat.ThrottleFloat = 1
 		end
 
 		local t0 = os.clock()
@@ -327,9 +334,9 @@ local success, err = pcall(function()
 			local groundedPos = Vector3.new(currentPos.X, groundY, currentPos.Z)
 
 			-- Orient car towards the destination direction during transit, and lerp to final destination rotation near the end
+			local moveDir = (destCF.Position - startCF.Position).Unit
 			local currentCF
 			if alpha < 0.88 and (destCF.Position - currentPos).Magnitude > 4 then
-				local moveDir = (destCF.Position - startCF.Position).Unit
 				currentCF = CFrame.lookAt(groundedPos, groundedPos + Vector3.new(moveDir.X, 0, moveDir.Z))
 			else
 				currentCF = startCF:Lerp(destCF, easedAlpha)
@@ -338,6 +345,15 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
+				-- Maintain forward velocity on chassis so wheels spin and speed registers on server
+				local currentVelocity = Vector3.new(moveDir.X * speed, 0, moveDir.Z * speed)
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity = currentVelocity
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+
 				-- Keep player synchronized inside vehicle seat during the drive
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
@@ -345,13 +361,6 @@ local success, err = pcall(function()
 				if root and seat and (not hum or not hum.Sit or not hum.SeatPart) then
 					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 					if hum then hum.Sit = true; seat:Sit(hum) end
-				end
-
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
 				end
 			end)
 
@@ -366,15 +375,24 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Settle car firmly on ground at final destination
+		-- Apply brakes & settle car firmly at final parking spot
 		pcall(function()
-			car:PivotTo(destCF)
+			if aValues then
+				if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 0 end
+				if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 1 end
+				if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = true end
+			end
+			if seat and seat:IsA("VehicleSeat") then
+				seat.Throttle = 0
+				seat.ThrottleFloat = 0
+			end
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
+			car:PivotTo(destCF)
 		end)
 
 		task.wait(0.4)
