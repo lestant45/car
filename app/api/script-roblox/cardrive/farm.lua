@@ -746,6 +746,9 @@ local success, err = pcall(function()
 	-- 🏦 BCA EVENT & BANK COURIER AUTO FARM (FULL QUEST AUTOMATION)
 	------------------------------------------------
 	local function getBankCourierGui()
+		local pgui = player:FindFirstChild("PlayerGui")
+		return pgui and pgui:FindFirstChild("Job") and pgui.Job:FindFirstChild("BankCourier")
+	end
 
 	local function parseRupiahNumber(str)
 		if not str then return 0 end
