@@ -1271,8 +1271,10 @@ local success, err = pcall(function()
 		if car then
 			print(string.format("[BCA-TRACE][LOADING] ✅ All 4 suitcases confirmed loaded in trunk. Car is at %s. Seating in DriverSeat...", tostring(car:GetPivot().Position)))
 			updateBcaActivity("✅ 4/4 Suitcases Loaded -> Entering Driver Seat to Cruise")
-			enterDriveSeat(car)
+			local seated = enterDriveSeat(car)
 			task.wait(0.4)
+			print("[BCA] Seated in DriveSeat -> Immediately launching drive to ATM destination!")
+			deliverToAtms(car)
 		end
 	end
 

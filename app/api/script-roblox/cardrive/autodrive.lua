@@ -136,8 +136,8 @@ end
 local function getDriveSeat(car)
 	if not car then return nil end
 	return car:FindFirstChild("DriveSeat")
-		or car:FindFirstChildOfClass()
-		or car:FindFirstChildOfClass()
+		or car:FindFirstChildOfClass("VehicleSeat")
+		or car:FindFirstChildOfClass("Seat")
 end
 
 local function enterDriveSeat(car)
@@ -165,7 +165,7 @@ local function enterDriveSeat(car)
 	end
 
 	-- Trigger PromptDriveSeat
-	local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildOfClass()
+	local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildOfClass("ProximityPrompt")
 	if prompt then
 		pcall(function()
 			prompt.Enabled = true
