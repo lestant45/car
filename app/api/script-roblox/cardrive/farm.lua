@@ -195,6 +195,17 @@ local success, err = pcall(function()
 	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
 	local function enterDriveSeat(car)
 		if not car or isInBankMinigame() then return false end
+
+		-- Ensure vehicle is firmly placed on upper road surface before sitting
+		local currentP = car:GetPivot().Position
+		if currentP.Y < 21.0 then
+			local safeCF = getSafeGroundCFrame(currentP)
+			ensureSafetyPlate(safeCF.Position, 45)
+			car:PivotTo(safeCF)
+		else
+			ensureSafetyPlate(currentP, 45)
+		end
+
 		local seat = car:FindFirstChild("DriveSeat") or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)
 		local char = player.Character
 		local hum = char and char:FindFirstChild("Humanoid")
@@ -240,6 +251,11 @@ local success, err = pcall(function()
 
 	-- Function to safely exit DriveSeat
 	local function exitDriveSeat()
+		local car = getPlayerCar()
+		if car then
+			local p = car:GetPivot().Position
+			ensureSafetyPlate(p, 50)
+		end
 		local char = player.Character
 		if char and char:FindFirstChild("Humanoid") and char.Humanoid.Sit then
 			char.Humanoid.Sit = false
@@ -247,6 +263,10 @@ local success, err = pcall(function()
 				char.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 			end)
 			task.wait(0.2)
+		end
+		if car then
+			local p = car:GetPivot().Position
+			ensureSafetyPlate(p, 50)
 		end
 	end
 
@@ -304,12 +324,15 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Anchor vehicle parts during transit so physics cannot drag, bounce, or fling the car
+		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
 		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
-			if part:IsA("BasePart") and not part.Anchored then
-				table.insert(anchoredParts, part)
-				part.Anchored = true
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				if not part.Anchored then
+					table.insert(anchoredParts, part)
+					part.Anchored = true
+				end
 			end
 		end
 
@@ -330,12 +353,22 @@ local success, err = pcall(function()
 
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
-
-			-- Smooth altitude arch (rises ~5 studs during transit to glide cleanly above terrain, lands softly at destP)
-			local archY = math.sin(alpha * math.pi) * 5.0
+			local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
 			local curX = startP.X + (destP.X - startP.X) * alpha
-			local curY = startP.Y + (destP.Y - startP.Y) * alpha + archY
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
+			local curY
+			if alpha < 0.12 then
+				-- Smooth lift-off (+12 Y above start ground)
+				local liftA = alpha / 0.12
+				curY = startP.Y + (cruiseAlt - startP.Y) * liftA
+			elseif alpha <= 0.88 then
+				-- High altitude cruise
+				curY = cruiseAlt
+			else
+				-- Gentle landing descent
+				local landA = (alpha - 0.88) / 0.12
+				curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
+			end
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
@@ -350,6 +383,13 @@ local success, err = pcall(function()
 
 			pcall(function()
 				car:PivotTo(currentCF)
+
+				-- Keep collision off during drive
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+					end
+				end
 
 				-- Keep player synchronized inside vehicle seat during the drive
 				local char = player.Character
@@ -372,14 +412,45 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Unanchor vehicle parts, apply brakes & settle car firmly at final parking spot
+		-- Safe landing on ground, unanchor vehicle parts & apply brakes
 		pcall(function()
-			car:PivotTo(destCF)
+			local root = car.PrimaryPart or seat
+			local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
+			local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
+			local rayParams = RaycastParams.new()
+			rayParams.FilterDescendantsInstances = { car, player.Character, mapBase, safetyPlate }
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+			local hit = workspace:Raycast(destP + Vector3.new(0, 15, 0), Vector3.new(0, -80, 0), rayParams)
+			local surfaceY = hit and hit.Position.Y or (destP.Y > 21.0 and destP.Y or 22.2)
+			local groundY = math.max(surfaceY + 2.2, 22.2)
+
+			ensureSafetyPlate(Vector3.new(destP.X, groundY - 2.2, destP.Z), 50)
+			local currentRot = destCF - destCF.Position
+
+			-- Smooth gentle descent to ground level (over ~0.25s)
+			local startY = car:GetPivot().Position.Y
+			local tDown = os.clock()
+			while os.clock() - tDown < 0.25 do
+				local a = math.clamp((os.clock() - tDown) / 0.25, 0, 1)
+				local easedA = -(math.cos(math.pi * a) - 1) / 2
+				local curY = startY + (groundY - startY) * easedA
+				car:PivotTo(CFrame.new(destP.X, curY, destP.Z) * currentRot)
+				RunService.Heartbeat:Wait()
+			end
+			car:PivotTo(CFrame.new(destP.X, groundY, destP.Z) * currentRot)
+
 			for _, part in ipairs(anchoredParts) do
 				if part and part.Parent then
-					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
+					part.Anchored = false
+					local name = part.Name:lower()
+					if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+						part.CanCollide = true
+					elseif name == "base" or name:find("arm") or name:find("weight") or name:find("spindle") or name:find("hub") or name:find("steer") then
+						part.CanCollide = false
+					end
 				end
 			end
 			if aValues then
@@ -393,7 +464,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		task.wait(0.4)
+		task.wait(0.3)
 
 		-- 2. Exit Driver Seat now that vehicle has physically driven to destination on server
 		exitDriveSeat()
