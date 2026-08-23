@@ -216,8 +216,8 @@ local success, err = pcall(function()
 	local function getDriveSeat(car)
 		if not car then return nil end
 		return car:FindFirstChild("DriveSeat")
-			or car:FindFirstChildWhichIsA("VehicleSeat", true)
-			or car:FindFirstChildWhichIsA("Seat", true)
+			or car:FindFirstChildWhichIsA("VehicleSeat")
+			or car:FindFirstChildWhichIsA("Seat")
 	end
 
 	local isSettling = false
@@ -333,7 +333,7 @@ local success, err = pcall(function()
 
 		print("[BCA-TRACE][SEAT] Attempting to seat player in DriveSeat...")
 		-- 1. Trigger Official CDID PromptDriveSeat ProximityPrompt
-		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt", true)
+		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt")
 		if prompt then
 			pcall(function()
 				prompt.Enabled = true
@@ -505,6 +505,9 @@ local success, err = pcall(function()
 				curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
 			end
 			local curPos = Vector3.new(curX, curY, curZ)
+
+			-- Keep invisible safety plate gliding directly underneath vehicle tires
+			ensureSafetyPlate(Vector3.new(curPos.X, curPos.Y - 2.2, curPos.Z), 45)
 
 			local remainingDist = (destP - curPos).Magnitude
 			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f studs left | 160 km/h)", remainingDist))
@@ -1201,7 +1204,7 @@ local success, err = pcall(function()
 			if koperPart then
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0), true, 40)
 				task.wait(0.3)
-				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildWhichIsA("ProximityPrompt")
 				triggerPrompt(prompt)
 			else
 				safeTeleport(CFrame.new(bcaKoperPos), true, 40)
@@ -1217,7 +1220,7 @@ local success, err = pcall(function()
 			if bagasi then
 				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0), true, 40)
 				task.wait(0.3)
-				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
+				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt")
 				triggerPrompt(muatPrompt)
 			end
 
@@ -1364,7 +1367,7 @@ local success, err = pcall(function()
 			if atms then
 				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
 					local atm = atms:FindFirstChild(atmName)
-					local p = atm and atm:FindFirstChildWhichIsA("BasePart", true)
+					local p = atm and atm:FindFirstChildWhichIsA("BasePart")
 					if (p and (p.Position - targetPos).Magnitude < 50) or (spotPos - targetPos).Magnitude < 80 then
 						safeAtmCF = CFrame.new(spotPos)
 						print(string.format("[BCA-TRACE][DELIVERY] Matched targetPos %s to designated spot %s (%s)", 
@@ -1423,7 +1426,7 @@ local success, err = pcall(function()
 
 			if bagasi then
 				updateBcaActivity("✋ Taking Suitcase from Trunk (Holding for 2.7s)")
-				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true)
+				local ambilPrompt = bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt")
 				local vim = game:GetService("VirtualInputManager")
 				local tStart = os.clock()
 				local failedGrabAttempts = 0
@@ -1492,7 +1495,7 @@ local success, err = pcall(function()
 					safeTeleport(standCF)
 					task.wait(0.2)
 
-					ambilPrompt = bagasi and (bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt", true))
+					ambilPrompt = bagasi and (bagasi:FindFirstChild("AmbilPrompt") or bagasi:FindFirstChildWhichIsA("ProximityPrompt"))
 					if not ambilPrompt then
 						for _, p in ipairs(car:GetDescendants()) do
 							if p:IsA("ProximityPrompt") and (p.Name:find("Ambil") or p.ActionText:lower():find("ambil")) then
@@ -1601,9 +1604,9 @@ local success, err = pcall(function()
 			local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
 			if atms then
 				for _, atm in ipairs(atms:GetChildren()) do
-					local prompt = atm:FindFirstChildWhichIsA("ProximityPrompt", true)
-					local screen = atm:FindFirstChild("Screen_ATM_01", true) or (prompt and prompt.Parent) or atm:FindFirstChildWhichIsA("BasePart", true)
-					if screen and (screen.Position - targetPos).Magnitude < 100 then
+					local prompt = atm:FindFirstChildWhichIsA("ProximityPrompt")
+					local screen = atm:FindFirstChild("Screen_ATM_01", true) or (prompt and prompt.Parent) or atm:FindFirstChildWhichIsA("BasePart")
+					if screen and screen:IsA("BasePart") and (screen.Position - targetPos).Magnitude < 100 then
 						atmFrontPos = screen.Position + screen.CFrame.LookVector * 2.5
 						break
 					end
@@ -1703,7 +1706,7 @@ local success, err = pcall(function()
 						task.wait(0.5)
 
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt")
 						if andhiniPrompt then
 							triggerPrompt(andhiniPrompt)
 						end
@@ -1746,7 +1749,7 @@ local success, err = pcall(function()
 						-- Trigger Andhini's DialogPrompt
 						updateBcaActivity("💰 Speaking to Andhini & Claiming Salary")
 						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
+						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildWhichIsA("ProximityPrompt")
 						if andhiniPrompt then
 							triggerPrompt(andhiniPrompt)
 						end
