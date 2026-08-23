@@ -228,7 +228,24 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics Replication)
+	-- Disables collision on nearby walls, roofs, glass, pillars around destinations so car never flings
+	local function clearNearbyObstacles(centerPos, radius)
+		pcall(function()
+			radius = radius or 30
+			local parts = workspace:GetPartBoundsInRadius(centerPos, radius)
+			for _, part in ipairs(parts) do
+				if part:IsA("BasePart") and not part:IsDescendantOf(player.Character) and (not getPlayerCar() or not part:IsDescendantOf(getPlayerCar())) then
+					local pName = part.Name:lower()
+					-- Keep roads and true ground solid, but disable walls, roofs, pillars, barriers, fences, glass
+					if not pName:find("road") and not pName:find("asphalt") and not pName:find("ground") and not pName:find("terrain") and not pName:find("baseplate") then
+						part.CanCollide = false
+					end
+				end
+			end
+		end)
+	end
+
+	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics & Distance Payout)
 	local function safeTweenCar(targetCF, speed)
 		while isInBankMinigame() and bcaCourierActive do
 			task.wait(0.2)
@@ -239,11 +256,12 @@ local success, err = pcall(function()
 			return
 		end
 
-		-- Ensure invisible safety platform is created and map chunks are streamed before moving
+		-- Ensure safety platform is created, clear nearby building collisions, and stream chunks
 		ensureSafetyPlate(targetCF.Position, 55)
+		clearNearbyObstacles(targetCF.Position, 35)
 		requestStreamAsync(targetCF.Position)
 
-		-- 1. Enter Driver Seat before moving to claim Network Ownership on the server
+		-- 1. Enter Driver Seat before moving to claim Network Ownership & accumulate driving distance
 		enterDriveSeat(car)
 		task.wait(0.2)
 
@@ -251,12 +269,14 @@ local success, err = pcall(function()
 		local startCF = car:GetPivot()
 		local dist = (startCF.Position - destCF.Position).Magnitude
 
-		speed = speed or 180
-		local duration = math.clamp(dist / speed, 0.5, 6.0)
+		-- Realistic driving cruise speed (~160 studs/s) for maximum CDID cash payout
+		speed = speed or 160
+		local duration = math.clamp(dist / speed, 0.8, 35.0)
 
-		-- Zero out physics velocities before tween
+		-- Disable vehicle body collision during travel (NoClip ghost mode to prevent building flings)
 		for _, part in ipairs(car:GetDescendants()) do
-			if part:IsA("BasePart") then
+			if part:IsA("BasePart") and not part.Name:lower():find("wheel") then
+				part.CanCollide = false
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -282,7 +302,8 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
+					if part:IsA("BasePart") and not part.Name:lower():find("wheel") then
+						part.CanCollide = false
 						part.AssemblyLinearVelocity = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
 					end
@@ -300,18 +321,22 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Settle car firmly on ground
+		-- Clear obstacle collisions at final parked spot and settle car
+		clearNearbyObstacles(destCF.Position, 35)
 		pcall(function()
 			car:PivotTo(destCF)
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
+					if not part.Name:lower():find("wheel") then
+						part.CanCollide = false
+					end
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
 		end)
 
-		task.wait(0.25)
+		task.wait(0.3)
 
 		-- 2. Exit Driver Seat now that vehicle has physically traveled to destination on server
 		exitDriveSeat()
