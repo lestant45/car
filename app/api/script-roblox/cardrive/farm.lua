@@ -235,7 +235,6 @@ local success, err = pcall(function()
 		end
 		local car = getPlayerCar()
 		if not car then
-			safeTeleport(targetCF, true, speed)
 			return
 		end
 
@@ -245,17 +244,17 @@ local success, err = pcall(function()
 
 		-- 1. Enter Driver Seat before moving to claim Network Ownership & accumulate driving distance
 		enterDriveSeat(car)
-		task.wait(0.2)
+		task.wait(0.3)
 
 		local destCF = getSafeGroundCFrame(targetCF.Position) * (targetCF - targetCF.Position)
 		local startCF = car:GetPivot()
 		local dist = (startCF.Position - destCF.Position).Magnitude
 
-		-- Realistic driving cruise speed (~160 studs/s) for maximum CDID cash payout
-		speed = speed or 160
-		local duration = math.clamp(dist / speed, 0.8, 35.0)
+		-- Realistic driving cruise speed (~120 studs/s) for appropriate vehicle speed & maximum CDID cash payout
+		speed = speed or 120
+		local duration = math.clamp(dist / speed, 1.0, 45.0)
 
-		-- Zero out physics velocities before tween
+		-- Zero out physics velocities before drive
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.AssemblyLinearVelocity = Vector3.zero
@@ -278,7 +277,15 @@ local success, err = pcall(function()
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 			-- Smooth sine ease in-out
 			local easedAlpha = -(math.cos(math.pi * alpha) - 1) / 2
-			local currentCF = startCF:Lerp(destCF, easedAlpha)
+			local currentPos = startCF.Position:Lerp(destCF.Position, easedAlpha)
+
+			-- Orient car towards the destination direction during transit, and lerp to final destination rotation near the end
+			local currentCF
+			if alpha < 0.85 and (destCF.Position - currentPos).Magnitude > 4 then
+				currentCF = CFrame.new(currentPos, currentPos + (destCF.Position - startCF.Position))
+			else
+				currentCF = startCF:Lerp(destCF, easedAlpha)
+			end
 
 			pcall(function()
 				car:PivotTo(currentCF)
@@ -301,7 +308,7 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Settle car firmly on ground
+		-- Settle car firmly on ground at final destination
 		pcall(function()
 			car:PivotTo(destCF)
 			for _, part in ipairs(car:GetDescendants()) do
@@ -312,11 +319,11 @@ local success, err = pcall(function()
 			end
 		end)
 
-		task.wait(0.3)
+		task.wait(0.4)
 
-		-- 2. Exit Driver Seat now that vehicle has physically traveled to destination on server
+		-- 2. Exit Driver Seat now that vehicle has physically driven to destination on server
 		exitDriveSeat()
-		task.wait(0.2)
+		task.wait(0.3)
 		local bagasi = car:FindFirstChild("BagasiPoint")
 		local exitPos = bagasi and (bagasi.CFrame + Vector3.new(0, 1.0, 0)) or (destCF + Vector3.new(0, 1.0, 3))
 		safeTeleport(exitPos, false)
@@ -1147,8 +1154,8 @@ local success, err = pcall(function()
 				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
 			end
 
-			updateBcaActivity("🎯 Cruising to Destination ATM (180 studs/s)")
-			safeTweenCar(safeAtmCF, 180)
+			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (120 studs/s)")
+			safeTweenCar(safeAtmCF, 120)
 			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
@@ -1503,8 +1510,8 @@ local success, err = pcall(function()
 						or hintText:find("Andhini")
 
 					if isAtmDone then
-						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 180)
+						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (120 studs/s)")
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 120)
 						task.wait(0.5)
 
 						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
