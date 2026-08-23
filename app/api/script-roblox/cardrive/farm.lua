@@ -228,23 +228,6 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Disables collision on nearby walls, roofs, glass, pillars around destinations so car never flings
-	local function clearNearbyObstacles(centerPos, radius)
-		pcall(function()
-			radius = radius or 30
-			local parts = workspace:GetPartBoundsInRadius(centerPos, radius)
-			for _, part in ipairs(parts) do
-				if part:IsA("BasePart") and not part:IsDescendantOf(player.Character) and (not getPlayerCar() or not part:IsDescendantOf(getPlayerCar())) then
-					local pName = part.Name:lower()
-					-- Keep roads and true ground solid, but disable walls, roofs, pillars, barriers, fences, glass
-					if not pName:find("road") and not pName:find("asphalt") and not pName:find("ground") and not pName:find("terrain") and not pName:find("baseplate") then
-						part.CanCollide = false
-					end
-				end
-			end
-		end)
-	end
-
 	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics & Distance Payout)
 	local function safeTweenCar(targetCF, speed)
 		while isInBankMinigame() and bcaCourierActive do
@@ -256,9 +239,8 @@ local success, err = pcall(function()
 			return
 		end
 
-		-- Ensure safety platform is created, clear nearby building collisions, and stream chunks
+		-- Ensure invisible safety platform is created and map chunks are streamed before moving
 		ensureSafetyPlate(targetCF.Position, 55)
-		clearNearbyObstacles(targetCF.Position, 35)
 		requestStreamAsync(targetCF.Position)
 
 		-- 1. Enter Driver Seat before moving to claim Network Ownership & accumulate driving distance
@@ -273,10 +255,9 @@ local success, err = pcall(function()
 		speed = speed or 160
 		local duration = math.clamp(dist / speed, 0.8, 35.0)
 
-		-- Disable vehicle body collision during travel (NoClip ghost mode to prevent building flings)
+		-- Zero out physics velocities before tween
 		for _, part in ipairs(car:GetDescendants()) do
-			if part:IsA("BasePart") and not part.Name:lower():find("wheel") then
-				part.CanCollide = false
+			if part:IsA("BasePart") then
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -302,8 +283,7 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") and not part.Name:lower():find("wheel") then
-						part.CanCollide = false
+					if part:IsA("BasePart") then
 						part.AssemblyLinearVelocity = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
 					end
@@ -321,15 +301,11 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Clear obstacle collisions at final parked spot and settle car
-		clearNearbyObstacles(destCF.Position, 35)
+		-- Settle car firmly on ground
 		pcall(function()
 			car:PivotTo(destCF)
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
-					if not part.Name:lower():find("wheel") then
-						part.CanCollide = false
-					end
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
@@ -960,7 +936,7 @@ local success, err = pcall(function()
 		if car then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.5) -- Wait 1.5s after spawning before moving car
-			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
+			local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20)
 			safeTweenCar(koperParkCFrame, 160)
 			task.wait(0.5)
 		end
@@ -981,8 +957,8 @@ local success, err = pcall(function()
 		car = car or getPlayerCar()
 
 		-- Ensure car is parked right on the asphalt driveway
-		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20)
-		if car and (car:GetPivot().Position - Vector3.new(1780.0, 22.0, -4615.0)).Magnitude > 25 then
+		local koperParkCFrame = getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20)
+		if car and (car:GetPivot().Position - Vector3.new(1781.04, 22.22, -4615.77)).Magnitude > 25 then
 			updateBcaActivity("🚗 Cruising from Spawn to Koper Driveway (160 studs/s)")
 			task.wait(1.5)
 			safeTweenCar(koperParkCFrame, 160)
@@ -1528,7 +1504,7 @@ local success, err = pcall(function()
 
 					if isAtmDone then
 						updateBcaActivity("🏁 Cruising Back to BCA Depot (180 studs/s)")
-						safeTweenCar(getSafeGroundCFrame(Vector3.new(1780.0, 20.0, -4615.0), 20), 180)
+						safeTweenCar(getSafeGroundCFrame(Vector3.new(1781.04, 22.22, -4615.77), 20), 180)
 						task.wait(0.5)
 
 						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
