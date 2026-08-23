@@ -64,24 +64,25 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Safe Character Teleport Function with StreamingEnabled & Anti-Void Protection
+	-- Safe Character Movement Function with Smooth Human Walking Tween & Anti-Void Protection
 	local function safeTeleport(cframe, useTween, speed)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root then return end
 
-		-- 1. Ensure invisible safety plate exists at destination before teleporting
+		-- 1. Ensure invisible safety plate exists at destination before moving
 		ensureSafetyPlate(cframe.Position, 40)
 		requestStreamAsync(cframe.Position)
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
-		if useTween then
-			speed = speed or 120
+		-- Default to smooth human walking/running tween unless explicitly disabled for void rescue
+		if useTween ~= false then
 			local dist = (root.Position - cframe.Position).Magnitude
-			local time = math.clamp(dist / speed, 0.1, 8.0)
+			speed = speed or (dist > 80 and 95 or 32)
+			local time = math.clamp(dist / speed, 0.1, 10.0)
 			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
 			tw:Play()
 			tw.Completed:Wait()
@@ -1516,6 +1517,18 @@ local success, err = pcall(function()
 			if (totA > 0 and curA >= totA) or bcaJobComplete or stepT:find("3)") or stepT:find("Kembali") or stepT:find("Selesai") then
 				bcaJobComplete = true
 				break
+			else
+				-- More ATMs left: Walk smoothly back to car door and enter driver seat before driving to the next ATM
+				updateBcaActivity("🚶 Walking back to Driver Seat for Next ATM...")
+				car = getPlayerCar() or car
+				local seat = car and (car:FindFirstChild("DriveSeat") or car:FindFirstChildWhichIsA("VehicleSeat", true))
+				if seat then
+					local doorPos = seat.CFrame.Position + (seat.CFrame.RightVector * -3.5) + Vector3.new(0, 1.0, 0)
+					safeTeleport(CFrame.new(doorPos), true, 30)
+					task.wait(0.3)
+					enterDriveSeat(car)
+					task.wait(0.4)
+				end
 			end
 		end
 	end
