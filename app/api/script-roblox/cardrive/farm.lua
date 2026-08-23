@@ -349,14 +349,12 @@ local success, err = pcall(function()
 		end
 
 		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
-		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
-				if not part.Anchored then
-					table.insert(anchoredParts, part)
-					part.Anchored = true
-				end
+				part.Anchored = false
+				part.AssemblyLinearVelocity = Vector3.zero
+				part.AssemblyAngularVelocity = Vector3.zero
 			end
 		end
 
@@ -367,7 +365,7 @@ local success, err = pcall(function()
 		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
 		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
 
-		-- Synchronous Frame-by-Frame Cruise Loop (Guaranteed continuous travel at target speed)
+		-- Synchronous Frame-by-Frame Cruise Loop (Guaranteed continuous travel at target speed with 100% server network replication)
 		while (os.clock() - t0) < duration do
 			RunService.Heartbeat:Wait()
 
@@ -410,10 +408,12 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Keep collision off during drive
+				-- Keep collision off and velocities zeroed during drive
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
 					end
 				end
 
@@ -458,8 +458,8 @@ local success, err = pcall(function()
 			end
 			car:PivotTo(CFrame.new(destP.X, groundY, destP.Z) * currentRot)
 
-			for _, part in ipairs(anchoredParts) do
-				if part and part.Parent then
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 					part.Anchored = false
