@@ -71,6 +71,9 @@ local success, err = pcall(function()
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root then return end
 
+		print(string.format("[BCA-TRACE][MOVEMENT] safeTeleport called -> Dest: %s | useTween: %s | speed: %s | Caller: %s", 
+			tostring(cframe.Position), tostring(useTween), tostring(speed), debug.traceback(nil, 2):match(":(%d+):") or "unknown"))
+
 		-- 1. Ensure invisible safety plate exists at destination before teleporting
 		ensureSafetyPlate(cframe.Position, 40)
 		requestStreamAsync(cframe.Position)
@@ -143,6 +146,7 @@ local success, err = pcall(function()
 						root.AssemblyLinearVelocity = Vector3.zero
 						root.AssemblyAngularVelocity = Vector3.zero
 						local rescueCF = lastSafeGroundCFrame or CFrame.new(1866.5, 24, -4874.45)
+						warn("[BCA-TRACE][ANTI-VOID] Player falling into void! Rescuing to:", tostring(rescueCF.Position))
 						ensureSafetyPlate(rescueCF.Position, 60)
 						root.CFrame = rescueCF + Vector3.new(0, 3, 0)
 						local car = getPlayerCar()
@@ -166,6 +170,7 @@ local success, err = pcall(function()
 		local safeCF = getSafeGroundCFrame(cframe.Position) * (cframe - cframe.Position)
 		local car = getPlayerCar()
 
+		print(string.format("[BCA-TRACE][MOVEMENT] safeTeleportCar called -> Dest: %s", tostring(cframe.Position)))
 		if car then
 			pcall(function()
 				car:PivotTo(safeCF)
@@ -210,12 +215,17 @@ local success, err = pcall(function()
 		local char = player.Character
 		local hum = char and char:FindFirstChild("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if not seat or not hum or not root then return false end
+		if not seat or not hum or not root then 
+			warn("[BCA-TRACE][SEAT] enterDriveSeat failed: missing seat, hum, or root")
+			return false 
+		end
 
 		if hum.Sit and hum.SeatPart == seat then
+			print("[BCA-TRACE][SEAT] Player already properly seated in DriveSeat")
 			return true
 		end
 
+		print("[BCA-TRACE][SEAT] Attempting to seat player in DriveSeat...")
 		-- 1. Trigger Official CDID PromptDriveSeat ProximityPrompt
 		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt then
@@ -246,7 +256,10 @@ local success, err = pcall(function()
 			task.wait(0.1)
 		end
 
-		return hum.Sit and hum.SeatPart == seat
+		local successSeat = hum.Sit and hum.SeatPart == seat
+		print(string.format("[BCA-TRACE][SEAT] enterDriveSeat result: %s (Sit=%s, SeatPart=%s)", 
+			tostring(successSeat), tostring(hum.Sit), tostring(hum.SeatPart and hum.SeatPart.Name)))
+		return successSeat
 	end
 
 	-- Function to safely exit DriveSeat
@@ -258,6 +271,7 @@ local success, err = pcall(function()
 		end
 		local char = player.Character
 		if char and char:FindFirstChild("Humanoid") and char.Humanoid.Sit then
+			print("[BCA-TRACE][SEAT] exitDriveSeat: Unseating character from vehicle seat")
 			char.Humanoid.Sit = false
 			pcall(function()
 				char.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
@@ -272,6 +286,9 @@ local success, err = pcall(function()
 
 	-- Smooth Tween Car & Player to Destination (Seated in DriveSeat for 100% Server Physics & Distance Payout)
 	local function safeTweenCar(targetCF, speed)
+		print(string.format("[BCA-TRACE][CRUISE] safeTweenCar CALLED -> Target: %s | Requested Speed: %s studs/s", 
+			tostring(targetCF.Position), tostring(speed)))
+
 		while isInBankMinigame() and bcaCourierActive do
 			task.wait(0.2)
 		end
@@ -285,7 +302,10 @@ local success, err = pcall(function()
 			end
 		end
 
-		if not car then return end
+		if not car then 
+			warn("[BCA-TRACE][CRUISE] safeTweenCar ABORTED: No vehicle found in workspace.Vehicles")
+			return 
+		end
 
 		-- Ensure invisible safety platform is created and map chunks are streamed before moving
 		ensureSafetyPlate(targetCF.Position, 55)
@@ -309,6 +329,9 @@ local success, err = pcall(function()
 		-- Consistent cruise speed (~160 studs/s) exactly matching metotcdid.mp4
 		speed = speed or 160
 		local duration = math.clamp(dist / speed, 1.2, 50.0)
+
+		print(string.format("[BCA-TRACE][CRUISE] Starting continuous vehicle cruise: Start=%s | Dest=%s | Distance=%.1f studs | Duration=%.2fs | Speed=%d studs/s",
+			tostring(startP), tostring(destP), dist, duration, speed))
 
 		-- Engage A-Chassis engine & release handbrake
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -340,6 +363,7 @@ local success, err = pcall(function()
 		local t0 = os.clock()
 		local conn
 		local finished = false
+		local lastLogTime = 0
 
 		local rawDir = (destP - startP)
 		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
@@ -375,6 +399,12 @@ local success, err = pcall(function()
 			local remainingDist = (destP - curPos).Magnitude
 			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | 160 km/h)", remainingDist))
 
+			if os.clock() - lastLogTime >= 1.0 then
+				lastLogTime = os.clock()
+				print(string.format("[BCA-TRACE][CRUISE-HEARTBEAT] Progress: %.1f%% | curPos: %s | remainingDist: %.1f studs", 
+					alpha * 100, tostring(curPos), remainingDist))
+			end
+
 			local currentCF
 			if alpha < 0.92 and remainingDist > 6 then
 				currentCF = CFrame.lookAt(curPos, curPos + flatLook)
@@ -382,7 +412,7 @@ local success, err = pcall(function()
 				currentCF = startCF:Lerp(destCF, alpha)
 			end
 
-			pcall(function()
+			local sPivot, errPivot = pcall(function()
 				car:PivotTo(currentCF)
 
 				-- Keep collision off during drive
@@ -402,6 +432,10 @@ local success, err = pcall(function()
 				end
 			end)
 
+			if not sPivot then
+				warn("[BCA-TRACE][CRUISE-ERROR] car:PivotTo threw error in Heartbeat:", errPivot)
+			end
+
 			if alpha >= 1 then
 				finished = true
 				if conn then conn:Disconnect() end
@@ -412,6 +446,8 @@ local success, err = pcall(function()
 			task.wait(0.02)
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
+
+		print(string.format("[BCA-TRACE][CRUISE] Continuous cruise trajectory finished after %.2fs. Initiating soft landing...", os.clock() - t0))
 
 		-- Safe landing on ground, unanchor vehicle parts & apply brakes
 		pcall(function()
@@ -468,6 +504,7 @@ local success, err = pcall(function()
 		task.wait(0.3)
 
 		-- 2. Exit Driver Seat now that vehicle has physically driven to destination on server
+		print("[BCA-TRACE][CRUISE] Vehicle parked safely at destination. Exiting driver seat...")
 		exitDriveSeat()
 		task.wait(0.3)
 		local bagasi = car:FindFirstChild("BagasiPoint")
@@ -1131,10 +1168,12 @@ local success, err = pcall(function()
 
 			-- If already full or in step 2 (delivering), stop loading
 			if (totKoper > 0 and curKoper >= totKoper) or stepText:find("2)") or stepText:find("Antar") then
+				print(string.format("[BCA-TRACE][LOADING] Suitcases full (%d/%d) or step 2 detected (%s). Exiting loading loop.", curKoper, totKoper, stepText))
 				break
 			end
 
 			-- 1. Walk/Tween to Koper Stack & Pickup
+			print(string.format("[BCA-TRACE][LOADING] Picking up suitcase %d/%d from stack...", curKoper + 1, totKoper))
 			updateBcaActivity(string.format("🧳 Grabbing Suitcase from Stack (%d/%d)", curKoper, totKoper))
 			if koperPart then
 				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0), true, 40)
@@ -1148,6 +1187,7 @@ local success, err = pcall(function()
 			task.wait(0.5)
 
 			-- 2. Walk/Tween to Car Bagasi & Trigger Muat
+			print(string.format("[BCA-TRACE][LOADING] Loading suitcase %d/%d into vehicle trunk...", curKoper + 1, totKoper))
 			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
 			car = getPlayerCar() or car
 			local bagasi = car and car:FindFirstChild("BagasiPoint")
@@ -1203,6 +1243,7 @@ local success, err = pcall(function()
 		-- Confirm all 4 suitcases loaded and seat player in driver seat
 		car = getPlayerCar() or car
 		if car then
+			print(string.format("[BCA-TRACE][LOADING] ✅ All 4 suitcases confirmed loaded in trunk. Car is at %s. Seating in DriverSeat...", tostring(car:GetPivot().Position)))
 			updateBcaActivity("✅ 4/4 Suitcases Loaded -> Entering Driver Seat to Cruise")
 			enterDriveSeat(car)
 			task.wait(0.4)
@@ -1280,6 +1321,7 @@ local success, err = pcall(function()
 
 			local targetPos = getBankCourierTargetPos()
 			if not targetPos then
+				print("[BCA-TRACE][DELIVERY] Waiting for Bank Courier route / target waypoint...")
 				local tWait = os.clock()
 				while not targetPos and os.clock() - tWait < 6 and bcaCourierActive do
 					task.wait(0.5)
@@ -1287,7 +1329,10 @@ local success, err = pcall(function()
 					local curA, totA = parseProgress(jobGui and jobGui.Status.Atm.Text or "")
 					if bcaJobComplete or (totA > 0 and curA >= totA) then break end
 				end
-				if not targetPos then break end
+				if not targetPos then 
+					warn("[BCA-TRACE][DELIVERY] Aborting delivery loop: No target ATM found in workspace")
+					break 
+				end
 			end
 
 			-- 1. Match destination to designated safe open parking spot
@@ -1299,6 +1344,8 @@ local success, err = pcall(function()
 					local p = atm and atm:FindFirstChildWhichIsA("BasePart", true)
 					if (p and (p.Position - targetPos).Magnitude < 50) or (spotPos - targetPos).Magnitude < 80 then
 						safeAtmCF = CFrame.new(spotPos)
+						print(string.format("[BCA-TRACE][DELIVERY] Matched targetPos %s to designated spot %s (%s)", 
+							tostring(targetPos), atmName, tostring(spotPos)))
 						break
 					end
 				end
@@ -1306,10 +1353,13 @@ local success, err = pcall(function()
 
 			if not safeAtmCF then
 				safeAtmCF = getSafeGroundCFrame(targetPos + Vector3.new(-12, 0, 10))
+				print(string.format("[BCA-TRACE][DELIVERY] Using raycasted fallback ground spot: %s", tostring(safeAtmCF.Position)))
 			end
 
+			print(string.format("[BCA-TRACE][DELIVERY] Calling safeTweenCar to %s at 160 studs/s", tostring(safeAtmCF.Position)))
 			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (160 studs/s)")
 			safeTweenCar(safeAtmCF, 160)
+			print(string.format("[BCA-TRACE][DELIVERY] safeTweenCar return. Car is now at %s", tostring(car and car:GetPivot().Position)))
 			task.wait(1.5) -- Wait 1.5s after moving car near ATM before grabbing koper
 
 			-- Check if game enforces an arrival cooldown (e.g. "TUNGGU 32s")
