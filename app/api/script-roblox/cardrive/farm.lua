@@ -473,8 +473,8 @@ local success, err = pcall(function()
 
 		-- Road-level cruise elevation (skims right above asphalt surface +3.0 Y for realistic road driving feel)
 		local cruiseAlt = math.max(startP.Y, destP.Y) + 3.0
-		local speed = 220
-		local duration = math.clamp(dist / speed, 0.5, 40.0)
+		local speed = 180
+		local duration = math.clamp(dist / speed, 0.5, 45.0)
 
 		-- Press gas pedal (W key & Up arrow) via VirtualInputManager & engage A-Chassis throttle
 		pcall(function()
