@@ -45,6 +45,7 @@ local success, err = pcall(function()
 			bcaTweenSpeed = 120,
 			bcaTweenHeight = 38,
 			bcaArriveDist = 35,
+			bcaTargetAtm = "Auto",
 			antiStaff = false,
 			odometer = false,
 			odometerSpeed = 120,

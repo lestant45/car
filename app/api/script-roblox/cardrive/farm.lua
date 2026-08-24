@@ -1202,7 +1202,24 @@ local success, err = pcall(function()
 		["ATM10"] = Vector3.new(1988.32, 24.44, -3531.15),
 	}
 
+	local ATM_OPTION_MAP = {
+		["Auto (Active ATM)"] = "Auto",
+		["ATM 9 (BSD City - 5700 studs)"] = "ATM9",
+		["ATM 7 (Tol Selatan - 13800 studs)"] = "ATM7",
+		["ATM 8 (Ring Road - 15700 studs)"] = "ATM8",
+		["ATM 3 (Plaza Barat - 1470 studs)"] = "ATM3",
+		["ATM 10 (City South - 1400 studs)"] = "ATM10",
+		["ATM 2 (BCA Office - 440 studs)"] = "ATM2",
+		["ATM 4 (City Center - 420 studs)"] = "ATM4",
+		["ATM 1 (Depot - 25 studs)"] = "ATM1",
+	}
+
 	local function getBankCourierTargetPos()
+		local customAtm = Config.farm.bcaTargetAtm
+		if customAtm and customAtm ~= "Auto" and ATM_PARKING_SPOTS[customAtm] then
+			return ATM_PARKING_SPOTS[customAtm], customAtm
+		end
+
 		-- 1. Check Active Target ATM in MY_BCA_COLLAB (Highest Priority - Ground Truth)
 		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
 		if atms then
@@ -1891,6 +1908,33 @@ local success, err = pcall(function()
 		Config.farm.bcaArriveDist = v
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 9, " studs")
+
+	local atmDropdownOptions = {
+		"Auto (Active ATM)",
+		"ATM 9 (BSD City - 5700 studs)",
+		"ATM 7 (Tol Selatan - 13800 studs)",
+		"ATM 8 (Ring Road - 15700 studs)",
+		"ATM 3 (Plaza Barat - 1470 studs)",
+		"ATM 10 (City South - 1400 studs)",
+		"ATM 2 (BCA Office - 440 studs)",
+		"ATM 4 (City Center - 420 studs)",
+		"ATM 1 (Depot - 25 studs)"
+	}
+
+	local currentAtmLabel = "Auto (Active ATM)"
+	for optName, optKey in pairs(ATM_OPTION_MAP) do
+		if optKey == Config.farm.bcaTargetAtm then
+			currentAtmLabel = optName
+			break
+		end
+	end
+
+	UI.AddDropdown(bcaSec, "🎯 Destination ATM (Far = 6M+)", atmDropdownOptions, currentAtmLabel, function(selectedOpt)
+		local key = ATM_OPTION_MAP[selectedOpt] or "Auto"
+		Config.farm.bcaTargetAtm = key
+		UI.Notify("Destination ATM Set", selectedOpt, 2, "info")
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 10)
 
 	UI.AddTextbox(bcaSec, "Target Earning (Million IDR)", tostring(bcaTargetEarning or 0), function(val)
 		local num = tonumber(val) or 0
