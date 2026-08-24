@@ -1224,9 +1224,10 @@ local success, err = pcall(function()
 			local stepText = jobGui.Status.Step.Text or ""
 			local curKoper, totKoper = parseProgress(koperText)
 
-			-- If already full or in step 2 (delivering), stop loading
-			if (totKoper > 0 and curKoper >= totKoper) or stepText:find("2)") or stepText:find("Antar") then
-				print(string.format("[BCA-TRACE][LOADING] Suitcases full (%d/%d) or step 2 detected (%s). Exiting loading loop.", curKoper, totKoper, stepText))
+			-- If all kopers are genuinely loaded (e.g. 2/2), stop loading
+			-- Do NOT short-circuit on stepText alone — game may show Step 2 while Koper is 0/2 (next batch)
+			if totKoper > 0 and curKoper >= totKoper then
+				print(string.format("[BCA-TRACE][LOADING] Suitcases full (%d/%d). Exiting loading loop.", curKoper, totKoper))
 				break
 			end
 
@@ -1401,6 +1402,14 @@ local success, err = pcall(function()
 	local function deliverToAtms(car)
 		local jobGui = getBankCourierGui()
 		local bagasi = car and car:FindFirstChild("BagasiPoint")
+
+		-- Pre-check: If car has 0 kopers, abort delivery and let main loop load them first
+		local koperText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+		local curKoper, totKoper = parseProgress(koperText)
+		if totKoper > 0 and curKoper < totKoper then
+			print(string.format("[BCA] deliverToAtms: Car has %d/%d kopers. Aborting delivery, needs loading first.", curKoper, totKoper))
+			return
+		end
 
 		while bcaCourierActive do
 			if checkTargetEarningAndDisconnect() then return end
@@ -1851,16 +1860,19 @@ local success, err = pcall(function()
 						return
 					end
 
-					-- STEP 3: Load Kopers into Car Trunk (ONLY when in Step 1: Angkut koper uang)
-					local isKoperFull = (totKoper > 0 and curKoper >= totKoper) or stepText:find("2)") or stepText:find("Antar")
-					if not isKoperFull and (stepText:find("1)") or stepText:find("Angkut") or hintText:find("tumpukan")) then
+					-- STEP 3: Load Kopers into Car Trunk
+					-- Check actual koper count — if car has 0 kopers out of N, we MUST load regardless of step text
+					local isKoperFull = (totKoper > 0 and curKoper >= totKoper)
+					local needsLoading = not isKoperFull and totKoper > 0 and curKoper < totKoper
+					if needsLoading then
+						print(string.format("[BCA] Kopers need loading: %d/%d in car. Loading...", curKoper, totKoper))
 						loadKopersIntoCar(car)
 						task.wait(0.5)
 						return
 					end
 
-					-- STEP 4: Deliver to marked ATMs (When in Step 2: Antar uang ke ATM)
-					if (stepText:find("2)") or stepText:find("Antar") or isKoperFull) and not isAtmDone then
+					-- STEP 4: Deliver to marked ATMs (kopers loaded or step text says deliver)
+					if (isKoperFull or stepText:find("2)") or stepText:find("Antar")) and not isAtmDone then
 						deliverToAtms(car)
 						task.wait(0.5)
 						return
