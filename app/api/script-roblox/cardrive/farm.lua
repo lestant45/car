@@ -554,6 +554,15 @@ local success, err = pcall(function()
 		return arrivalRemaining <= 45
 	end
 
+	-- Reusable Vehicle Tween Alias
+	local function safeTweenCar(target, speed)
+		if typeof(target) == "CFrame" then
+			return driveTo(target.Position)
+		else
+			return driveTo(target)
+		end
+	end
+
 	------------------------------------------------
 	-- 🚚 SILAMBAT COURIER AUTO FARM
 	------------------------------------------------
@@ -1610,13 +1619,19 @@ local success, err = pcall(function()
 						-- D. Firesignal & Connection Direct Hooks
 						pcall(function()
 							if firesignal then
-								firesignal(ambilPrompt.PromptButtonHoldBegan, player)
-								firesignal(ambilPrompt.PromptButtonHoldEnded, player)
-								firesignal(ambilPrompt.Triggered, player)
+								pcall(function() firesignal(ambilPrompt.PromptButtonHoldBegan, player) end)
+								pcall(function() firesignal(ambilPrompt.PromptButtonHoldEnded, player) end)
+								pcall(function() firesignal(ambilPrompt.Triggered, player) end)
 							end
 							if getconnections then
-								for _, c in ipairs(getconnections(ambilPrompt.Triggered)) do c:Fire(player) end
-								for _, c in ipairs(getconnections(ambilPrompt.PromptButtonHoldEnded)) do c:Fire(player) end
+								pcall(function()
+									for _, c in ipairs(getconnections(ambilPrompt.Triggered)) do
+										pcall(function() if c.Fire then c:Fire(player) elseif c.Function then c.Function(player) end end)
+									end
+									for _, c in ipairs(getconnections(ambilPrompt.PromptButtonHoldEnded)) do
+										pcall(function() if c.Fire then c:Fire(player) elseif c.Function then c.Function(player) end end)
+									end
+								end)
 							end
 						end)
 					end
