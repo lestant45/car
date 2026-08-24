@@ -1765,18 +1765,17 @@ local success, err = pcall(function()
 						or hintText:find("Andhini")
 
 					if isAtmDone then
-						updateBcaActivity("🏁 Driving Bank Van Back to BCA Depot (160 studs/s)")
-						local arrivedDepot = driveTo(Vector3.new(1781.04, 22.22, -4615.77))
-						if arrivedDepot then
-							exitDriveSeat()
-							task.wait(0.5)
-						end
+						updateBcaActivity("⚡ Instant Teleporting Van Back to BCA Depot...")
+						local depotCF = CFrame.new(1781.04, 22.22, -4615.77)
+						safeTeleportCar(depotCF)
+						exitDriveSeat()
+						task.wait(0.2)
 
-						-- Walk/Tween inside lobby to approach Andhini (Koordinator Kurir BCA) at 200 studs/s
-						updateBcaActivity("🚶 Tweening to Andhini NPC (200 studs/s)")
+						-- Instant Teleport directly in front of Andhini NPC
+						updateBcaActivity("⚡ Teleporting to Andhini NPC")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
-						task.wait(0.5)
+						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), false)
+						task.wait(0.3)
 
 						-- Trigger Andhini's DialogPrompt
 						updateBcaActivity("💰 Speaking to Andhini & Claiming Salary")
@@ -1787,7 +1786,7 @@ local success, err = pcall(function()
 						end
 
 						-- Tap screen to skip dialog text and confirm salary payout
-						skipAndConfirmNpcDialog(4.0)
+						skipAndConfirmNpcDialog(3.5)
 
 						fireRemote("NpcDialog", "Finish", 1)
 						fireRemote("NpcDialog", "Finish", "BankCourier")
