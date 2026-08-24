@@ -471,8 +471,8 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
-		local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
+		-- Road-level cruise elevation (skims right above asphalt surface +3.0 Y for realistic road driving feel)
+		local cruiseAlt = math.max(startP.Y, destP.Y) + 3.0
 		local speed = 220
 		local duration = math.clamp(dist / speed, 0.5, 40.0)
 
@@ -491,6 +491,8 @@ local success, err = pcall(function()
 			if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
 			if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
 			if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+			if aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
+			if aValues:FindFirstChild("RPM") then aValues.RPM.Value = 5200 end
 		end
 		if seat:IsA("VehicleSeat") then
 			seat.Throttle = 1
@@ -499,9 +501,14 @@ local success, err = pcall(function()
 
 		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
 		local anchoredParts = {}
+		local wheels = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
+				local name = part.Name:lower()
+				if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+					table.insert(wheels, part)
+				end
 				if not part.Anchored then
 					table.insert(anchoredParts, part)
 					part.Anchored = true
@@ -513,6 +520,7 @@ local success, err = pcall(function()
 		local conn
 		local finished = false
 		local lastOdoTime = 0
+		local wheelAngle = 0
 
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
@@ -530,28 +538,25 @@ local success, err = pcall(function()
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			-- 3-Phase Altitude Cruise: Rise up (+14 Y) -> Cruise -> Smooth landing descent
+			-- Smooth road-level driving cruise
 			local curX = startP.X + (destP.X - startP.X) * alpha
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
-			if alpha < 0.12 then
-				-- Smooth lift-off
-				local liftA = alpha / 0.12
+			if alpha < 0.08 then
+				local liftA = alpha / 0.08
 				local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
 				curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
-			elseif alpha <= 0.88 then
-				-- High altitude cruise
+			elseif alpha <= 0.92 then
 				curY = cruiseAlt
 			else
-				-- Gentle landing descent
-				local landA = (alpha - 0.88) / 0.12
+				local landA = (alpha - 0.92) / 0.08
 				local easedLand = -(math.cos(math.pi * landA) - 1) / 2
 				curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
 			end
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Cruising Bank Van to ATM (%.0f stud left | %d km/h)", remainingDist, speed))
+			updateBcaActivity(string.format("🚗 Driving Bank Van along road (%.0f stud left | %d km/h)", remainingDist, speed))
 
 			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
@@ -566,15 +571,19 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Keep gas pedal active & engaged
+				-- Maintain active gas pedal & engine revs
 				if aValues then
 					if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
 					if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
 					if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
+					if aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
+					if aValues:FindFirstChild("RPM") then aValues.RPM.Value = 5200 + math.random(-80, 80) end
+					if aValues:FindFirstChild("Velocity") then aValues.Velocity.Value = moveDir * 180 end
 				end
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = 1
 					seat.ThrottleFloat = 1
+					seat.AssemblyLinearVelocity = moveDir * 160
 				end
 
 				-- Keep player seated
@@ -587,12 +596,12 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- Telemetry & Odometer packet sync (every 0.5s) for maximum salary distance calculation
-			if os.clock() - lastOdoTime >= 0.5 then
+			-- Telemetry & Odometer packet sync (every 0.35s) for maximum salary distance calculation
+			if os.clock() - lastOdoTime >= 0.35 then
 				lastOdoTime = os.clock()
 				pcall(function()
-					fireRemote("Odometer", 4500)
-					fireRemote("DataReceiver", { RPM = 4500, Speed = speed })
+					fireRemote("Odometer", 4800)
+					fireRemote("DataReceiver", { RPM = 5200, Speed = speed, Throttle = 1 })
 				end)
 			end
 
