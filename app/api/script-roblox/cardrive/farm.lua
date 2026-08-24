@@ -600,8 +600,14 @@ local success, err = pcall(function()
 			if os.clock() - lastOdoTime >= 0.35 then
 				lastOdoTime = os.clock()
 				pcall(function()
+					if Network and Network.FireServer then
+						Network:FireServer("Odometer", 4800)
+					end
 					fireRemote("Odometer", 4800)
 					fireRemote("DataReceiver", { RPM = 5200, Speed = speed, Throttle = 1 })
+					if car then
+						car:SetAttribute("Odometer", (car:GetAttribute("Odometer") or 0) + 1)
+					end
 				end)
 			end
 
