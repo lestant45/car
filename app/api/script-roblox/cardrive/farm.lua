@@ -119,7 +119,17 @@ local success, err = pcall(function()
 	local function getPlayerCar()
 		local vehicles = workspace:FindFirstChild("Vehicles")
 		if not vehicles then return nil end
-		return vehicles:FindFirstChild(player.Name .. "sCar") or vehicles:FindFirstChild(player.Name .. "'s Car")
+		local car = vehicles:FindFirstChild(player.Name .. "sCar") or vehicles:FindFirstChild(player.Name .. "'s Car")
+		if car and not car.PrimaryPart then
+			local root = car:FindFirstChild("DriveSeat")
+				or car:FindFirstChildWhichIsA("VehicleSeat", true)
+				or car:FindFirstChild("Body")
+				or car:FindFirstChildWhichIsA("BasePart", true)
+			if root and root:IsA("BasePart") then
+				car.PrimaryPart = root
+			end
+		end
+		return car
 	end
 
 	-- Universal Safe Ground CFrame Calculator with Streaming Protection
@@ -133,10 +143,10 @@ local success, err = pcall(function()
 		rayParams.FilterDescendantsInstances = { car, char, workspace:FindFirstChild("__SafetyPlate") }
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Raycast downward from +14 studs above target
-		local hit = workspace:Raycast(targetPos + Vector3.new(0, 14, 0), Vector3.new(0, -45, 0), rayParams)
-		local groundY = hit and hit.Position.Y or targetPos.Y
-		local safeY = groundY + 2.0 -- exact suspension clearance so tires touch road perfectly
+		-- Raycast downward from +15 studs above target
+		local hit = workspace:Raycast(targetPos + Vector3.new(0, 15, 0), Vector3.new(0, -45, 0), rayParams)
+		local groundY = hit and hit.Position.Y or (targetPos.Y > 20 and targetPos.Y or 22.5)
+		local safeY = math.max(groundY + 2.0, 22.5)
 
 		local rot = desiredAngle and CFrame.Angles(0, math.rad(desiredAngle), 0) or CFrame.new()
 		return CFrame.new(targetPos.X, safeY, targetPos.Z) * rot
@@ -158,7 +168,6 @@ local success, err = pcall(function()
 					if root.Position.Y > 15 then
 						lastSafeGroundCFrame = root.CFrame
 					elseif root.Position.Y < -15 then
-						-- Falling into the void! Instantly rescue to safe road!
 						root.AssemblyLinearVelocity = Vector3.zero
 						root.AssemblyAngularVelocity = Vector3.zero
 						local rescueCF = lastSafeGroundCFrame or CFrame.new(1866.5, 24, -4874.45)
@@ -216,8 +225,8 @@ local success, err = pcall(function()
 	local function getDriveSeat(car)
 		if not car then return nil end
 		return car:FindFirstChild("DriveSeat")
-			or car:FindFirstChildOfClass("VehicleSeat")
-			or car:FindFirstChildOfClass("Seat")
+			or car:FindFirstChildWhichIsA("VehicleSeat", true)
+			or car:FindFirstChildWhichIsA("Seat", true)
 	end
 
 	local isSettling = false
@@ -251,12 +260,12 @@ local success, err = pcall(function()
 					local easedA = -(math.cos(math.pi * a) - 1) / 2
 					local curY = startY + (groundY - startY) * easedA
 					car:PivotTo(CFrame.new(currentPos.X, curY, currentPos.Z) * flatRot)
-					RunService.Heartbeat:Wait()
+					task.wait(0.02)
 				end
 				car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * flatRot)
 			end
 
-			-- Zero out velocities and keep unanchored
+			-- Zero out velocities and unanchor smoothly
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.AssemblyLinearVelocity = Vector3.zero
@@ -265,7 +274,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Restore wheel collision ONLY on outer wheels, NEVER on internal suspension parts (base, arm, weight)
+			-- Restore wheel collision ONLY on outer wheels, NEVER on internal suspension parts
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					local name = part.Name:lower()
@@ -294,47 +303,33 @@ local success, err = pcall(function()
 		isSettling = false
 	end
 
-	-- Function to safely seat player in DriveSeat so client gets full Network Ownership for server replication
+	-- Function to safely seat player in DriveSeat (1:1 with autodrive.lua enterDriveSeat)
 	local function enterDriveSeat(car)
+		car = car or getPlayerCar()
 		if not car or isInBankMinigame() then return false end
 
 		-- Ensure vehicle is firmly placed on upper road surface before sitting
 		local currentP = car:GetPivot().Position
 		if currentP.Y < 21.0 then
 			local safeCF = getSafeGroundCFrame(currentP)
-			ensureSafetyPlate(safeCF.Position, 45)
+			ensureSafetyPlate(safeCF.Position, 40)
 			car:PivotTo(safeCF)
 		else
-			ensureSafetyPlate(currentP, 45)
-		end
-
-		-- Restore wheel collision so car doesn't fall through ground while getting in
-		for _, part in ipairs(car:GetDescendants()) do
-			if part:IsA("BasePart") then
-				local name = part.Name:lower()
-				if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
-					part.CanCollide = true
-				end
-			end
+			ensureSafetyPlate(currentP, 40)
 		end
 
 		local seat = getDriveSeat(car)
 		local char = player.Character
 		local hum = char and char:FindFirstChild("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if not seat or not hum or not root then 
-			warn("[BCA-TRACE][SEAT] enterDriveSeat failed: missing seat, hum, or root")
-			return false 
-		end
+		if not seat or not hum or not root then return false end
 
 		if hum.Sit and hum.SeatPart == seat then
-			print("[BCA-TRACE][SEAT] Player already properly seated in DriveSeat")
 			return true
 		end
 
-		print("[BCA-TRACE][SEAT] Attempting to seat player in DriveSeat...")
-		-- 1. Trigger Official CDID PromptDriveSeat ProximityPrompt
-		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildOfClass("ProximityPrompt")
+		-- Trigger PromptDriveSeat
+		local prompt = seat:FindFirstChild("PromptDriveSeat") or seat:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt then
 			pcall(function()
 				prompt.Enabled = true
@@ -350,7 +345,7 @@ local success, err = pcall(function()
 			end)
 		end
 
-		-- 2. Direct Engine Sit fallback
+		-- Fallback Engine Sit
 		if not hum.Sit or hum.SeatPart ~= seat then
 			pcall(function()
 				root.CFrame = seat.CFrame + Vector3.new(0, 1.0, 0)
@@ -359,14 +354,11 @@ local success, err = pcall(function()
 		end
 
 		local t0 = os.clock()
-		while (not hum.Sit or hum.SeatPart ~= seat) and os.clock() - t0 < 1.0 do
-			task.wait(0.1)
+		while (not hum.Sit or hum.SeatPart ~= seat) and os.clock() - t0 < 1.2 do
+			task.wait(0.08)
 		end
 
-		local successSeat = hum.Sit and hum.SeatPart == seat
-		print(string.format("[BCA-TRACE][SEAT] enterDriveSeat result: %s (Sit=%s, SeatPart=%s)", 
-			tostring(successSeat), tostring(hum.Sit), tostring(hum.SeatPart and hum.SeatPart.Name)))
-		return successSeat
+		return hum.Sit and hum.SeatPart == seat
 	end
 
 	-- Function to safely exit DriveSeat
@@ -377,15 +369,14 @@ local success, err = pcall(function()
 		end
 		local char = player.Character
 		if char and char:FindFirstChild("Humanoid") and char.Humanoid.Sit then
-			print("[BCA-TRACE][SEAT] exitDriveSeat: Unseating character from vehicle seat")
 			char.Humanoid.Sit = false
 			pcall(function()
 				char.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 			end)
-			task.wait(0.2)
 		end
 		if car then
-			safelySettleAndUnanchor(car)
+			local p = car:GetPivot().Position
+			ensureSafetyPlate(p, 50)
 		end
 	end
 
