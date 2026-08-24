@@ -443,9 +443,9 @@ local success, err = pcall(function()
 		local speed = 220
 		local duration = math.clamp(dist / speed, 0.5, 35.0)
 
-		print(string.format("[BCA] Vehicle tween started -> Speed: %d studs/s | Duration: %.2fs", speed, duration))
+		print(string.format("[BCA] Vehicle tween started -> Speed: %d studs/s | Duration: %.2fs | Dist: %.0f", speed, duration, dist))
 
-		-- Engage A-Chassis throttle & release handbrake
+		-- Engage A-Chassis throttle & release handbrake for telemetry
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -460,44 +460,27 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Keep parts unanchored and disable collision on body panels during flight
+		-- Anchor ALL parts & disable collision for clean PivotTo tweening (no physics fighting)
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
-				local name = part.Name:lower()
-				if not name:find("wheel") and name ~= "fl" and name ~= "fr" and name ~= "rl" and name ~= "rr" then
-					part.CanCollide = false
-				end
-				part.Anchored = false
+				part.CanCollide = false
+				part.Anchored = true
 			end
 		end
 
-		-- Clean up any prior physics movers
-		for _, v in ipairs(root:GetChildren()) do
-			if v.Name == "HipHub_DriveBV" or v.Name == "HipHub_DriveBG" then
+		-- Clean up any prior physics movers (safety)
+		for _, v in ipairs((car.PrimaryPart or seat):GetChildren()) do
+			if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then
 				v:Destroy()
 			end
 		end
 
-		-- Create BodyVelocity to overcome gravity and glide vehicle
-		local bv = Instance.new("BodyVelocity")
-		bv.Name = "HipHub_DriveBV"
-		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-		bv.Velocity = Vector3.zero
-		bv.Parent = root
-
-		-- Create BodyGyro to lock orientation horizontally (strictly 0 pitch, 0 roll)
+		-- Calculate direction for yaw rotation
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
 		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
 		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
 		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
-
-		local bg = Instance.new("BodyGyro")
-		bg.Name = "HipHub_DriveBG"
-		bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-		bg.P = 10000
-		bg.CFrame = horizontalRot
-		bg.Parent = root
 
 		local t0 = os.clock()
 		local conn
@@ -515,7 +498,7 @@ local success, err = pcall(function()
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			-- 3-Phase Altitude Cruise: Rise up (+12 Y) -> Cruise -> Smooth landing descent
+			-- 3-Phase Altitude Cruise: Rise up -> Cruise -> Smooth landing descent
 			local curX = startP.X + (destP.X - startP.X) * alpha
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
@@ -533,7 +516,7 @@ local success, err = pcall(function()
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Tweening Bank Van to Destination (%.0f stud left | %d studs/s)", remainingDist, speed))
+			updateBcaActivity(string.format("🚗 Tweening Bank Van to ATM (%.0f studs left | %d studs/s)", remainingDist, speed))
 
 			if os.clock() - lastLogTime >= 1.0 then
 				lastLogTime = os.clock()
@@ -549,29 +532,20 @@ local success, err = pcall(function()
 				end)
 			end
 
-			-- Update BodyVelocity and BodyGyro target
-			if bv and bv.Parent and bg and bg.Parent then
-				bv.Velocity = moveDir * speed
-				bg.CFrame = horizontalRot
-			end
-
-			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
+			-- PivotTo with strictly horizontal CFrame (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
-
 			pcall(function()
 				car:PivotTo(currentCF)
+			end)
 
-				-- Maintain linear velocity on primary part so speedometer & odometer tick
-				root.AssemblyLinearVelocity = moveDir * speed
-				root.AssemblyAngularVelocity = Vector3.zero
-
-				-- Keep player seated
+			-- Keep player welded to seat during tween
+			pcall(function()
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
 				local charRoot = char and char:FindFirstChild("HumanoidRootPart")
-				if charRoot and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
+				if charRoot then
+					charRoot.Anchored = true
 					charRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
 
@@ -586,15 +560,18 @@ local success, err = pcall(function()
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Destroy BodyVelocity & BodyGyro
-		if bv and bv.Parent then bv:Destroy() end
-		if bg and bg.Parent then bg:Destroy() end
+		-- Unanchor character
+		pcall(function()
+			local char = player.Character
+			local charRoot = char and char:FindFirstChild("HumanoidRootPart")
+			if charRoot then charRoot.Anchored = false end
+		end)
 
 		-- Settle & Unanchor smoothly on the road with clear collision restoration
 		safelySettleAndUnanchor(car)
 
 		local arrivalRemaining = (car:GetPivot().Position - destP).Magnitude
-		print(string.format("[BCA] Drive completed. Arrival distance: %.1f studs", arrivalRemaining))
+		print(string.format("[BCA] Tween completed. Arrival distance: %.1f studs", arrivalRemaining))
 		return arrivalRemaining <= 45
 	end
 
