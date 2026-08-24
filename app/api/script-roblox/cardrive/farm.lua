@@ -581,12 +581,12 @@ local success, err = pcall(function()
 					if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
 					if aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
 					if aValues:FindFirstChild("RPM") then aValues.RPM.Value = 5200 + math.random(-80, 80) end
-					if aValues:FindFirstChild("Velocity") then aValues.Velocity.Value = moveDir * 180 end
+					if aValues:FindFirstChild("Velocity") then aValues.Velocity.Value = moveDir * speed end
 				end
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = 1
 					seat.ThrottleFloat = 1
-					seat.AssemblyLinearVelocity = moveDir * 160
+					seat.AssemblyLinearVelocity = moveDir * speed
 				end
 
 				-- Keep player seated
@@ -609,7 +609,8 @@ local success, err = pcall(function()
 					fireRemote("Odometer", 4800)
 					fireRemote("DataReceiver", { RPM = 5200, Speed = speed, Throttle = 1 })
 					if car then
-						car:SetAttribute("Odometer", (car:GetAttribute("Odometer") or 0) + 1)
+						local curOdo = car:GetAttribute("Odometer") or 0
+						car:SetAttribute("Odometer", curOdo + 1)
 					end
 				end)
 			end
