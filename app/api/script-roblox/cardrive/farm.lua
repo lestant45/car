@@ -1145,46 +1145,54 @@ local success, err = pcall(function()
 			if not hasActiveJobGui then break end
 
 			local koperText = jobGui.Status.Koper.Text or ""
-			local stepText = jobGui.Status.Step.Text or ""
 			local curKoper, totKoper = parseProgress(koperText)
+			if bcaTotKoper and bcaTotKoper > 0 then
+				totKoper = math.max(totKoper, bcaTotKoper)
+				curKoper = math.max(curKoper, bcaCurKoper)
+			end
 
-			-- If all kopers are genuinely loaded (e.g. 2/2), stop loading
-			-- Do NOT short-circuit on stepText alone — game may show Step 2 while Koper is 0/2 (next batch)
+			-- If all kopers are loaded (e.g. 2/2, 3/3, 4/4), stop loading
 			if totKoper > 0 and curKoper >= totKoper then
 				print(string.format("[BCA-TRACE][LOADING] Suitcases full (%d/%d). Exiting loading loop.", curKoper, totKoper))
 				break
 			end
 
-			-- 1. Walk/Tween to Koper Stack & Pickup
-			print(string.format("[BCA-TRACE][LOADING] Picking up suitcase %d/%d from stack...", curKoper + 1, totKoper))
-			updateBcaActivity(string.format("🧳 Grabbing Suitcase from Stack (%d/%d)", curKoper, totKoper))
+			-- 1. INSTANT TELEPORT to Koper Stack & Pickup
+			print(string.format("[BCA-TRACE][LOADING] Instant teleport to pickup suitcase %d/%d...", curKoper + 1, totKoper))
+			updateBcaActivity(string.format("🧳 Teleporting to Suitcase Stack (%d/%d)", curKoper, totKoper))
 			if koperPart then
-				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0), true, 40)
-				task.wait(0.3)
+				safeTeleport(koperPart.CFrame + Vector3.new(0, 1.2, 0), false)
+				task.wait(0.15)
 				local prompt = koperPart:FindFirstChild("Prompt", true) or koperPart:FindFirstChildOfClass("ProximityPrompt")
 				triggerPrompt(prompt)
 			else
-				safeTeleport(CFrame.new(bcaKoperPos), true, 40)
+				safeTeleport(CFrame.new(bcaKoperPos), false)
 			end
 
-			task.wait(0.5)
+			task.wait(0.2)
 
-			-- 2. Walk/Tween to Car Bagasi & Trigger Muat
-			print(string.format("[BCA-TRACE][LOADING] Loading suitcase %d/%d into vehicle trunk...", curKoper + 1, totKoper))
-			updateBcaActivity("📦 Loading Suitcase into Trunk (Timing Minigame)")
+			-- 2. INSTANT TELEPORT to Car Bagasi & Trigger Muat
+			print(string.format("[BCA-TRACE][LOADING] Instant teleport to trunk with suitcase %d/%d...", curKoper + 1, totKoper))
+			updateBcaActivity(string.format("📦 Teleporting to Trunk (%d/%d)", curKoper, totKoper))
 			car = getPlayerCar() or car
 			local bagasi = car and car:FindFirstChild("BagasiPoint")
 			if bagasi then
-				safeTeleport(bagasi.CFrame + Vector3.new(0, 1, 0), true, 40)
-				task.wait(0.3)
+				local trunkLook = bagasi.CFrame.LookVector
+				local trunkStandCF = CFrame.new(bagasi.Position - (trunkLook * 2.2) + Vector3.new(0, 0.5, 0), bagasi.Position)
+				safeTeleport(trunkStandCF, false)
+				task.wait(0.15)
 				local muatPrompt = bagasi:FindFirstChild("MuatPrompt") or bagasi:FindFirstChildOfClass("ProximityPrompt")
 				triggerPrompt(muatPrompt)
+			else
+				local carPivot = car and car:GetPivot() or CFrame.new(bcaDepotPos)
+				local trunkStandCF = CFrame.new(carPivot.Position - (carPivot.LookVector * 4.5) + Vector3.new(0, 0.5, 0), carPivot.Position)
+				safeTeleport(trunkStandCF, false)
 			end
 
-			-- 3. Precise Timing Drop into Slot (matching Picture 2)
+			-- 3. Solve Timing Minigame (drop into green slot)
 			timing = jobGui and jobGui:FindFirstChild("Timing")
 			local tStart = os.clock()
-			while timing and not timing.Visible and os.clock() - tStart < 2.5 do
+			while timing and not timing.Visible and os.clock() - tStart < 2.0 do
 				task.wait(0.02)
 			end
 
@@ -1194,7 +1202,7 @@ local success, err = pcall(function()
 				local goBtn = timing:FindFirstChild("Go")
 				local t0 = os.clock()
 
-				while timing.Visible and os.clock() - t0 < 4.0 do
+				while timing.Visible and os.clock() - t0 < 3.5 do
 					if koperImg and slot then
 						local kX = koperImg.Position.X.Scale
 						local sX = slot.Position.X.Scale
@@ -1213,23 +1221,23 @@ local success, err = pcall(function()
 					task.wait(0.01)
 				end
 
-				-- Wait until the minigame UI completes and closes before moving to next suitcase
+				-- Wait until minigame closes before next loop iteration
 				local tClose = os.clock()
-				while timing.Visible and os.clock() - tClose < 2.0 do
-					task.wait(0.05)
+				while timing.Visible and os.clock() - tClose < 1.5 do
+					task.wait(0.03)
 				end
 			end
 
-			task.wait(0.8)
+			task.wait(0.25)
 		end
 
-		-- Confirm all 4 suitcases loaded and seat player in driver seat
+		-- Confirm all suitcases loaded and seat player in driver seat
 		car = getPlayerCar() or car
 		if car then
-			print(string.format("[BCA-TRACE][LOADING] ✅ All 4 suitcases confirmed loaded in trunk. Car is at %s. Seating in DriverSeat...", tostring(car:GetPivot().Position)))
-			updateBcaActivity("✅ 4/4 Suitcases Loaded -> Entering Driver Seat to Cruise")
+			print(string.format("[BCA-TRACE][LOADING] ✅ Suitcases loaded in trunk. Seating in DriverSeat..."))
+			updateBcaActivity("✅ Suitcases Loaded -> Entering Driver Seat to Cruise")
 			enterDriveSeat(car)
-			task.wait(0.4)
+			task.wait(0.3)
 		end
 	end
 
