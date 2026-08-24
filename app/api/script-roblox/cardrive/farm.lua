@@ -440,37 +440,9 @@ local success, err = pcall(function()
 		{ name = "Ring_Road_Entry", pos = Vector3.new(-220.0, 22.0, 10200.0) },
 	}
 
-	-- Resolves a natural road path through waypoints between start and destination
+	-- Resolves direct navigation path to destination
 	local function resolveRoadPath(startP, destP)
-		local totalDist = (startP - destP).Magnitude
-		if totalDist < 650 then
-			return { destP }
-		end
-
-		-- Find waypoints that lie generally along the route between startP and destP
-		local path = {}
-		local routeDir = (destP - startP).Unit
-
-		-- Sort waypoints by projection along routeDir
-		local candidateWps = {}
-		for _, wp in ipairs(HighwayWaypoints) do
-			local toWp = wp.pos - startP
-			local proj = toWp:Dot(routeDir)
-			local lateralDist = (toWp - (routeDir * proj)).Magnitude
-			-- Include waypoint if it is ahead of start, before dest, and reasonably near the corridor
-			if proj > 150 and proj < (totalDist - 150) and lateralDist < 1200 then
-				table.insert(candidateWps, { pos = wp.pos, proj = proj })
-			end
-		end
-
-		table.sort(candidateWps, function(a, b) return a.proj < b.proj end)
-
-		for _, cand in ipairs(candidateWps) do
-			table.insert(path, cand.pos)
-		end
-		table.insert(path, destP)
-
-		return path
+		return { destP }
 	end
 
 	-- 🚗 Server-Validated Vehicle Movement Engine (Paced Tweening + Velocity Sync + Road Tracking)
@@ -1283,30 +1255,61 @@ local success, err = pcall(function()
 			return ATM_PARKING_SPOTS[customAtm], customAtm
 		end
 
-		-- 1. Check Active Target ATM in MY_BCA_COLLAB (Highest Priority - Ground Truth)
+		-- 0. Check Job GUI Hint/Step Text for specific ATM name/number (Direct Server Assignment)
+		local jobGui = getBankCourierGui()
+		local hintText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Hint") and jobGui.Status.Hint.Text or ""
+		local stepText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
+		local fullText = (hintText .. " " .. stepText):lower()
+
+		for atmKey, spotPos in pairs(ATM_PARKING_SPOTS) do
+			local num = atmKey:match("%d+")
+			if num and (fullText:find("atm " .. num) or fullText:find("atm" .. num)) then
+				return spotPos, atmKey
+			end
+		end
+		if fullText:find("bsd") and ATM_PARKING_SPOTS["ATM9"] then
+			return ATM_PARKING_SPOTS["ATM9"], "ATM9"
+		elseif (fullText:find("tol") or fullText:find("selatan")) and ATM_PARKING_SPOTS["ATM7"] then
+			return ATM_PARKING_SPOTS["ATM7"], "ATM7"
+		elseif (fullText:find("ring") or fullText:find("ringroad")) and ATM_PARKING_SPOTS["ATM8"] then
+			return ATM_PARKING_SPOTS["ATM8"], "ATM8"
+		elseif fullText:find("plaza") and ATM_PARKING_SPOTS["ATM3"] then
+			return ATM_PARKING_SPOTS["ATM3"], "ATM3"
+		elseif fullText:find("center") and ATM_PARKING_SPOTS["ATM4"] then
+			return ATM_PARKING_SPOTS["ATM4"], "ATM4"
+		elseif fullText:find("office") and ATM_PARKING_SPOTS["ATM2"] then
+			return ATM_PARKING_SPOTS["ATM2"], "ATM2"
+		end
+
+		-- 1. Check BankCourierRoute Beam in workspace (Exact Active Server Route)
+		local route = workspace:FindFirstChild("BankCourierRoute")
+		if route and route:FindFirstChild("To") then
+			local pos = route.To.WorldPosition
+			if pos and (pos - bcaDepotPos).Magnitude > 30 then
+				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
+					if (spotPos - pos).Magnitude < 250 then
+						return spotPos, atmName
+					end
+				end
+				return pos
+			end
+		end
+
+		-- 2. Check Active Highlight or BillboardGui on ATM in MY_BCA_COLLAB
 		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
 		if atms then
-			-- Check for active ATM with Enabled prompt
-			for _, atm in ipairs(atms:GetChildren()) do
-				local prompt = atm:FindFirstChildOfClass("ProximityPrompt") or atm:FindFirstChild("Prompt", true)
-				local p = atm:FindFirstChildOfClass("BasePart") or (prompt and prompt.Parent)
-				if prompt and prompt.Enabled and p and (p.Position - bcaDepotPos).Magnitude > 30 then
-					return p.Position, atm.Name
-				end
-			end
-
-			-- Check for active Highlight or BillboardGui on ATM
 			for _, atm in ipairs(atms:GetChildren()) do
 				local highlight = atm:FindFirstChildOfClass("Highlight") or atm:FindFirstChild("Highlight", true)
 				local bbg = atm:FindFirstChildOfClass("BillboardGui") or atm:FindFirstChild("BillboardGui", true)
-				local p = atm:FindFirstChildOfClass("BasePart")
+				local p = atm:FindFirstChildOfClass("BasePart") or atm:FindFirstChild("Part", true)
 				if ((highlight and highlight.Enabled) or (bbg and bbg.Enabled)) and p and (p.Position - bcaDepotPos).Magnitude > 30 then
-					return p.Position, atm.Name
+					local spot = ATM_PARKING_SPOTS[atm.Name] or p.Position
+					return spot, atm.Name
 				end
 			end
 		end
 
-		-- 2. Check Waypoints (Pick the FURTHEST destination waypoint to get the true ATM destination, not intermediate turns!)
+		-- 3. Check Waypoints in workspace.Etc.Waypoint
 		local waypoints = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("Waypoint")
 		if waypoints and #waypoints:GetChildren() > 0 then
 			local furthestPos = nil
@@ -1330,19 +1333,15 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 3. Check BankCourierRoute Beam in workspace
-		local route = workspace:FindFirstChild("BankCourierRoute")
-		if route and route:FindFirstChild("To") then
-			local pos = route.To.WorldPosition
-			if pos and (pos - bcaDepotPos).Magnitude > 30 then
-				return pos
-			end
-		end
-
 		-- 4. Check __BankCourierTarget
 		local targetPart = workspace:FindFirstChild("__BankCourierTarget")
 		if targetPart and (targetPart.Position - bcaDepotPos).Magnitude > 30 then
 			return targetPart.Position
+		end
+
+		-- 5. Fallback: Default to ATM9 (BSD City - high distance bonus)
+		if ATM_PARKING_SPOTS["ATM9"] then
+			return ATM_PARKING_SPOTS["ATM9"], "ATM9"
 		end
 
 		return nil
