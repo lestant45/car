@@ -463,17 +463,20 @@ local success, err = pcall(function()
 		local destP = targetPos
 		local dist = (startP - destP).Magnitude
 
-		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs", tostring(targetPos), dist))
+		local speed = tonumber(Config.farm.bcaTweenSpeed) or 120
+		local cruiseHeight = tonumber(Config.farm.bcaTweenHeight) or 38
+		local arriveDist = tonumber(Config.farm.bcaArriveDist) or 35
 
-		if dist < 25 then
+		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs (Speed: %d, Height: +%d)", tostring(targetPos), dist, speed, cruiseHeight))
+
+		if dist < arriveDist then
 			print(string.format("[BCA] Already at target destination (Distance: %.1f studs)", dist))
 			safelySettleAndUnanchor(car)
 			return true
 		end
 
-		-- Aerial cruise elevation (+38 studs above ground) to clear all trees and buildings smoothly (matching Picture 1)
-		local cruiseAlt = math.max(startP.Y, destP.Y) + 38.0
-		local speed = 120
+		-- Custom aerial cruise elevation (+Height studs above ground) to clear trees and buildings cleanly
+		local cruiseAlt = math.max(startP.Y, destP.Y) + cruiseHeight
 		local duration = math.clamp(dist / speed, 0.5, 45.0)
 
 		-- Press gas pedal (W key & Up arrow) via VirtualInputManager & engage A-Chassis throttle
@@ -1870,7 +1873,23 @@ local success, err = pcall(function()
 	UI.AddSlider(bcaSec, "Delivery Delay (Seconds)", 0.5, 5.0, bcaCourierDelay, function(v)
 		bcaCourierDelay = v
 		Config.farm.bcaCourierDelay = v
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 6, "s")
+
+	UI.AddSlider(bcaSec, "Car Tween Speed (studs/s)", 60, 200, Config.farm.bcaTweenSpeed or 120, function(v)
+		Config.farm.bcaTweenSpeed = v
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 7, " studs/s")
+
+	UI.AddSlider(bcaSec, "Car Tween Height (studs)", 10, 80, Config.farm.bcaTweenHeight or 38, function(v)
+		Config.farm.bcaTweenHeight = v
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 8, " studs")
+
+	UI.AddSlider(bcaSec, "Arrive Distance (studs)", 15, 60, Config.farm.bcaArriveDist or 35, function(v)
+		Config.farm.bcaArriveDist = v
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
+	end, 9, " studs")
 
 	UI.AddTextbox(bcaSec, "Target Earning (Million IDR)", tostring(bcaTargetEarning or 0), function(val)
 		local num = tonumber(val) or 0
