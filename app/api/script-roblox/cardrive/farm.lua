@@ -998,7 +998,7 @@ local success, err = pcall(function()
 
 	-- Function to simulate screen clicks to skip dialogue typewriter text and auto-select choices (Yes / Claim / Finish)
 	local function skipAndConfirmNpcDialog(timeout)
-		timeout = timeout or 3.5
+		timeout = timeout or 4.0
 		local vim = game:GetService("VirtualInputManager")
 		local cam = workspace.CurrentCamera
 		local t0 = os.clock()
@@ -1018,20 +1018,18 @@ local success, err = pcall(function()
 					vim:SendMouseButtonEvent(clickX, clickY, 0, false, game, 1)
 				end)
 
-				-- 2. Check for choices buttons (Yes / Claim / Finish / Spawn)
+				-- 2. Check for choices buttons (Yes / Claim / Finish / Spawn / Options)
 				local choices = dialog:FindFirstChild("Choices")
+				if choices then
+					for _, btn in ipairs(choices:GetChildren()) do
+						if btn:IsA("GuiButton") and btn.Visible then
+							clickGuiButton(btn)
+						end
+					end
+				end
 				local yesBtn = (choices and choices:FindFirstChild("Yes")) or dialog:FindFirstChild("Yes", true)
 				if yesBtn and yesBtn.Visible then
-					pcall(function()
-						if firesignal then
-							firesignal(yesBtn.Activated)
-							firesignal(yesBtn.MouseButton1Click)
-						end
-						if getconnections then
-							for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
-							for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
-						end
-					end)
+					clickGuiButton(yesBtn)
 				end
 
 				-- Check if dialog closed
@@ -1065,22 +1063,44 @@ local success, err = pcall(function()
 					task.wait(0.02)
 					vim:SendMouseButtonEvent(clickX, clickY, 0, false, game, 1)
 
+					if choices then
+						for _, btn in ipairs(choices:GetChildren()) do
+							if btn:IsA("GuiButton") and btn.Visible then
+								clickGuiButton(btn)
+							end
+						end
+					end
+
 					local yesBtn = (choices and choices:FindFirstChild("Yes")) or dialog:FindFirstChild("Yes", true)
 					if yesBtn and yesBtn.Visible then
-						if firesignal then
-							firesignal(yesBtn.Activated)
-							firesignal(yesBtn.MouseButton1Click)
-						end
-						if getconnections then
-							for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
-							for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
-						end
+						clickGuiButton(yesBtn)
 					end
 				end
 			end)
 			task.wait(0.15)
 		end
 	end)
+
+	local function getAndhiniNpc()
+		local bca = workspace:FindFirstChild("MY_BCA_COLLAB")
+		if bca then
+			return bca:FindFirstChild("NPC_START_JOB")
+				or bca:FindFirstChild("Andhini", true)
+				or bca:FindFirstChild("NPC_START_JOB", true)
+		end
+		return workspace:FindFirstChild("NPC_START_JOB")
+	end
+
+	local function getAndhiniPrompt()
+		local npc = getAndhiniNpc()
+		if npc then
+			local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+				or npc:FindFirstChild("DialogPrompt", true)
+				or npc:FindFirstChild("Prompt", true)
+			return prompt, npc
+		end
+		return nil, nil
+	end
 
 	local function spawnBankCar()
 		updateBcaActivity("🚶 Tweening to Putra NPC (200 studs/s)")
@@ -1718,9 +1738,6 @@ local success, err = pcall(function()
 
 					local jobGui = getBankCourierGui()
 					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
-					if not hasActiveJobGui then
-						resetBcaState()
-					end
 
 					local hintText = hasActiveJobGui and jobGui.Status.Hint.Text or ""
 					local koperText = hasActiveJobGui and jobGui.Status.Koper.Text or ""
@@ -1729,32 +1746,11 @@ local success, err = pcall(function()
 
 					local curKoper, totKoper = parseProgress(koperText)
 					local curAtm, totAtm = parseProgress(atmText)
-
-					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
-					if not hasActiveJobGui then
-						updateBcaActivity("🚶 Tweening to Andhini NPC (200 studs/s)")
-						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), true, 200)
-						task.wait(0.5)
-
-						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildOfClass("ProximityPrompt")
-						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt)
-						end
-
-						skipAndConfirmNpcDialog(3.0)
-
-						fireRemote("Job", "BankCourier")
-						fireRemote("NpcDialog", "Finish", 1)
-						fireRemote("NpcDialog", "Finish", "BankCourier")
-						task.wait(1.5)
-						jobGui = getBankCourierGui()
-						hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
-						if not hasActiveJobGui then return end
+					if bcaTotAtm and bcaTotAtm > 0 then
+						totAtm = math.max(totAtm, bcaTotAtm)
+						curAtm = math.max(curAtm, bcaCurAtm)
 					end
 
-					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary (PRIORITY #1 when all ATMs are filled / GAJIAN!)
 					local isAtmDone = bcaJobComplete
 						or (totAtm > 0 and curAtm >= totAtm)
 						or stepText:find("3)")
@@ -1764,29 +1760,52 @@ local success, err = pcall(function()
 						or hintText:find("terima gaji")
 						or hintText:find("Andhini")
 
+					if not hasActiveJobGui and not isAtmDone then
+						resetBcaState()
+					end
+
+					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary (PRIORITY #1 when all ATMs are filled / GAJIAN!)
 					if isAtmDone then
 						updateBcaActivity("⚡ Instant Teleporting Van Back to BCA Depot...")
 						local depotCF = CFrame.new(1781.04, 22.22, -4615.77)
 						safeTeleportCar(depotCF)
 						exitDriveSeat()
-						task.wait(0.2)
 
-						-- Instant Teleport directly in front of Andhini NPC
-						updateBcaActivity("⚡ Teleporting to Andhini NPC")
-						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), false)
+						-- Settle physics & guarantee character is unseated
+						local char = player.Character
+						local hum = char and char:FindFirstChild("Humanoid")
+						if hum and hum.Sit then
+							for _ = 1, 6 do
+								hum.Sit = false
+								pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+								pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+								task.wait(0.1)
+								if not hum.Sit then break end
+							end
+						end
 						task.wait(0.3)
+
+						-- Teleport directly in front of Andhini NPC
+						updateBcaActivity("💰 Approaching Andhini to Claim Salary...")
+						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
+						local prompt, npc = getAndhiniPrompt()
+						local root = npc and npc:FindFirstChild("HumanoidRootPart")
+						if root then
+							safeTeleport(root.CFrame + root.CFrame.LookVector * 2.8 + Vector3.new(0, 0.2, 0), false)
+						else
+							safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), false)
+						end
+						task.wait(0.35)
 
 						-- Trigger Andhini's DialogPrompt
 						updateBcaActivity("💰 Speaking to Andhini & Claiming Salary")
-						local andhiniNpc = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("NPC_START_JOB")
-						local andhiniPrompt = andhiniNpc and andhiniNpc:FindFirstChildOfClass("ProximityPrompt")
-						if andhiniPrompt then
-							triggerPrompt(andhiniPrompt)
+						prompt, npc = getAndhiniPrompt()
+						if prompt then
+							triggerPrompt(prompt)
 						end
 
 						-- Tap screen to skip dialog text and confirm salary payout
-						skipAndConfirmNpcDialog(3.5)
+						skipAndConfirmNpcDialog(4.0)
 
 						fireRemote("NpcDialog", "Finish", 1)
 						fireRemote("NpcDialog", "Finish", "BankCourier")
@@ -1797,8 +1816,37 @@ local success, err = pcall(function()
 						updateBcaActivity("🎉 Contract Completed! Salary Claimed")
 						task.wait(1.5)
 						if checkTargetEarningAndDisconnect() then return end
-						task.wait(1.5)
+						task.wait(1.0)
 						return
+					end
+
+					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
+					if not hasActiveJobGui then
+						updateBcaActivity("🚶 Approaching Andhini NPC to Start Job...")
+						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
+						local prompt, npc = getAndhiniPrompt()
+						local root = npc and npc:FindFirstChild("HumanoidRootPart")
+						if root then
+							safeTeleport(root.CFrame + root.CFrame.LookVector * 2.8 + Vector3.new(0, 0.2, 0), false)
+						else
+							safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), false)
+						end
+						task.wait(0.35)
+
+						prompt, npc = getAndhiniPrompt()
+						if prompt then
+							triggerPrompt(prompt)
+						end
+
+						skipAndConfirmNpcDialog(4.0)
+
+						fireRemote("Job", "BankCourier")
+						fireRemote("NpcDialog", "Finish", 1)
+						fireRemote("NpcDialog", "Finish", "BankCourier")
+						task.wait(1.5)
+						jobGui = getBankCourierGui()
+						hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+						if not hasActiveJobGui then return end
 					end
 
 					-- STEP 2: Ensure Bank Car is spawned via Putra NPC
