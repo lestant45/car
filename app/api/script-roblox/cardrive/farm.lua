@@ -463,7 +463,7 @@ local success, err = pcall(function()
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
-				part.Anchored = true
+				part.Anchored = false
 			end
 		end
 
@@ -471,12 +471,14 @@ local success, err = pcall(function()
 		local conn
 		local finished = false
 		local lastLogTime = 0
+		local lastOdoTime = 0
 
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
 		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
 		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
 		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
+		local flightVelocity = moveDir * speed
 
 		conn = RunService.Heartbeat:Connect(function()
 			if not bcaCourierActive then
@@ -516,11 +518,27 @@ local success, err = pcall(function()
 				print(string.format("[BCA] Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
 			end
 
+			-- Fire odometer telemetry packet periodically during travel
+			if os.clock() - lastOdoTime >= 0.5 then
+				lastOdoTime = os.clock()
+				pcall(function()
+					fireRemote("Odometer", 4500)
+					fireRemote("DataReceiver", { RPM = 4500, Speed = 180 })
+				end)
+			end
+
 			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
 
 			pcall(function()
 				car:PivotTo(currentCF)
+
+				-- Maintain linear velocity on primary part so speedometer & odometer tick
+				local root = car.PrimaryPart or seat
+				if root and root:IsA("BasePart") then
+					root.AssemblyLinearVelocity = flightVelocity
+					root.AssemblyAngularVelocity = Vector3.zero
+				end
 
 				-- Keep collision off during drive
 				for _, part in ipairs(car:GetDescendants()) do
@@ -532,9 +550,9 @@ local success, err = pcall(function()
 				-- Keep player seated
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
-					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+				local charRoot = char and char:FindFirstChild("HumanoidRootPart")
+				if charRoot and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
+					charRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
@@ -1441,7 +1459,7 @@ local success, err = pcall(function()
 				local c = player.Character
 				if not c then return false end
 				if bcaIsCarrying == true then return true end
-				if c:FindFirstChild("KoperUang") or c:FindFirstChildOfClass() then return true end
+				if c:FindFirstChild("KoperUang") or c:FindFirstChildOfClass("Tool") then return true end
 				if c:GetAttribute("BankCourierCarryAnim") ~= nil then return true end
 				if player:GetAttribute("HidePrompt") == true then return true end
 				local jobGui = getBankCourierGui()
