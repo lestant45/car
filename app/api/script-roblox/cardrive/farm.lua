@@ -438,14 +438,14 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
-		local cruiseAlt = math.max(math.max(startP.Y, destP.Y) + 12.0, 36.0)
+		-- Calculate safe cruise elevation
+		local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
 		local speed = 220
-		local duration = math.clamp(dist / speed, 0.5, 35.0)
+		local duration = math.clamp(dist / speed, 0.5, 40.0)
 
 		print(string.format("[BCA] Vehicle tween started -> Speed: %d studs/s | Duration: %.2fs | Dist: %.0f", speed, duration, dist))
 
-		-- Engage A-Chassis throttle & release handbrake for telemetry
+		-- Engage A-Chassis throttle & handbrake
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -460,33 +460,27 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Anchor ALL parts & disable collision for clean PivotTo tweening (no physics fighting)
+		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
+		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
-				part.Anchored = true
+				if not part.Anchored then
+					table.insert(anchoredParts, part)
+					part.Anchored = true
+				end
 			end
 		end
 
-		-- Clean up any prior physics movers (safety)
-		for _, v in ipairs((car.PrimaryPart or seat):GetChildren()) do
-			if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then
-				v:Destroy()
-			end
-		end
+		local t0 = os.clock()
+		local conn
+		local finished = false
 
-		-- Calculate direction for yaw rotation
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
 		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
 		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
 		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
-
-		local t0 = os.clock()
-		local conn
-		local finished = false
-		local lastLogTime = 0
-		local lastOdoTime = 0
 
 		conn = RunService.Heartbeat:Connect(function()
 			if not bcaCourierActive then
@@ -503,12 +497,15 @@ local success, err = pcall(function()
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
 			if alpha < 0.12 then
+				-- Smooth lift-off
 				local liftA = alpha / 0.12
 				local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
 				curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
 			elseif alpha <= 0.88 then
+				-- High altitude cruise
 				curY = cruiseAlt
 			else
+				-- Gentle landing descent
 				local landA = (alpha - 0.88) / 0.12
 				local easedLand = -(math.cos(math.pi * landA) - 1) / 2
 				curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
@@ -518,34 +515,26 @@ local success, err = pcall(function()
 			local remainingDist = (destP - curPos).Magnitude
 			updateBcaActivity(string.format("🚗 Tweening Bank Van to ATM (%.0f studs left | %d studs/s)", remainingDist, speed))
 
-			if os.clock() - lastLogTime >= 1.0 then
-				lastLogTime = os.clock()
-				print(string.format("[BCA] Tweening... Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
-			end
-
-			-- Fire odometer telemetry packet periodically during travel
-			if os.clock() - lastOdoTime >= 0.5 then
-				lastOdoTime = os.clock()
-				pcall(function()
-					fireRemote("Odometer", 4500)
-					fireRemote("DataReceiver", { RPM = 4500, Speed = speed })
-				end)
-			end
-
-			-- PivotTo with strictly horizontal CFrame (ZERO pitch, ZERO roll)
+			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
+
 			pcall(function()
 				car:PivotTo(currentCF)
-			end)
 
-			-- Keep player welded to seat during tween
-			pcall(function()
+				-- Keep collision off during drive
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+					end
+				end
+
+				-- Keep player seated
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
 				local charRoot = char and char:FindFirstChild("HumanoidRootPart")
-				if charRoot then
-					charRoot.Anchored = true
+				if charRoot and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
 					charRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
 
@@ -559,13 +548,6 @@ local success, err = pcall(function()
 			task.wait(0.02)
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
-
-		-- Unanchor character
-		pcall(function()
-			local char = player.Character
-			local charRoot = char and char:FindFirstChild("HumanoidRootPart")
-			if charRoot then charRoot.Anchored = false end
-		end)
 
 		-- Settle & Unanchor smoothly on the road with clear collision restoration
 		safelySettleAndUnanchor(car)
