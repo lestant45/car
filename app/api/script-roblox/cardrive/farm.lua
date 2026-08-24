@@ -389,7 +389,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- 🚗 Reusable Vehicle Movement Engine (Exact 1:1 Implementation from autodrive.lua)
+	-- 🚗 Reusable Vehicle Movement Engine (1:1 Exact Implementation from autodrive.lua)
 	local function driveTo(targetPos)
 		if typeof(targetPos) ~= "Vector3" then
 			if typeof(targetPos) == "CFrame" then
@@ -419,9 +419,8 @@ local success, err = pcall(function()
 		task.wait(0.3)
 
 		local seat = getDriveSeat(car)
-		local root = car.PrimaryPart or seat
-		if not seat or not root then
-			warn("[BCA] driveTo failed: Driver seat/root not found in vehicle")
+		if not seat then
+			warn("[BCA] driveTo failed: Driver seat not found in vehicle")
 			return false
 		end
 
@@ -438,109 +437,120 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Calculate safe cruise elevation
+		-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
 		local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
 		local speed = 220
 		local duration = math.clamp(dist / speed, 0.5, 40.0)
 
-		print(string.format("[BCA] driveTo STARTING tween -> Dest: %s | Dist: %.0f | Speed: %d | Duration: %.2fs", tostring(destP), dist, speed, duration))
-
 		-- Engage A-Chassis throttle & handbrake
-		pcall(function()
-			local pgui = player:FindFirstChild("PlayerGui")
-			local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
-			local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
-			if aChassisGui and aChassisGui:FindFirstChild("IsOn") then aChassisGui.IsOn.Value = true end
-			if aValues then
-				if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
-				if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
-				if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
-			end
-			if seat:IsA("VehicleSeat") then
-				seat.Throttle = 1
-				seat.ThrottleFloat = 1
-			end
-		end)
+		local pgui = player:FindFirstChild("PlayerGui")
+		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
+		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
+		if aChassisGui and aChassisGui:FindFirstChild("IsOn") then aChassisGui.IsOn.Value = true end
+		if aValues then
+			if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
+			if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
+			if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+		end
+		if seat:IsA("VehicleSeat") then
+			seat.Throttle = 1
+			seat.ThrottleFloat = 1
+		end
 
-		-- Ghost mode: Anchor all parts & disable collision for clean PivotTo flight
+		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
+		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
-				part.Anchored = true
+				if not part.Anchored then
+					table.insert(anchoredParts, part)
+					part.Anchored = true
+				end
 			end
 		end
 
-		-- Calculate direction for yaw rotation
+		local t0 = os.clock()
+		local conn
+		local finished = false
+
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
 		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
 		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
 		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
 
-		print("[BCA] driveTo entering movement loop NOW")
+		conn = RunService.Heartbeat:Connect(function()
+			if not bcaCourierActive then
+				if conn then conn:Disconnect() end
+				finished = true
+				return
+			end
 
-		-- Direct blocking movement loop (no Heartbeat:Connect — runs inline every frame)
-		local t0 = os.clock()
-		while bcaCourierActive do
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			-- 3-Phase Altitude Cruise
+			-- 3-Phase Altitude Cruise: Rise up (+14 Y) -> Cruise -> Smooth landing descent
 			local curX = startP.X + (destP.X - startP.X) * alpha
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
 			if alpha < 0.12 then
+				-- Smooth lift-off
 				local liftA = alpha / 0.12
-				curY = startP.Y + (cruiseAlt - startP.Y) * (-(math.cos(math.pi * liftA) - 1) / 2)
+				local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
+				curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
 			elseif alpha <= 0.88 then
+				-- High altitude cruise
 				curY = cruiseAlt
 			else
+				-- Gentle landing descent
 				local landA = (alpha - 0.88) / 0.12
-				curY = cruiseAlt + (destP.Y - cruiseAlt) * (-(math.cos(math.pi * landA) - 1) / 2)
+				local easedLand = -(math.cos(math.pi * landA) - 1) / 2
+				curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
 			end
-
 			local curPos = Vector3.new(curX, curY, curZ)
+
+			local remainingDist = (destP - curPos).Magnitude
+			updateBcaActivity(string.format("🚗 Cruising Bank Van to ATM (%.0f stud left | %d km/h)", remainingDist, speed))
+
+			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
 
-			-- Move car
 			pcall(function()
 				car:PivotTo(currentCF)
+
+				-- Keep collision off during drive
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
 					end
 				end
-			end)
 
-			-- Keep player seated
-			pcall(function()
+				-- Keep player seated
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
-				local charRoot = char and char:FindFirstChild("HumanoidRootPart")
-				if charRoot and seat then
-					if not hum or not hum.Sit or hum.SeatPart ~= seat then
-						charRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-						if hum then hum.Sit = true; seat:Sit(hum) end
-					end
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
+					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
 
-			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Tweening to ATM (%.0f studs left | %d studs/s)", remainingDist, speed))
-
 			if alpha >= 1 then
-				print(string.format("[BCA] driveTo tween COMPLETE. Final pos: %s", tostring(car:GetPivot().Position)))
-				break
+				finished = true
+				if conn then conn:Disconnect() end
 			end
+		end)
 
-			RunService.Heartbeat:Wait()
+		while not finished and bcaCourierActive do
+			task.wait(0.02)
 		end
+		if conn then pcall(function() conn:Disconnect() end) end
 
-		-- Settle & Unanchor smoothly on the road
+		-- Settle & Unanchor smoothly on the road with clear collision restoration
 		safelySettleAndUnanchor(car)
 
 		local arrivalRemaining = (car:GetPivot().Position - destP).Magnitude
-		print(string.format("[BCA] driveTo finished. Arrival distance: %.1f studs", arrivalRemaining))
+		print(string.format("[BCA] Drive completed. Arrival distance: %.1f studs", arrivalRemaining))
 		return arrivalRemaining <= 45
 	end
 
