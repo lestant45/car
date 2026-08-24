@@ -49,6 +49,40 @@ local success, err = pcall(function()
 	local bcaJobComplete = false
 	local bcaTargetEarning = tonumber(Config.farm.bcaTargetEarning) or 0
 	local bcaTargetEarningLabel = nil
+	local bcaActivityLabel = nil
+	local bcaProgressLabel = nil
+	local bcaTargetLabel = nil
+	local bcaSalaryLabel = nil
+	local currentBcaActivity = "Idle"
+
+	local function updateBcaActivity(activity)
+		currentBcaActivity = activity or "Idle"
+		if bcaActivityLabel then
+			pcall(function()
+				bcaActivityLabel.Text = "📍 Action: " .. currentBcaActivity
+			end)
+		end
+	end
+
+	local function triggerPrompt(prompt)
+		if not prompt or not prompt:IsA("ProximityPrompt") then return end
+		pcall(function()
+			prompt.Enabled = true
+			prompt.RequiresLineOfSight = false
+			prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 40)
+			if fireproximityprompt then
+				if prompt.HoldDuration and prompt.HoldDuration > 0 then
+					fireproximityprompt(prompt, prompt.HoldDuration)
+				else
+					fireproximityprompt(prompt)
+				end
+			elseif prompt.InputHoldBegin then
+				prompt:InputHoldBegin()
+				task.wait(prompt.HoldDuration or 0.05)
+				prompt:InputHoldEnd()
+			end
+		end)
+	end
 
 	-- Spawns an invisible, anchored collision safety plate underneath destination so character & car never fall through unrendered chunks
 	local function ensureSafetyPlate(pos, width)
@@ -703,12 +737,6 @@ local success, err = pcall(function()
 		end)
 	end)
 
-	local function updateBcaActivity(activity)
-		currentBcaActivity = activity
-		if bcaActivityLabel then
-			bcaActivityLabel.Text = "📍 Action: " .. activity
-		end
-	end
 
 	local function clickGuiButton(btn)
 		if not btn then return end
