@@ -438,12 +438,12 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Calculate safe cruise elevation (rises +14 studs to clear variable ground/hills cleanly)
-		local cruiseAlt = math.max(math.max(startP.Y, destP.Y) + 14.0, 36.0)
-		local speed = 180
-		local duration = math.clamp(dist / speed, 1.0, 45.0)
+		-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
+		local cruiseAlt = math.max(math.max(startP.Y, destP.Y) + 12.0, 36.0)
+		local speed = 220
+		local duration = math.clamp(dist / speed, 0.5, 35.0)
 
-		print(string.format("[BCA] Drive started -> Speed: %d studs/s | Duration: %.2fs", speed, duration))
+		print(string.format("[BCA] Vehicle tween started -> Speed: %d studs/s | Duration: %.2fs", speed, duration))
 
 		-- Engage A-Chassis throttle & release handbrake
 		local pgui = player:FindFirstChild("PlayerGui")
@@ -515,7 +515,7 @@ local success, err = pcall(function()
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			-- 3-Phase Altitude Cruise: Rise up (+14 Y) -> Cruise -> Smooth landing descent
+			-- 3-Phase Altitude Cruise: Rise up (+12 Y) -> Cruise -> Smooth landing descent
 			local curX = startP.X + (destP.X - startP.X) * alpha
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
@@ -533,11 +533,11 @@ local success, err = pcall(function()
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f stud left | 180 km/h)", remainingDist))
+			updateBcaActivity(string.format("🚗 Tweening Bank Van to Destination (%.0f stud left | %d studs/s)", remainingDist, speed))
 
 			if os.clock() - lastLogTime >= 1.0 then
 				lastLogTime = os.clock()
-				print(string.format("[BCA] Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
+				print(string.format("[BCA] Tweening... Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
 			end
 
 			-- Fire odometer telemetry packet periodically during travel
@@ -545,7 +545,7 @@ local success, err = pcall(function()
 				lastOdoTime = os.clock()
 				pcall(function()
 					fireRemote("Odometer", 4500)
-					fireRemote("DataReceiver", { RPM = 4500, Speed = 180 })
+					fireRemote("DataReceiver", { RPM = 4500, Speed = speed })
 				end)
 			end
 
@@ -1452,8 +1452,8 @@ local success, err = pcall(function()
 			end
 
 			local targetDrivePos = safeAtmCF and safeAtmCF.Position or targetPos
-			print(string.format("[BCA] Starting drive to ATM target (%s)", tostring(targetDrivePos)))
-			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (180 studs/s)")
+			print(string.format("[BCA] Starting vehicle tween to ATM target (%s)", tostring(targetDrivePos)))
+			updateBcaActivity("🚗 Tweening Bank Van to Destination ATM (220 studs/s)")
 			local driveSuccess = driveTo(targetDrivePos)
 			if not driveSuccess then
 				warn("[BCA] driveTo failed to reach target ATM. Aborting delivery step.")
