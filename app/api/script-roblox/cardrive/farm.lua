@@ -463,11 +463,11 @@ local success, err = pcall(function()
 		local destP = targetPos
 		local dist = (startP - destP).Magnitude
 
-		local speed = tonumber(Config.farm.bcaTweenSpeed) or 120
-		local cruiseHeight = tonumber(Config.farm.bcaTweenHeight) or 38
+		local speed = tonumber(Config.farm.bcaTweenSpeed) or 125
+		local cruiseHeight = tonumber(Config.farm.bcaTweenHeight) or 0
 		local arriveDist = tonumber(Config.farm.bcaArriveDist) or 35
 
-		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs (Speed: %d, Height: +%d)", tostring(targetPos), dist, speed, cruiseHeight))
+		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs (Speed: %d studs/s [150km/h], Height: +%d [Ground Mode])", tostring(targetPos), dist, speed, cruiseHeight))
 
 		if dist < arriveDist then
 			print(string.format("[BCA] Already at target destination (Distance: %.1f studs)", dist))
@@ -475,8 +475,8 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Custom aerial cruise elevation (+Height studs above ground) to clear trees and buildings cleanly
-		local cruiseAlt = math.max(startP.Y, destP.Y) + cruiseHeight
+		-- Cruise elevation calculation (Height = 0 touches road asphalt directly)
+		local cruiseAlt = math.max(startP.Y, destP.Y) + math.max(cruiseHeight, 0)
 		local duration = math.clamp(dist / speed, 0.5, 45.0)
 
 		-- Press gas pedal (W key & Up arrow) via VirtualInputManager & engage A-Chassis throttle
@@ -524,6 +524,7 @@ local success, err = pcall(function()
 		local finished = false
 		local lastOdoTime = 0
 		local wheelAngle = 0
+		local lastGroundY = startP.Y
 
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
@@ -541,27 +542,40 @@ local success, err = pcall(function()
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			-- Smooth road-level driving cruise
+			-- Smooth ground-touching or aerial road cruise
 			local curX = startP.X + (destP.X - startP.X) * alpha
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
-			if alpha < 0.08 then
-				local liftA = alpha / 0.08
-				local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
-				curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
-			elseif alpha <= 0.92 then
-				curY = cruiseAlt
+
+			if cruiseHeight <= 2 then
+				-- Ground-touching mode: Cast ray directly to asphalt road surface
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = { car, player.Character }
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				local hit = workspace:Raycast(Vector3.new(curX, lastGroundY + 15, curZ), Vector3.new(0, -50, 0), rayParams)
+				local roadY = hit and (hit.Position.Y + 2.2) or (startP.Y + (destP.Y - startP.Y) * alpha)
+				lastGroundY = roadY
+				curY = math.max(roadY, 22.2)
 			else
-				local landA = (alpha - 0.92) / 0.08
-				local easedLand = -(math.cos(math.pi * landA) - 1) / 2
-				curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
+				-- Aerial cruise elevation (+cruiseHeight)
+				if alpha < 0.08 then
+					local liftA = alpha / 0.08
+					local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
+					curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
+				elseif alpha <= 0.92 then
+					curY = cruiseAlt
+				else
+					local landA = (alpha - 0.92) / 0.08
+					local easedLand = -(math.cos(math.pi * landA) - 1) / 2
+					curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
+				end
 			end
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Driving Bank Van along road (%.0f stud left | %d km/h)", remainingDist, speed))
+			updateBcaActivity(string.format("🚗 Driving Bank Van to ATM (%.0f stud left | %d km/h)", remainingDist, math.floor(speed * 1.2)))
 
-			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
+			-- Strictly horizontal BodyGyro orientation (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
 
 			pcall(function()
