@@ -157,7 +157,7 @@ local success, err = pcall(function()
 				if root and humanoid and humanoid.Health > 0 then
 					if root.Position.Y > 15 then
 						lastSafeGroundCFrame = root.CFrame
-					elseif root.Position.Y < 5 then
+					elseif root.Position.Y < -15 then
 						-- Falling into the void! Instantly rescue to safe road!
 						root.AssemblyLinearVelocity = Vector3.zero
 						root.AssemblyAngularVelocity = Vector3.zero
@@ -419,8 +419,9 @@ local success, err = pcall(function()
 		task.wait(0.3)
 
 		local seat = getDriveSeat(car)
-		if not seat then
-			warn("[BCA] driveTo failed: Driver seat not found in vehicle")
+		local root = car.PrimaryPart or seat
+		if not seat or not root then
+			warn("[BCA] driveTo failed: Driver seat/root not found in vehicle")
 			return false
 		end
 
@@ -431,7 +432,7 @@ local success, err = pcall(function()
 
 		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs", tostring(targetPos), dist))
 
-		if dist < 20 then
+		if dist < 25 then
 			print(string.format("[BCA] Already at target destination (Distance: %.1f studs)", dist))
 			safelySettleAndUnanchor(car)
 			return true
@@ -459,26 +460,50 @@ local success, err = pcall(function()
 			seat.ThrottleFloat = 1
 		end
 
-		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
+		-- Keep parts unanchored and disable collision on body panels during flight
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.CanCollide = false
+				local name = part.Name:lower()
+				if not name:find("wheel") and name ~= "fl" and name ~= "fr" and name ~= "rl" and name ~= "rr" then
+					part.CanCollide = false
+				end
 				part.Anchored = false
 			end
 		end
+
+		-- Clean up any prior physics movers
+		for _, v in ipairs(root:GetChildren()) do
+			if v.Name == "HipHub_DriveBV" or v.Name == "HipHub_DriveBG" then
+				v:Destroy()
+			end
+		end
+
+		-- Create BodyVelocity to overcome gravity and glide vehicle
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "HipHub_DriveBV"
+		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+		bv.Velocity = Vector3.zero
+		bv.Parent = root
+
+		-- Create BodyGyro to lock orientation horizontally (strictly 0 pitch, 0 roll)
+		local rawDir = (destP - startP)
+		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
+		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
+		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
+		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
+
+		local bg = Instance.new("BodyGyro")
+		bg.Name = "HipHub_DriveBG"
+		bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+		bg.P = 10000
+		bg.CFrame = horizontalRot
+		bg.Parent = root
 
 		local t0 = os.clock()
 		local conn
 		local finished = false
 		local lastLogTime = 0
 		local lastOdoTime = 0
-
-		local rawDir = (destP - startP)
-		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
-		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
-		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
-		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
-		local flightVelocity = moveDir * speed
 
 		conn = RunService.Heartbeat:Connect(function()
 			if not bcaCourierActive then
@@ -495,15 +520,12 @@ local success, err = pcall(function()
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
 			if alpha < 0.12 then
-				-- Smooth lift-off
 				local liftA = alpha / 0.12
 				local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
 				curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
 			elseif alpha <= 0.88 then
-				-- High altitude cruise
 				curY = cruiseAlt
 			else
-				-- Gentle landing descent
 				local landA = (alpha - 0.88) / 0.12
 				local easedLand = -(math.cos(math.pi * landA) - 1) / 2
 				curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
@@ -527,6 +549,12 @@ local success, err = pcall(function()
 				end)
 			end
 
+			-- Update BodyVelocity and BodyGyro target
+			if bv and bv.Parent and bg and bg.Parent then
+				bv.Velocity = moveDir * speed
+				bg.CFrame = horizontalRot
+			end
+
 			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
 			local currentCF = CFrame.new(curPos) * horizontalRot
 
@@ -534,18 +562,8 @@ local success, err = pcall(function()
 				car:PivotTo(currentCF)
 
 				-- Maintain linear velocity on primary part so speedometer & odometer tick
-				local root = car.PrimaryPart or seat
-				if root and root:IsA("BasePart") then
-					root.AssemblyLinearVelocity = flightVelocity
-					root.AssemblyAngularVelocity = Vector3.zero
-				end
-
-				-- Keep collision off during drive
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.CanCollide = false
-					end
-				end
+				root.AssemblyLinearVelocity = moveDir * speed
+				root.AssemblyAngularVelocity = Vector3.zero
 
 				-- Keep player seated
 				local char = player.Character
@@ -567,6 +585,10 @@ local success, err = pcall(function()
 			task.wait(0.02)
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
+
+		-- Destroy BodyVelocity & BodyGyro
+		if bv and bv.Parent then bv:Destroy() end
+		if bg and bg.Parent then bg:Destroy() end
 
 		-- Settle & Unanchor smoothly on the road with clear collision restoration
 		safelySettleAndUnanchor(car)
