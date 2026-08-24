@@ -228,7 +228,8 @@ local success, err = pcall(function()
 			local root = car.PrimaryPart or getDriveSeat(car)
 			if root then
 				local currentPos = root.Position
-				local currentRot = car:GetPivot().Rotation
+				local _, currentYaw, _ = car:GetPivot():ToOrientation()
+				local flatRot = CFrame.Angles(0, currentYaw, 0)
 				local rayParams = RaycastParams.new()
 				local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
 				local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
@@ -242,17 +243,17 @@ local success, err = pcall(function()
 				-- Create solid parking plate under the vehicle so it never sinks into Map.Base.BAse
 				ensureSafetyPlate(Vector3.new(currentPos.X, groundY - 2.2, currentPos.Z), 50)
 
-				-- Smooth gentle descent to ground level (over ~0.25s)
+				-- Smooth gentle descent to ground level (over ~0.25s) with strictly flat rotation
 				local startY = currentPos.Y
 				local tDown = os.clock()
 				while os.clock() - tDown < 0.25 do
 					local a = math.clamp((os.clock() - tDown) / 0.25, 0, 1)
 					local easedA = -(math.cos(math.pi * a) - 1) / 2
 					local curY = startY + (groundY - startY) * easedA
-					car:PivotTo(CFrame.new(currentPos.X, curY, currentPos.Z) * currentRot)
+					car:PivotTo(CFrame.new(currentPos.X, curY, currentPos.Z) * flatRot)
 					RunService.Heartbeat:Wait()
 				end
-				car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * currentRot)
+				car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * flatRot)
 			end
 
 			-- Zero out velocities and keep unanchored
@@ -430,20 +431,20 @@ local success, err = pcall(function()
 
 		print(string.format("[BCA] Starting drive to target: %s | Distance: %.1f studs", tostring(targetPos), dist))
 
-		if dist < 15 then
+		if dist < 20 then
 			print(string.format("[BCA] Already at target destination (Distance: %.1f studs)", dist))
 			safelySettleAndUnanchor(car)
 			return true
 		end
 
-		-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
-		local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
-		local speed = 160
-		local duration = math.clamp(dist / speed, 0.5, 40.0)
+		-- Calculate safe cruise elevation (rises +14 studs to clear variable ground/hills cleanly)
+		local cruiseAlt = math.max(math.max(startP.Y, destP.Y) + 14.0, 36.0)
+		local speed = 180
+		local duration = math.clamp(dist / speed, 1.0, 45.0)
 
 		print(string.format("[BCA] Drive started -> Speed: %d studs/s | Duration: %.2fs", speed, duration))
 
-		-- Engage A-Chassis throttle & handbrake
+		-- Engage A-Chassis throttle & release handbrake
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -459,14 +460,10 @@ local success, err = pcall(function()
 		end
 
 		-- Ghost mode: Disable collision on body/wheels during travel to prevent wall compression flings
-		local anchoredParts = {}
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
-				if not part.Anchored then
-					table.insert(anchoredParts, part)
-					part.Anchored = true
-				end
+				part.Anchored = true
 			end
 		end
 
@@ -476,8 +473,10 @@ local success, err = pcall(function()
 		local lastLogTime = 0
 
 		local rawDir = (destP - startP)
-		local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
-		local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
+		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
+		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
+		local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
+		local horizontalRot = CFrame.Angles(0, yawAngle, 0)
 
 		conn = RunService.Heartbeat:Connect(function()
 			if not bcaCourierActive then
@@ -489,33 +488,36 @@ local success, err = pcall(function()
 			local elapsed = os.clock() - t0
 			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			-- 3-Phase Altitude Cruise: Rise up (+12 Y) -> Cruise -> Smooth landing descent
+			-- 3-Phase Altitude Cruise: Rise up (+14 Y) -> Cruise -> Smooth landing descent
 			local curX = startP.X + (destP.X - startP.X) * alpha
 			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 			local curY
 			if alpha < 0.12 then
 				-- Smooth lift-off
 				local liftA = alpha / 0.12
-				curY = startP.Y + (cruiseAlt - startP.Y) * liftA
+				local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
+				curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
 			elseif alpha <= 0.88 then
 				-- High altitude cruise
 				curY = cruiseAlt
 			else
 				-- Gentle landing descent
 				local landA = (alpha - 0.88) / 0.12
-				curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
+				local easedLand = -(math.cos(math.pi * landA) - 1) / 2
+				curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
 			end
 			local curPos = Vector3.new(curX, curY, curZ)
 
 			local remainingDist = (destP - curPos).Magnitude
-			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f stud left | 160 km/h)", remainingDist))
+			updateBcaActivity(string.format("🚗 Driving Bank Van to Destination (%.0f stud left | 180 km/h)", remainingDist))
 
 			if os.clock() - lastLogTime >= 1.0 then
 				lastLogTime = os.clock()
 				print(string.format("[BCA] Remaining: %.1f studs (%.1f%% complete)", remainingDist, alpha * 100))
 			end
 
-			local currentCF = CFrame.lookAt(curPos, curPos + flatLook)
+			-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
+			local currentCF = CFrame.new(curPos) * horizontalRot
 
 			pcall(function()
 				car:PivotTo(currentCF)
@@ -531,7 +533,7 @@ local success, err = pcall(function()
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
 				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root and seat and (not hum or not hum.Sit or not hum.SeatPart) then
+				if root and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
 					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
@@ -553,7 +555,7 @@ local success, err = pcall(function()
 
 		local arrivalRemaining = (car:GetPivot().Position - destP).Magnitude
 		print(string.format("[BCA] Drive completed. Arrival distance: %.1f studs", arrivalRemaining))
-		return arrivalRemaining <= 35
+		return arrivalRemaining <= 45
 	end
 
 	------------------------------------------------
@@ -1261,10 +1263,8 @@ local success, err = pcall(function()
 		if car then
 			print(string.format("[BCA-TRACE][LOADING] ✅ All 4 suitcases confirmed loaded in trunk. Car is at %s. Seating in DriverSeat...", tostring(car:GetPivot().Position)))
 			updateBcaActivity("✅ 4/4 Suitcases Loaded -> Entering Driver Seat to Cruise")
-			local seated = enterDriveSeat(car)
+			enterDriveSeat(car)
 			task.wait(0.4)
-			print("[BCA] Seated in DriveSeat -> Immediately launching drive to ATM destination!")
-			deliverToAtms(car)
 		end
 	end
 
@@ -1293,7 +1293,54 @@ local success, err = pcall(function()
 	}
 
 	local function getBankCourierTargetPos()
-		-- 1. Check BankCourierRoute Beam in workspace
+		-- 1. Check Active Target ATM in MY_BCA_COLLAB (Highest Priority - Ground Truth)
+		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
+		if atms then
+			-- Check for active ATM with Enabled prompt
+			for _, atm in ipairs(atms:GetChildren()) do
+				local prompt = atm:FindFirstChildOfClass("ProximityPrompt") or atm:FindFirstChild("Prompt", true)
+				local p = atm:FindFirstChildOfClass("BasePart") or (prompt and prompt.Parent)
+				if prompt and prompt.Enabled and p and (p.Position - bcaDepotPos).Magnitude > 30 then
+					return p.Position, atm.Name
+				end
+			end
+
+			-- Check for active Highlight or BillboardGui on ATM
+			for _, atm in ipairs(atms:GetChildren()) do
+				local highlight = atm:FindFirstChildOfClass("Highlight") or atm:FindFirstChild("Highlight", true)
+				local bbg = atm:FindFirstChildOfClass("BillboardGui") or atm:FindFirstChild("BillboardGui", true)
+				local p = atm:FindFirstChildOfClass("BasePart")
+				if ((highlight and highlight.Enabled) or (bbg and bbg.Enabled)) and p and (p.Position - bcaDepotPos).Magnitude > 30 then
+					return p.Position, atm.Name
+				end
+			end
+		end
+
+		-- 2. Check Waypoints (Pick the FURTHEST destination waypoint to get the true ATM destination, not intermediate turns!)
+		local waypoints = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("Waypoint")
+		if waypoints and #waypoints:GetChildren() > 0 then
+			local furthestPos = nil
+			local maxDist = 0
+			for _, wp in ipairs(waypoints:GetChildren()) do
+				if wp:IsA("BasePart") then
+					local d = (wp.Position - bcaDepotPos).Magnitude
+					if d > 30 and d > maxDist then
+						maxDist = d
+						furthestPos = wp.Position
+					end
+				end
+			end
+			if furthestPos then
+				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
+					if (spotPos - furthestPos).Magnitude < 400 then
+						return spotPos, atmName
+					end
+				end
+				return furthestPos
+			end
+		end
+
+		-- 3. Check BankCourierRoute Beam in workspace
 		local route = workspace:FindFirstChild("BankCourierRoute")
 		if route and route:FindFirstChild("To") then
 			local pos = route.To.WorldPosition
@@ -1302,32 +1349,10 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 2. Check __BankCourierTarget
+		-- 4. Check __BankCourierTarget
 		local targetPart = workspace:FindFirstChild("__BankCourierTarget")
 		if targetPart and (targetPart.Position - bcaDepotPos).Magnitude > 30 then
 			return targetPart.Position
-		end
-
-		-- 3. Check Waypoints
-		local waypoints = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("Waypoint")
-		if waypoints and #waypoints:GetChildren() > 0 then
-			for _, wp in ipairs(waypoints:GetChildren()) do
-				if wp:IsA("BasePart") and (wp.Position - bcaDepotPos).Magnitude > 30 then
-					return wp.Position
-				end
-			end
-		end
-
-		-- 4. Check Active Target ATM in MY_BCA_COLLAB
-		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
-		if atms then
-			for _, atm in ipairs(atms:GetChildren()) do
-				local prompt = atm:FindFirstChildOfClass("ProximityPrompt") or atm:FindFirstChild("Prompt", true)
-				local p = atm:FindFirstChildOfClass("BasePart") or (prompt and prompt.Parent)
-				if prompt and prompt.Enabled and p and (p.Position - bcaDepotPos).Magnitude > 30 then
-					return p.Position
-				end
-			end
 		end
 
 		return nil
@@ -1335,7 +1360,7 @@ local success, err = pcall(function()
 
 	local function deliverToAtms(car)
 		local jobGui = getBankCourierGui()
-		local bagasi = car:FindFirstChild("BagasiPoint")
+		local bagasi = car and car:FindFirstChild("BagasiPoint")
 
 		while bcaCourierActive do
 			if checkTargetEarningAndDisconnect() then return end
@@ -1371,8 +1396,8 @@ local success, err = pcall(function()
 			if atms then
 				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
 					local atm = atms:FindFirstChild(atmName)
-					local p = atm and atm:FindFirstChildOfClass("BasePart")
-					if (p and (p.Position - targetPos).Magnitude < 50) or (spotPos - targetPos).Magnitude < 80 then
+					local p = atm and (atm:FindFirstChildOfClass("BasePart") or atm:FindFirstChild("Part", true))
+					if (p and (p.Position - targetPos).Magnitude < 100) or (spotPos - targetPos).Magnitude < 250 then
 						safeAtmCF = CFrame.new(spotPos)
 						print(string.format("[BCA-TRACE][DELIVERY] Matched targetPos %s to designated spot %s (%s)", 
 							tostring(targetPos), atmName, tostring(spotPos)))
@@ -1388,7 +1413,7 @@ local success, err = pcall(function()
 
 			local targetDrivePos = safeAtmCF and safeAtmCF.Position or targetPos
 			print(string.format("[BCA] Starting drive to ATM target (%s)", tostring(targetDrivePos)))
-			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (160 studs/s)")
+			updateBcaActivity("🚗 Driving Bank Van to Destination ATM (180 studs/s)")
 			local driveSuccess = driveTo(targetDrivePos)
 			if not driveSuccess then
 				warn("[BCA] driveTo failed to reach target ATM. Aborting delivery step.")
@@ -1935,7 +1960,7 @@ local success, err = pcall(function()
 							local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
 							if atms then
 								for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
-									if (spotPos - targetPos).Magnitude < 80 then
+									if (spotPos - targetPos).Magnitude < 250 then
 										matchedAtm = atmName
 										break
 									end

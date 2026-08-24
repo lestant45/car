@@ -28,35 +28,19 @@ local startTime = os.clock()
 local lastPosition = nil
 
 ------------------------------------------------
--- 📍 HIGHWAY & ROAD WAYPOINT PRESETS
+-- 🏧 ATM MACHINE DESTINATIONS
 ------------------------------------------------
-local HighwayLoopPoints = {
-	Vector3.new(1250.0, 24.5, -2400.0),   -- Main Highway Toll Gate
-	Vector3.new(3500.0, 24.5, -5000.0),   -- East Interchange
-	Vector3.new(6500.0, 24.0, -7600.0),   -- North Expressway
-	Vector3.new(4800.0, 24.0, -7700.0),   -- Monas Straight
-	Vector3.new(1800.0, 24.5, -4600.0),   -- BCA Depot Junction
-	Vector3.new(-2200.0, 24.5, 1400.0),   -- GBK Southbound
-	Vector3.new(-4000.0, 24.5, 4600.0),   -- SiLambat Highway
-	Vector3.new(1250.0, 24.5, -2400.0)    -- Loop Return
+local AtmDestinations = {
+	{ name = "ATM 1", label = "🏧 ATM 1 (BCA Depot)", pos = Vector3.new(1860.0, 24.5, -4850.0) },
+	{ name = "ATM 2", label = "🏧 ATM 2 (BCA Office)", pos = Vector3.new(2212.55, 27.5, -4594.36) },
+	{ name = "ATM 3", label = "🏧 ATM 3 (Plaza Barat)", pos = Vector3.new(825.0, 24.2, -3810.0) },
+	{ name = "ATM 4", label = "🏧 ATM 4 (City Center)", pos = Vector3.new(2291.25, 27.96, -4882.77) },
+	{ name = "ATM 7", label = "🏧 ATM 7 (Tol Selatan)", pos = Vector3.new(-475.64, 26.27, 8732.79) },
+	{ name = "ATM 8", label = "🏧 ATM 8 (Ring Road)", pos = Vector3.new(-223.75, 21.93, 10705.88) },
+	{ name = "ATM 9", label = "🏧 ATM 9 (Overpass)", pos = Vector3.new(1550.03, 50.14, 875.15) },
+	{ name = "ATM 10", label = "🏧 ATM 10 (Junction)", pos = Vector3.new(2023.20, 21.44, -3538.69) },
 }
-
-local LandmarkWaypoints = {
-	["BCA Main Depot (Koper Spawn)"] = Vector3.new(1781.04, 22.22, -4615.77),
-	["Menara BCA / Thamrin"] = Vector3.new(1250, 35, 1450),
-	["MRT Blok M BCA Station"] = Vector3.new(-1500, 25, 2100),
-	["Monas (Monumen Nasional)"] = Vector3.new(4848.864, 20.502, -7769.96),
-	["GBK Stadium Senayan"] = Vector3.new(-2196.127, 23.245, 1482.061),
-	["Plaza Senayan Mall"] = Vector3.new(-4141.175, 25.965, 3392.429),
-	["Stasiun Gambir"] = Vector3.new(6502.558, 19.901, -7691.016),
-	["Spark Senayan Mall"] = Vector3.new(-4016.842, 20.996, -486.268),
-	["Mitra Terrace"] = Vector3.new(1348.83, 44.066, 1377.256),
-	["SiLambat Logistics HQ"] = Vector3.new(-4023.717, 23.472, 4620.15),
-	["Main Highway Toll Gate"] = Vector3.new(1250, 25, -2400),
-	["Toyota Showroom"] = Vector3.new(2500, 25, -4500),
-	["DIR Supercars"] = Vector3.new(1500, 25, -3900),
-	["Porsche Center"] = Vector3.new(3400, 25, -5200)
-}
+local selectedAtm = AtmDestinations[1]
 
 ------------------------------------------------
 -- 🛡️ ANTI-SINK & DYNAMIC GROUND SAFETY PLATFORM
@@ -359,7 +343,7 @@ content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 content.ScrollBarThickness = 3
 content.ScrollBarImageColor3 = Color3.fromRGB(0, 160, 255)
-content.CanvasSize = UDim2.new(0, 0, 0, 520)
+content.CanvasSize = UDim2.new(0, 0, 0, 680)
 content.Parent = mainFrame
 
 local layout = Instance.new("UIListLayout")
@@ -525,63 +509,62 @@ for i, spd in ipairs(speedOptions) do
 end
 
 ------------------------------------------------
--- 🛣️ DRIVE MODE SELECTOR
+-- 🏧 ATM MACHINE DESTINATION SELECTOR
 ------------------------------------------------
-local modeCard = Instance.new("Frame")
-modeCard.Size = UDim2.new(1, 0, 0, 80)
-modeCard.BackgroundColor3 = Color3.fromRGB(22, 27, 38)
-modeCard.Parent = content
+local atmCard = Instance.new("Frame")
+atmCard.Size = UDim2.new(1, 0, 0, 190)
+atmCard.BackgroundColor3 = Color3.fromRGB(22, 27, 38)
+atmCard.Parent = content
 
-local modeCorner = Instance.new("UICorner")
-modeCorner.CornerRadius = UDim.new(0, 10)
-modeCorner.Parent = modeCard
+local atmCorner = Instance.new("UICorner")
+atmCorner.CornerRadius = UDim.new(0, 10)
+atmCorner.Parent = atmCard
 
-local modeTitle = Instance.new("TextLabel")
-modeTitle.Size = UDim2.new(1, -20, 0, 20)
-modeTitle.Position = UDim2.new(0, 10, 0, 8)
-modeTitle.BackgroundTransparency = 1
-modeTitle.Text = "Drive Mode"
-modeTitle.TextColor3 = Color3.fromRGB(220, 230, 245)
-modeTitle.TextSize = 12
-modeTitle.Font = Enum.Font.GothamBold
-modeTitle.TextXAlignment = Enum.TextXAlignment.Left
-modeTitle.Parent = modeCard
+local atmTitle = Instance.new("TextLabel")
+atmTitle.Size = UDim2.new(1, -20, 0, 20)
+atmTitle.Position = UDim2.new(0, 10, 0, 8)
+atmTitle.BackgroundTransparency = 1
+atmTitle.Text = "🏧 Choose ATM Destination"
+atmTitle.TextColor3 = Color3.fromRGB(220, 230, 245)
+atmTitle.TextSize = 12
+atmTitle.Font = Enum.Font.GothamBold
+atmTitle.TextXAlignment = Enum.TextXAlignment.Left
+atmTitle.Parent = atmCard
 
-local modeContainer = Instance.new("Frame")
-modeContainer.Size = UDim2.new(1, -20, 0, 36)
-modeContainer.Position = UDim2.new(0, 10, 0, 34)
-modeContainer.BackgroundTransparency = 1
-modeContainer.Parent = modeCard
+local atmGrid = Instance.new("Frame")
+atmGrid.Size = UDim2.new(1, -20, 0, 150)
+atmGrid.Position = UDim2.new(0, 10, 0, 32)
+atmGrid.BackgroundTransparency = 1
+atmGrid.Parent = atmCard
 
-local modes = {
-	{ name = "Highway", label = "🛣️ Highway Loop" },
-	{ name = "Waypoint", label = "📍 Waypoints" },
-	{ name = "Cruise", label = "⚡ Free Cruise" }
-}
+local atmLayout = Instance.new("UIGridLayout")
+atmLayout.CellSize = UDim2.new(0.485, 0, 0, 32)
+atmLayout.CellPadding = UDim2.new(0.03, 0, 0, 6)
+atmLayout.SortOrder = Enum.SortOrder.LayoutOrder
+atmLayout.Parent = atmGrid
 
-for i, m in ipairs(modes) do
-	local mBtn = Instance.new("TextButton")
-	mBtn.Size = UDim2.new(0.31, 0, 1, 0)
-	mBtn.Position = UDim2.new((i - 1) * 0.345, 0, 0, 0)
-	mBtn.BackgroundColor3 = (currentDriveMode == m.name) and Color3.fromRGB(0, 160, 255) or Color3.fromRGB(30, 37, 52)
-	mBtn.Text = m.label
-	mBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	mBtn.TextSize = 10
-	mBtn.Font = Enum.Font.GothamBold
-	mBtn.Parent = modeContainer
+for i, atm in ipairs(AtmDestinations) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, 0, 1, 0)
+	btn.BackgroundColor3 = (selectedAtm.name == atm.name) and Color3.fromRGB(0, 160, 255) or Color3.fromRGB(30, 37, 52)
+	btn.Text = atm.label
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.TextSize = 10
+	btn.Font = Enum.Font.GothamBold
+	btn.Parent = atmGrid
 
-	local mCorner = Instance.new("UICorner")
-	mCorner.CornerRadius = UDim.new(0, 6)
-	mCorner.Parent = mBtn
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 6)
+	btnCorner.Parent = btn
 
-	mBtn.MouseButton1Click:Connect(function()
-		currentDriveMode = m.name
-		for _, b in ipairs(modeContainer:GetChildren()) do
+	btn.MouseButton1Click:Connect(function()
+		selectedAtm = atm
+		for _, b in ipairs(atmGrid:GetChildren()) do
 			if b:IsA("TextButton") then
-				b.BackgroundColor3 = (b.Text == m.label) and Color3.fromRGB(0, 160, 255) or Color3.fromRGB(30, 37, 52)
+				b.BackgroundColor3 = (b.Text == atm.label) and Color3.fromRGB(0, 160, 255) or Color3.fromRGB(30, 37, 52)
 			end
 		end
-		statusLabel.Text = "Mode Switched: " .. m.label
+		statusLabel.Text = "Target Selected: " .. atm.label
 	end)
 end
 
@@ -593,7 +576,8 @@ local function safelySettleAndUnanchor(car)
 		local root = car.PrimaryPart or getDriveSeat(car)
 		if root then
 			local currentPos = root.Position
-			local currentRot = car:GetPivot() - car:GetPivot().Position
+			local _, currentYaw, _ = car:GetPivot():ToOrientation()
+			local flatRot = CFrame.Angles(0, currentYaw, 0)
 			local rayParams = RaycastParams.new()
 			local mapBase = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Base")
 			local safetyPlate = workspace:FindFirstChild("__SafetyPlate")
@@ -607,17 +591,17 @@ local function safelySettleAndUnanchor(car)
 			-- Create solid parking plate under the vehicle so it never sinks into Map.Base.BAse
 			ensureSafetyPlate(Vector3.new(currentPos.X, groundY - 2.2, currentPos.Z), 50)
 
-			-- Smooth gentle descent to ground level (over ~0.25s)
+			-- Smooth gentle descent to ground level (over ~0.25s) with strictly flat rotation
 			local startY = currentPos.Y
 			local tDown = os.clock()
 			while os.clock() - tDown < 0.25 do
 				local a = math.clamp((os.clock() - tDown) / 0.25, 0, 1)
 				local easedA = -(math.cos(math.pi * a) - 1) / 2
 				local curY = startY + (groundY - startY) * easedA
-				car:PivotTo(CFrame.new(currentPos.X, curY, currentPos.Z) * currentRot)
+				car:PivotTo(CFrame.new(currentPos.X, curY, currentPos.Z) * flatRot)
 				RunService.Heartbeat:Wait()
 			end
-			car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * currentRot)
+			car:PivotTo(CFrame.new(currentPos.X, groundY, currentPos.Z) * flatRot)
 		end
 
 		-- Zero out velocities and unanchor smoothly
@@ -722,29 +706,23 @@ toggleBtn.MouseButton1Click:Connect(function()
 				car = getPlayerCar() or car
 				if not car or not car.Parent then break end
 
-				-- Determine Next Destination Target Point
-				local targetPos = nil
-				if currentDriveMode == "Highway" then
-					targetPos = HighwayLoopPoints[highwayIndex]
-				elseif currentDriveMode == "Waypoint" then
-					targetPos = activeWaypoint or HighwayLoopPoints[1]
-				elseif currentDriveMode == "Cruise" then
-					targetPos = car:GetPivot().Position + (car:GetPivot().LookVector * 500)
-				end
-
-				if not targetPos then break end
+				-- Destination: Selected ATM Machine
+				local targetPos = selectedAtm and selectedAtm.pos or AtmDestinations[1].pos
+				local targetName = selectedAtm and selectedAtm.name or "ATM"
 
 				local startCF = car:GetPivot()
 				local startP = startCF.Position
 				local destP = targetPos
 				local dist = (startP - destP).Magnitude
 
-				if dist < 30 then
-					-- Reached waypoint, advance to next in loop
-					if currentDriveMode == "Highway" then
-						highwayIndex = (highwayIndex % #HighwayLoopPoints) + 1
-					end
-					task.wait(0.1)
+				if dist < 25 then
+					-- Reached target ATM, settle car and finish
+					safelySettleAndUnanchor(car)
+					statusLabel.Text = string.format("✅ Arrived at %s (Parked)", targetName)
+					isAutoDriving = false
+					toggleBtn.Text = "▶ START AUTO DRIVE"
+					toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 255)
+					break
 				else
 					-- Calculate safe cruise elevation (rises +12 studs to clear variable ground/hills cleanly)
 					local cruiseAlt = math.max(startP.Y, destP.Y) + 12.0
@@ -783,8 +761,10 @@ toggleBtn.MouseButton1Click:Connect(function()
 					local finished = false
 
 					local rawDir = (destP - startP)
-					local moveDir = rawDir.Magnitude > 0.1 and rawDir.Unit or Vector3.new(0, 0, -1)
-					local flatLook = Vector3.new(moveDir.X, 0, moveDir.Z).Magnitude > 0.05 and Vector3.new(moveDir.X, 0, moveDir.Z).Unit or moveDir
+					local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
+					local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
+					local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
+					local horizontalRot = CFrame.Angles(0, yawAngle, 0)
 
 					conn = RunService.Heartbeat:Connect(function()
 						if not isAutoDriving then
@@ -796,28 +776,31 @@ toggleBtn.MouseButton1Click:Connect(function()
 						local elapsed = os.clock() - t0
 						local alpha = math.clamp(elapsed / duration, 0, 1)
 
-						-- 3-Phase Altitude Cruise: Rise up (+12 Y) -> Cruise -> Smooth landing descent
+						-- 3-Phase Altitude Cruise: Rise up (+14 Y) -> Cruise -> Smooth landing descent
 						local curX = startP.X + (destP.X - startP.X) * alpha
 						local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 						local curY
 						if alpha < 0.12 then
 							-- Smooth lift-off
 							local liftA = alpha / 0.12
-							curY = startP.Y + (cruiseAlt - startP.Y) * liftA
+							local easedLift = -(math.cos(math.pi * liftA) - 1) / 2
+							curY = startP.Y + (cruiseAlt - startP.Y) * easedLift
 						elseif alpha <= 0.88 then
 							-- High altitude cruise
 							curY = cruiseAlt
 						else
 							-- Gentle landing descent
 							local landA = (alpha - 0.88) / 0.12
-							curY = cruiseAlt + (destP.Y - cruiseAlt) * landA
+							local easedLand = -(math.cos(math.pi * landA) - 1) / 2
+							curY = cruiseAlt + (destP.Y - cruiseAlt) * easedLand
 						end
 						local curPos = Vector3.new(curX, curY, curZ)
 
 						local remainingDist = (destP - curPos).Magnitude
-						statusLabel.Text = string.format("Cruising: %d km/h | Dest: %.0f stud", speed, remainingDist)
+						statusLabel.Text = string.format("Cruising to %s: %d km/h | Dest: %.0f stud", targetName, speed, remainingDist)
 
-						local currentCF = CFrame.lookAt(curPos, curPos + flatLook)
+						-- Strictly horizontal CFrame with pure yaw (ZERO pitch, ZERO roll)
+						local currentCF = CFrame.new(curPos) * horizontalRot
 
 						pcall(function()
 							car:PivotTo(currentCF)
@@ -833,7 +816,7 @@ toggleBtn.MouseButton1Click:Connect(function()
 							local char = player.Character
 							local hum = char and char:FindFirstChild("Humanoid")
 							local root = char and char:FindFirstChild("HumanoidRootPart")
-							if root and seat and (not hum or not hum.Sit or not hum.SeatPart) then
+							if root and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
 								root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 								if hum then hum.Sit = true; seat:Sit(hum) end
 							end
@@ -853,9 +836,11 @@ toggleBtn.MouseButton1Click:Connect(function()
 					-- Settle & Unanchor smoothly on the road with clear collision restoration
 					safelySettleAndUnanchor(car)
 
-					if currentDriveMode == "Highway" then
-						highwayIndex = (highwayIndex % #HighwayLoopPoints) + 1
-					end
+					statusLabel.Text = string.format("✅ Arrived at %s (Parked)", targetName)
+					isAutoDriving = false
+					toggleBtn.Text = "▶ START AUTO DRIVE"
+					toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 255)
+					break
 				end
 				task.wait(0.05)
 			end
