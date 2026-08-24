@@ -440,9 +440,37 @@ local success, err = pcall(function()
 		{ name = "Ring_Road_Entry", pos = Vector3.new(-220.0, 22.0, 10200.0) },
 	}
 
-	-- Resolves direct navigation path to destination
+	-- Resolves a natural road path through waypoints between start and destination
 	local function resolveRoadPath(startP, destP)
-		return { destP }
+		local totalDist = (startP - destP).Magnitude
+		if totalDist < 650 then
+			return { destP }
+		end
+
+		-- Find waypoints that lie generally along the route between startP and destP
+		local path = {}
+		local routeDir = (destP - startP).Unit
+
+		-- Sort waypoints by projection along routeDir
+		local candidateWps = {}
+		for _, wp in ipairs(HighwayWaypoints) do
+			local toWp = wp.pos - startP
+			local proj = toWp:Dot(routeDir)
+			local lateralDist = (toWp - (routeDir * proj)).Magnitude
+			-- Include waypoint if it is ahead of start, before dest, and reasonably near the corridor
+			if proj > 150 and proj < (totalDist - 150) and lateralDist < 1200 then
+				table.insert(candidateWps, { pos = wp.pos, proj = proj })
+			end
+		end
+
+		table.sort(candidateWps, function(a, b) return a.proj < b.proj end)
+
+		for _, cand in ipairs(candidateWps) do
+			table.insert(path, cand.pos)
+		end
+		table.insert(path, destP)
+
+		return path
 	end
 
 	-- 🚗 Server-Validated Vehicle Movement Engine (Paced Tweening + Velocity Sync + Road Tracking)
@@ -1238,10 +1266,10 @@ local success, err = pcall(function()
 	}
 
 	local ATM_OPTION_MAP = {
-		["Auto (ATM 8 - Farthest 15700 studs)"] = "Auto",
-		["ATM 8 (Ring Road - 15700 studs)"] = "ATM8",
-		["ATM 7 (Tol Selatan - 13800 studs)"] = "ATM7",
+		["Auto (Active ATM)"] = "Auto",
 		["ATM 9 (BSD City - 5700 studs)"] = "ATM9",
+		["ATM 7 (Tol Selatan - 13800 studs)"] = "ATM7",
+		["ATM 8 (Ring Road - 15700 studs)"] = "ATM8",
 		["ATM 3 (Plaza Barat - 1470 studs)"] = "ATM3",
 		["ATM 10 (City South - 1400 studs)"] = "ATM10",
 		["ATM 2 (BCA Office - 440 studs)"] = "ATM2",
@@ -1255,17 +1283,69 @@ local success, err = pcall(function()
 			return ATM_PARKING_SPOTS[customAtm], customAtm
 		end
 
-		-- Default / Auto: Target the absolute farthest ATM: ATM 8 (Ring Road - 15,700 studs)
-		-- This guarantees the highest possible travel distance bonus on the entire map!
-		if ATM_PARKING_SPOTS["ATM8"] then
-			return ATM_PARKING_SPOTS["ATM8"], "ATM8"
-		elseif ATM_PARKING_SPOTS["ATM7"] then
-			return ATM_PARKING_SPOTS["ATM7"], "ATM7"
-		elseif ATM_PARKING_SPOTS["ATM9"] then
-			return ATM_PARKING_SPOTS["ATM9"], "ATM9"
+		-- 1. Check Active Target ATM in MY_BCA_COLLAB (Highest Priority - Ground Truth)
+		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
+		if atms then
+			-- Check for active ATM with Enabled prompt
+			for _, atm in ipairs(atms:GetChildren()) do
+				local prompt = atm:FindFirstChildOfClass("ProximityPrompt") or atm:FindFirstChild("Prompt", true)
+				local p = atm:FindFirstChildOfClass("BasePart") or (prompt and prompt.Parent)
+				if prompt and prompt.Enabled and p and (p.Position - bcaDepotPos).Magnitude > 30 then
+					return p.Position, atm.Name
+				end
+			end
+
+			-- Check for active Highlight or BillboardGui on ATM
+			for _, atm in ipairs(atms:GetChildren()) do
+				local highlight = atm:FindFirstChildOfClass("Highlight") or atm:FindFirstChild("Highlight", true)
+				local bbg = atm:FindFirstChildOfClass("BillboardGui") or atm:FindFirstChild("BillboardGui", true)
+				local p = atm:FindFirstChildOfClass("BasePart")
+				if ((highlight and highlight.Enabled) or (bbg and bbg.Enabled)) and p and (p.Position - bcaDepotPos).Magnitude > 30 then
+					return p.Position, atm.Name
+				end
+			end
 		end
 
-		return Vector3.new(-223.75, 21.93, 10705.88), "ATM8"
+		-- 2. Check Waypoints (Pick the FURTHEST destination waypoint to get the true ATM destination, not intermediate turns!)
+		local waypoints = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("Waypoint")
+		if waypoints and #waypoints:GetChildren() > 0 then
+			local furthestPos = nil
+			local maxDist = 0
+			for _, wp in ipairs(waypoints:GetChildren()) do
+				if wp:IsA("BasePart") then
+					local d = (wp.Position - bcaDepotPos).Magnitude
+					if d > 30 and d > maxDist then
+						maxDist = d
+						furthestPos = wp.Position
+					end
+				end
+			end
+			if furthestPos then
+				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
+					if (spotPos - furthestPos).Magnitude < 400 then
+						return spotPos, atmName
+					end
+				end
+				return furthestPos
+			end
+		end
+
+		-- 3. Check BankCourierRoute Beam in workspace
+		local route = workspace:FindFirstChild("BankCourierRoute")
+		if route and route:FindFirstChild("To") then
+			local pos = route.To.WorldPosition
+			if pos and (pos - bcaDepotPos).Magnitude > 30 then
+				return pos
+			end
+		end
+
+		-- 4. Check __BankCourierTarget
+		local targetPart = workspace:FindFirstChild("__BankCourierTarget")
+		if targetPart and (targetPart.Position - bcaDepotPos).Magnitude > 30 then
+			return targetPart.Position
+		end
+
+		return nil
 	end
 
 	local function deliverToAtms(car)
@@ -1892,10 +1972,10 @@ local success, err = pcall(function()
 	end, 9, " studs")
 
 	local atmDropdownOptions = {
-		"Auto (ATM 8 - Farthest 15700 studs)",
-		"ATM 8 (Ring Road - 15700 studs)",
-		"ATM 7 (Tol Selatan - 13800 studs)",
+		"Auto (Active ATM)",
 		"ATM 9 (BSD City - 5700 studs)",
+		"ATM 7 (Tol Selatan - 13800 studs)",
+		"ATM 8 (Ring Road - 15700 studs)",
 		"ATM 3 (Plaza Barat - 1470 studs)",
 		"ATM 10 (City South - 1400 studs)",
 		"ATM 2 (BCA Office - 440 studs)",
@@ -1903,7 +1983,7 @@ local success, err = pcall(function()
 		"ATM 1 (Depot - 25 studs)"
 	}
 
-	local currentAtmLabel = "Auto (ATM 8 - Farthest 15700 studs)"
+	local currentAtmLabel = "Auto (Active ATM)"
 	for optName, optKey in pairs(ATM_OPTION_MAP) do
 		if optKey == Config.farm.bcaTargetAtm then
 			currentAtmLabel = optName
