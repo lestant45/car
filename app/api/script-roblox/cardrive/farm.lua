@@ -1238,10 +1238,10 @@ local success, err = pcall(function()
 	}
 
 	local ATM_OPTION_MAP = {
-		["Auto (Active ATM)"] = "Auto",
-		["ATM 9 (BSD City - 5700 studs)"] = "ATM9",
-		["ATM 7 (Tol Selatan - 13800 studs)"] = "ATM7",
+		["Auto (ATM 8 - Farthest 15700 studs)"] = "Auto",
 		["ATM 8 (Ring Road - 15700 studs)"] = "ATM8",
+		["ATM 7 (Tol Selatan - 13800 studs)"] = "ATM7",
+		["ATM 9 (BSD City - 5700 studs)"] = "ATM9",
 		["ATM 3 (Plaza Barat - 1470 studs)"] = "ATM3",
 		["ATM 10 (City South - 1400 studs)"] = "ATM10",
 		["ATM 2 (BCA Office - 440 studs)"] = "ATM2",
@@ -1255,96 +1255,17 @@ local success, err = pcall(function()
 			return ATM_PARKING_SPOTS[customAtm], customAtm
 		end
 
-		-- 0. Check Job GUI Hint/Step Text for specific ATM name/number (Direct Server Assignment)
-		local jobGui = getBankCourierGui()
-		local hintText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Hint") and jobGui.Status.Hint.Text or ""
-		local stepText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
-		local fullText = (hintText .. " " .. stepText):lower()
-
-		for atmKey, spotPos in pairs(ATM_PARKING_SPOTS) do
-			local num = atmKey:match("%d+")
-			if num and (fullText:find("atm " .. num) or fullText:find("atm" .. num)) then
-				return spotPos, atmKey
-			end
-		end
-		if fullText:find("bsd") and ATM_PARKING_SPOTS["ATM9"] then
-			return ATM_PARKING_SPOTS["ATM9"], "ATM9"
-		elseif (fullText:find("tol") or fullText:find("selatan")) and ATM_PARKING_SPOTS["ATM7"] then
-			return ATM_PARKING_SPOTS["ATM7"], "ATM7"
-		elseif (fullText:find("ring") or fullText:find("ringroad")) and ATM_PARKING_SPOTS["ATM8"] then
+		-- Default / Auto: Target the absolute farthest ATM: ATM 8 (Ring Road - 15,700 studs)
+		-- This guarantees the highest possible travel distance bonus on the entire map!
+		if ATM_PARKING_SPOTS["ATM8"] then
 			return ATM_PARKING_SPOTS["ATM8"], "ATM8"
-		elseif fullText:find("plaza") and ATM_PARKING_SPOTS["ATM3"] then
-			return ATM_PARKING_SPOTS["ATM3"], "ATM3"
-		elseif fullText:find("center") and ATM_PARKING_SPOTS["ATM4"] then
-			return ATM_PARKING_SPOTS["ATM4"], "ATM4"
-		elseif fullText:find("office") and ATM_PARKING_SPOTS["ATM2"] then
-			return ATM_PARKING_SPOTS["ATM2"], "ATM2"
-		end
-
-		-- 1. Check BankCourierRoute Beam in workspace (Exact Active Server Route)
-		local route = workspace:FindFirstChild("BankCourierRoute")
-		if route and route:FindFirstChild("To") then
-			local pos = route.To.WorldPosition
-			if pos and (pos - bcaDepotPos).Magnitude > 30 then
-				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
-					if (spotPos - pos).Magnitude < 250 then
-						return spotPos, atmName
-					end
-				end
-				return pos
-			end
-		end
-
-		-- 2. Check Active Highlight or BillboardGui on ATM in MY_BCA_COLLAB
-		local atms = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("ATMs")
-		if atms then
-			for _, atm in ipairs(atms:GetChildren()) do
-				local highlight = atm:FindFirstChildOfClass("Highlight") or atm:FindFirstChild("Highlight", true)
-				local bbg = atm:FindFirstChildOfClass("BillboardGui") or atm:FindFirstChild("BillboardGui", true)
-				local p = atm:FindFirstChildOfClass("BasePart") or atm:FindFirstChild("Part", true)
-				if ((highlight and highlight.Enabled) or (bbg and bbg.Enabled)) and p and (p.Position - bcaDepotPos).Magnitude > 30 then
-					local spot = ATM_PARKING_SPOTS[atm.Name] or p.Position
-					return spot, atm.Name
-				end
-			end
-		end
-
-		-- 3. Check Waypoints in workspace.Etc.Waypoint
-		local waypoints = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("Waypoint")
-		if waypoints and #waypoints:GetChildren() > 0 then
-			local furthestPos = nil
-			local maxDist = 0
-			for _, wp in ipairs(waypoints:GetChildren()) do
-				if wp:IsA("BasePart") then
-					local d = (wp.Position - bcaDepotPos).Magnitude
-					if d > 30 and d > maxDist then
-						maxDist = d
-						furthestPos = wp.Position
-					end
-				end
-			end
-			if furthestPos then
-				for atmName, spotPos in pairs(ATM_PARKING_SPOTS) do
-					if (spotPos - furthestPos).Magnitude < 400 then
-						return spotPos, atmName
-					end
-				end
-				return furthestPos
-			end
-		end
-
-		-- 4. Check __BankCourierTarget
-		local targetPart = workspace:FindFirstChild("__BankCourierTarget")
-		if targetPart and (targetPart.Position - bcaDepotPos).Magnitude > 30 then
-			return targetPart.Position
-		end
-
-		-- 5. Fallback: Default to ATM9 (BSD City - high distance bonus)
-		if ATM_PARKING_SPOTS["ATM9"] then
+		elseif ATM_PARKING_SPOTS["ATM7"] then
+			return ATM_PARKING_SPOTS["ATM7"], "ATM7"
+		elseif ATM_PARKING_SPOTS["ATM9"] then
 			return ATM_PARKING_SPOTS["ATM9"], "ATM9"
 		end
 
-		return nil
+		return Vector3.new(-223.75, 21.93, 10705.88), "ATM8"
 	end
 
 	local function deliverToAtms(car)
@@ -1971,10 +1892,10 @@ local success, err = pcall(function()
 	end, 9, " studs")
 
 	local atmDropdownOptions = {
-		"Auto (Active ATM)",
-		"ATM 9 (BSD City - 5700 studs)",
-		"ATM 7 (Tol Selatan - 13800 studs)",
+		"Auto (ATM 8 - Farthest 15700 studs)",
 		"ATM 8 (Ring Road - 15700 studs)",
+		"ATM 7 (Tol Selatan - 13800 studs)",
+		"ATM 9 (BSD City - 5700 studs)",
 		"ATM 3 (Plaza Barat - 1470 studs)",
 		"ATM 10 (City South - 1400 studs)",
 		"ATM 2 (BCA Office - 440 studs)",
@@ -1982,7 +1903,7 @@ local success, err = pcall(function()
 		"ATM 1 (Depot - 25 studs)"
 	}
 
-	local currentAtmLabel = "Auto (Active ATM)"
+	local currentAtmLabel = "Auto (ATM 8 - Farthest 15700 studs)"
 	for optName, optKey in pairs(ATM_OPTION_MAP) do
 		if optKey == Config.farm.bcaTargetAtm then
 			currentAtmLabel = optName
