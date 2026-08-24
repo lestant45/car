@@ -476,7 +476,13 @@ local success, err = pcall(function()
 		local speed = 220
 		local duration = math.clamp(dist / speed, 0.5, 40.0)
 
-		-- Engage A-Chassis throttle & handbrake
+		-- Press gas pedal (W key & Up arrow) via VirtualInputManager & engage A-Chassis throttle
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+			vim:SendKeyEvent(true, Enum.KeyCode.Up, false, game)
+		end)
+
 		local pgui = player:FindFirstChild("PlayerGui")
 		local aChassisGui = pgui and pgui:FindFirstChild("A-Chassis Interface")
 		local aValues = aChassisGui and aChassisGui:FindFirstChild("Values")
@@ -506,6 +512,7 @@ local success, err = pcall(function()
 		local t0 = os.clock()
 		local conn
 		local finished = false
+		local lastOdoTime = 0
 
 		local rawDir = (destP - startP)
 		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
@@ -559,6 +566,17 @@ local success, err = pcall(function()
 					end
 				end
 
+				-- Keep gas pedal active & engaged
+				if aValues then
+					if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+					if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
+					if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
+				end
+				if seat:IsA("VehicleSeat") then
+					seat.Throttle = 1
+					seat.ThrottleFloat = 1
+				end
+
 				-- Keep player seated
 				local char = player.Character
 				local hum = char and char:FindFirstChild("Humanoid")
@@ -568,6 +586,15 @@ local success, err = pcall(function()
 					if hum then hum.Sit = true; seat:Sit(hum) end
 				end
 			end)
+
+			-- Telemetry & Odometer packet sync (every 0.5s) for maximum salary distance calculation
+			if os.clock() - lastOdoTime >= 0.5 then
+				lastOdoTime = os.clock()
+				pcall(function()
+					fireRemote("Odometer", 4500)
+					fireRemote("DataReceiver", { RPM = 4500, Speed = speed })
+				end)
+			end
 
 			if alpha >= 1 then
 				finished = true
@@ -579,6 +606,13 @@ local success, err = pcall(function()
 			task.wait(0.02)
 		end
 		if conn then pcall(function() conn:Disconnect() end) end
+
+		-- Release gas pedal (W & Up key)
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			vim:SendKeyEvent(false, Enum.KeyCode.Up, false, game)
+		end)
 
 		-- Settle & Unanchor smoothly on the road with clear collision restoration
 		safelySettleAndUnanchor(car)
