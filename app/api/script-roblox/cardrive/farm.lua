@@ -39,6 +39,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local bcaCourierActive = Config.farm.bcaCourier or false
 	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
+	local targetCruiseSpeed = 163
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
 	local bcaKoperPos = Vector3.new(1779.29, 21.5, -4643.79)
@@ -463,8 +464,8 @@ local success, err = pcall(function()
 		local destP = targetPos
 		local totalDirectDist = (startP - destP).Magnitude
 
-		-- Configured vehicle driving speed
-		local speed = tonumber(Config.farm.bcaTweenSpeed) or 125
+		-- Configured vehicle driving speed (Internal fixed cruise speed: 163 studs/s)
+		local speed = targetCruiseSpeed
 		local arriveDist = tonumber(Config.farm.bcaArriveDist) or 35
 
 		if totalDirectDist < arriveDist then
@@ -2071,20 +2072,15 @@ local success, err = pcall(function()
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 6, "s")
 
-	UI.AddSlider(bcaSec, "Car Tween Speed (studs/s)", 60, 200, Config.farm.bcaTweenSpeed or 120, function(v)
-		Config.farm.bcaTweenSpeed = v
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 7, " studs/s")
-
 	UI.AddSlider(bcaSec, "Car Tween Height (studs)", 10, 80, Config.farm.bcaTweenHeight or 38, function(v)
 		Config.farm.bcaTweenHeight = v
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 8, " studs")
+	end, 7, " studs")
 
 	UI.AddSlider(bcaSec, "Arrive Distance (studs)", 15, 60, Config.farm.bcaArriveDist or 35, function(v)
 		Config.farm.bcaArriveDist = v
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 9, " studs")
+	end, 8, " studs")
 
 	local atmDropdownOptions = {
 		"Auto (Active ATM)",
