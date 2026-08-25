@@ -1023,11 +1023,12 @@ local success, err = pcall(function()
 	local function getAndhiniNpc()
 		local bca = workspace:FindFirstChild("MY_BCA_COLLAB")
 		if bca then
-			return bca:FindFirstChild("NPC_START_JOB")
+			local npc = bca:FindFirstChild("NPC_START_JOB")
 				or bca:FindFirstChild("Andhini", true)
 				or bca:FindFirstChild("NPC_START_JOB", true)
+			if npc then return npc end
 		end
-		return workspace:FindFirstChild("NPC_START_JOB")
+		return workspace:FindFirstChild("NPC_START_JOB") or workspace:FindFirstChild("Andhini", true)
 	end
 
 	local function getAndhiniPrompt()
@@ -1036,9 +1037,19 @@ local success, err = pcall(function()
 			local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
 				or npc:FindFirstChild("DialogPrompt", true)
 				or npc:FindFirstChild("Prompt", true)
-			return prompt, npc
+			if prompt then return prompt, npc end
 		end
-		return nil, nil
+
+		local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
+		local nearby = workspace:GetPartBoundsInRadius(andhiniPos, 15)
+		for _, p in ipairs(nearby) do
+			local prompt = p:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if prompt then
+				return prompt, p:FindFirstAncestorWhichIsA("Model") or p
+			end
+		end
+
+		return nil, npc
 	end
 
 	local function spawnBankCar()
@@ -1658,6 +1669,141 @@ local success, err = pcall(function()
 		end
 	end
 
+	local function claimAndhiniPayout()
+		local maxAttempts = 3
+		local andhiniDefaultPos = Vector3.new(1807.269, 23.362, -4635.745)
+		local safeAwayPos = Vector3.new(1795.0, 22.22, -4625.0)
+
+		for attempt = 1, maxAttempts do
+			print(string.format("[BCA] Andhini payout attempt %d/%d", attempt, maxAttempts))
+			updateBcaActivity(string.format("💰 Claiming Salary (Attempt %d/%d)...", attempt, maxAttempts))
+
+			-- Anti-stuck recovery on attempt 3: Move slightly away to safe position before repositioning
+			if attempt == 3 then
+				print("[BCA] Attempt 3: Performing anti-stuck position reset...")
+				safeTeleport(CFrame.new(safeAwayPos), false)
+				task.wait(0.6)
+			end
+
+			-- STEP 1: POSITIONING & VERIFICATION
+			print("[BCA] Moving to Andhini")
+			local prompt, npc = getAndhiniPrompt()
+			local root = npc and (npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChild("UpperTorso") or npc:FindFirstChildOfClass("BasePart"))
+			local targetCF = root and (root.CFrame + root.CFrame.LookVector * 2.8 + Vector3.new(0, 0.2, 0)) or CFrame.new(andhiniDefaultPos + Vector3.new(0, 0, 3))
+
+			safeTeleport(targetCF, false)
+			task.wait(0.35)
+
+			-- Verify character distance to Andhini
+			local char = player.Character
+			local charRoot = char and char:FindFirstChild("HumanoidRootPart")
+			local targetPos = root and root.Position or andhiniDefaultPos
+			local dist = charRoot and (charRoot.Position - targetPos).Magnitude or 999
+			print(string.format("[BCA] Andhini distance: %.1f studs", dist))
+
+			if dist > 8 then
+				print("[BCA] Character outside interaction range, repositioning...")
+				safeTeleport(targetCF, false)
+				task.wait(0.4)
+				char = player.Character
+				charRoot = char and char:FindFirstChild("HumanoidRootPart")
+				dist = charRoot and (charRoot.Position - targetPos).Magnitude or 999
+				print(string.format("[BCA] Andhini distance after reposition: %.1f studs", dist))
+			end
+
+			-- STEP 2: INTERACTION VALIDATION
+			prompt, npc = getAndhiniPrompt()
+			if prompt then
+				print("[BCA] Prompt detected")
+				pcall(function()
+					prompt.Enabled = true
+					prompt.RequiresLineOfSight = false
+					prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 40)
+				end)
+			end
+
+			print("[BCA] Triggering Andhini")
+			if prompt then
+				triggerPrompt(prompt)
+			end
+
+			-- STEP 3: DIALOG VALIDATION
+			print("[BCA] Waiting for dialog")
+			local dialogDetected = false
+			local tDialogStart = os.clock()
+
+			while os.clock() - tDialogStart < 3.0 do
+				local pgui = player:FindFirstChild("PlayerGui")
+				local dialog = pgui and pgui:FindFirstChild("NpcDialog")
+				local textLabel = dialog and dialog:FindFirstChild("Text")
+				local hintLabel = dialog and dialog:FindFirstChild("Hint")
+				local choices = dialog and dialog:FindFirstChild("Choices")
+
+				if dialog and ((textLabel and textLabel.Visible) or (hintLabel and hintLabel.Visible) or (choices and choices.Visible)) then
+					dialogDetected = true
+					break
+				end
+				task.wait(0.1)
+			end
+
+			if dialogDetected then
+				print("[BCA] Dialog detected")
+			else
+				print(string.format("[BCA] Attempt %d failed: dialog did not appear", attempt))
+			end
+
+			-- STEP 4: PAYOUT EXECUTION
+			print("[BCA] Completing payout")
+			skipAndConfirmNpcDialog(3.5)
+
+			fireRemote("NpcDialog", "Finish", 1)
+			fireRemote("NpcDialog", "Finish", "BankCourier")
+			fireRemote("BankCourier", "Complete")
+			fireRemote("PhoneJobSalary")
+			fireRemote("MyBcaAppOpened")
+
+			-- STEP 5: PAYOUT VALIDATION (Polling state)
+			print("[BCA] Verifying payout...")
+			local payoutConfirmed = false
+			local tVerify = os.clock()
+
+			while os.clock() - tVerify < 4.0 do
+				local jobGui = getBankCourierGui()
+				local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+
+				if not hasActiveJobGui then
+					payoutConfirmed = true
+					break
+				end
+
+				local stepText = jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
+				local hintText = jobGui.Status:FindFirstChild("Hint") and jobGui.Status.Hint.Text or ""
+				if not (stepText:find("3)") or stepText:find("Kembali") or stepText:find("GAJIAN") or stepText:find("gaji") or hintText:find("terima gaji") or hintText:find("Andhini")) then
+					payoutConfirmed = true
+					break
+				end
+
+				task.wait(0.2)
+			end
+
+			if payoutConfirmed then
+				print("[BCA] Payout SUCCESS")
+				return true
+			else
+				print(string.format("[BCA] Attempt %d failed: payout not confirmed", attempt))
+				if attempt < maxAttempts then
+					print("[BCA] Recovering position...")
+					print("[BCA] Retrying Andhini interaction")
+					task.wait(0.8)
+				end
+			end
+		end
+
+		warn(string.format("[BCA] ERROR: Andhini payout failed after %d attempts", maxAttempts))
+		print("[BCA] Stopping cycle to prevent false completion")
+		return false
+	end
+
 	local function runBcaCourierFarm()
 		task.spawn(function()
 			while bcaCourierActive do
@@ -1724,39 +1870,21 @@ local success, err = pcall(function()
 						end
 						task.wait(0.3)
 
-						-- Teleport directly in front of Andhini NPC
-						updateBcaActivity("💰 Approaching Andhini to Claim Salary...")
-						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
-						local prompt, npc = getAndhiniPrompt()
-						local root = npc and npc:FindFirstChild("HumanoidRootPart")
-						if root then
-							safeTeleport(root.CFrame + root.CFrame.LookVector * 2.8 + Vector3.new(0, 0.2, 0), false)
+						local success = claimAndhiniPayout()
+
+						if success then
+							resetBcaState()
+							updateBcaActivity("🎉 Contract Completed! Salary Claimed")
+							task.wait(1.5)
+							if checkTargetEarningAndDisconnect() then return end
+							task.wait(1.0)
+							return
 						else
-							safeTeleport(CFrame.new(andhiniPos + Vector3.new(0, 0, 3)), false)
+							warn("[BCA] ERROR: Andhini payout failed after all attempts. Stopping cycle safely.")
+							updateBcaActivity("⚠️ Payout Failed! Pausing cycle...")
+							task.wait(3.0)
+							return
 						end
-						task.wait(0.35)
-
-						-- Trigger Andhini's DialogPrompt
-						updateBcaActivity("💰 Speaking to Andhini & Claiming Salary")
-						prompt, npc = getAndhiniPrompt()
-						if prompt then
-							triggerPrompt(prompt)
-						end
-
-						-- Tap screen to skip dialog text and confirm salary payout
-						skipAndConfirmNpcDialog(4.0)
-
-						fireRemote("NpcDialog", "Finish", 1)
-						fireRemote("NpcDialog", "Finish", "BankCourier")
-						fireRemote("BankCourier", "Complete")
-						fireRemote("PhoneJobSalary")
-						fireRemote("MyBcaAppOpened")
-						resetBcaState()
-						updateBcaActivity("🎉 Contract Completed! Salary Claimed")
-						task.wait(1.5)
-						if checkTargetEarningAndDisconnect() then return end
-						task.wait(1.0)
-						return
 					end
 
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
