@@ -423,57 +423,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	------------------------------------------------
-	-- 🛣️ ROAD NETWORK WAYPOINTS FOR MAX DISTANCE BONUS
-	------------------------------------------------
-	local HighwayWaypoints = {
-		{ name = "BCA_Depot", pos = Vector3.new(1866.5, 24.5, -4874.5) },
-		{ name = "BCA_Exit", pos = Vector3.new(1980.0, 24.5, -4720.0) },
-		{ name = "Plaza_Barat_Junc", pos = Vector3.new(1100.0, 24.2, -4100.0) },
-		{ name = "City_Center_Junc", pos = Vector3.new(2150.0, 26.0, -4200.0) },
-		{ name = "Boulevard_Mid", pos = Vector3.new(1850.0, 24.5, -2800.0) },
-		{ name = "Toll_North_Entry", pos = Vector3.new(1650.0, 27.5, -1200.0) },
-		{ name = "Overpass_Mid", pos = Vector3.new(1550.0, 48.5, 875.0) },
-		{ name = "Toll_Mid_Straight", pos = Vector3.new(950.0, 30.0, 3200.0) },
-		{ name = "Toll_South_Gate", pos = Vector3.new(200.0, 26.5, 5800.0) },
-		{ name = "Tol_Selatan_Junc", pos = Vector3.new(-350.0, 26.0, 8200.0) },
-		{ name = "Ring_Road_Entry", pos = Vector3.new(-220.0, 22.0, 10200.0) },
-	}
-
-	-- Resolves a natural road path through waypoints between start and destination
-	local function resolveRoadPath(startP, destP)
-		local totalDist = (startP - destP).Magnitude
-		if totalDist < 650 then
-			return { destP }
-		end
-
-		-- Find waypoints that lie generally along the route between startP and destP
-		local path = {}
-		local routeDir = (destP - startP).Unit
-
-		-- Sort waypoints by projection along routeDir
-		local candidateWps = {}
-		for _, wp in ipairs(HighwayWaypoints) do
-			local toWp = wp.pos - startP
-			local proj = toWp:Dot(routeDir)
-			local lateralDist = (toWp - (routeDir * proj)).Magnitude
-			-- Include waypoint if it is ahead of start, before dest, and reasonably near the corridor
-			if proj > 150 and proj < (totalDist - 150) and lateralDist < 1200 then
-				table.insert(candidateWps, { pos = wp.pos, proj = proj })
-			end
-		end
-
-		table.sort(candidateWps, function(a, b) return a.proj < b.proj end)
-
-		for _, cand in ipairs(candidateWps) do
-			table.insert(path, cand.pos)
-		end
-		table.insert(path, destP)
-
-		return path
-	end
-
-	-- 🚗 Server-Validated Vehicle Movement Engine (Paced Tweening + Velocity Sync + Road Tracking)
+	-- 🚗 Server-Validated Vehicle Movement Engine (Paced Direct Movement + Velocity Sync + Road Altitude)
 	local function driveTo(targetPos)
 		if typeof(targetPos) ~= "Vector3" then
 			if typeof(targetPos) == "CFrame" then
@@ -513,12 +463,8 @@ local success, err = pcall(function()
 		local destP = targetPos
 		local totalDirectDist = (startP - destP).Magnitude
 
-		-- Configured Safe Speed (80 studs/s = ~95 km/h for perfect server delta acceptance)
-		local speed = tonumber(Config.farm.bcaTweenSpeed) or 80
-		if speed > 100 then
-			speed = 80 -- Clamp to server-safe threshold for travel distance validation
-		end
-
+		-- Configured vehicle driving speed
+		local speed = tonumber(Config.farm.bcaTweenSpeed) or 125
 		local arriveDist = tonumber(Config.farm.bcaArriveDist) or 35
 
 		if totalDirectDist < arriveDist then
@@ -527,10 +473,8 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- Resolve full road waypoints path to maximize legitimate travel distance bonus
-		local waypoints = resolveRoadPath(startP, destP)
-		print(string.format("[BCA] Starting road-routed drive to target (%d legs) | Direct Dist: %.1f studs | Speed: %d studs/s (~95 km/h)", 
-			#waypoints, totalDirectDist, speed))
+		print(string.format("[BCA] Starting direct drive to target ATM | Distance: %.1f studs | Speed: %d studs/s", 
+			totalDirectDist, speed))
 
 		-- Press gas pedal (W key & Up arrow) via VirtualInputManager & engage A-Chassis throttle
 		pcall(function()
@@ -563,123 +507,118 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- Direct horizontal direction calculation: continuously point towards destination ATM
+		local rawDir = (destP - startP)
+		local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
+		local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
+
+		local duration = math.clamp(totalDirectDist / speed, 0.2, 300.0)
+		local t0 = os.clock()
+		local driveFinished = false
+		local lastGroundY = startP.Y
 		local lastOdoTime = 0
-		local currentLegStart = startP
+		local conn
 
-		for legIndex, legTarget in ipairs(waypoints) do
-			if not bcaCourierActive then break end
+		conn = RunService.Heartbeat:Connect(function()
+			if not bcaCourierActive then
+				if conn then conn:Disconnect() end
+				driveFinished = true
+				return
+			end
 
-			local legStartCF = car:GetPivot()
-			currentLegStart = legStartCF.Position
-			local legDist = (currentLegStart - legTarget).Magnitude
+			local elapsed = os.clock() - t0
+			local alpha = math.clamp(elapsed / duration, 0, 1)
 
-			if legDist >= 15 then
-				local legDuration = math.clamp(legDist / speed, 0.2, 50.0)
-				local rawDir = (legTarget - currentLegStart)
-				local flatDir = Vector3.new(rawDir.X, 0, rawDir.Z)
-				local moveDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, -1)
-				local yawAngle = math.atan2(-moveDir.X, -moveDir.Z)
-				local horizontalRot = CFrame.Angles(0, yawAngle, 0)
+			-- Direct line X and Z trajectory straight to ATM
+			local curX = startP.X + (destP.X - startP.X) * alpha
+			local curZ = startP.Z + (destP.Z - startP.Z) * alpha
 
-				local t0 = os.clock()
-				local legFinished = false
-				local lastGroundY = currentLegStart.Y
-				local conn
+			-- Follow road ground elevation via downward raycasts (preserving altitude system)
+			local rayParams = RaycastParams.new()
+			rayParams.FilterDescendantsInstances = { car, player.Character }
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			local hit = workspace:Raycast(Vector3.new(curX, lastGroundY + 15, curZ), Vector3.new(0, -50, 0), rayParams)
+			local roadY = hit and (hit.Position.Y + 2.2) or (startP.Y + (destP.Y - startP.Y) * alpha)
+			lastGroundY = roadY
+			local curY = math.max(roadY, 22.2)
 
-				conn = RunService.Heartbeat:Connect(function()
-					if not bcaCourierActive then
-						if conn then conn:Disconnect() end
-						legFinished = true
-						return
+			local curPos = Vector3.new(curX, curY, curZ)
+			local remainingTotal = (destP - curPos).Magnitude
+			updateBcaActivity(string.format("🚗 Driving Bank Van Direct (%.0f studs left | %d km/h)", 
+				remainingTotal, math.floor(speed * 1.2)))
+
+			-- Continuously compute horizontal heading directly toward the ATM
+			local currentDelta = destP - curPos
+			local currentFlat = Vector3.new(currentDelta.X, 0, currentDelta.Z)
+			local currentMoveDir = currentFlat.Magnitude > 0.1 and currentFlat.Unit or moveDir
+			local currentYaw = math.atan2(-currentMoveDir.X, -currentMoveDir.Z)
+			local currentRot = CFrame.Angles(0, currentYaw, 0)
+
+			-- Pure horizontal CFrame directly aimed at destination
+			local currentCF = CFrame.new(curPos) * currentRot
+
+			pcall(function()
+				car:PivotTo(currentCF)
+
+				-- Keep selective noclip active
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+						part.Anchored = false
 					end
+				end
 
-					local elapsed = os.clock() - t0
-					local alpha = math.clamp(elapsed / legDuration, 0, 1)
+				-- CRITICAL: Continuous Velocity Synchronization for Server Odometer / Distance Tracking
+				if aValues then
+					if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+					if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
+					if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
+					if aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
+					if aValues:FindFirstChild("RPM") then aValues.RPM.Value = 5200 + math.random(-60, 60) end
+					if aValues:FindFirstChild("Velocity") then aValues.Velocity.Value = currentMoveDir * speed end
+				end
+				if seat:IsA("VehicleSeat") then
+					seat.Throttle = 1
+					seat.ThrottleFloat = 1
+					seat.AssemblyLinearVelocity = currentMoveDir * speed
+				end
 
-					-- Follow road ground asphalt via downward raycasts
-					local curX = currentLegStart.X + (legTarget.X - currentLegStart.X) * alpha
-					local curZ = currentLegStart.Z + (legTarget.Z - currentLegStart.Z) * alpha
+				-- Keep character securely seated in DriveSeat
+				local char = player.Character
+				local hum = char and char:FindFirstChild("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
+					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					if hum then hum.Sit = true; seat:Sit(hum) end
+				end
+			end)
 
-					local rayParams = RaycastParams.new()
-					rayParams.FilterDescendantsInstances = { car, player.Character }
-					rayParams.FilterType = Enum.RaycastFilterType.Exclude
-					local hit = workspace:Raycast(Vector3.new(curX, lastGroundY + 15, curZ), Vector3.new(0, -50, 0), rayParams)
-					local roadY = hit and (hit.Position.Y + 2.2) or (currentLegStart.Y + (legTarget.Y - currentLegStart.Y) * alpha)
-					lastGroundY = roadY
-					local curY = math.max(roadY, 22.2)
-
-					local curPos = Vector3.new(curX, curY, curZ)
-					local remainingTotal = (destP - curPos).Magnitude
-					updateBcaActivity(string.format("🚗 Driving Bank Van (Leg %d/%d | %.0f stud left | %d km/h)", 
-						legIndex, #waypoints, remainingTotal, math.floor(speed * 1.2)))
-
-					-- Pure horizontal CFrame with road alignment
-					local currentCF = CFrame.new(curPos) * horizontalRot
-
-					pcall(function()
-						car:PivotTo(currentCF)
-
-						-- Keep selective noclip active
-						for _, part in ipairs(car:GetDescendants()) do
-							if part:IsA("BasePart") then
-								part.CanCollide = false
-								part.Anchored = false
-							end
-						end
-
-						-- CRITICAL: Continuous Velocity Synchronization for Server Odometer / Distance Tracking
-						if aValues then
-							if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
-							if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
-							if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
-							if aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
-							if aValues:FindFirstChild("RPM") then aValues.RPM.Value = 5200 + math.random(-60, 60) end
-							if aValues:FindFirstChild("Velocity") then aValues.Velocity.Value = moveDir * speed end
-						end
-						if seat:IsA("VehicleSeat") then
-							seat.Throttle = 1
-							seat.ThrottleFloat = 1
-							seat.AssemblyLinearVelocity = moveDir * speed
-						end
-
-						-- Keep character securely seated in DriveSeat
-						local char = player.Character
-						local hum = char and char:FindFirstChild("Humanoid")
-						local root = char and char:FindFirstChild("HumanoidRootPart")
-						if root and seat and (not hum or not hum.Sit or hum.SeatPart ~= seat) then
-							root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-							if hum then hum.Sit = true; seat:Sit(hum) end
-						end
-					end)
-
-					-- Odometer telemetry packet sync (every 0.35s)
-					if os.clock() - lastOdoTime >= 0.35 then
-						lastOdoTime = os.clock()
-						pcall(function()
-							if Network and Network.FireServer then
-								Network:FireServer("Odometer", 4800)
-							end
-							fireRemote("Odometer", 4800)
-							fireRemote("DataReceiver", { RPM = 5200, Speed = speed, Throttle = 1 })
-							if car then
-								local curOdo = car:GetAttribute("Odometer") or 0
-								car:SetAttribute("Odometer", curOdo + 1)
-							end
-						end)
+			-- Odometer telemetry packet sync (every 0.35s)
+			if os.clock() - lastOdoTime >= 0.35 then
+				lastOdoTime = os.clock()
+				pcall(function()
+					if Network and Network.FireServer then
+						Network:FireServer("Odometer", 4800)
 					end
-
-					if alpha >= 1 then
-						legFinished = true
-						if conn then conn:Disconnect() end
+					fireRemote("Odometer", 4800)
+					fireRemote("DataReceiver", { RPM = 5200, Speed = speed, Throttle = 1 })
+					if car then
+						local curOdo = car:GetAttribute("Odometer") or 0
+						car:SetAttribute("Odometer", curOdo + 1)
 					end
 				end)
-
-				while not legFinished and bcaCourierActive do
-					task.wait(0.02)
-				end
-				if conn then pcall(function() conn:Disconnect() end) end
 			end
+
+			if alpha >= 1 or remainingTotal <= 10 then
+				driveFinished = true
+				if conn then conn:Disconnect() end
+			end
+		end)
+
+		while not driveFinished and bcaCourierActive do
+			task.wait(0.02)
 		end
+		if conn then pcall(function() conn:Disconnect() end) end
 
 		-- Release gas pedal (W & Up key)
 		pcall(function()
