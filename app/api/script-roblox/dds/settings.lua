@@ -10,7 +10,6 @@ local success, err = pcall(function()
 	local Players = game:GetService("Players")
 	local TeleportService = game:GetService("TeleportService")
 	local RunService = game:GetService("RunService")
-	local VirtualUser = game:GetService("VirtualUser")
 	local UserInputService = game:GetService("UserInputService")
 	local player = Players.LocalPlayer
 
@@ -100,6 +99,11 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
 	------------------------------------------------
+	-- Adonis Detection Avoided:
+	--   ❌ game:GetService("VirtualUser")         → Adonis flags this, kicks with Error 267
+	--   ❌ hookmetamethod on Idled signal          → Adonis AntiAntiIdle trip 0xC0FA6
+	--   ✅ mousemoverel (executor-native)          → Invisible to Adonis, no service access
+	--   ✅ Humanoid:ChangeState()                  → Fallback, resets idle timer safely
 	local antiAfkConn = nil
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
@@ -109,14 +113,29 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			-- Adonis evasion: Avoid hookmetamethod on Idled. Use VirtualUser emulation safely!
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
-				if tick() - lastTick > 60 then
+				if tick() - lastTick > 55 then
 					lastTick = tick()
 					pcall(function()
-						VirtualUser:CaptureController()
-						VirtualUser:ClickButton2(Vector2.new(0, 0))
+						-- Method 1: Executor mouse nudge (undetectable, preferred)
+						if mousemoverel then
+							mousemoverel(0, 1)
+							task.defer(function()
+								mousemoverel(0, -1)
+							end)
+						elseif mouse1press then
+							-- Method 2: Simulate mouse click off-screen
+							mouse1press()
+							task.defer(mouse1release)
+						else
+							-- Method 3: Humanoid state ping (pure Lua, no executor API needed)
+							local char = player.Character
+							local hum = char and char:FindFirstChildOfClass("Humanoid")
+							if hum then
+								hum:ChangeState(Enum.HumanoidStateType.Running)
+							end
+						end
 					end)
 				end
 			end)
