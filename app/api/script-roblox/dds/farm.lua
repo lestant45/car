@@ -218,35 +218,93 @@ local success, err = pcall(function()
 
 	------------------------------------------------
 	-- 🚕 2. AUTO RIDEGO TAXI (Motorbike Taxi Driver)
-	-- Real workflow (from takeorder.lua decompile):
-	--   1. FireServer("GoOnline")
-	--   2. Server fires OnClientEvent("OrderIncoming", { OrderId=597259, PickupPos=..., DropPos=... })
-	--   3. FireServer("AcceptOrder", orderId)  ← orderId is a plain NUMBER
-	--   4. Spawn motorcycle, safeTween to PickupPos
-	--   5. safeTween to DropPos
-	--   6. FireServer("AckTripComplete")
+	-- Real workflow (from decompiled remotes):
+	--   1. GoOnline
+	--   2. SpawnCar:FireServer("Yamahax-MioSporty")      ← spawnmotor.lua exact call
+	--   3. Server fires NewOrder with orderId (number), PickupPos, DropPos
+	--   4. AcceptOrder:FireServer("AcceptOrder", orderId) ← takeorder.lua exact call
+	--   5. Seat player on spawned motorcycle
+	--   6. safeTween to PickupPos → wait for boarding → safeTween to DropPos
+	--   7. AckTripComplete
 	------------------------------------------------
 	local TaxiAssets = ReplicatedStorage:WaitForChild("TaxiAssets", 10)
 	local TaxiEvent = TaxiAssets and TaxiAssets:WaitForChild("Events", 10) and TaxiAssets.Events:WaitForChild("TaxiEvent", 10)
-	local SpawnCarEvents = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+	local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+	local SpawnCarRemote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
+
+	-- Configurable bike model name (from spawnmotor.lua decompile)
+	local TAXI_BIKE_NAME = "Yamahax-MioSporty"
 
 	local taxiActive = false
-	local taxiBusy = false       -- true while executing a trip, blocks double-accepts
+	local taxiBusy = false
 	local taxiCurrentOrderId = nil
+	local taxiSpawnedVehicle = nil  -- reference to the bike model after spawning
 
-	local function spawnMotorcycle()
-		-- Spawn a motorbike for the ride (uses SpawnCarEvents.SpawnCar)
-		if not SpawnCarEvents then return end
+	-- Spawn the RideGO motorbike using exact remote from spawnmotor.lua:
+	-- SpawnCarEvents.SpawnCar:FireServer("Yamahax-MioSporty")
+	local function spawnTaxiBike()
+		if not SpawnCarRemote then return end
 		pcall(function()
-			local spawnEvent = SpawnCarEvents:FindFirstChild("SpawnCar")
-			if spawnEvent then
-				-- Attempt to spawn the player's most recently owned bike
-				local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
-				local bikeModel = playerData and playerData:FindFirstChild(player.Name) and playerData[player.Name]:FindFirstChild("LastBike")
-				spawnEvent:FireServer(bikeModel and bikeModel.Value or nil)
-				task.wait(1.5)
-			end
+			SpawnCarRemote:FireServer(TAXI_BIKE_NAME)
 		end)
+		-- Wait for the vehicle to spawn in workspace
+		task.wait(2)
+		-- Try to find the newly spawned vehicle model in workspace
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:IsA("Model") and obj.Name:find("Mio") or (obj:IsA("Model") and obj.Name:find("Yamahax")) then
+				local tag = obj:FindFirstChild("Owner") or obj:FindFirstChild("OwnerName")
+				if (tag and tostring(tag.Value) == player.Name) or obj.Name:find(player.Name) then
+					taxiSpawnedVehicle = obj
+					break
+				end
+			end
+		end
+	end
+
+	-- Seat the player in the spawned motorcycle
+	local function sitOnBike()
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not hum then return false end
+
+		-- Already seated in a vehicle?
+		if hum.SeatPart then return true end
+
+		-- Find VehicleSeat in the spawned bike model
+		local vehicleModel = taxiSpawnedVehicle
+		if not vehicleModel or not vehicleModel.Parent then
+			-- Fallback: search workspace for closest vehicle model with a VehicleSeat
+			local root = char:FindFirstChild("HumanoidRootPart")
+			local bestDist = 80
+			for _, obj in ipairs(workspace:GetChildren()) do
+				if obj:IsA("Model") then
+					local seat = obj:FindFirstChildOfClass("VehicleSeat", true)
+					if seat and root then
+						local d = (seat.Position - root.Position).Magnitude
+						if d < bestDist then
+							bestDist = d
+							vehicleModel = obj
+						end
+					end
+				end
+			end
+		end
+
+		if not vehicleModel then return false end
+
+		local seat = vehicleModel:FindFirstChildOfClass("VehicleSeat", true)
+		if seat then
+			-- Teleport character near seat first, then sit
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
+				task.wait(0.3)
+			end
+			seat:Sit(hum)
+			task.wait(0.5)
+			return hum.SeatPart ~= nil
+		end
+		return false
 	end
 
 	if TaxiEvent then
@@ -299,44 +357,48 @@ local success, err = pcall(function()
 				end
 
 				task.spawn(function()
-					-- Step 1: Accept the order (numeric ID as per takeorder.lua)
+					-- Step 1: Accept the order
+					-- From takeorder.lua: TaxiEvent:FireServer("AcceptOrder", 597259)
 					TaxiEvent:FireServer("AcceptOrder", orderId)
 					task.wait(0.5)
-					UI.Notify("RideGO Order Accepted", "Order #" .. tostring(orderId), 2, "success")
+					UI.Notify("Order Accepted #" .. tostring(orderId), isAnom and "👻 ANOMALY PASSENGER" or "Slide accepted!", 2, "success")
 
-					-- Step 2: Spawn motorcycle if not in vehicle
-					local char = player.Character
-					local hum = char and char:FindFirstChildOfClass("Humanoid")
-					if not (hum and hum.SeatPart) then
-						spawnMotorcycle()
+					-- Step 2: Sit on the motorcycle (bike was pre-spawned at GoOnline)
+					UI.Notify("Mounting Bike", "Getting on Yamahax-MioSporty...", 2, "warning")
+					local seated = sitOnBike()
+					if not seated then
+						-- Bike may not be spawned yet; spawn and retry
+						spawnTaxiBike()
+						task.wait(1)
+						sitonBike = sitOnBike()
 					end
 
-					-- Step 3: Ride to passenger pickup location
+					-- Step 3: Ride to passenger pickup
 					if pickupPos then
-						UI.Notify("Heading to Pickup", "Riding to passenger...", 2, "warning")
+						UI.Notify("Riding to Pickup 🏍️", "Heading to passenger...", 2, "warning")
 						safeTweenTo(CFrame.new(pickupPos) + Vector3.new(0, 2, 0), Config.taxiSpeed)
 					end
 
-					-- Step 4: Brief wait for passenger boarding
-					task.wait(2)
+					-- Step 4: Passenger boards (wait)
+					task.wait(2.5)
 
-					-- Step 5: Ride to dropoff destination
+					-- Step 5: Ride to drop-off
 					if dropPos and taxiActive then
-						UI.Notify("Heading to Drop-off", "Delivering passenger...", 2, "warning")
+						UI.Notify("Riding to Drop-off 📍", "Delivering passenger...", 2, "warning")
 						safeTweenTo(CFrame.new(dropPos) + Vector3.new(0, 2, 0), Config.taxiSpeed)
 					end
 
-					-- Step 6: Arrived — acknowledge trip complete
+					-- Step 6: Trip complete
 					task.wait(0.5)
 					if taxiActive then
 						TaxiEvent:FireServer("AckTripComplete")
-						UI.Notify("Trip Complete! 🏆", "Earned fare. Looking for next order...", 3, "success")
+						UI.Notify("Trip Complete! 🏆", "Fare earned. Waiting for next order...", 3, "success")
 					end
 
 					taxiBusy = false
 					taxiCurrentOrderId = nil
 
-					-- Auto re-enter duty if still enabled
+					-- Re-enter duty automatically
 					if taxiActive then
 						task.wait(1)
 						TaxiEvent:FireServer("GoOnline")
@@ -399,22 +461,33 @@ local success, err = pcall(function()
 	local function toggleAutoRideGO(state)
 		taxiActive = state
 		taxiBusy = false
+		taxiSpawnedVehicle = nil
 		Config.autoRideGO = state
 
 		if state then
 			changeTeam("RideGO Driver")
 			task.wait(1)
 
+			-- Step A: Dismiss intro tutorial if showing
 			if TaxiEvent then
-				-- DismissIntro first to skip tutorial overlay
 				TaxiEvent:FireServer("DismissIntro")
 				task.wait(0.3)
+			end
+
+			-- Step B: Spawn motorcycle FIRST before going online
+			-- From spawnmotor.lua: SpawnCarEvents.SpawnCar:FireServer("Yamahax-MioSporty")
+			UI.Notify("Spawning Bike 🏍️", "Spawning Yamahax-MioSporty...", 2, "warning")
+			spawnTaxiBike()
+
+			-- Step C: Go online to receive orders
+			if TaxiEvent then
 				TaxiEvent:FireServer("GoOnline")
 			end
 
-			UI.Notify("Auto RideGO Active", "Waiting for orders. Will auto-accept & drive.", 3, "success")
+			UI.Notify("Auto RideGO Active ✅", "Bike spawned. Waiting for orders.", 3, "success")
 		else
 			taxiBusy = false
+			taxiSpawnedVehicle = nil
 			cancelActiveTween()
 			if TaxiEvent then
 				TaxiEvent:FireServer("GoOffline")
