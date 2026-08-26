@@ -50,7 +50,6 @@ local success, err = pcall(function()
 	local bcaEventState = BCA_STATE.IDLE
 	local bcaCourierActive = Config.farm.bcaCourier or false
 	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
-	local bcaForceMaxSuitcases = (Config.farm.bcaForceMaxSuitcases ~= nil) and Config.farm.bcaForceMaxSuitcases or true
 	local targetCruiseSpeed = 163
 	local bcaAppSyncActive = false
 	local bcaDepotPos = Vector3.new(1866.502, 24, -4874.451)
@@ -2135,27 +2134,6 @@ local success, err = pcall(function()
 						jobGui = getBankCourierGui()
 						hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
 						if not hasActiveJobGui then return end
-
-						-- 🎯 ALWAYS 4/4 SMART AUTO-REROLL FILTER
-						if bcaForceMaxSuitcases then
-							local kText = jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
-							local aText = jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
-							local curK, totK = parseProgress(kText)
-							local curA, totA = parseProgress(aText)
-							local targetCount = math.max(totK, totA, bcaTotAtm or 0, bcaTotKoper or 0)
-
-							if targetCount > 0 and targetCount < 4 then
-								print(string.format("[BCA] Contract assigned %d suitcases (< 4). Auto-rerolling for 4/4 max payout...", targetCount))
-								updateBcaActivity(string.format("🔄 Re-rolling for 4/4 (Got %d/4)...", targetCount))
-								fireRemote("BankCourier", "Cancel")
-								fireRemote("Job", "Cancel")
-								resetBcaState()
-								task.wait(0.6)
-								return
-							elseif targetCount >= 4 then
-								print("[BCA] ✅ Received 4/4 Suitcases contract!")
-							end
-						end
 					end
 
 					-- STEP 2: Ensure Bank Car is spawned via Putra NPC
@@ -2319,17 +2297,6 @@ local success, err = pcall(function()
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 5)
-
-	UI.AddToggle(bcaSec, "Force 4/4 Suitcases (Auto-Reroll Max Pay)", bcaForceMaxSuitcases, function(v)
-		bcaForceMaxSuitcases = v
-		Config.farm.bcaForceMaxSuitcases = v
-		if v then
-			UI.Notify("Force 4/4 Active", "Will auto-reroll until 4/4 contract is received!", 2, "success")
-		else
-			UI.Notify("Force 4/4 Disabled", "Accepts any suitcase count (2, 3, or 4).", 2, "info")
-		end
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 6)
 
 	UI.AddSlider(bcaSec, "Delivery Delay (Seconds)", 0.5, 5.0, bcaCourierDelay, function(v)
 		bcaCourierDelay = v
