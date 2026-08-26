@@ -218,14 +218,15 @@ local success, err = pcall(function()
 
 	------------------------------------------------
 	-- 🚕 2. AUTO RIDEGO TAXI (Motorbike Taxi Driver)
-	-- Confirmed via MCP remote inspection:
-	--   EVENT:  "OrderOffer"  (NOT "NewOrder"/"OrderIncoming")
-	--   ACCEPT: TaxiEvent:FireServer("AcceptOrder", Token)  ← Token is a NUMBER in payload
-	--   RIDE:   ProximityPrompt ActionText="Ride", ObjectText="Motorcycle" on DriveSeat
-	--           → safeTween to DriveSeat.Position → fireproximityprompt(prompt)
-	--   SPAWN:  SpawnCarEvents.SpawnCar:FireServer("Yamahax-MioSporty")
-	--   NOTE:   OrderOffer has NO PickupPos/DropPos — only PickupAddr/DropAddr text
-	--           Position data arrives in a follow-up event after AcceptOrder
+	-- Verified workflow & remotes:
+	--   1. SpawnCar:FireServer("Yamahax-MioSporty")
+	--   2. Mount bike via ProximityPrompt (ActionText="Ride", ObjectText="Motorcycle", parent="DriveSeat")
+	--   3. GoOnline
+	--   4. Server fires "OrderOffer" with { Token = <number>, ... }
+	--   5. AcceptOrder:FireServer("AcceptOrder", Token)
+	--   6. Server fires "OrderAccepted" with { PickupPos = Vector3, DropPos = Vector3 }
+	--   7. safeTweenTo(PickupPos) → wait for boarding → safeTweenTo(DropPos)
+	--   8. AckTripComplete:FireServer("AckTripComplete")
 	------------------------------------------------
 	local TaxiAssets = ReplicatedStorage:WaitForChild("TaxiAssets", 10)
 	local TaxiEvent = TaxiAssets and TaxiAssets:WaitForChild("Events", 10) and TaxiAssets.Events:WaitForChild("TaxiEvent", 10)
@@ -235,33 +236,33 @@ local success, err = pcall(function()
 	local TAXI_BIKE_NAME  = "Yamahax-MioSporty"
 	local taxiActive      = false
 	local taxiBusy        = false
-	local taxiToken       = nil   -- current Token from OrderOffer
-	local taxiPickupPos   = nil   -- set by TripData/TripStarted after AcceptOrder
+	local taxiToken       = nil
+	local taxiPickupPos   = nil
 	local taxiDropPos     = nil
+	local taxiOverlayPoller = nil
 
 	-- ── Spawn motorcycle via exact remote from spawnmotor.lua ──────────────
 	local function spawnTaxiBike()
 		if not SpawnCarRemote then return end
 		pcall(function() SpawnCarRemote:FireServer(TAXI_BIKE_NAME) end)
-		task.wait(2.5)
+		task.wait(2)
 	end
 
-	-- ── Find the Ride ProximityPrompt on the spawned motorcycle ──────────
-	-- Confirmed: ActionText="Ride", ObjectText="Motorcycle" on DriveSeat part
+	-- ── Find the Ride ProximityPrompt on the motorcycle ───────────────────
 	local function findRidePrompt()
+		-- Priority 1: Check player's own bike in workspace
 		for _, obj in ipairs(workspace:GetDescendants()) do
 			if obj:IsA("ProximityPrompt")
 				and obj.ActionText == "Ride"
 				and obj.ObjectText == "Motorcycle"
 				and obj.Enabled then
-				-- Check it belongs to our player's bike (model name contains playerName)
 				local model = obj.Parent and obj.Parent.Parent
 				if model and model.Name:find(player.Name) then
-					return obj, obj.Parent  -- prompt, DriveSeat part
+					return obj, obj.Parent
 				end
 			end
 		end
-		-- Fallback: return ANY enabled Ride/Motorcycle prompt
+		-- Priority 2: Return any enabled Ride prompt
 		for _, obj in ipairs(workspace:GetDescendants()) do
 			if obj:IsA("ProximityPrompt")
 				and obj.ActionText == "Ride"
@@ -272,7 +273,7 @@ local success, err = pcall(function()
 		return nil, nil
 	end
 
-	-- ── Tween to bike then fireproximityprompt to mount ──────────────────
+	-- ── Safe tween to motorcycle and hold Ride ProximityPrompt ───────────
 	local function mountBike()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
@@ -281,93 +282,91 @@ local success, err = pcall(function()
 
 		local prompt, seatPart = findRidePrompt()
 		if not prompt or not seatPart then
-			UI.Notify("⚠️ Bike Not Found", "Could not locate motorcycle Ride prompt", 2, "warning")
-			return false
+			UI.Notify("⚠️ Bike Not Found", "Spawning new motorcycle...", 2, "warning")
+			spawnTaxiBike()
+			prompt, seatPart = findRidePrompt()
+			if not prompt or not seatPart then return false end
 		end
 
 		local root = char:FindFirstChild("HumanoidRootPart")
-		if root then
-			-- Step 1: safeTween to the DriveSeat position
-			local targetCF = seatPart.CFrame + Vector3.new(0, 3, 0)
-			safeTweenTo(targetCF, 30)
-			task.wait(0.3)
+		if root and seatPart then
+			-- Step 1: Smoothly tween to the motorcycle DriveSeat position
+			local targetCF = seatPart.CFrame + Vector3.new(0, 1.5, 0)
+			safeTweenTo(targetCF, 40)
+			task.wait(0.2)
+			root.CFrame = targetCF
+			task.wait(0.1)
 
-			-- Step 2: fire the ProximityPrompt to mount
+			-- Step 2: Hold Ride ProximityPrompt (simulates real key hold)
 			if fireproximityprompt then
 				pcall(fireproximityprompt, prompt)
-			else
-				-- Fallback: teleport directly onto seat and sit
-				root.CFrame = seatPart.CFrame + Vector3.new(0, 1, 0)
-				task.wait(0.2)
-				local seat = seatPart:IsA("VehicleSeat") and seatPart
-					or seatPart.Parent:FindFirstChildOfClass("VehicleSeat", true)
-				if seat then seat:Sit(hum) end
 			end
-			task.wait(1)
+			pcall(function()
+				prompt:InputHoldBegin()
+				task.wait(prompt.HoldDuration + 0.15)
+				prompt:InputHoldEnd()
+			end)
+			task.wait(0.8)
 		end
 
 		return hum.SeatPart ~= nil
 	end
 
-	-- ── Execute a trip: mount → ride to pickup → ride to dropoff → complete
-	local function executeTripAsync(token, pickupPos, dropPos, passengerName)
-		taxiToken   = token
-		taxiBusy    = true
-		taxiPickupPos = pickupPos
-		taxiDropPos   = dropPos
+	-- ── Execute full trip workflow ────────────────────────────────────────
+	local function executeTripAsync(token, name)
+		if taxiBusy then return end
+		taxiBusy = true
+		taxiToken = token
+		taxiPickupPos = nil
+		taxiDropPos = nil
 
-		-- 1. Accept order (Token from OrderOffer payload)
+		-- 1. Accept the incoming order via Token
 		TaxiEvent:FireServer("AcceptOrder", token)
-		task.wait(0.5)
-		UI.Notify("✅ Accepted Order", (passengerName or "Passenger") .. " — mounting bike...", 2, "success")
+		task.wait(0.4)
+		UI.Notify("✅ Order Accepted", "Passenger: " .. tostring(name or "Passenger"), 2, "success")
 
-		-- 2. Mount the motorcycle (tween + ProximityPrompt Ride)
-		local seated = mountBike()
-		if not seated then
-			-- Spawn a fresh bike and retry
-			spawnTaxiBike()
-			task.wait(1)
-			seated = mountBike()
+		-- 2. Make sure we are mounted on the motorcycle
+		local char = player.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if not (hum and hum.SeatPart) then
+			UI.Notify("🏍️ Mounting Bike", "Getting on motorcycle...", 2, "warning")
+			mountBike()
 		end
 
-		-- 3. Ride to pickup (if we have position from post-accept event)
+		-- 3. Wait for OrderAccepted event with pickup/drop positions (or max 5s)
+		local waitStart = tick()
+		while not taxiPickupPos and taxiActive and (tick() - waitStart < 5) do
+			task.wait(0.2)
+		end
+
+		-- 4. Ride to Passenger Pickup Position
 		if taxiPickupPos and taxiActive then
-			UI.Notify("🏍️ Riding to Pickup", "Heading to " .. tostring(taxiPickupPos), 2, "warning")
+			UI.Notify("🏍️ Heading to Pickup", "Riding to passenger...", 2, "warning")
 			safeTweenTo(CFrame.new(taxiPickupPos) + Vector3.new(0, 2, 0), Config.taxiSpeed)
-		else
-			-- No position yet — wait for TripData event to populate taxiPickupPos
-			UI.Notify("📍 Waiting for trip data...", "Server sending positions...", 2, "warning")
-			local waited = 0
-			while not taxiPickupPos and taxiActive and waited < 8 do
-				task.wait(0.5)
-				waited = waited + 0.5
-			end
-			if taxiPickupPos and taxiActive then
-				safeTweenTo(CFrame.new(taxiPickupPos) + Vector3.new(0, 2, 0), Config.taxiSpeed)
-			end
 		end
 
-		-- 4. Wait for passenger to board
-		task.wait(2.5)
+		-- 5. Wait for passenger boarding
+		task.wait(3)
 
-		-- 5. Ride to drop-off
+		-- 6. Ride to Drop-off Position
 		if taxiDropPos and taxiActive then
-			UI.Notify("📍 Riding to Drop-off", "Delivering passenger...", 2, "warning")
+			UI.Notify("📍 Heading to Drop-off", "Delivering passenger...", 2, "warning")
 			safeTweenTo(CFrame.new(taxiDropPos) + Vector3.new(0, 2, 0), Config.taxiSpeed)
 		end
 
-		-- 6. Complete trip
-		task.wait(0.5)
+		-- 7. Complete Trip & Acknowledge
+		task.wait(0.6)
 		if taxiActive then
 			TaxiEvent:FireServer("AckTripComplete")
-			UI.Notify("🏆 Trip Complete!", "Fare earned. Re-entering duty...", 3, "success")
+			UI.Notify("🏆 Trip Complete!", "Fare earned. Waiting for next order...", 3, "success")
 		end
 
-		taxiBusy    = false
-		taxiToken   = nil
+		taxiBusy = false
+		taxiToken = nil
 		taxiPickupPos = nil
-		taxiDropPos   = nil
+		taxiDropPos = nil
 
+		-- 8. Automatically go online for the next trip
 		if taxiActive then
 			task.wait(1.5)
 			TaxiEvent:FireServer("GoOnline")
@@ -389,16 +388,14 @@ local success, err = pcall(function()
 
 			-- ── DUTY STARTED ──────────────────────────────────────────────
 			if eventType == "DutyStarted" then
-				UI.Notify("RideGO Online ✅", "Waiting for orders...", 3, "success")
+				UI.Notify("RideGO Online ✅", "Mounted & waiting for orders...", 3, "success")
 
-			-- ── ORDER OFFER (confirmed event name from MCP) ───────────────
-			-- Payload: { Token=720208, PassengerName="Dewi", PickupAddr="...", DropAddr="...",
-			--            Fare=379032, DistKm=2.59, ExpiresIn=20, IsAnomaly=false, TierName="Common" }
+			-- ── ORDER OFFER ───────────────────────────────────────────────
 			elseif eventType == "OrderOffer" and not taxiBusy then
-				local token     = payload and (payload.Token or payload.token)
-				local name      = payload and payload.PassengerName or "Passenger"
-				local isAnom    = payload and payload.IsAnomaly or false
-				local fare      = payload and payload.Fare or 0
+				local token = payload and (payload.Token or payload.token)
+				local name  = payload and payload.PassengerName or "Passenger"
+				local isAnom = payload and payload.IsAnomaly or false
+				local fare  = payload and payload.Fare or 0
 
 				if not token then return end
 
@@ -408,32 +405,34 @@ local success, err = pcall(function()
 					UI.Notify("🛵 New Order!", name .. " — Rp " .. tostring(fare), 3, "success")
 				end
 
-				task.spawn(executeTripAsync, token, nil, nil, name)
+				task.spawn(executeTripAsync, token, name)
 
-			-- ── POST-ACCEPT: Trip data with positions (fires after AcceptOrder) ──
-			elseif eventType == "TripData" or eventType == "TripStarted" or eventType == "OrderAccepted" then
+			-- ── ORDER ACCEPTED (provides actual PickupPos & DropPos) ──────
+			elseif eventType == "OrderAccepted" then
 				if payload then
-					local pickup = payload.PickupPos or payload.PickUp or payload.pickup
-					local drop   = payload.DropPos   or payload.DropOff or payload.Drop
-
-					if pickup then taxiPickupPos = pickup end
-					if drop   then taxiDropPos   = drop   end
-
-					-- If we're busy with a trip that has no position yet, positions just arrived
-					if taxiBusy and taxiPickupPos and not taxiDropPos then
-						-- Only pickup arrived; drop will come in next event or when passenger boards
-					end
+					if payload.PickupPos then taxiPickupPos = payload.PickupPos end
+					if payload.DropPos then taxiDropPos = payload.DropPos end
 				end
 
-			-- ── DUTY DROPPED (server forced offline) ─────────────────────
+			-- ── PASSENGER BOARDING ────────────────────────────────────────
+			elseif eventType == "PassengerBoarding" then
+				-- Passenger is walking to bike
+
+			-- ── TRIP STARTED ──────────────────────────────────────────────
+			elseif eventType == "TripStarted" then
+				if payload and payload.DropPos then
+					taxiDropPos = payload.DropPos
+				end
+
+			-- ── DUTY DROPPED ──────────────────────────────────────────────
 			elseif eventType == "DutyEnded" then
 				if taxiActive and not taxiBusy then
 					task.wait(1.5)
 					TaxiEvent:FireServer("GoOnline")
 				end
 
-			-- ── TRIP / ORDER COMPLETE ─────────────────────────────────────
-			elseif eventType == "TripComplete" or eventType == "OrderComplete" then
+			-- ── ORDER COMPLETED ───────────────────────────────────────────
+			elseif eventType == "OrderCompleted" or eventType == "TripComplete" then
 				task.wait(0.3)
 				TaxiEvent:FireServer("AckTripComplete")
 				taxiBusy = false
@@ -443,20 +442,49 @@ local success, err = pcall(function()
 					TaxiEvent:FireServer("GoOnline")
 				end
 
-			-- ── CANCEL / EXPIRE / DECLINE ─────────────────────────────────
-			elseif eventType == "OrderExpired" or eventType == "OrderCancelled"
-				or eventType == "OrderDeclined" or eventType == "TripCancelled" then
-				taxiBusy  = false
+			-- ── ORDER CANCELLED / EXPIRED ─────────────────────────────────
+			elseif eventType == "OrderExpired" or eventType == "OrderCancelled" or eventType == "OrderDeclined" then
+				taxiBusy = false
 				taxiToken = nil
 				taxiPickupPos = nil
-				taxiDropPos   = nil
-				UI.Notify("❌ Order " .. eventType, "Re-entering duty...", 2, "warning")
+				taxiDropPos = nil
+				UI.Notify("Order Reset", "Waiting for next offer...", 2, "warning")
 				if taxiActive then
-					local delay = (payload and type(payload.Delay) == "number" and payload.Delay) or 2
-					task.wait(math.min(delay, 5))
+					task.wait(2)
 					TaxiEvent:FireServer("GoOnline")
 				end
 			end
+		end)
+	end
+
+	-- ── Phone Screen Overlay Poller (backup) ──────────────────────────────
+	local function startPhoneOverlayPoller()
+		if taxiOverlayPoller then return end
+		taxiOverlayPoller = task.spawn(function()
+			while taxiActive do
+				task.wait(0.5)
+				if not taxiBusy and taxiActive then
+					pcall(function()
+						local pg = player:FindFirstChild("PlayerGui")
+						local phone = pg and pg:FindFirstChild("Phone")
+						local rideGO = phone and phone:FindFirstChild("RideGO", true)
+						local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
+						local overlay = appFrame and appFrame:FindFirstChild("OrderOverlay")
+
+						if overlay and overlay.Visible and not taxiBusy then
+							-- Order offer is showing on screen: find token from recent logs or accept directly
+							if #_G.HipHubTaxiLog > 0 then
+								local last = _G.HipHubTaxiLog[#_G.HipHubTaxiLog]
+								local args = last.args or {}
+								if args[1] == "OrderOffer" and type(args[2]) == "table" and args[2].Token then
+									task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName)
+								end
+							end
+						end
+					end)
+				end
+			end
+			taxiOverlayPoller = nil
 		end)
 	end
 
@@ -477,21 +505,34 @@ local success, err = pcall(function()
 				task.wait(0.3)
 			end
 
-			-- Spawn motorcycle FIRST
+			-- 1. Spawn motorcycle
 			UI.Notify("🏍️ Spawning Bike", "Spawning " .. TAXI_BIKE_NAME .. "...", 2, "warning")
 			spawnTaxiBike()
 
-			-- Go online to receive OrderOffer events
+			-- 2. Mount the motorcycle immediately
+			UI.Notify("🏍️ Mounting Bike", "Getting on motorcycle...", 2, "warning")
+			mountBike()
+
+			-- 3. Go online to receive OrderOffer events
 			if TaxiEvent then
 				TaxiEvent:FireServer("GoOnline")
 			end
 
-			UI.Notify("Auto RideGO Active ✅", "Bike ready. Waiting for OrderOffer.", 3, "success")
+			-- 4. Start overlay backup poller
+			startPhoneOverlayPoller()
+
+			UI.Notify("Auto RideGO Active ✅", "Bike ready & seated. Waiting for orders.", 3, "success")
 		else
+			if taxiOverlayPoller then
+				task.cancel(taxiOverlayPoller)
+				taxiOverlayPoller = nil
+			end
 			cancelActiveTween()
 			if TaxiEvent then
 				TaxiEvent:FireServer("GoOffline")
 			end
+			UI.Notify("Auto RideGO Stopped", "Went offline.", 2, "warning")
+		end
 	end
 
 	------------------------------------------------
