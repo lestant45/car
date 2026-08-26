@@ -667,7 +667,9 @@ local success, err = pcall(function()
 	-- 🗺️ JAKARTA MAP BOUNDARIES & SAFE ROUTING SYSTEM
 	------------------------------------------------
 	local JAKARTA_TRANSITION_REGIONS = {
+		{ name = "Jawa Barat Map Portal (Etc.JawaBarat)", center = Vector3.new(2776.6, 80.9, 2390.5), radius = 350 },
 		{ name = "Tol Semanggi Gate", center = Vector3.new(760.5, 45.0, 1130.0), radius = 450 },
+		{ name = "Tol Semanggi Invispart", center = Vector3.new(752.7, 53.0, 1173.7), radius = 300 },
 		{ name = "Simpang Semanggi Interchange", center = Vector3.new(-731.3, 45.0, 1106.4), radius = 380 },
 		{ name = "Tol Batas Timur", center = Vector3.new(5100.0, 40.0, 3800.0), radius = 800 },
 		{ name = "Tangerang Border Toll", center = Vector3.new(4125.0, 20.0, 5245.0), radius = 500 },
@@ -691,7 +693,22 @@ local success, err = pcall(function()
 	end
 
 	local function isRouteSafe(startPos, targetPos, safetyMargin)
-		safetyMargin = safetyMargin or 60
+		safetyMargin = safetyMargin or 80
+
+		-- 1. Dynamic Check: Live Workspace.Etc.JawaBarat Trigger Cube (Highest Ground Truth)
+		pcall(function()
+			local jbPart = workspace:FindFirstChild("Etc") and workspace.Etc:FindFirstChild("JawaBarat")
+			if jbPart and jbPart:IsA("BasePart") then
+				local jbPos = jbPart.Position
+				local jbRadius = (math.max(jbPart.Size.X, jbPart.Size.Z) / 2) + safetyMargin
+				local d = distSegmentToPoint2D(startPos, targetPos, jbPos)
+				if d < jbRadius then
+					return false, "Jawa Barat Map Portal (Etc.JawaBarat)"
+				end
+			end
+		end)
+
+		-- 2. Static Region Table Check
 		for _, region in ipairs(JAKARTA_TRANSITION_REGIONS) do
 			local dist = distSegmentToPoint2D(startPos, targetPos, region.center)
 			if dist < (region.radius + safetyMargin) then
@@ -715,45 +732,64 @@ local success, err = pcall(function()
 
 		print("[BCA ROUTE] Direct route UNSAFE")
 		print(string.format("[BCA ROUTE] Transition region detected: %s", tostring(unsafeRegion)))
-		print("[BCA ROUTE] Generating safe Jakarta detour")
+		print("[BCA ROUTE] Generating safe Jakarta detour avoiding transition cube...")
 
 		local detour = {}
 
-		-- Major safe arterial transit corridors inside Jakarta (clear of Tol Semanggi & Tol Batas)
-		-- East arterial corridor (Rasuna Said / Kuningan avenue bypass): X: 1850, Z: -1500 -> 1200 -> 3000
-		-- West arterial corridor (Palmerah / Senayan bypass): X: -2200, Z: -1000 -> 2500
-		local eastCorridorMid1 = Vector3.new(1850.0, 25.0, -1500.0)
-		local eastCorridorMid2 = Vector3.new(1850.0, 28.0, 1200.0)
-		local eastCorridorMid3 = Vector3.new(1850.0, 28.0, 3000.0)
+		-- Safe inner-city avenues clear of both Tol Semanggi and Etc.JawaBarat:
+		-- Inner Rasuna Said corridor (East-Central): X: 1250, Z: -1500 -> 0 -> 1500 (safely west of Etc.JawaBarat at X: 2776)
+		-- Senayan / Palmerah corridor (West): X: -1800, Z: -1000 -> 1000 -> 2500 -> 4500 (safely west of Semanggi)
+		-- Puri / Kebon Jeruk corridor (Far West): X: -3500, Z: -1000 -> 2000 -> 5000
+		local eastInnerMid1 = Vector3.new(1250.0, 25.0, -1500.0)
+		local eastInnerMid2 = Vector3.new(1250.0, 25.0, 0.0)
+		local eastInnerMid3 = Vector3.new(1250.0, 28.0, 1500.0)
 
-		local westCorridorMid1 = Vector3.new(-2200.0, 25.0, -1000.0)
-		local westCorridorMid2 = Vector3.new(-2200.0, 25.0, 2500.0)
+		local westMid1 = Vector3.new(-1800.0, 25.0, -1000.0)
+		local westMid2 = Vector3.new(-1800.0, 25.0, 1500.0)
+		local westMid3 = Vector3.new(-1800.0, 25.0, 3500.0)
 
-		local eastSafe = isRouteSafe(startPos, eastCorridorMid2) and isRouteSafe(eastCorridorMid2, targetPos)
-		local westSafe = isRouteSafe(startPos, westCorridorMid2) and isRouteSafe(westCorridorMid2, targetPos)
+		local farWestMid1 = Vector3.new(-3800.0, 25.0, 0.0)
+		local farWestMid2 = Vector3.new(-3800.0, 25.0, 3500.0)
 
-		if eastSafe and ((startPos.X >= 0 and targetPos.X >= -500) or not westSafe) then
+		-- Validate candidate detour routes
+		local isEastSafe = isRouteSafe(startPos, eastInnerMid2) and isRouteSafe(eastInnerMid2, targetPos)
+		local isWestSafe = isRouteSafe(startPos, westMid2) and isRouteSafe(westMid2, targetPos)
+		local isFarWestSafe = isRouteSafe(startPos, farWestMid2) and isRouteSafe(farWestMid2, targetPos)
+
+		if targetPos.X < -2500 and isFarWestSafe then
+			-- Route to Far-West ATMs (e.g. ATM 5, ATM 6) via Puri corridor
+			if startPos.Z < -1500 then
+				table.insert(detour, farWestMid1)
+			end
+			table.insert(detour, farWestMid2)
+		elseif (targetPos.X < -500 or not isEastSafe) and isWestSafe then
+			-- Route via West Senayan corridor
 			if startPos.Z < -2000 and targetPos.Z > 1000 then
-				table.insert(detour, eastCorridorMid1)
+				table.insert(detour, westMid1)
 			end
-			table.insert(detour, eastCorridorMid2)
-			if targetPos.Z > 3500 then
-				table.insert(detour, eastCorridorMid3)
+			table.insert(detour, westMid2)
+			if targetPos.Z > 3000 then
+				table.insert(detour, westMid3)
 			end
-		elseif westSafe then
-			if startPos.Z < -2000 and targetPos.Z > 2000 then
-				table.insert(detour, westCorridorMid1)
+		elseif isEastSafe then
+			-- Route via East-Central Rasuna Said corridor (safe from Etc.JawaBarat)
+			if startPos.Z < -2000 and targetPos.Z > 0 then
+				table.insert(detour, eastInnerMid1)
 			end
-			table.insert(detour, westCorridorMid2)
+			table.insert(detour, eastInnerMid2)
+			if targetPos.Z > 1200 then
+				table.insert(detour, eastInnerMid3)
+			end
 		else
-			table.insert(detour, eastCorridorMid1)
-			table.insert(detour, eastCorridorMid2)
+			-- Fallback: Multi-leg West bypass
+			table.insert(detour, westMid1)
+			table.insert(detour, westMid2)
 		end
 
 		table.insert(detour, targetPos)
 
 		for i, wp in ipairs(detour) do
-			print(string.format("[BCA ROUTE] Waypoint %d: (%.1f, %.1f, %.1f)", i, wp.X, wp.Y, wp.Z))
+			print(string.format("[BCA ROUTE] Safe Waypoint %d: (%.1f, %.1f, %.1f)", i, wp.X, wp.Y, wp.Z))
 		end
 		print("[BCA ROUTE] Driving through safe route")
 		return detour
