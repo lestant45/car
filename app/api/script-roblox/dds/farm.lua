@@ -492,42 +492,7 @@ local success, err = pcall(function()
 			if TaxiEvent then
 				TaxiEvent:FireServer("GoOffline")
 			end
-			UI.Notify("Auto RideGO Stopped", "Went offline.", 2, "warning")
-		end
 	end
-
-			-- DismissIntro to skip tutorial overlay
-			if TaxiEvent then
-				TaxiEvent:FireServer("DismissIntro")
-				task.wait(0.3)
-			end
-
-			-- Spawn motorcycle FIRST (spawnmotor.lua: SpawnCar:FireServer("Yamahax-MioSporty"))
-			UI.Notify("🏍️ Spawning Bike", "Spawning Yamahax-MioSporty...", 2, "warning")
-			spawnTaxiBike()
-
-			-- Go online AFTER bike is ready
-			if TaxiEvent then
-				TaxiEvent:FireServer("GoOnline")
-			end
-
-			-- Start phone GUI poller as backup order acceptor
-			startPhoneGuiPoller()
-
-			UI.Notify("Auto RideGO Active ✅", "Bike spawned. Watching for orders.", 3, "success")
-		else
-			taxiBusy = false
-			taxiSpawnedVehicle = nil
-			cancelActiveTween()
-			if TaxiEvent then
-				TaxiEvent:FireServer("GoOffline")
-			end
-			UI.Notify("Auto RideGO Stopped", "Went offline.", 2, "warning")
-		end
-	end
-
-
-
 
 	------------------------------------------------
 	-- 📦 3. AUTO COURIER DELIVERY (Package Delivery)
