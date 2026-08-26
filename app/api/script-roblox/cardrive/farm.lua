@@ -37,6 +37,17 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🏦 BCA EVENT STATE & CONFIGURATION (TOP-LEVEL)
 	------------------------------------------------
+	local BCA_STATE = {
+		IDLE = "Idle",
+		STARTING_JOB = "StartingJob",
+		SPAWNING_VEHICLE = "SpawningVehicle",
+		LOADING_SUITCASES = "LoadingSuitcases",
+		DELIVERING_TO_ATM = "DeliveringToATM",
+		RETURNING_TO_DEPOT = "ReturningToDepot",
+		CLAIMING_PAYOUT = "ClaimingPayout",
+		COMPLETED = "Completed",
+	}
+	local bcaEventState = BCA_STATE.IDLE
 	local bcaCourierActive = Config.farm.bcaCourier or false
 	local bcaCourierDelay = Config.farm.bcaCourierDelay or 1.0
 	local targetCruiseSpeed = 163
@@ -55,6 +66,13 @@ local success, err = pcall(function()
 	local bcaTargetLabel = nil
 	local bcaSalaryLabel = nil
 	local currentBcaActivity = "Idle"
+
+	local function setBcaState(newState, reason)
+		if bcaEventState ~= newState then
+			print(string.format("[BCA-STATE] %s -> %s%s", tostring(bcaEventState), tostring(newState), reason and (" | Reason: " .. tostring(reason)) or ""))
+			bcaEventState = newState
+		end
+	end
 
 	local function updateBcaActivity(activity)
 		currentBcaActivity = activity or "Idle"
@@ -645,6 +663,102 @@ local success, err = pcall(function()
 		end
 	end
 
+	------------------------------------------------
+	-- 🗺️ JAKARTA MAP BOUNDARIES & SAFE ROUTING SYSTEM
+	------------------------------------------------
+	local JAKARTA_TRANSITION_REGIONS = {
+		{ name = "Tol Semanggi Gate", center = Vector3.new(760.5, 45.0, 1130.0), radius = 450 },
+		{ name = "Simpang Semanggi Interchange", center = Vector3.new(-731.3, 45.0, 1106.4), radius = 380 },
+		{ name = "Tol Batas Timur", center = Vector3.new(5100.0, 40.0, 3800.0), radius = 800 },
+		{ name = "Tangerang Border Toll", center = Vector3.new(4125.0, 20.0, 5245.0), radius = 500 },
+	}
+
+	local function distSegmentToPoint2D(p1, p2, center)
+		local dx = p2.X - p1.X
+		local dz = p2.Z - p1.Z
+		local segLenSq = dx * dx + dz * dz
+		if segLenSq < 0.0001 then
+			local cx = center.X - p1.X
+			local cz = center.Z - p1.Z
+			return math.sqrt(cx * cx + cz * cz)
+		end
+		local t = math.clamp(((center.X - p1.X) * dx + (center.Z - p1.Z) * dz) / segLenSq, 0, 1)
+		local projX = p1.X + t * dx
+		local projZ = p1.Z + t * dz
+		local distX = center.X - projX
+		local distZ = center.Z - projZ
+		return math.sqrt(distX * distX + distZ * distZ)
+	end
+
+	local function isRouteSafe(startPos, targetPos, safetyMargin)
+		safetyMargin = safetyMargin or 60
+		for _, region in ipairs(JAKARTA_TRANSITION_REGIONS) do
+			local dist = distSegmentToPoint2D(startPos, targetPos, region.center)
+			if dist < (region.radius + safetyMargin) then
+				return false, region.name
+			end
+		end
+		return true, nil
+	end
+
+	local function getSafeRoute(startPos, targetPos)
+		print(string.format("[BCA ROUTE] Start: (%.1f, %.1f, %.1f)", startPos.X, startPos.Y, startPos.Z))
+		print(string.format("[BCA ROUTE] Target ATM: (%.1f, %.1f, %.1f)", targetPos.X, targetPos.Y, targetPos.Z))
+		print("[BCA ROUTE] Checking Jakarta transition regions...")
+
+		local isSafe, unsafeRegion = isRouteSafe(startPos, targetPos)
+		if isSafe then
+			print("[BCA ROUTE] Direct route SAFE")
+			print("[BCA ROUTE] Driving directly to ATM")
+			return { targetPos }
+		end
+
+		print("[BCA ROUTE] Direct route UNSAFE")
+		print(string.format("[BCA ROUTE] Transition region detected: %s", tostring(unsafeRegion)))
+		print("[BCA ROUTE] Generating safe Jakarta detour")
+
+		local detour = {}
+
+		-- Major safe arterial transit corridors inside Jakarta (clear of Tol Semanggi & Tol Batas)
+		-- East arterial corridor (Rasuna Said / Kuningan avenue bypass): X: 1850, Z: -1500 -> 1200 -> 3000
+		-- West arterial corridor (Palmerah / Senayan bypass): X: -2200, Z: -1000 -> 2500
+		local eastCorridorMid1 = Vector3.new(1850.0, 25.0, -1500.0)
+		local eastCorridorMid2 = Vector3.new(1850.0, 28.0, 1200.0)
+		local eastCorridorMid3 = Vector3.new(1850.0, 28.0, 3000.0)
+
+		local westCorridorMid1 = Vector3.new(-2200.0, 25.0, -1000.0)
+		local westCorridorMid2 = Vector3.new(-2200.0, 25.0, 2500.0)
+
+		local eastSafe = isRouteSafe(startPos, eastCorridorMid2) and isRouteSafe(eastCorridorMid2, targetPos)
+		local westSafe = isRouteSafe(startPos, westCorridorMid2) and isRouteSafe(westCorridorMid2, targetPos)
+
+		if eastSafe and ((startPos.X >= 0 and targetPos.X >= -500) or not westSafe) then
+			if startPos.Z < -2000 and targetPos.Z > 1000 then
+				table.insert(detour, eastCorridorMid1)
+			end
+			table.insert(detour, eastCorridorMid2)
+			if targetPos.Z > 3500 then
+				table.insert(detour, eastCorridorMid3)
+			end
+		elseif westSafe then
+			if startPos.Z < -2000 and targetPos.Z > 2000 then
+				table.insert(detour, westCorridorMid1)
+			end
+			table.insert(detour, westCorridorMid2)
+		else
+			table.insert(detour, eastCorridorMid1)
+			table.insert(detour, eastCorridorMid2)
+		end
+
+		table.insert(detour, targetPos)
+
+		for i, wp in ipairs(detour) do
+			print(string.format("[BCA ROUTE] Waypoint %d: (%.1f, %.1f, %.1f)", i, wp.X, wp.Y, wp.Z))
+		end
+		print("[BCA ROUTE] Driving through safe route")
+		return detour
+	end
+
 
 
 	------------------------------------------------
@@ -777,11 +891,31 @@ local success, err = pcall(function()
 		bcaIsCarrying = false
 		bcaJobPhase = ""
 		bcaJobComplete = false
+		setBcaState(BCA_STATE.IDLE, "resetBcaState called")
 	end
 
 	pcall(function()
 		player.CharacterAdded:Connect(function()
-			resetBcaState()
+			-- Resilient Redfinger recovery: verify if active delivery is ongoing before resetting state
+			task.spawn(function()
+				task.wait(1.0)
+				local jobGui = getBankCourierGui()
+				local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+				if hasActiveJobGui then
+					local kText = jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+					local aText = jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+					local curK, totK = parseProgress(kText)
+					local curA, totA = parseProgress(aText)
+					if (curK > 0 or bcaCurKoper > 0) and (totA > 0 and curA < totA) then
+						print(string.format("[BCA-STATE] Character respawned during active delivery (%d/%d kopers, %d/%d ATMs). Preserving DeliveringToATM state.", curK, totK, curA, totA))
+						setBcaState(BCA_STATE.DELIVERING_TO_ATM, "CharacterAdded active delivery recovery")
+						return
+					end
+				end
+				if not hasActiveJobGui and not bcaCourierActive then
+					resetBcaState()
+				end
+			end)
 		end)
 	end)
 
@@ -1102,7 +1236,33 @@ local success, err = pcall(function()
 	end
 
 	local function loadKopersIntoCar(car)
+		-- DELIVERY STATE GUARD: Block suitcase pickup if currently delivering to ATMs
+		if bcaEventState == BCA_STATE.DELIVERING_TO_ATM then
+			warn("[BCA-GUARD] Blocked loadKopersIntoCar: Automation is currently in DeliveringToATM state!")
+			return
+		end
+
 		local jobGui = getBankCourierGui()
+		local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
+		if not hasActiveJobGui then return end
+
+		local koperText = jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+		local atmText = jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+		local curKoper, totKoper = parseProgress(koperText)
+		local curAtm, totAtm = parseProgress(atmText)
+		if bcaTotAtm and bcaTotAtm > 0 then
+			totAtm = math.max(totAtm, bcaTotAtm)
+			curAtm = math.max(curAtm, bcaCurAtm)
+		end
+
+		-- MULTIPLE STATE SIGNALS: Validate that we are not in an active partial delivery cycle
+		if (curKoper > 0 and curAtm < totAtm) or (bcaCurKoper > 0 and bcaCurAtm < bcaTotAtm) then
+			warn(string.format("[BCA-GUARD] Blocked loadKopersIntoCar: Van already carrying %d/%d suitcases with ATM progress %d/%d!", curKoper, totKoper, curAtm, totAtm))
+			setBcaState(BCA_STATE.DELIVERING_TO_ATM, "Active delivery in progress")
+			return
+		end
+
+		setBcaState(BCA_STATE.LOADING_SUITCASES, "Starting suitcase loading sequence")
 		local timing = jobGui and jobGui:FindFirstChild("Timing")
 		local koperPart = workspace:FindFirstChild("MY_BCA_COLLAB") and workspace.MY_BCA_COLLAB:FindFirstChild("Job") and workspace.MY_BCA_COLLAB.Job:FindFirstChild("BankCourier") and workspace.MY_BCA_COLLAB.Job.BankCourier:FindFirstChild("KoperSpawn") and workspace.MY_BCA_COLLAB.Job.BankCourier.KoperSpawn:FindFirstChild("Part")
 
@@ -1320,23 +1480,26 @@ local success, err = pcall(function()
 	end
 
 	local function deliverToAtms(car)
+		setBcaState(BCA_STATE.DELIVERING_TO_ATM, "Entering deliverToAtms")
 		local jobGui = getBankCourierGui()
 		local bagasi = car and car:FindFirstChild("BagasiPoint")
 
-		-- Pre-check: If car has 0 kopers, abort delivery and let main loop load them first
+		-- Pre-check: If car has 0 kopers and no ATM progress, abort delivery and let main loop load them first
 		local koperText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+		local atmText = jobGui and jobGui:FindFirstChild("Status") and jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
 		local curKoper, totKoper = parseProgress(koperText)
-		if totKoper > 0 and curKoper < totKoper then
-			print(string.format("[BCA] deliverToAtms: Car has %d/%d kopers. Aborting delivery, needs loading first.", curKoper, totKoper))
+		local curAtm, totAtm = parseProgress(atmText)
+		if curAtm == 0 and totKoper > 0 and curKoper == 0 then
+			print(string.format("[BCA] deliverToAtms: Car has %d/%d kopers at start. Aborting delivery, needs loading first.", curKoper, totKoper))
 			return
 		end
 
 		while bcaCourierActive do
 			if checkTargetEarningAndDisconnect() then return end
 
-			local atmText = jobGui and jobGui.Status.Atm.Text or ""
-			local stepText = jobGui and jobGui.Status.Step.Text or ""
-			local curAtm, totAtm = parseProgress(atmText)
+			atmText = jobGui and jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+			local stepText = jobGui and jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
+			curAtm, totAtm = parseProgress(atmText)
 
 			-- If all ATMs filled, stop delivering
 			if (totAtm > 0 and curAtm >= totAtm) or stepText:find("3)") or stepText:find("Selesai") then
@@ -1381,13 +1544,29 @@ local success, err = pcall(function()
 			end
 
 			local targetDrivePos = safeAtmCF and safeAtmCF.Position or targetPos
-			print(string.format("[BCA] Starting vehicle tween to ATM target (%s)", tostring(targetDrivePos)))
-			updateBcaActivity("🚗 Tweening Bank Van to Destination ATM (220 studs/s)")
-			local driveSuccess = driveTo(targetDrivePos)
+			local currentCarPos = car and car:GetPivot().Position or (player.Character and player.Character:GetPivot().Position) or bcaDepotPos
+			local route = getSafeRoute(currentCarPos, targetDrivePos)
+
+			local driveSuccess = true
+			for segIdx, waypoint in ipairs(route) do
+				if not bcaCourierActive then break end
+				if #route > 1 then
+					updateBcaActivity(string.format("🚗 Driving Safe Detour (%d/%d) to ATM (163 studs/s)", segIdx, #route))
+				else
+					updateBcaActivity("🚗 Driving Bank Van Direct to ATM (163 studs/s)")
+				end
+				local success = driveTo(waypoint)
+				if not success then
+					driveSuccess = false
+					warn(string.format("[BCA] driveTo failed at waypoint %d/%d. Aborting delivery step.", segIdx, #route))
+					break
+				end
+			end
+
 			if not driveSuccess then
-				warn("[BCA] driveTo failed to reach target ATM. Aborting delivery step.")
 				break
 			end
+
 			print(string.format("[BCA] Arrived at destination ATM. Car is now at %s", tostring(car and car:GetPivot().Position)))
 			exitDriveSeat()
 			task.wait(1.0) -- Wait 1.0s after parking car near ATM before grabbing koper
@@ -1825,10 +2004,10 @@ local success, err = pcall(function()
 					local jobGui = getBankCourierGui()
 					local hasActiveJobGui = (jobGui and jobGui:FindFirstChild("Status") and jobGui.Status.Visible == true)
 
-					local hintText = hasActiveJobGui and jobGui.Status.Hint.Text or ""
-					local koperText = hasActiveJobGui and jobGui.Status.Koper.Text or ""
-					local atmText = hasActiveJobGui and jobGui.Status.Atm.Text or ""
-					local stepText = hasActiveJobGui and jobGui.Status.Step.Text or ""
+					local hintText = hasActiveJobGui and jobGui.Status:FindFirstChild("Hint") and jobGui.Status.Hint.Text or ""
+					local koperText = hasActiveJobGui and jobGui.Status:FindFirstChild("Koper") and jobGui.Status.Koper.Text or ""
+					local atmText = hasActiveJobGui and jobGui.Status:FindFirstChild("Atm") and jobGui.Status.Atm.Text or ""
+					local stepText = hasActiveJobGui and jobGui.Status:FindFirstChild("Step") and jobGui.Status.Step.Text or ""
 
 					local curKoper, totKoper = parseProgress(koperText)
 					local curAtm, totAtm = parseProgress(atmText)
@@ -1846,12 +2025,13 @@ local success, err = pcall(function()
 						or hintText:find("terima gaji")
 						or hintText:find("Andhini")
 
-					if not hasActiveJobGui and not isAtmDone then
+					if not hasActiveJobGui and not isAtmDone and bcaEventState ~= BCA_STATE.STARTING_JOB then
 						resetBcaState()
 					end
 
 					-- STEP 5: Return to Depot & Approach Andhini NPC to Claim Salary (PRIORITY #1 when all ATMs are filled / GAJIAN!)
 					if isAtmDone then
+						setBcaState(BCA_STATE.RETURNING_TO_DEPOT, "All ATMs delivered, returning to depot")
 						updateBcaActivity("⚡ Instant Teleporting Van Back to BCA Depot...")
 						local depotCF = CFrame.new(1781.04, 22.22, -4615.77)
 						safeTeleportCar(depotCF)
@@ -1871,10 +2051,12 @@ local success, err = pcall(function()
 						end
 						task.wait(0.3)
 
+						setBcaState(BCA_STATE.CLAIMING_PAYOUT, "Interacting with Andhini for contract salary")
 						local success = claimAndhiniPayout()
 
 						if success then
 							resetBcaState()
+							setBcaState(BCA_STATE.COMPLETED, "Contract completed and payout claimed successfully")
 							updateBcaActivity("🎉 Contract Completed! Salary Claimed")
 							task.wait(1.5)
 							if checkTargetEarningAndDisconnect() then return end
@@ -1890,6 +2072,7 @@ local success, err = pcall(function()
 
 					-- STEP 1: Ensure Bank Courier Job is active (ONLY when starting completely fresh)
 					if not hasActiveJobGui then
+						setBcaState(BCA_STATE.STARTING_JOB, "No active job GUI, talking to Andhini")
 						updateBcaActivity("🚶 Approaching Andhini NPC to Start Job...")
 						local andhiniPos = Vector3.new(1807.269, 23.362, -4635.745)
 						local prompt, npc = getAndhiniPrompt()
@@ -1920,6 +2103,7 @@ local success, err = pcall(function()
 					-- STEP 2: Ensure Bank Car is spawned via Putra NPC
 					local car = getPlayerCar()
 					if not car or hintText:find("Keluarkan mobil") or hintText:find("petugas kendaraan") then
+						setBcaState(BCA_STATE.SPAWNING_VEHICLE, "Car missing or despawned")
 						car = spawnBankCar()
 						task.wait(0.5)
 						return
@@ -1930,19 +2114,31 @@ local success, err = pcall(function()
 						return
 					end
 
-					-- STEP 3: Load Kopers into Car Trunk
-					-- Check actual koper count — if car has 0 kopers out of N, we MUST load regardless of step text
-					local isKoperFull = (totKoper > 0 and curKoper >= totKoper)
-					local needsLoading = not isKoperFull and totKoper > 0 and curKoper < totKoper
-					if needsLoading then
-						print(string.format("[BCA] Kopers need loading: %d/%d in car. Loading...", curKoper, totKoper))
+					-- RECOVERY & STATE VALIDATION: Partial Delivery Active Check
+					-- If the van is already carrying suitcases OR some ATMs are already filled,
+					-- the automation MUST remain in DeliveringToATM state and NEVER restart suitcase pickup!
+					local isPartialDeliveryActive = (curAtm > 0 or bcaCurAtm > 0 or bcaEventState == BCA_STATE.DELIVERING_TO_ATM) and (totAtm > 0 and curAtm < totAtm)
+					if isPartialDeliveryActive then
+						setBcaState(BCA_STATE.DELIVERING_TO_ATM, string.format("Partial delivery active: %d/%d kopers, %d/%d ATMs", curKoper, totKoper, curAtm, totAtm))
+						deliverToAtms(car)
+						task.wait(0.5)
+						return
+					end
+
+					-- STEP 3: Initial Suitcase Loading (ONLY when starting fresh: curAtm == 0, curKoper == 0, and not currently delivering)
+					local needsInitialLoading = (curAtm == 0) and (totKoper > 0 and curKoper < totKoper) and (bcaEventState ~= BCA_STATE.DELIVERING_TO_ATM)
+					if needsInitialLoading then
+						print(string.format("[BCA] Starting initial suitcase loading (%d/%d kopers).", curKoper, totKoper))
+						setBcaState(BCA_STATE.LOADING_SUITCASES, "Initial suitcase load")
 						loadKopersIntoCar(car)
 						task.wait(0.5)
 						return
 					end
 
-					-- STEP 4: Deliver to marked ATMs (kopers loaded or step text says deliver)
-					if (isKoperFull or stepText:find("2)") or stepText:find("Antar")) and not isAtmDone then
+					-- STEP 4: Deliver to marked ATMs (suitcases loaded, step text says deliver, or in delivery state)
+					local isKoperFull = (totKoper > 0 and curKoper >= totKoper)
+					if (isKoperFull or curKoper > 0 or stepText:find("2)") or stepText:find("Antar")) and not isAtmDone then
+						setBcaState(BCA_STATE.DELIVERING_TO_ATM, "Suitcases loaded, starting ATM delivery")
 						deliverToAtms(car)
 						task.wait(0.5)
 						return
