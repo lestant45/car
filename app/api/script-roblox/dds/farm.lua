@@ -254,11 +254,12 @@ local success, err = pcall(function()
 		-- 2. Compute true road waypoints using PathfindingService
 		local PathfindingService = game:GetService("PathfindingService")
 		local path = PathfindingService:CreatePath({
-			AgentRadius = 2.5,
-			AgentHeight = 4.5,
+			AgentRadius = 1.0,
+			AgentHeight = 3.0,
 			AgentCanJump = false,
 			AgentCanClimb = false,
-			WaypointSpacing = 14
+			WaypointSpacing = 10,
+			Costs = { Water = math.huge }
 		})
 
 		local success, _ = pcall(function()
@@ -291,6 +292,14 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
+		local rayParams = RaycastParams.new()
+		rayParams.FilterDescendantsInstances = { car, char }
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+		local function probeGround(probePos, refY)
+			return workspace:Raycast(Vector3.new(probePos.X, refY + 25, probePos.Z), Vector3.new(0, -50, 0), rayParams)
+		end
+
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
 				if currentDriveConn then currentDriveConn:Disconnect() end
@@ -317,8 +326,8 @@ local success, err = pcall(function()
 			local segFlatDelta = Vector3.new(segDelta.X, 0, segDelta.Z)
 			local segDist = segFlatDelta.Magnitude
 
-			-- If reached current waypoint, advance to next
-			if segDist < 7 then
+			-- Advance to next road waypoint when reaching current node
+			if segDist < 6 then
 				currentWpIndex = currentWpIndex + 1
 				if currentWpIndex > #waypoints then
 					driveFinished = true
@@ -331,7 +340,7 @@ local success, err = pcall(function()
 				segDist = segFlatDelta.Magnitude
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when within 120 studs of destination
+			-- 🏎️ Dynamic smooth deceleration when approaching destination
 			local curSpeed = speed
 			if totalRemainingDist < 120 then
 				local factor = math.clamp(totalRemainingDist / 120, 0, 1)
@@ -342,26 +351,50 @@ local success, err = pcall(function()
 
 			local moveDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
 			local stepDist = curSpeed * dt
-			local newX = carPos.X + moveDir.X * stepDist
-			local newZ = carPos.Z + moveDir.Z * stepDist
 
-			-- Terrain / Road elevation raycast
-			local rayParams = RaycastParams.new()
-			rayParams.FilterDescendantsInstances = { car, char }
-			rayParams.FilterType = Enum.RaycastFilterType.Exclude
-			local hit = workspace:Raycast(Vector3.new(newX, lastGroundY + 25, newZ), Vector3.new(0, -50, 0), rayParams)
+			-- 🛡️ Smart Void-Avoidance Steer: probe forward to guarantee ground exists
+			local forwardProbePos = carPos + moveDir * math.max(stepDist * 2, 4)
+			local fwdHit = probeGround(forwardProbePos, lastGroundY)
 
-			local newY
-			if hit then
-				newY = hit.Position.Y + 0.3
-				lastGroundY = newY
+			local actualMoveDir = moveDir
+			local chosenY = lastGroundY
+
+			if fwdHit then
+				-- Direct path has solid road: follow directly
+				chosenY = fwdHit.Position.Y + 0.3
+				lastGroundY = chosenY
 			else
-				newY = lastGroundY
-				ensureSafetyPlate(Vector3.new(newX, newY, newZ), 35)
+				-- Ahead is a void/gap: search left/right angles to stay on asphalt road
+				local foundSafeRoad = false
+				for angle = 15, 105, 15 do
+					for _, sign in ipairs({ -1, 1 }) do
+						local rotCF = CFrame.Angles(0, math.rad(angle * sign), 0)
+						local altDir = (rotCF * Vector3.new(moveDir.X, 0, moveDir.Z)).Unit
+						local altProbePos = carPos + altDir * math.max(stepDist * 2, 4)
+						local altHit = probeGround(altProbePos, lastGroundY)
+						if altHit then
+							actualMoveDir = altDir
+							chosenY = altHit.Position.Y + 0.3
+							lastGroundY = chosenY
+							foundSafeRoad = true
+							break
+						end
+					end
+					if foundSafeRoad then break end
+				end
+
+				-- If completely surrounded by empty space, hold road height and place emergency safety plate
+				if not foundSafeRoad then
+					chosenY = lastGroundY
+					ensureSafetyPlate(Vector3.new(carPos.X, chosenY, carPos.Z), 35)
+				end
 			end
 
-			local newPos = Vector3.new(newX, newY, newZ)
-			local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
+			local newX = carPos.X + actualMoveDir.X * stepDist
+			local newZ = carPos.Z + actualMoveDir.Z * stepDist
+			local newPos = Vector3.new(newX, chosenY, newZ)
+
+			local currentYaw = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
 			local currentRot = CFrame.Angles(0, currentYaw, 0)
 			local currentCF  = CFrame.new(newPos) * currentRot
 
@@ -395,7 +428,7 @@ local success, err = pcall(function()
 				end
 
 				-- Velocity synchronization for physics & server replication
-				local velocityVec = moveDir * curSpeed
+				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = 1
 					seat.ThrottleFloat = 1
