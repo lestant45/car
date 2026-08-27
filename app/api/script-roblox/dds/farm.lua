@@ -99,7 +99,7 @@ local success, err = pcall(function()
 		if not car then return end
 		pcall(function()
 			for _, s in ipairs(car:GetDescendants()) do
-				if s:IsA("LocalScript") and (s.Name == "FallingScript" or s.Name == "CrashScript") then
+				if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident")) then
 					s.Disabled = true
 				end
 			end
@@ -316,11 +316,30 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Maintain selective noclip during transit
+				-- Comprehensive Noclip: Phase vehicle, driver, and passenger through building walls safely
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
 						part.Anchored = false
+					end
+				end
+
+				if char then
+					for _, part in ipairs(char:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
+					end
+				end
+
+				-- Also phase passenger NPC through walls so passenger doesn't collide
+				local activeMissions = workspace:FindFirstChild("ActiveMissions")
+				local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+				if passengerNpc then
+					for _, part in ipairs(passengerNpc:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
 					end
 				end
 
@@ -336,13 +355,15 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- Keep character firmly seated in driver seat
+				-- Keep character firmly seated in driver seat & prevent ragdoll ejection
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
 						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 						hum.Sit = true
 						seat:Sit(hum)
 					end
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 				end
 			end)
 

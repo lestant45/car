@@ -154,20 +154,12 @@ local success, err = pcall(function()
 
 					for _, v in ipairs(char:GetDescendants()) do
 						if v:IsA("BasePart") then
-							if isSeated then
-								-- When seated in a vehicle: keep sitting position and don't unseat
-								if v.Name == "HumanoidRootPart" or v.Name == "LowerTorso" or v.Name == "UpperTorso" or v.Name == "Torso" then
-									if hum and hum.SeatPart and hum.Sit == false then
-										hum.Sit = true
-									end
-								else
-									v.CanCollide = false
-								end
-							else
-								-- When on foot: phase through walls
-								v.CanCollide = false
-							end
+							v.CanCollide = false
 						end
+					end
+
+					if isSeated and hum and hum.SeatPart and hum.Sit == false then
+						hum.Sit = true
 					end
 
 					-- Anti-Void protection for on-foot Noclip (prevents falling through map if not flying)
