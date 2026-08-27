@@ -68,7 +68,7 @@ local success, err = pcall(function()
 
 	-- Spawns an invisible collision safety plate underneath destination
 	local function ensureSafetyPlate(pos, width)
-		width = width or 45
+		width = width or 55
 		local plate = workspace:FindFirstChild("__DdsSafetyPlate")
 		if not plate then
 			plate = Instance.new("Part")
@@ -80,8 +80,8 @@ local success, err = pcall(function()
 			plate.Material = Enum.Material.SmoothPlastic
 			pcall(function() plate.Parent = workspace end)
 		end
-		plate.Size = Vector3.new(width, 2, width)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
+		plate.Size = Vector3.new(width, 4, width)
+		plate.CFrame = CFrame.new(pos.X, pos.Y - 2.0, pos.Z)
 		return plate
 	end
 
@@ -95,28 +95,72 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function safelySettleAndUnanchor(car)
+	local function safelySettleAndUnanchor(car, safePos)
 		if not car then return end
 		pcall(function()
+			if safePos then
+				ensureSafetyPlate(safePos, 55)
+				car:PivotTo(CFrame.new(safePos + Vector3.new(0, 2.0, 0)))
+			end
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
-					local name = part.Name:lower()
-					if name:find("wheel") or name == "fl" or name == "fr" or name == "rl" or name == "rr" or name:find("tire") then
-						part.CanCollide = true
-					else
-						part.CanCollide = true
-					end
+					part.CanCollide = true
 				end
 			end
 			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
 			if seat then
 				seat.Throttle = 0
 				seat.ThrottleFloat = 0
+				seat.AssemblyLinearVelocity = Vector3.zero
 			end
 		end)
+	end
+
+	-- 🛡️ Holds vehicle stably anchored on surface so it NEVER falls into void while waiting
+	local function holdVehicleStable(targetPos, maxDuration, conditionFunc)
+		local car, seat = getPlayerVehicle()
+		if not car then return end
+
+		local destP = typeof(targetPos) == "CFrame" and targetPos.Position or targetPos
+		-- Raycast down to find true solid surface
+		local rayParams = RaycastParams.new()
+		rayParams.FilterDescendantsInstances = { car, player.Character }
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local hit = workspace:Raycast(Vector3.new(destP.X, destP.Y + 30, destP.Z), Vector3.new(0, -60, 0), rayParams)
+		local groundY = hit and (hit.Position.Y + 2.2) or (destP.Y + 2.0)
+		local stablePos = Vector3.new(destP.X, groundY, destP.Z)
+		local stableCF = CFrame.new(stablePos)
+
+		ensureSafetyPlate(stablePos, 55)
+
+		local t0 = tick()
+		while (not conditionFunc or conditionFunc()) and (tick() - t0 < maxDuration) and taxiActive do
+			pcall(function()
+				car:PivotTo(stableCF)
+
+				local char = player.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				local hum  = char and char:FindFirstChildOfClass("Humanoid")
+				if root and seat and hum then
+					if not hum.Sit or hum.SeatPart ~= seat then
+						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+						hum.Sit = true
+						seat:Sit(hum)
+					end
+				end
+
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+			end)
+			task.wait(0.1)
+		end
 	end
 
 	-- 🚗 CDID-Style Real-Time Kinematic Vehicle Navigation
@@ -144,7 +188,7 @@ local success, err = pcall(function()
 		isDrivingActive = true
 
 		-- Ensure collision plate & streaming around target
-		ensureSafetyPlate(targetPos, 45)
+		ensureSafetyPlate(targetPos, 55)
 		requestStreamAsync(targetPos)
 
 		speed = tonumber(speed) or 90
@@ -154,7 +198,7 @@ local success, err = pcall(function()
 		local totalDist = (startP - destP).Magnitude
 
 		if totalDist <= 12 then
-			safelySettleAndUnanchor(car)
+			safelySettleAndUnanchor(car, destP)
 			isDrivingActive = false
 			return true
 		end
@@ -190,10 +234,10 @@ local success, err = pcall(function()
 			local rayParams = RaycastParams.new()
 			rayParams.FilterDescendantsInstances = { car, char }
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
-			local hit = workspace:Raycast(Vector3.new(curX, lastGroundY + 20, curZ), Vector3.new(0, -60, 0), rayParams)
+			local hit = workspace:Raycast(Vector3.new(curX, lastGroundY + 25, curZ), Vector3.new(0, -65, 0), rayParams)
 			local roadY = hit and (hit.Position.Y + 2.5) or (startP.Y + (destP.Y - startP.Y) * alpha)
 			lastGroundY = roadY
-			local curY = math.max(roadY, 4.0)
+			local curY = math.max(roadY, 4.5)
 
 			local curPos = Vector3.new(curX, curY, curZ)
 			local delta = destP - curPos
@@ -208,7 +252,7 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Maintain selective noclip
+				-- Maintain selective noclip during transit
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
@@ -253,7 +297,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		safelySettleAndUnanchor(car)
+		safelySettleAndUnanchor(car, destP)
 		isDrivingActive = false
 		return (car:GetPivot().Position - destP).Magnitude <= 30
 	end
@@ -542,21 +586,25 @@ local success, err = pcall(function()
 			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
 		end
 
-		-- 5. Wait for passenger to board motorcycle
-		local boardStart = tick()
-		while not passengerBoarded and taxiActive and (tick() - boardStart < 12) do
-			-- Check for passenger proximity prompts
-			pcall(function()
-				for _, p in ipairs(workspace:GetDescendants()) do
-					if p:IsA("ProximityPrompt") and p.Enabled and (p.ActionText:find("Ride") or p.ActionText:find("Board") or p.ObjectText:find("Passenger")) then
-						if fireproximityprompt then fireproximityprompt(p) end
-					end
+		-- 5. Hold vehicle stable on ground and wait for passenger to board
+		if taxiPickupPos and taxiActive then
+			task.spawn(function()
+				local pStart = tick()
+				while not passengerBoarded and taxiActive and (tick() - pStart < 12) do
+					pcall(function()
+						for _, p in ipairs(workspace:GetDescendants()) do
+							if p:IsA("ProximityPrompt") and p.Enabled and (p.ActionText:find("Ride") or p.ActionText:find("Board") or p.ObjectText:find("Passenger")) then
+								if fireproximityprompt then fireproximityprompt(p) end
+							end
+						end
+					end)
+					task.wait(0.5)
 				end
 			end)
-			task.wait(0.4)
+			holdVehicleStable(taxiPickupPos, 12, function() return not passengerBoarded end)
 		end
 
-		task.wait(1.0)
+		task.wait(0.5)
 
 		-- 6. Ride smoothly to Drop-off Location
 		if not taxiDropPos and taxiActive then

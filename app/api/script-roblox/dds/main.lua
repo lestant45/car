@@ -148,9 +148,18 @@ local success, err = pcall(function()
 			noclipConn = RunService.Stepped:Connect(function()
 				local char = player.Character
 				if char then
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					local isSeated = hum and hum.SeatPart ~= nil
 					for _, v in ipairs(char:GetDescendants()) do
-						if v:IsA("BasePart") and v.CanCollide == true then
-							v.CanCollide = false
+						if v:IsA("BasePart") then
+							if isSeated and (v.Name == "HumanoidRootPart" or v.Name == "LowerTorso" or v.Name == "UpperTorso" or v.Name == "Torso") then
+								-- Keep sitting weld and RootPart aligned with vehicle seat
+								if hum and hum.SeatPart and hum.Sit == false then
+									hum.Sit = true
+								end
+							else
+								v.CanCollide = false
+							end
 						end
 					end
 				end
