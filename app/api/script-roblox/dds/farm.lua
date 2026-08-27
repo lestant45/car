@@ -279,10 +279,32 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 75), probePos.Z)
+			local rayOrigin = Vector3.new(probePos.X, math.max((refY or 0) + 35, 75), probePos.Z)
 			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -180, 0), rayParams)
 			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 then
 				return hit.Position.Y + 0.3
+			end
+			return nil
+		end
+
+		local function findOppositeLandingGround(fromPos, goalDir, destPos)
+			local maxDist = math.min((destPos - fromPos).Magnitude, 900)
+			for d = 20, maxDist, 18 do
+				local checkPos = fromPos + goalDir * d
+				local hitY = probeGround(checkPos, fromPos.Y)
+				if hitY then
+					return Vector3.new(checkPos.X, hitY, checkPos.Z)
+				end
+			end
+			for _, ang in ipairs({ 15, -15, 30, -30, 45, -45 }) do
+				local rotDir = (CFrame.Angles(0, math.rad(ang), 0) * Vector3.new(goalDir.X, 0, goalDir.Z)).Unit
+				for d = 25, maxDist, 25 do
+					local checkPos = fromPos + rotDir * d
+					local hitY = probeGround(checkPos, fromPos.Y)
+					if hitY then
+						return Vector3.new(checkPos.X, hitY, checkPos.Z)
+					end
+				end
 			end
 			return nil
 		end
@@ -352,43 +374,56 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🚨 Void/Cliff edge ahead: sweep 360° fan to turn along the edge of the land
-				local baseDir = navHeading or directGoalDir
-				local bestDir = nil
-				local bestDist = math.huge
-				local bestY = lastGroundY
+				-- ⚡ Smart Leap: Jump across void gap to the opposite solid road instantly
+				local oppositeLanding = findOppositeLandingGround(carPos, directGoalDir, destP)
+				if oppositeLanding then
+					local landingYaw = math.atan2(-directGoalDir.X, -directGoalDir.Z)
+					local landingCF = CFrame.new(oppositeLanding) * CFrame.Angles(0, landingYaw, 0)
+					car:PivotTo(landingCF)
+					lastGroundY = oppositeLanding.Y
+					navHeading = directGoalDir
+					actualMoveDir = directGoalDir
+					targetElevY = oppositeLanding.Y
+					requestStreamAsync(oppositeLanding)
+				else
+					-- No opposite ground found: sweep 360° fan to trace along the edge of the land
+					local baseDir = navHeading or directGoalDir
+					local bestDir = nil
+					local bestDist = math.huge
+					local bestY = lastGroundY
 
-				for angle = 10, 180, 10 do
-					for _, sign in ipairs({ 1, -1 }) do
-						local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
-						local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-						local testProbePos = carPos + testDir * probeDist
-						local testHitY = probeGround(testProbePos, lastGroundY)
+					for angle = 10, 180, 10 do
+						for _, sign in ipairs({ 1, -1 }) do
+							local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
+							local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+							local testProbePos = carPos + testDir * probeDist
+							local testHitY = probeGround(testProbePos, lastGroundY)
 
-						if testHitY then
-							local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-							if testDistToGoal < bestDist then
-								bestDist = testDistToGoal
-								bestDir = testDir
-								bestY = testHitY
+							if testHitY then
+								local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+								if testDistToGoal < bestDist then
+									bestDist = testDistToGoal
+									bestDir = testDir
+									bestY = testHitY
+								end
 							end
 						end
+						if bestDir and angle >= 90 then
+							break
+						end
 					end
-					if bestDir and angle >= 90 then
-						break
-					end
-				end
 
-				if bestDir then
-					actualMoveDir = bestDir
-					navHeading = bestDir
-					targetElevY = bestY
-				else
-					-- Sharp corner: rotate 90 degrees along land
-					local rotLeft = CFrame.Angles(0, math.rad(90), 0)
-					navHeading = (rotLeft * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-					actualMoveDir = navHeading
-					targetElevY = lastGroundY
+					if bestDir then
+						actualMoveDir = bestDir
+						navHeading = bestDir
+						targetElevY = bestY
+					else
+						-- Sharp corner: rotate 90 degrees along land
+						local rotLeft = CFrame.Angles(0, math.rad(90), 0)
+						navHeading = (rotLeft * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+						actualMoveDir = navHeading
+						targetElevY = lastGroundY
+					end
 				end
 			end
 
