@@ -318,25 +318,65 @@ local success, err = pcall(function()
 				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
-			local moveDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
+			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 			local stepDist = curSpeed * dt
+			local probeDist = math.max(stepDist * 1.6, 3.5)
 
-			-- Smooth elevation transition
-			local progressAlpha = math.clamp(1 - (dist / math.max(1, totalDist)), 0, 1)
-			local targetElev = startP.Y + (destP.Y - startP.Y) * progressAlpha
+			-- 🛡️ Test if direct path to destination has solid ground
+			local directProbePos = carPos + directGoalDir * probeDist
+			local directHitY = probeGround(directProbePos, lastGroundY)
 
-			local groundY = probeGround(Vector3.new(carPos.X, 0, carPos.Z), lastGroundY)
-			local chosenY = groundY or targetElev
-			lastGroundY = chosenY
+			local actualMoveDir = directGoalDir
+			local chosenY = lastGroundY
 
-			-- Always guarantee solid concrete ground under wheels so server Anti-Fly never kicks
-			ensureSafetyPlate(Vector3.new(carPos.X, chosenY, carPos.Z), 60)
+			if directHitY then
+				-- Direct path has solid ground: move directly towards destination
+				actualMoveDir = directGoalDir
+				chosenY = directHitY
+				lastGroundY = chosenY
+			else
+				-- 🚨 Void/Jurang ahead: search 360° fan for the solid ground direction closest to destination
+				local bestDir = nil
+				local bestDist = math.huge
+				local bestY = lastGroundY
 
-			local newX = carPos.X + moveDir.X * stepDist
-			local newZ = carPos.Z + moveDir.Z * stepDist
+				for angle = 10, 170, 10 do
+					for _, sign in ipairs({ 1, -1 }) do
+						local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
+						local testDir = (testRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+						local testProbePos = carPos + testDir * probeDist
+						local testHitY = probeGround(testProbePos, lastGroundY)
+
+						if testHitY then
+							local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+							if testDistToGoal < bestDist then
+								bestDist = testDistToGoal
+								bestDir = testDir
+								bestY = testHitY
+							end
+						end
+					end
+					if bestDir and angle >= 60 then
+						break
+					end
+				end
+
+				if bestDir then
+					actualMoveDir = bestDir
+					chosenY = bestY
+					lastGroundY = chosenY
+				else
+					-- No safe ground direction found: stop vehicle on safe ground
+					actualMoveDir = Vector3.zero
+					chosenY = lastGroundY
+				end
+			end
+
+			local newX = carPos.X + actualMoveDir.X * stepDist
+			local newZ = carPos.Z + actualMoveDir.Z * stepDist
 			local newPos = Vector3.new(newX, chosenY, newZ)
 
-			local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
+			local currentYaw = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
 			local currentRot = CFrame.Angles(0, currentYaw, 0)
 			local currentCF  = CFrame.new(newPos) * currentRot
 
@@ -370,10 +410,10 @@ local success, err = pcall(function()
 				end
 
 				-- Velocity synchronization for physics & server replication
-				local velocityVec = moveDir * curSpeed
+				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
-					seat.Throttle = 1
-					seat.ThrottleFloat = 1
+					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
+					seat.ThrottleFloat = actualMoveDir.Magnitude > 0 and 1 or 0
 					seat.AssemblyLinearVelocity = velocityVec
 				end
 				local prim = car.PrimaryPart or seat
