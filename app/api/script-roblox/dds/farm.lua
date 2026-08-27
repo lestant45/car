@@ -313,7 +313,17 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			return workspace:Raycast(Vector3.new(probePos.X, refY + 20, probePos.Z), Vector3.new(0, -45, 0), rayParams)
+			local originY = math.max(refY + 10, 25)
+			local hit = workspace:Raycast(Vector3.new(probePos.X, originY, probePos.Z), Vector3.new(0, -95, 0), rayParams)
+			if hit then
+				-- If raycast hit a high building rooftop (higher than street level + 8), ignore rooftop and keep street level
+				if hit.Position.Y > (refY + 8) then
+					local deepHit = workspace:Raycast(Vector3.new(probePos.X, refY + 4, probePos.Z), Vector3.new(0, -30, 0), rayParams)
+					if deepHit then return deepHit end
+				end
+				return hit
+			end
+			return nil
 		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
@@ -376,35 +386,12 @@ local success, err = pcall(function()
 			local chosenY = lastGroundY
 
 			if fwdHit then
-				-- Direct road path is solid: follow naturally
+				-- Found solid road/terrain beneath
 				chosenY = fwdHit.Position.Y + 0.3
 				lastGroundY = chosenY
 			else
-				-- Ahead has no ground (void/cliff edge): search left/right angles for genuine road asphalt
-				local foundSafeRoad = false
-				for angle = 15, 120, 15 do
-					for _, sign in ipairs({ -1, 1 }) do
-						local rotCF = CFrame.Angles(0, math.rad(angle * sign), 0)
-						local altDir = (rotCF * Vector3.new(moveDir.X, 0, moveDir.Z)).Unit
-						local altProbePos = carPos + altDir * math.max(stepDist * 1.5, 3)
-						local altHit = probeGround(altProbePos, lastGroundY)
-						if altHit then
-							actualMoveDir = altDir
-							chosenY = altHit.Position.Y + 0.3
-							lastGroundY = chosenY
-							foundSafeRoad = true
-							break
-						end
-					end
-					if foundSafeRoad then break end
-				end
-
-				-- If genuine road ends or is not streamed yet: hold position and stream ahead without crossing void
-				if not foundSafeRoad then
-					chosenY = lastGroundY
-					requestStreamAsync(destP)
-					actualMoveDir = Vector3.zero
-				end
+				-- If ahead is past a building edge, maintain street level and continue forward smoothly
+				chosenY = lastGroundY
 			end
 
 			local newX = carPos.X + actualMoveDir.X * stepDist
