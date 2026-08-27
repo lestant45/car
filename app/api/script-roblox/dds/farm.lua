@@ -251,7 +251,7 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- 2. Build Building & Prop filter
+		-- 2. Build Building & Prop filter to ignore elevated roofs
 		local buildingFilter = { car, char }
 		for _, c in ipairs(workspace:GetChildren()) do
 			local name = c.Name:lower()
@@ -272,109 +272,6 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- 3. Compute optimal path using A* Solid-Ground Grid Search
-		local waypoints = {}
-		local cellSize = 20
-		local startGridX = math.floor(startP.X / cellSize)
-		local startGridZ = math.floor(startP.Z / cellSize)
-		local destGridX  = math.floor(destP.X / cellSize)
-		local destGridZ  = math.floor(destP.Z / cellSize)
-
-		local openSet = {}
-		local cameFrom = {}
-		local gScore = {}
-		local fScore = {}
-		local visited = {}
-
-		local startKey = startGridX .. ":" .. startGridZ
-		local startNode = { gx = startGridX, gz = startGridZ, x = startP.X, z = startP.Z, y = startP.Y, key = startKey }
-		gScore[startKey] = 0
-		fScore[startKey] = (Vector3.new(startP.X, 0, startP.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-		table.insert(openSet, startNode)
-
-		local neighborOffsets = {
-			{ dx = 1, dz = 0 }, { dx = -1, dz = 0 }, { dx = 0, dz = 1 }, { dx = 0, dz = -1 },
-			{ dx = 1, dz = 1 }, { dx = -1, dz = 1 }, { dx = 1, dz = -1 }, { dx = -1, dz = -1 }
-		}
-
-		local bestEndNode = startNode
-		local bestDistToGoal = fScore[startKey]
-		local iterations = 0
-
-		while #openSet > 0 and iterations < 500 do
-			iterations = iterations + 1
-
-			local lowestIdx = 1
-			local lowestF = fScore[openSet[1].key] or math.huge
-			for i = 2, #openSet do
-				local f = fScore[openSet[i].key] or math.huge
-				if f < lowestF then
-					lowestF = f
-					lowestIdx = i
-				end
-			end
-
-			local current = table.remove(openSet, lowestIdx)
-			local currDist = (Vector3.new(current.x, 0, current.z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-
-			if currDist < bestDistToGoal then
-				bestDistToGoal = currDist
-				bestEndNode = current
-			end
-
-			if current.gx == destGridX and current.gz == destGridZ then
-				bestEndNode = current
-				break
-			end
-
-			visited[current.key] = true
-
-			for _, off in ipairs(neighborOffsets) do
-				local nX = current.gx + off.dx
-				local nZ = current.gz + off.dz
-				local nKey = nX .. ":" .. nZ
-
-				if not visited[nKey] then
-					local worldX = nX * cellSize + cellSize / 2
-					local worldZ = nZ * cellSize + cellSize / 2
-					local groundY = probeGround(Vector3.new(worldX, 0, worldZ), current.y)
-
-					if groundY then
-						local stepCost = (off.dx ~= 0 and off.dz ~= 0) and (cellSize * 1.414) or cellSize
-						local tentativeG = (gScore[current.key] or 0) + stepCost
-
-						if tentativeG < (gScore[nKey] or math.huge) then
-							cameFrom[nKey] = current
-							gScore[nKey] = tentativeG
-							local h = (Vector3.new(worldX, 0, worldZ) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-							fScore[nKey] = tentativeG + h
-
-							local alreadyInOpen = false
-							for _, node in ipairs(openSet) do
-								if node.key == nKey then alreadyInOpen = true; break end
-							end
-							if not alreadyInOpen then
-								table.insert(openSet, { gx = nX, gz = nZ, x = worldX, z = worldZ, y = groundY, key = nKey })
-							end
-						end
-					end
-				end
-			end
-		end
-
-		-- Reconstruct shortest road route
-		local curr = bestEndNode
-		while curr and curr.key ~= startKey do
-			table.insert(waypoints, 1, Vector3.new(curr.x, curr.y, curr.z))
-			curr = cameFrom[curr.key]
-		end
-		table.insert(waypoints, destP)
-
-		-- Fallback to smooth direct segments if pathfinder produced < 2 points
-		if #waypoints < 2 then
-			waypoints = { startP, destP }
-		end
-
 		-- Selective Noclip on vehicle, driver, and passenger to smoothly phase through traffic/gates
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
@@ -383,8 +280,8 @@ local success, err = pcall(function()
 			end
 		end
 
+		local totalDist = (startP - destP).Magnitude
 		local driveFinished = false
-		local currentWpIndex = 1
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
@@ -401,49 +298,39 @@ local success, err = pcall(function()
 
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
-			local targetWp = waypoints[currentWpIndex]
 
-			if not targetWp then
+			local delta = destP - carPos
+			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
+			local dist = flatDelta.Magnitude
+
+			if dist <= 5 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
 			end
 
-			local totalRemainingDist = (carPos - destP).Magnitude
-			local segDelta = targetWp - carPos
-			local segFlatDelta = Vector3.new(segDelta.X, 0, segDelta.Z)
-			local segDist = segFlatDelta.Magnitude
-
-			-- Advance to next road waypoint when reaching current node
-			if segDist < 8 then
-				currentWpIndex = currentWpIndex + 1
-				if currentWpIndex > #waypoints then
-					driveFinished = true
-					if currentDriveConn then currentDriveConn:Disconnect() end
-					return
-				end
-				targetWp = waypoints[currentWpIndex]
-				segDelta = targetWp - carPos
-				segFlatDelta = Vector3.new(segDelta.X, 0, segDelta.Z)
-				segDist = segFlatDelta.Magnitude
-			end
-
 			-- 🏎️ Dynamic smooth deceleration when approaching destination
 			local curSpeed = speed
-			if totalRemainingDist < 120 then
-				local factor = math.clamp(totalRemainingDist / 120, 0, 1)
+			if dist < 120 then
+				local factor = math.clamp(dist / 120, 0, 1)
 				local ease = factor * factor * (3 - 2 * factor)
 				local minApproachSpeed = math.min(18, speed * 0.3)
 				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
-			local moveDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
+			local moveDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 			local stepDist = curSpeed * dt
 
-			-- Elevation lock on real solid ground
+			-- Smooth elevation transition
+			local progressAlpha = math.clamp(1 - (dist / math.max(1, totalDist)), 0, 1)
+			local targetElev = startP.Y + (destP.Y - startP.Y) * progressAlpha
+
 			local groundY = probeGround(Vector3.new(carPos.X, 0, carPos.Z), lastGroundY)
-			local chosenY = groundY or lastGroundY
+			local chosenY = groundY or targetElev
 			lastGroundY = chosenY
+
+			-- Always guarantee solid concrete ground under wheels so server Anti-Fly never kicks
+			ensureSafetyPlate(Vector3.new(carPos.X, chosenY, carPos.Z), 60)
 
 			local newX = carPos.X + moveDir.X * stepDist
 			local newZ = carPos.Z + moveDir.Z * stepDist
@@ -483,10 +370,10 @@ local success, err = pcall(function()
 				end
 
 				-- Velocity synchronization for physics & server replication
-				local velocityVec = actualMoveDir * curSpeed
+				local velocityVec = moveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
-					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
-					seat.ThrottleFloat = actualMoveDir.Magnitude > 0 and 1 or 0
+					seat.Throttle = 1
+					seat.ThrottleFloat = 1
 					seat.AssemblyLinearVelocity = velocityVec
 				end
 				local prim = car.PrimaryPart or seat
@@ -505,11 +392,6 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 				end
 			end)
-
-			if totalRemainingDist <= 5 then
-				driveFinished = true
-				if currentDriveConn then currentDriveConn:Disconnect() end
-			end
 		end)
 
 		while not driveFinished and isDrivingActive do
