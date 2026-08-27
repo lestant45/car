@@ -94,6 +94,27 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi.
+	-- Dipanggil setelah tiba di pickup & setelah tiba di drop-off.
+	local function ensureDriverSeated()
+		local char = player.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.SeatPart then return true end -- sudah duduk, tidak perlu apa-apa
+
+		UI.Notify("⚠️ Driver Not Seated", "Re-mounting motorcycle...", 2, "warning")
+		local ok = mountBike()
+		if ok then
+			task.wait(0.3)
+			local h2 = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+			if h2 and h2.SeatPart then
+				UI.Notify("✅ Driver Seated", "Ready to continue.", 1.5, "success")
+				return true
+			end
+		end
+		warn("[HipHub DDS] ensureDriverSeated: gagal duduk setelah mountBike")
+		return false
+	end
+
 	local function requestStreamAsync(pos)
 		pcall(function()
 			if player and player.RequestStreamAroundAsync then
@@ -219,8 +240,74 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- 🛣️ Pure Road Waypoint Navigation Engine (Real Driving, Follows Road Network, No Teleport)
-	local function driveVehicleTo(targetPos, speed)
+	-- 🌉 Void Bridge Engine: scan jalur lurus ke destination, deteksi gap/jurang,
+	-- lalu teleport vehicle ke ground pertama di sisi seberang sehingga normal
+	-- navigation bisa lanjut tanpa harus memutar mengelilingi seluruh peta.
+	-- Mengembalikan Vector3 landing spot jika bridge dilakukan, atau nil jika tidak ada gap.
+	local function attemptVoidBridge(car, fromPos, toPos)
+		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
+		if flatDiff.Magnitude < 5 then return nil end
+		local flatDir = flatDiff.Unit
+
+		-- Filter sederhana: exclude vehicle + karakter agar tidak mendeteksi bagian motor sebagai ground
+		local brp = RaycastParams.new()
+		brp.FilterDescendantsInstances = { car, player.Character }
+		brp.FilterType = Enum.RaycastFilterType.Exclude
+
+		-- Scan sampai sejauh jarak ke destination (max 220 stud)
+		local maxScan = math.min(flatDiff.Magnitude * 1.1, 220)
+		local stepSize = 4
+		local refY    = fromPos.Y
+		local inVoid  = false
+		local voidEnteredAt = nil
+
+		for i = 1, math.ceil(maxScan / stepSize) do
+			local px = fromPos.X + flatDir.X * (i * stepSize)
+			local pz = fromPos.Z + flatDir.Z * (i * stepSize)
+
+			local origin = Vector3.new(px, math.max(refY + 50, 70), pz)
+			local hit = workspace:Raycast(origin, Vector3.new(0, -140, 0), brp)
+
+			local solidY = hit and hit.Position.Y
+			local isGround = solidY and solidY >= -20 and solidY <= 50
+
+			if isGround then
+				refY = solidY
+				if inVoid then
+					-- ✅ Ground ditemukan di sisi seberang jurang — ini titik landing!
+					local landPos = Vector3.new(px, solidY + 2.5, pz)
+
+					-- Pasang safety plate di landing spot sebelum teleport
+					ensureSafetyPlate(landPos, 50)
+					task.wait(0.06)
+
+					-- Teleport vehicle ke landing, hadap ke arah destination
+					local yaw = math.atan2(-flatDir.X, -flatDir.Z)
+					car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
+
+					-- Nol-kan momentum agar tidak melayang
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity  = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+
+					return landPos
+				end
+			else
+				if not inVoid then
+					inVoid = true
+					voidEnteredAt = i * stepSize
+				end
+			end
+		end
+
+		return nil -- tidak ada gap yang bisa di-bridge
+	end
+
+	-- 🛣️ Pure Road Waypoint Navigation Engine (Real Driving, Follows Road Network)
+	local function driveVehicleTo(targetPos, speed, destroyPlateAfterStuds)
 		if typeof(targetPos) == "CFrame" then
 			targetPos = targetPos.Position
 		end
@@ -245,7 +332,11 @@ local success, err = pcall(function()
 		cancelActiveDrive()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
-		destroySafetyPlate()
+		-- Jika destroyPlateAfterStuds tidak ditentukan, hapus plate langsung (behavior default)
+		local plateDestroyedDeferred = false
+		if not destroyPlateAfterStuds or destroyPlateAfterStuds <= 0 then
+			destroySafetyPlate()
+		end
 
 		-- Request chunk streaming around destination
 		requestStreamAsync(targetPos)
@@ -295,10 +386,23 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- 🌉 Void Bridge pre-check: jika destination dipisah jurang dari posisi sekarang,
+		-- scan jalur lurus, lalu teleport ke ground pertama di sisi seberang.
+		-- Setelah itu drive normal melanjutkan dari titik landing.
+		if (startP - destP).Magnitude > 20 then
+			local bridgeLanding = attemptVoidBridge(car, startP, destP)
+			if bridgeLanding then
+				startP = bridgeLanding
+				UI.Notify("🌉 Void Bridged", "Melompati jurang, melanjutkan navigasi...", 2, "warning")
+				task.wait(0.15)
+			end
+		end
+
 		local totalDist = (startP - destP).Magnitude
 		local driveFinished = false
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
+		local distTravelled = 0  -- Total jarak tempuh dari posisi awal (untuk deferred plate removal)
 
 		local navHeading = nil
 
@@ -319,6 +423,15 @@ local success, err = pcall(function()
 			local delta = destP - carPos
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
 			local dist = flatDelta.Magnitude
+
+			-- 🛡️ Deferred safetyPlate removal: hapus plate setelah berjalan ≥ N stud dari startP
+			if not plateDestroyedDeferred and destroyPlateAfterStuds and destroyPlateAfterStuds > 0 then
+				local flatTravelled = Vector3.new(carPos.X - startP.X, 0, carPos.Z - startP.Z).Magnitude
+				if flatTravelled >= destroyPlateAfterStuds then
+					plateDestroyedDeferred = true
+					destroySafetyPlate()
+				end
+			end
 
 			if dist <= 12 then
 				driveFinished = true
@@ -823,11 +936,8 @@ local success, err = pcall(function()
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiPickupPos)
 
-			-- Always re-affirm driver is sitting on bike so game allows passenger to walk & board
-			local curHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-			if not (curHum and curHum.SeatPart) then
-				mountBike()
-			end
+			-- ✅ Safety check: pastikan player duduk di kursi pengemudi setelah tiba di pickup
+			ensureDriverSeated()
 
 			local waitStartBoard = tick()
 			while not isPassengerOnboard() and taxiActive and (tick() - waitStartBoard < 30) do
@@ -843,7 +953,7 @@ local success, err = pcall(function()
 				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
-				destroySafetyPlate()
+				-- Safety plate akan dihapus secara deferred oleh driveVehicleTo setelah ≥ 50 stud perjalanan
 			else
 				UI.Notify("⚠️ Boarding Timeout", "Passenger did not board. Resetting...", 3, "warning")
 				lastCompletedToken = token
@@ -873,7 +983,9 @@ local success, err = pcall(function()
 			-- STATE: DRIVING_TO_DESTINATION
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
-			driveVehicleTo(taxiDropPos, Config.taxiSpeed)
+			-- destroyPlateAfterStuds=50: plate baru dihapus setelah motor sudah berjalan 50 stud dari pickup,
+			-- cukup jauh untuk fisika motor stabil di atas road asli sehingga player tidak "accident"
+			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
 
 			-- STATE: DROPPING_OFF
 			setTaxiState("DROPPING_OFF")
@@ -882,6 +994,9 @@ local success, err = pcall(function()
 			-- Settle vehicle firmly on solid road at exact drop-off coordinates
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiDropPos)
+
+			-- ✅ Safety check: pastikan player duduk di kursi pengemudi setelah tiba di drop-off
+			ensureDriverSeated()
 
 			-- Wait for server trigger / passenger to disembark from the bike
 			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 3, "success")
