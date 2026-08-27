@@ -243,21 +243,25 @@ local success, err = pcall(function()
 	-- 🌉 Void Bridge Engine: scan jalur lurus ke destination, deteksi gap/jurang,
 	-- lalu teleport vehicle ke ground pertama di sisi seberang sehingga normal
 	-- navigation bisa lanjut tanpa harus memutar mengelilingi seluruh peta.
+	-- filterList: sama dengan buildingFilter di driveVehicleTo agar atap bangunan tidak dianggap ground.
 	-- Mengembalikan Vector3 landing spot jika bridge dilakukan, atau nil jika tidak ada gap.
-	local function attemptVoidBridge(car, fromPos, toPos)
+	local function attemptVoidBridge(car, fromPos, toPos, filterList)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		if flatDiff.Magnitude < 5 then return nil end
 		local flatDir = flatDiff.Unit
 
-		-- Filter sederhana: exclude vehicle + karakter agar tidak mendeteksi bagian motor sebagai ground
+		-- Gunakan filterList (buildingFilter) jika tersedia, agar atap bangunan ter-exclude
 		local brp = RaycastParams.new()
-		brp.FilterDescendantsInstances = { car, player.Character }
+		brp.FilterDescendantsInstances = filterList or { car, player.Character }
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
 		-- Scan sampai sejauh jarak ke destination (max 220 stud)
 		local maxScan = math.min(flatDiff.Magnitude * 1.1, 220)
 		local stepSize = 4
 		local refY    = fromPos.Y
+		-- Landing Y harus dekat dengan ground level awal (max ±12 stud)
+		-- Ini mencegah teleport ke atap bangunan yang berada jauh di atas road level
+		local maxLandingYDelta = 12
 		local inVoid  = false
 		local voidEnteredAt = nil
 
@@ -269,12 +273,19 @@ local success, err = pcall(function()
 			local hit = workspace:Raycast(origin, Vector3.new(0, -140, 0), brp)
 
 			local solidY = hit and hit.Position.Y
-			local isGround = solidY and solidY >= -20 and solidY <= 50
+			-- Syarat valid ground:
+			--   1. Y dalam range global peta
+			--   2. Y tidak terlalu jauh dari fromPos.Y (bukan atap yang tinggi)
+			--   3. Normal permukaan mendekati vertikal ke atas (bukan kemiringan atap)
+			local isGround = solidY
+				and solidY >= -20 and solidY <= 50
+				and math.abs(solidY - fromPos.Y) <= (inVoid and maxLandingYDelta or 999)
+				and (not hit.Normal or hit.Normal.Y >= 0.7)
 
 			if isGround then
 				refY = solidY
 				if inVoid then
-					-- ✅ Ground ditemukan di sisi seberang jurang — ini titik landing!
+					-- ✅ Ground ditemukan di sisi seberang jurang, di elevasi road yang valid!
 					local landPos = Vector3.new(px, solidY + 2.5, pz)
 
 					-- Pasang safety plate di landing spot sebelum teleport
@@ -372,7 +383,13 @@ local success, err = pcall(function()
 		local function probeGround(probePos, refY)
 			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 75), probePos.Z)
 			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -180, 0), rayParams)
-			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 then
+			-- Validasi:
+			--   1. Y dalam range road/ground yang valid
+			--   2. Normal permukaan cukup tegak (>= 0.7) — reject atap miring, dinding, tangga curam
+			if hit
+				and hit.Position.Y >= -15 and hit.Position.Y <= 35
+				and hit.Normal.Y >= 0.7
+			then
 				return hit.Position.Y + 0.3
 			end
 			return nil
@@ -388,9 +405,10 @@ local success, err = pcall(function()
 
 		-- 🌉 Void Bridge pre-check: jika destination dipisah jurang dari posisi sekarang,
 		-- scan jalur lurus, lalu teleport ke ground pertama di sisi seberang.
+		-- buildingFilter diteruskan agar atap bangunan tidak dianggap sebagai landing spot.
 		-- Setelah itu drive normal melanjutkan dari titik landing.
 		if (startP - destP).Magnitude > 20 then
-			local bridgeLanding = attemptVoidBridge(car, startP, destP)
+			local bridgeLanding = attemptVoidBridge(car, startP, destP, buildingFilter)
 			if bridgeLanding then
 				startP = bridgeLanding
 				UI.Notify("🌉 Void Bridged", "Melompati jurang, melanjutkan navigasi...", 2, "warning")
