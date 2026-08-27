@@ -55,11 +55,11 @@ local success, err = pcall(function()
 			return model or seat.Parent, seat
 		end
 
-		-- Search workspace for player's owned vehicle if not seated
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if obj:IsA("Model") and (obj.Name:find(player.Name) or obj:GetAttribute("Owner") == player.Name) then
-				local seat = obj:FindFirstChildWhichIsA("VehicleSeat", true) or obj:FindFirstChildWhichIsA("Seat", true)
-				if seat then return obj, seat end
+		-- Search workspace direct children for player's motorcycle (avoid matching player's Character model)
+		for _, c in ipairs(workspace:GetChildren()) do
+			if c:IsA("Model") and c ~= char and (c.Name:find(player.Name) or c.Name:find("Montor") or c:FindFirstChild("DriveSeat")) then
+				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
+				if seat then return c, seat end
 			end
 		end
 
@@ -193,13 +193,16 @@ local success, err = pcall(function()
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 
-		if not car or not seat then
-			-- Fallback: move character on foot if vehicle not found
-			if root then
-				root.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-				return true
+		if not car or not seat or not (hum and hum.SeatPart) then
+			-- Ensure player is mounted before driving
+			if mountBike and not (hum and hum.SeatPart) then
+				mountBike()
+				car, seat = getPlayerVehicle()
 			end
-			return false
+			if not car or not seat then
+				warn("[HipHub DDS] driveVehicleTo: Vehicle not found, driving aborted to keep player in bike")
+				return false
+			end
 		end
 
 		cancelActiveDrive()
@@ -513,17 +516,21 @@ local success, err = pcall(function()
 	end
 
 	local function findRidePrompt()
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if obj:IsA("ProximityPrompt") and obj.ActionText == "Ride" and obj.Enabled then
-				local model = obj.Parent and obj.Parent.Parent
-				if model and model.Name:find(player.Name) then
-					return obj, obj.Parent
+		local car, seat = getPlayerVehicle()
+		if car then
+			for _, pr in ipairs(car:GetDescendants()) do
+				if pr:IsA("ProximityPrompt") and pr.ActionText == "Ride" then
+					return pr, pr.Parent
 				end
 			end
 		end
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if obj:IsA("ProximityPrompt") and obj.ActionText == "Ride" and obj.Enabled then
-				return obj, obj.Parent
+		for _, c in ipairs(workspace:GetChildren()) do
+			if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c:FindFirstChild("DriveSeat")) then
+				for _, pr in ipairs(c:GetDescendants()) do
+					if pr:IsA("ProximityPrompt") and pr.ActionText == "Ride" then
+						return pr, pr.Parent
+					end
+				end
 			end
 		end
 		return nil, nil
@@ -550,20 +557,19 @@ local success, err = pcall(function()
 
 			if fireproximityprompt then
 				pcall(fireproximityprompt, prompt)
-			end
-			pcall(function()
-				if prompt.InputHoldBegin then
+			elseif prompt.InputHoldBegin then
+				pcall(function()
 					prompt:InputHoldBegin()
 					task.wait(prompt.HoldDuration + 0.15)
 					prompt:InputHoldEnd()
-				end
-			end)
-			task.wait(0.8)
+				end)
+			end
+			task.wait(0.6)
 
 			-- Direct Seat Sit fallback
-			if not hum.SeatPart and seatPart:IsA("VehicleSeat") or seatPart:IsA("Seat") then
+			if not hum.SeatPart and (seatPart:IsA("VehicleSeat") or seatPart:IsA("Seat")) then
 				pcall(function() seatPart:Sit(hum) end)
-				task.wait(0.3)
+				task.wait(0.2)
 			end
 		end
 
