@@ -196,61 +196,46 @@ export async function GET(request: NextRequest) {
     // Mode: loader script delivery
     if (mode === "loader") {
       const loaderScript = `
-local baseUrl = "${baseUrl}/api/script-roblox/dds"
 local content = nil
+local success = false
 
-local function fetchScript(url)
-    -- Try executor request methods first (safe from game:HttpGet blocks)
-    local req = (syn and syn.request) or (http and http.request) or request or http_request
-    if req then
-        local res = req({
-            Url = url,
-            Method = "GET",
-            Headers = { ["User-Agent"] = "Roblox/Executor" }
-        })
-        if res and res.Body and #res.Body > 50 then
-            return res.Body
-        end
-    end
-
-    -- Fallback to game:HttpGet
-    local s, body = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if s and type(body) == "string" and #body > 50 then
-        return body
-    end
+local function findGuiInParents(name)
+    local player = game:GetService("Players").LocalPlayer
+    if not player then return nil end
+    local pGui = player:FindFirstChild("PlayerGui")
+    if pGui and pGui:FindFirstChild(name) then return pGui:FindFirstChild(name) end
+    if gethui and gethui():FindFirstChild(name) then return gethui():FindFirstChild(name) end
+    local coreGui = game:GetService("CoreGui")
+    if coreGui:FindFirstChild(name) then return coreGui:FindFirstChild(name) end
     return nil
 end
 
 for i = 1, 3 do
-    content = fetchScript(baseUrl)
-    if content then break end
-    task.wait(1)
-end
-
-if not content then
-    warn("[HipHub DDS] Failed to fetch script payload. Please check your internet connection or executor support.")
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "HipHub DDS",
-            Text = "Network error: Failed to load script payload.",
-            Duration = 5
-        })
+    local s, res = pcall(function()
+        return game:HttpGet("${baseUrl}/api/script-roblox/dds")
     end)
+    if s and type(res) == "string" and #res > 50 then
+        content = res
+        success = true
+        break
+    end
+    if i < 3 then
+        task.wait(1.5)
+    end
+end
+
+if not success or not content then
+    warn("[HipHub DDS] Network error fetching payload.")
     return
 end
 
-local func, err = loadstring(content, "@HipHub_DDS")
+local func, err = loadstring(content)
 if not func then
-    warn("[HipHub DDS] Compilation error: " .. tostring(err))
+    warn("[HipHub DDS] Script compilation failure: " .. tostring(err))
     return
 end
 
-local ok, runErr = pcall(func)
-if not ok then
-    warn("[HipHub DDS] Runtime error: " .. tostring(runErr))
-end
+func()
 `;
 
       return new NextResponse(loaderScript, {
