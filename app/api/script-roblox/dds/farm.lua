@@ -318,6 +318,11 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
+		-- 🔄 Stateful Perimeter Tracing (Bug Algorithm): traces around void cutouts along ground boundary
+		local isTracingPerimeter = false
+		local traceSign = 1
+		local minTraceDistToGoal = math.huge
+
 		local function probeGround(probePos, refY)
 			local hit = workspace:Raycast(Vector3.new(probePos.X, refY + 15, probePos.Z), Vector3.new(0, -40, 0), rayParams)
 			if hit and hit.Position.Y > 25 then
@@ -375,45 +380,92 @@ local success, err = pcall(function()
 				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
-			local moveDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
+			local directGoalDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
 			local stepDist = curSpeed * dt
 
-			-- 🛡️ Genuine Road Probe: strictly follow real in-game terrain/road surface
-			local forwardProbePos = carPos + moveDir * math.max(stepDist * 1.5, 3)
-			local fwdHit = probeGround(forwardProbePos, lastGroundY)
+			-- 🛡️ Check if direct line-of-sight to target has solid ground
+			local probeDistance = math.max(stepDist * 1.8, 4.0)
+			local directProbePos = carPos + directGoalDir * probeDistance
+			local directHit = probeGround(directProbePos, lastGroundY)
 
-			local actualMoveDir = moveDir
+			local actualMoveDir = directGoalDir
 			local chosenY = lastGroundY
 
-			if fwdHit then
-				-- Direct road path is solid: follow naturally
-				chosenY = fwdHit.Position.Y + 0.3
-				lastGroundY = chosenY
-			else
-				-- Ahead has no ground (void/cliff edge): search left/right angles for genuine road asphalt
-				local foundSafeRoad = false
-				for angle = 15, 120, 15 do
-					for _, sign in ipairs({ -1, 1 }) do
-						local rotCF = CFrame.Angles(0, math.rad(angle * sign), 0)
-						local altDir = (rotCF * Vector3.new(moveDir.X, 0, moveDir.Z)).Unit
-						local altProbePos = carPos + altDir * math.max(stepDist * 1.5, 3)
-						local altHit = probeGround(altProbePos, lastGroundY)
-						if altHit then
-							actualMoveDir = altDir
-							chosenY = altHit.Position.Y + 0.3
+			-- If currently tracing perimeter, check if we can leave and resume direct path to goal
+			if isTracingPerimeter then
+				if directHit and (totalRemainingDist < minTraceDistToGoal - 2) then
+					-- Ground is clear ahead and we made progress towards goal: exit perimeter tracing!
+					isTracingPerimeter = false
+					actualMoveDir = directGoalDir
+					chosenY = directHit.Position.Y + 0.3
+					lastGroundY = chosenY
+				else
+					-- Continue tracing along the contour/edge of the solid ground
+					local foundContourDir = nil
+					for angle = 10, 170, 10 do
+						local testRot = CFrame.Angles(0, math.rad(angle * traceSign), 0)
+						local testDir = (testRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+						local testProbePos = carPos + testDir * probeDistance
+						local testHit = probeGround(testProbePos, lastGroundY)
+						if testHit then
+							foundContourDir = testDir
+							chosenY = testHit.Position.Y + 0.3
 							lastGroundY = chosenY
-							foundSafeRoad = true
 							break
 						end
 					end
-					if foundSafeRoad then break end
-				end
 
-				-- If genuine road ends or is not streamed yet: hold position and stream ahead without crossing void
-				if not foundSafeRoad then
-					chosenY = lastGroundY
-					requestStreamAsync(destP)
-					actualMoveDir = Vector3.zero
+					if foundContourDir then
+						actualMoveDir = foundContourDir
+						minTraceDistToGoal = math.min(minTraceDistToGoal, totalRemainingDist)
+					else
+						-- Hit a dead-end vertex: flip tracing direction to turn around the corner
+						traceSign = -traceSign
+						actualMoveDir = Vector3.zero
+					end
+				end
+			else
+				-- Normal direct drive towards destination
+				if directHit then
+					actualMoveDir = directGoalDir
+					chosenY = directHit.Position.Y + 0.3
+					lastGroundY = chosenY
+				else
+					-- 🚨 Hit void edge / cliff cutout (Black Dot): enter Perimeter Tracing Mode!
+					isTracingPerimeter = true
+					minTraceDistToGoal = totalRemainingDist
+
+					-- Determine optimal tracing sign (left or right) based on which side has ground
+					local rightRot = CFrame.Angles(0, math.rad(90), 0)
+					local leftRot = CFrame.Angles(0, math.rad(-90), 0)
+					local rightDir = (rightRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+					local leftDir = (leftRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+					local rightHit = probeGround(carPos + rightDir * probeDistance, lastGroundY)
+					local leftHit = probeGround(carPos + leftDir * probeDistance, lastGroundY)
+
+					if leftHit and not rightHit then
+						traceSign = -1
+					elseif rightHit and not leftHit then
+						traceSign = 1
+					else
+						local leftDist = ((carPos + leftDir * 10) - destP).Magnitude
+						local rightDist = ((carPos + rightDir * 10) - destP).Magnitude
+						traceSign = (leftDist <= rightDist) and -1 or 1
+					end
+
+					-- Immediately find first valid contour step
+					for angle = 10, 170, 10 do
+						local testRot = CFrame.Angles(0, math.rad(angle * traceSign), 0)
+						local testDir = (testRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+						local testProbePos = carPos + testDir * probeDistance
+						local testHit = probeGround(testProbePos, lastGroundY)
+						if testHit then
+							actualMoveDir = testDir
+							chosenY = testHit.Position.Y + 0.3
+							lastGroundY = chosenY
+							break
+						end
+					end
 				end
 			end
 
@@ -421,7 +473,7 @@ local success, err = pcall(function()
 			local newZ = carPos.Z + actualMoveDir.Z * stepDist
 			local newPos = Vector3.new(newX, chosenY, newZ)
 
-			local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
+			local currentYaw = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
 			local currentRot = CFrame.Angles(0, currentYaw, 0)
 			local currentCF  = CFrame.new(newPos) * currentRot
 
