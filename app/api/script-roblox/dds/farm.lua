@@ -251,30 +251,7 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- 2. Compute true road waypoints using PathfindingService
-		local PathfindingService = game:GetService("PathfindingService")
-		local path = PathfindingService:CreatePath({
-			AgentRadius = 1.2,
-			AgentHeight = 3.0,
-			AgentCanJump = false,
-			AgentCanClimb = false,
-			WaypointSpacing = 8,
-			Costs = { Water = math.huge }
-		})
-
-		local success, _ = pcall(function()
-			path:ComputeAsync(startP, destP)
-		end)
-
-		local waypoints = {}
-		if success and path.Status == Enum.PathStatus.Success then
-			local rawWaypoints = path:GetWaypoints()
-			for _, wp in ipairs(rawWaypoints) do
-				table.insert(waypoints, wp.Position)
-			end
-		end
-
-		-- Filter out all buildings, roofs, and props so raycasts ONLY detect real roads/ground
+		-- 2. Build Building & Prop filter
 		local buildingFilter = { car, char }
 		for _, c in ipairs(workspace:GetChildren()) do
 			local name = c.Name:lower()
@@ -287,22 +264,115 @@ local success, err = pcall(function()
 		rayParams.FilterDescendantsInstances = buildingFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- If PathfindingService found no navmesh (due to streaming), divide distance into dense road probes
-		if #waypoints < 2 then
-			local totalDist = (startP - destP).Magnitude
-			local steps = math.clamp(math.floor(totalDist / 12), 2, 80)
-			for i = 0, steps do
-				local alpha = i / steps
-				local probeX = startP.X + (destP.X - startP.X) * alpha
-				local probeZ = startP.Z + (destP.Z - startP.Z) * alpha
-				local hit = workspace:Raycast(Vector3.new(probeX, startP.Y + 15, probeZ), Vector3.new(0, -40, 0), rayParams)
-				if hit and hit.Position.Y < 25 then
-					table.insert(waypoints, Vector3.new(probeX, hit.Position.Y + 0.3, probeZ))
+		local function probeGround(probePos, refY)
+			local hit = workspace:Raycast(Vector3.new(probePos.X, refY + 15, probePos.Z), Vector3.new(0, -40, 0), rayParams)
+			if hit and hit.Position.Y < 25 then
+				return hit.Position.Y + 0.3
+			end
+			return nil
+		end
+
+		-- 3. Compute optimal path using A* Solid-Ground Grid Search
+		local waypoints = {}
+		local cellSize = 20
+		local startGridX = math.floor(startP.X / cellSize)
+		local startGridZ = math.floor(startP.Z / cellSize)
+		local destGridX  = math.floor(destP.X / cellSize)
+		local destGridZ  = math.floor(destP.Z / cellSize)
+
+		local openSet = {}
+		local cameFrom = {}
+		local gScore = {}
+		local fScore = {}
+		local visited = {}
+
+		local startKey = startGridX .. ":" .. startGridZ
+		local startNode = { gx = startGridX, gz = startGridZ, x = startP.X, z = startP.Z, y = startP.Y, key = startKey }
+		gScore[startKey] = 0
+		fScore[startKey] = (Vector3.new(startP.X, 0, startP.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+		table.insert(openSet, startNode)
+
+		local neighborOffsets = {
+			{ dx = 1, dz = 0 }, { dx = -1, dz = 0 }, { dx = 0, dz = 1 }, { dx = 0, dz = -1 },
+			{ dx = 1, dz = 1 }, { dx = -1, dz = 1 }, { dx = 1, dz = -1 }, { dx = -1, dz = -1 }
+		}
+
+		local bestEndNode = startNode
+		local bestDistToGoal = fScore[startKey]
+		local iterations = 0
+
+		while #openSet > 0 and iterations < 500 do
+			iterations = iterations + 1
+
+			local lowestIdx = 1
+			local lowestF = fScore[openSet[1].key] or math.huge
+			for i = 2, #openSet do
+				local f = fScore[openSet[i].key] or math.huge
+				if f < lowestF then
+					lowestF = f
+					lowestIdx = i
 				end
 			end
-			if #waypoints < 2 then
-				waypoints = { startP, destP }
+
+			local current = table.remove(openSet, lowestIdx)
+			local currDist = (Vector3.new(current.x, 0, current.z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+
+			if currDist < bestDistToGoal then
+				bestDistToGoal = currDist
+				bestEndNode = current
 			end
+
+			if current.gx == destGridX and current.gz == destGridZ then
+				bestEndNode = current
+				break
+			end
+
+			visited[current.key] = true
+
+			for _, off in ipairs(neighborOffsets) do
+				local nX = current.gx + off.dx
+				local nZ = current.gz + off.dz
+				local nKey = nX .. ":" .. nZ
+
+				if not visited[nKey] then
+					local worldX = nX * cellSize + cellSize / 2
+					local worldZ = nZ * cellSize + cellSize / 2
+					local groundY = probeGround(Vector3.new(worldX, 0, worldZ), current.y)
+
+					if groundY then
+						local stepCost = (off.dx ~= 0 and off.dz ~= 0) and (cellSize * 1.414) or cellSize
+						local tentativeG = (gScore[current.key] or 0) + stepCost
+
+						if tentativeG < (gScore[nKey] or math.huge) then
+							cameFrom[nKey] = current
+							gScore[nKey] = tentativeG
+							local h = (Vector3.new(worldX, 0, worldZ) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+							fScore[nKey] = tentativeG + h
+
+							local alreadyInOpen = false
+							for _, node in ipairs(openSet) do
+								if node.key == nKey then alreadyInOpen = true; break end
+							end
+							if not alreadyInOpen then
+								table.insert(openSet, { gx = nX, gz = nZ, x = worldX, z = worldZ, y = groundY, key = nKey })
+							end
+						end
+					end
+				end
+			end
+		end
+
+		-- Reconstruct shortest road route
+		local curr = bestEndNode
+		while curr and curr.key ~= startKey do
+			table.insert(waypoints, 1, Vector3.new(curr.x, curr.y, curr.z))
+			curr = cameFrom[curr.key]
+		end
+		table.insert(waypoints, destP)
+
+		-- Fallback to smooth direct segments if pathfinder produced < 2 points
+		if #waypoints < 2 then
+			waypoints = { startP, destP }
 		end
 
 		-- Selective Noclip on vehicle, driver, and passenger to smoothly phase through traffic/gates
@@ -317,20 +387,6 @@ local success, err = pcall(function()
 		local currentWpIndex = 1
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
-
-		-- 🔄 Heading-Locked Wall Follower (True Bug Algorithm): moves continuously around perimeters in one direction
-		local isTracingPerimeter = false
-		local traceHeading = nil
-		local traceSide = -1 -- -1: cliff on right (turn left around corners), 1: cliff on left (turn right around corners)
-		local minTraceDistToGoal = math.huge
-
-		local function probeGround(probePos, refY)
-			local hit = workspace:Raycast(Vector3.new(probePos.X, refY + 15, probePos.Z), Vector3.new(0, -40, 0), rayParams)
-			if hit and hit.Position.Y > 25 then
-				return nil
-			end
-			return hit
-		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -359,7 +415,7 @@ local success, err = pcall(function()
 			local segDist = segFlatDelta.Magnitude
 
 			-- Advance to next road waypoint when reaching current node
-			if segDist < 6 then
+			if segDist < 8 then
 				currentWpIndex = currentWpIndex + 1
 				if currentWpIndex > #waypoints then
 					driveFinished = true
@@ -381,106 +437,19 @@ local success, err = pcall(function()
 				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
-			local directGoalDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
+			local moveDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
 			local stepDist = curSpeed * dt
 
-			-- 🛡️ Check if direct line-of-sight to target has solid ground
-			local probeDistance = math.max(stepDist * 1.8, 4.0)
-			local directProbePos = carPos + directGoalDir * probeDistance
-			local directHit = probeGround(directProbePos, lastGroundY)
+			-- Elevation lock on real solid ground
+			local groundY = probeGround(Vector3.new(carPos.X, 0, carPos.Z), lastGroundY)
+			local chosenY = groundY or lastGroundY
+			lastGroundY = chosenY
 
-			local actualMoveDir = directGoalDir
-			local chosenY = lastGroundY
-
-			-- If currently tracing perimeter, check if we can leave and resume direct path to goal
-			if isTracingPerimeter then
-				-- LEAVE CONDITION: direct line to goal is clear AND we have progressed past the obstacle
-				if directHit and (totalRemainingDist < minTraceDistToGoal - 3) then
-					isTracingPerimeter = false
-					traceHeading = nil
-					actualMoveDir = directGoalDir
-					chosenY = directHit.Position.Y + 0.3
-					lastGroundY = chosenY
-				else
-					-- Sweep relative to CURRENT HEADING from void side to ground side (one-way contour following)
-					local baseHeading = traceHeading or directGoalDir
-					local foundContourDir = nil
-
-					for angle = -90, 110, 10 do
-						local testRot = CFrame.Angles(0, math.rad(angle * traceSide), 0)
-						local testDir = (testRot * Vector3.new(baseHeading.X, 0, baseHeading.Z)).Unit
-						local testProbePos = carPos + testDir * probeDistance
-						local testHit = probeGround(testProbePos, lastGroundY)
-						if testHit then
-							foundContourDir = testDir
-							chosenY = testHit.Position.Y + 0.3
-							lastGroundY = chosenY
-							break
-						end
-					end
-
-					if foundContourDir then
-						traceHeading = foundContourDir
-						actualMoveDir = foundContourDir
-						minTraceDistToGoal = math.min(minTraceDistToGoal, totalRemainingDist)
-					else
-						-- Turn sharp corner
-						local sharpRot = CFrame.Angles(0, math.rad(90 * traceSide), 0)
-						traceHeading = (sharpRot * Vector3.new(baseHeading.X, 0, baseHeading.Z)).Unit
-						actualMoveDir = traceHeading
-					end
-				end
-			else
-				-- Normal direct drive towards destination
-				if directHit then
-					actualMoveDir = directGoalDir
-					chosenY = directHit.Position.Y + 0.3
-					lastGroundY = chosenY
-				else
-					-- 🚨 Hit void edge / cliff cutout (Black Dot): enter Heading-Locked Perimeter Tracing!
-					isTracingPerimeter = true
-					minTraceDistToGoal = totalRemainingDist
-
-					-- Choose the initial direction (left or right) that moves toward target on solid ground
-					local rightRot = CFrame.Angles(0, math.rad(90), 0)
-					local leftRot = CFrame.Angles(0, math.rad(-90), 0)
-					local rightDir = (rightRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
-					local leftDir = (leftRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
-					local rightHit = probeGround(carPos + rightDir * probeDistance, lastGroundY)
-					local leftHit = probeGround(carPos + leftDir * probeDistance, lastGroundY)
-
-					if leftHit and not rightHit then
-						traceSide = -1
-						traceHeading = leftDir
-					elseif rightHit and not leftHit then
-						traceSide = 1
-						traceHeading = rightDir
-					else
-						local leftDist = ((carPos + leftDir * 15) - destP).Magnitude
-						local rightDist = ((carPos + rightDir * 15) - destP).Magnitude
-						if leftDist <= rightDist then
-							traceSide = -1
-							traceHeading = leftDir
-						else
-							traceSide = 1
-							traceHeading = rightDir
-						end
-					end
-
-					actualMoveDir = traceHeading
-					local initHit = probeGround(carPos + traceHeading * probeDistance, lastGroundY)
-					if initHit then
-						chosenY = initHit.Position.Y + 0.3
-						lastGroundY = chosenY
-					end
-				end
-			end
-
-			local newX = carPos.X + actualMoveDir.X * stepDist
-			local newZ = carPos.Z + actualMoveDir.Z * stepDist
+			local newX = carPos.X + moveDir.X * stepDist
+			local newZ = carPos.Z + moveDir.Z * stepDist
 			local newPos = Vector3.new(newX, chosenY, newZ)
 
-			local currentYaw = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
+			local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
 			local currentRot = CFrame.Angles(0, currentYaw, 0)
 			local currentCF  = CFrame.new(newPos) * currentRot
 
