@@ -95,8 +95,27 @@ local success, err = pcall(function()
 		end)
 	end
 
+	local function neutralizeBikeHazards(car)
+		if not car then return end
+		pcall(function()
+			for _, s in ipairs(car:GetDescendants()) do
+				if s:IsA("LocalScript") and (s.Name == "FallingScript" or s.Name == "CrashScript") then
+					s.Disabled = true
+				end
+			end
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+				hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			end
+		end)
+	end
+
 	local function safelySettleAndUnanchor(car, safePos)
 		if not car then return end
+		neutralizeBikeHazards(car)
 		pcall(function()
 			if safePos then
 				ensureSafetyPlate(safePos, 55)
@@ -207,6 +226,7 @@ local success, err = pcall(function()
 
 		cancelActiveDrive()
 		isDrivingActive = true
+		neutralizeBikeHazards(car)
 
 		-- Ensure collision plate & streaming around target
 		ensureSafetyPlate(targetPos, 55)
