@@ -118,17 +118,25 @@ local success, err = pcall(function()
 		neutralizeBikeHazards(car)
 		pcall(function()
 			if safePos then
-				ensureSafetyPlate(safePos, 55)
-				car:PivotTo(CFrame.new(safePos + Vector3.new(0, 2.0, 0)))
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = { car, player.Character, workspace:FindFirstChild("__DdsSafetyPlate") }
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 15, safePos.Z), Vector3.new(0, -35, 0), rayParams)
+				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
+				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
+
+				ensureSafetyPlate(groundPos, 55)
+				local curPiv = car:GetPivot()
+				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
 			end
-			-- Restore ONLY official collision parts on the DDS motorcycle to prevent physics explosion/unseat
+			-- Restore collision parts on the DDS motorcycle so tires firmly touch the road trigger
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 					local name = part.Name:lower()
-					if name == "dds_collision" or name == "primarypart" or name:find("tire") or name == "paint" or name == "foot" or name == "p" then
+					if name == "dds_collision" or name == "primarypart" or name:find("tire") or name:find("wheel") or name == "paint" or name == "foot" or name == "p" then
 						part.CanCollide = true
 					else
 						part.CanCollide = false
@@ -238,7 +246,7 @@ local success, err = pcall(function()
 		rayParams.FilterDescendantsInstances = { car, char, workspace:FindFirstChild("__DdsSafetyPlate") }
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local hit = workspace:Raycast(Vector3.new(targetPos.X, targetPos.Y + 35, targetPos.Z), Vector3.new(0, -70, 0), rayParams)
-		local groundY = hit and (hit.Position.Y + 1.8) or (targetPos.Y + 1.5)
+		local groundY = hit and (hit.Position.Y + 0.3) or targetPos.Y
 		local safePos = Vector3.new(targetPos.X, groundY, targetPos.Z)
 
 		-- 3. Direct Landing on solid ground (Zero mid-air void transit)
@@ -672,7 +680,7 @@ local success, err = pcall(function()
 			setTaxiState("DROPPING_OFF")
 			print("[PASSENGER] Reached destination")
 
-			-- Settle vehicle safely at exact destination on solid ground
+			-- Settle vehicle firmly on solid road at exact drop-off coordinates
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiDropPos)
 
@@ -683,9 +691,14 @@ local success, err = pcall(function()
 				task.wait(0.5)
 			end
 
-			-- Wait until passenger completes normal drop-off/exit interaction
-			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking (3s)...", 3, "success")
-			task.wait(3.0)
+			-- Wait for server trigger / passenger to disembark from the bike
+			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 3, "success")
+			local disembarkWait = tick()
+			while isPassengerOnboard() and taxiActive and (tick() - disembarkWait < 8) do
+				task.wait(0.3)
+			end
+
+			task.wait(1.5)
 			print("[PASSENGER] Passenger drop-off confirmed")
 		end
 
