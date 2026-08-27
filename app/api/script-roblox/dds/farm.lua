@@ -318,9 +318,10 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
-		-- 🔄 Stateful Perimeter Tracing (Bug Algorithm): traces around void cutouts along ground boundary
+		-- 🔄 Heading-Locked Wall Follower (True Bug Algorithm): moves continuously around perimeters in one direction
 		local isTracingPerimeter = false
-		local traceSign = 1
+		local traceHeading = nil
+		local traceSide = -1 -- -1: cliff on right (turn left around corners), 1: cliff on left (turn right around corners)
 		local minTraceDistToGoal = math.huge
 
 		local function probeGround(probePos, refY)
@@ -393,18 +394,21 @@ local success, err = pcall(function()
 
 			-- If currently tracing perimeter, check if we can leave and resume direct path to goal
 			if isTracingPerimeter then
-				if directHit and (totalRemainingDist < minTraceDistToGoal - 2) then
-					-- Ground is clear ahead and we made progress towards goal: exit perimeter tracing!
+				-- LEAVE CONDITION: direct line to goal is clear AND we have progressed past the obstacle
+				if directHit and (totalRemainingDist < minTraceDistToGoal - 3) then
 					isTracingPerimeter = false
+					traceHeading = nil
 					actualMoveDir = directGoalDir
 					chosenY = directHit.Position.Y + 0.3
 					lastGroundY = chosenY
 				else
-					-- Continue tracing along the contour/edge of the solid ground
+					-- Sweep relative to CURRENT HEADING from void side to ground side (one-way contour following)
+					local baseHeading = traceHeading or directGoalDir
 					local foundContourDir = nil
-					for angle = 10, 170, 10 do
-						local testRot = CFrame.Angles(0, math.rad(angle * traceSign), 0)
-						local testDir = (testRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+
+					for angle = -90, 110, 10 do
+						local testRot = CFrame.Angles(0, math.rad(angle * traceSide), 0)
+						local testDir = (testRot * Vector3.new(baseHeading.X, 0, baseHeading.Z)).Unit
 						local testProbePos = carPos + testDir * probeDistance
 						local testHit = probeGround(testProbePos, lastGroundY)
 						if testHit then
@@ -416,12 +420,14 @@ local success, err = pcall(function()
 					end
 
 					if foundContourDir then
+						traceHeading = foundContourDir
 						actualMoveDir = foundContourDir
 						minTraceDistToGoal = math.min(minTraceDistToGoal, totalRemainingDist)
 					else
-						-- Hit a dead-end vertex: flip tracing direction to turn around the corner
-						traceSign = -traceSign
-						actualMoveDir = Vector3.zero
+						-- Turn sharp corner
+						local sharpRot = CFrame.Angles(0, math.rad(90 * traceSide), 0)
+						traceHeading = (sharpRot * Vector3.new(baseHeading.X, 0, baseHeading.Z)).Unit
+						actualMoveDir = traceHeading
 					end
 				end
 			else
@@ -431,11 +437,11 @@ local success, err = pcall(function()
 					chosenY = directHit.Position.Y + 0.3
 					lastGroundY = chosenY
 				else
-					-- 🚨 Hit void edge / cliff cutout (Black Dot): enter Perimeter Tracing Mode!
+					-- 🚨 Hit void edge / cliff cutout (Black Dot): enter Heading-Locked Perimeter Tracing!
 					isTracingPerimeter = true
 					minTraceDistToGoal = totalRemainingDist
 
-					-- Determine optimal tracing sign (left or right) based on which side has ground
+					-- Choose the initial direction (left or right) that moves toward target on solid ground
 					local rightRot = CFrame.Angles(0, math.rad(90), 0)
 					local leftRot = CFrame.Angles(0, math.rad(-90), 0)
 					local rightDir = (rightRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
@@ -444,27 +450,28 @@ local success, err = pcall(function()
 					local leftHit = probeGround(carPos + leftDir * probeDistance, lastGroundY)
 
 					if leftHit and not rightHit then
-						traceSign = -1
+						traceSide = -1
+						traceHeading = leftDir
 					elseif rightHit and not leftHit then
-						traceSign = 1
+						traceSide = 1
+						traceHeading = rightDir
 					else
-						local leftDist = ((carPos + leftDir * 10) - destP).Magnitude
-						local rightDist = ((carPos + rightDir * 10) - destP).Magnitude
-						traceSign = (leftDist <= rightDist) and -1 or 1
+						local leftDist = ((carPos + leftDir * 15) - destP).Magnitude
+						local rightDist = ((carPos + rightDir * 15) - destP).Magnitude
+						if leftDist <= rightDist then
+							traceSide = -1
+							traceHeading = leftDir
+						else
+							traceSide = 1
+							traceHeading = rightDir
+						end
 					end
 
-					-- Immediately find first valid contour step
-					for angle = 10, 170, 10 do
-						local testRot = CFrame.Angles(0, math.rad(angle * traceSign), 0)
-						local testDir = (testRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
-						local testProbePos = carPos + testDir * probeDistance
-						local testHit = probeGround(testProbePos, lastGroundY)
-						if testHit then
-							actualMoveDir = testDir
-							chosenY = testHit.Position.Y + 0.3
-							lastGroundY = chosenY
-							break
-						end
+					actualMoveDir = traceHeading
+					local initHit = probeGround(carPos + traceHeading * probeDistance, lastGroundY)
+					if initHit then
+						chosenY = initHit.Position.Y + 0.3
+						lastGroundY = chosenY
 					end
 				end
 			end
