@@ -570,23 +570,35 @@ local success, err = pcall(function()
 			if not prompt or not seatPart then return false end
 		end
 
+		local car = seatPart:FindFirstAncestorOfClass("Model") or seatPart.Parent
+		if car then
+			neutralizeBikeHazards(car)
+			-- Upright bike so it's not tipped over
+			pcall(function()
+				local pivot = car:GetPivot()
+				car:PivotTo(CFrame.new(pivot.Position + Vector3.new(0, 1.5, 0)))
+			end)
+		end
+
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if root and seatPart then
-			root.CFrame = seatPart.CFrame + Vector3.new(0, 1.5, 0)
-			task.wait(0.2)
+			root.CFrame = seatPart.CFrame + Vector3.new(0, 1.0, 0)
+			task.wait(0.15)
 
-			if fireproximityprompt then
-				pcall(fireproximityprompt, prompt)
-			elseif prompt.InputHoldBegin then
-				pcall(function()
+			pcall(function()
+				prompt.RequiresLineOfSight = false
+				prompt.MaxActivationDistance = 9999
+				if fireproximityprompt then
+					fireproximityprompt(prompt)
+				elseif prompt.InputHoldBegin then
 					prompt:InputHoldBegin()
-					task.wait(prompt.HoldDuration + 0.15)
+					task.wait(prompt.HoldDuration + 0.1)
 					prompt:InputHoldEnd()
-				end)
-			end
-			task.wait(0.6)
+				end
+			end)
+			task.wait(0.5)
 
-			-- Direct Seat Sit fallback
+			-- Direct Seat Sit fallback if proximity prompt didn't seat
 			if not hum.SeatPart and (seatPart:IsA("VehicleSeat") or seatPart:IsA("Seat")) then
 				pcall(function() seatPart:Sit(hum) end)
 				task.wait(0.2)
@@ -653,11 +665,22 @@ local success, err = pcall(function()
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
 			-- Settle bike on road at pickup point
-			safelySettleAndUnanchor(getPlayerVehicle(), taxiPickupPos)
+			local car, seat = getPlayerVehicle()
+			safelySettleAndUnanchor(car, taxiPickupPos)
+
+			-- Always re-affirm driver is sitting on bike so game allows passenger to walk & board
+			local curHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+			if not (curHum and curHum.SeatPart) then
+				mountBike()
+			end
 
 			local waitStartBoard = tick()
 			while not isPassengerOnboard() and taxiActive and (tick() - waitStartBoard < 30) do
-				task.wait(0.3)
+				local checkHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+				if not (checkHum and checkHum.SeatPart) then
+					mountBike()
+				end
+				task.wait(0.4)
 			end
 
 			-- ONLY proceed if passenger actually boarded the bike!
