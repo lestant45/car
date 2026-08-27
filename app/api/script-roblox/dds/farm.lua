@@ -274,6 +274,19 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- Filter out all buildings, roofs, and props so raycasts ONLY detect real roads/ground
+		local buildingFilter = { car, char }
+		for _, c in ipairs(workspace:GetChildren()) do
+			local name = c.Name:lower()
+			if name:sub(1, 8) == "building" or name:sub(1, 5) == "props" or name:sub(1, 7) == "setting" or name:find("bangunan") or name:find("rumah") or name:find("gedung") or name:find("pohon") or name:find("lampu") or name:find("barrier") or name:find("fence") or name:find("stop") then
+				table.insert(buildingFilter, c)
+			end
+		end
+
+		local rayParams = RaycastParams.new()
+		rayParams.FilterDescendantsInstances = buildingFilter
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
 		-- If PathfindingService found no navmesh (due to streaming), divide distance into dense road probes
 		if #waypoints < 2 then
 			local totalDist = (startP - destP).Magnitude
@@ -282,11 +295,8 @@ local success, err = pcall(function()
 				local alpha = i / steps
 				local probeX = startP.X + (destP.X - startP.X) * alpha
 				local probeZ = startP.Z + (destP.Z - startP.Z) * alpha
-				local rayP = RaycastParams.new()
-				rayP.FilterDescendantsInstances = { car, char }
-				rayP.FilterType = Enum.RaycastFilterType.Exclude
-				local hit = workspace:Raycast(Vector3.new(probeX, startP.Y + 30, probeZ), Vector3.new(0, -60, 0), rayP)
-				if hit then
+				local hit = workspace:Raycast(Vector3.new(probeX, startP.Y + 15, probeZ), Vector3.new(0, -40, 0), rayParams)
+				if hit and hit.Position.Y < 25 then
 					table.insert(waypoints, Vector3.new(probeX, hit.Position.Y + 0.3, probeZ))
 				end
 			end
@@ -308,22 +318,12 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
-		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { car, char }
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
 		local function probeGround(probePos, refY)
-			local originY = math.max(refY + 10, 25)
-			local hit = workspace:Raycast(Vector3.new(probePos.X, originY, probePos.Z), Vector3.new(0, -95, 0), rayParams)
-			if hit then
-				-- If raycast hit a high building rooftop (higher than street level + 8), ignore rooftop and keep street level
-				if hit.Position.Y > (refY + 8) then
-					local deepHit = workspace:Raycast(Vector3.new(probePos.X, refY + 4, probePos.Z), Vector3.new(0, -30, 0), rayParams)
-					if deepHit then return deepHit end
-				end
-				return hit
+			local hit = workspace:Raycast(Vector3.new(probePos.X, refY + 15, probePos.Z), Vector3.new(0, -40, 0), rayParams)
+			if hit and hit.Position.Y > 25 then
+				return nil
 			end
-			return nil
+			return hit
 		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
@@ -386,12 +386,35 @@ local success, err = pcall(function()
 			local chosenY = lastGroundY
 
 			if fwdHit then
-				-- Found solid road/terrain beneath
+				-- Direct road path is solid: follow naturally
 				chosenY = fwdHit.Position.Y + 0.3
 				lastGroundY = chosenY
 			else
-				-- If ahead is past a building edge, maintain street level and continue forward smoothly
-				chosenY = lastGroundY
+				-- Ahead has no ground (void/cliff edge): search left/right angles for genuine road asphalt
+				local foundSafeRoad = false
+				for angle = 15, 120, 15 do
+					for _, sign in ipairs({ -1, 1 }) do
+						local rotCF = CFrame.Angles(0, math.rad(angle * sign), 0)
+						local altDir = (rotCF * Vector3.new(moveDir.X, 0, moveDir.Z)).Unit
+						local altProbePos = carPos + altDir * math.max(stepDist * 1.5, 3)
+						local altHit = probeGround(altProbePos, lastGroundY)
+						if altHit then
+							actualMoveDir = altDir
+							chosenY = altHit.Position.Y + 0.3
+							lastGroundY = chosenY
+							foundSafeRoad = true
+							break
+						end
+					end
+					if foundSafeRoad then break end
+				end
+
+				-- If genuine road ends or is not streamed yet: hold position and stream ahead without crossing void
+				if not foundSafeRoad then
+					chosenY = lastGroundY
+					requestStreamAsync(destP)
+					actualMoveDir = Vector3.zero
+				end
 			end
 
 			local newX = carPos.X + actualMoveDir.X * stepDist
