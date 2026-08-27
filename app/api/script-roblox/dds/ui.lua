@@ -147,12 +147,17 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
+	------------------------------------------------
 	-- 🪟 SHADOW & MAIN WINDOW CONTAINER
 	------------------------------------------------
+	local defaultWidth = 520
+	local defaultHeight = 330
+
 	local shadowFrame = Instance.new("Frame")
 	shadowFrame.Name = "ShadowFrame"
-	shadowFrame.Size = UDim2.new(0, 680, 0, 440)
-	shadowFrame.Position = UDim2.new(0.5, -340, 0.5, -220)
+	shadowFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	shadowFrame.Size = UDim2.new(0, defaultWidth, 0, defaultHeight)
+	shadowFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	shadowFrame.BackgroundColor3 = COLORS.shadow
 	shadowFrame.BackgroundTransparency = 0.5
 	shadowFrame.BorderSizePixel = 0
@@ -165,8 +170,9 @@ local success, err = pcall(function()
 
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Name = "MainFrame"
-	mainFrame.Size = UDim2.new(0, 680, 0, 440)
-	mainFrame.Position = UDim2.new(0.5, -340, 0.5, -220)
+	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	mainFrame.Size = UDim2.new(0, defaultWidth, 0, defaultHeight)
+	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	applyGlass(mainFrame, {
 		color = COLORS.glassPrimary,
 		transparency = TRANSPARENCY.glassMain,
@@ -178,6 +184,30 @@ local success, err = pcall(function()
 	mainFrame.ZIndex = 2
 	mainFrame.Parent = gui
 
+	-- 📱 Responsive Auto-Scale Engine for Mobile & Redfinger Emulators
+	local uiScale = Instance.new("UIScale")
+	uiScale.Parent = mainFrame
+
+	local shadowScale = Instance.new("UIScale")
+	shadowScale.Parent = shadowFrame
+
+	local function updateScale()
+		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1000, 600)
+		local scale = 1.0
+		if vp.X < 600 or vp.Y < 400 then
+			local scaleX = math.clamp((vp.X - 24) / defaultWidth, 0.50, 1.0)
+			local scaleY = math.clamp((vp.Y - 24) / defaultHeight, 0.50, 1.0)
+			scale = math.min(scaleX, scaleY)
+		end
+		uiScale.Scale = scale
+		shadowScale.Scale = scale
+	end
+
+	if workspace.CurrentCamera then
+		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
+	end
+	updateScale()
+
 	local function syncShadow()
 		if shadowFrame and mainFrame then
 			shadowFrame.Position = mainFrame.Position + UDim2.new(0, 0, 0, 4)
@@ -186,12 +216,73 @@ local success, err = pcall(function()
 		end
 	end
 
+	-- 📱 Draggable Mobile Floating Toggle Button
+	local mobileToggleBtn = Instance.new("ImageButton")
+	mobileToggleBtn.Name = "MobileToggleBtn"
+	mobileToggleBtn.Size = UDim2.new(0, 40, 0, 40)
+	mobileToggleBtn.Position = UDim2.new(0, 15, 0, 50)
+	mobileToggleBtn.BackgroundColor3 = COLORS.glassSurface
+	mobileToggleBtn.BackgroundTransparency = 0.15
+	mobileToggleBtn.BorderSizePixel = 0
+	mobileToggleBtn.ZIndex = 25
+	mobileToggleBtn.Parent = gui
+
+	local mtCorner = Instance.new("UICorner")
+	mtCorner.CornerRadius = UDim.new(1, 0)
+	mtCorner.Parent = mobileToggleBtn
+
+	local mtStroke = Instance.new("UIStroke")
+	mtStroke.Color = COLORS.accentCyan
+	mtStroke.Thickness = 1.5
+	mtStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	mtStroke.Parent = mobileToggleBtn
+
+	local mtIcon = Instance.new("TextLabel")
+	mtIcon.Size = UDim2.new(1, 0, 1, 0)
+	mtIcon.BackgroundTransparency = 1
+	mtIcon.Text = "🏎️"
+	mtIcon.TextSize = 18
+	mtIcon.ZIndex = 26
+	mtIcon.Parent = mobileToggleBtn
+
+	-- Dragging for mobile toggle button
+	local mtDragging, mtDragStart, mtStartPos
+	mobileToggleBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			mtDragging = true
+			mtDragStart = input.Position
+			mtStartPos = mobileToggleBtn.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					mtDragging = false
+				end
+			end)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if mtDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - mtDragStart
+			mobileToggleBtn.Position = UDim2.new(
+				mtStartPos.X.Scale, mtStartPos.X.Offset + delta.X,
+				mtStartPos.Y.Scale, mtStartPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+
+	mobileToggleBtn.MouseButton1Click:Connect(function()
+		mainFrame.Visible = not mainFrame.Visible
+		syncShadow()
+		if mainFrame.Visible then
+			updateScale()
+		end
+	end)
+
 	------------------------------------------------
 	-- 🔝 TOP BAR (HEADER)
 	------------------------------------------------
 	local topBar = Instance.new("Frame")
 	topBar.Name = "TopBar"
-	topBar.Size = UDim2.new(1, 0, 0, 44)
+	topBar.Size = UDim2.new(1, 0, 0, 38)
 	topBar.Position = UDim2.new(0, 0, 0, 0)
 	applyGlass(topBar, {
 		color = COLORS.glassSurface,
@@ -212,30 +303,30 @@ local success, err = pcall(function()
 	topDivider.Parent = topBar
 
 	local titleLogo = Instance.new("TextLabel")
-	titleLogo.Size = UDim2.new(0, 24, 0, 24)
-	titleLogo.Position = UDim2.new(0, 14, 0.5, -12)
+	titleLogo.Size = UDim2.new(0, 20, 0, 20)
+	titleLogo.Position = UDim2.new(0, 10, 0.5, -10)
 	titleLogo.BackgroundTransparency = 1
 	titleLogo.Text = "🏎️"
-	titleLogo.TextSize = 16
+	titleLogo.TextSize = 14
 	titleLogo.ZIndex = 4
 	titleLogo.Parent = topBar
 
 	local titleText = Instance.new("TextLabel")
-	titleText.Size = UDim2.new(0, 260, 1, 0)
-	titleText.Position = UDim2.new(0, 44, 0, 0)
+	titleText.Size = UDim2.new(0, 200, 1, 0)
+	titleText.Position = UDim2.new(0, 34, 0, 0)
 	titleText.BackgroundTransparency = 1
 	titleText.Text = "HIPHUB <font color=\"#00D2FF\">DDS</font> <font color=\"#966EFF\">PRO</font>"
 	titleText.RichText = true
 	titleText.TextColor3 = COLORS.textWhite
 	titleText.Font = Enum.Font.GothamBold
-	titleText.TextSize = 14
+	titleText.TextSize = 13
 	titleText.TextXAlignment = Enum.TextXAlignment.Left
 	titleText.ZIndex = 4
 	titleText.Parent = topBar
 
 	local windowControls = Instance.new("Frame")
-	windowControls.Size = UDim2.new(0, 90, 1, 0)
-	windowControls.Position = UDim2.new(1, -95, 0, 0)
+	windowControls.Size = UDim2.new(0, 70, 1, 0)
+	windowControls.Position = UDim2.new(1, -75, 0, 0)
 	windowControls.BackgroundTransparency = 1
 	windowControls.ZIndex = 4
 	windowControls.Parent = topBar
@@ -243,14 +334,14 @@ local success, err = pcall(function()
 	local function createControlBtn(name, icon, posOffset, hoverCol)
 		local btn = Instance.new("TextButton")
 		btn.Name = name
-		btn.Size = UDim2.new(0, 26, 0, 26)
-		btn.Position = UDim2.new(0, posOffset, 0.5, -13)
+		btn.Size = UDim2.new(0, 24, 0, 24)
+		btn.Position = UDim2.new(0, posOffset, 0.5, -12)
 		btn.BackgroundColor3 = COLORS.glassSurface
 		btn.BackgroundTransparency = 0.5
 		btn.Text = icon
 		btn.TextColor3 = COLORS.textSecondary
 		btn.Font = Enum.Font.GothamMedium
-		btn.TextSize = 12
+		btn.TextSize = 11
 		btn.ZIndex = 5
 		btn.AutoButtonColor = false
 		btn.Parent = windowControls
@@ -275,17 +366,17 @@ local success, err = pcall(function()
 		return btn
 	end
 
-	local minimizeButton = createControlBtn("MinimizeBtn", "—", 0, COLORS.glassHover)
-	local fullscreenButton = createControlBtn("FullscreenBtn", "□", 30, COLORS.glassHover)
-	local closeButton = createControlBtn("CloseBtn", "✕", 60, COLORS.dangerRed)
+	local minimizeButton = createControlBtn("MinimizeBtn", "—", 5, COLORS.glassHover)
+	local closeButton = createControlBtn("CloseBtn", "✕", 38, COLORS.dangerRed)
+	local fullscreenButton = minimizeButton
 
 	------------------------------------------------
 	-- 📑 SIDEBAR (NAVIGATION TABS)
 	------------------------------------------------
 	local sidebar = Instance.new("Frame")
 	sidebar.Name = "Sidebar"
-	sidebar.Size = UDim2.new(0, 160, 1, -44)
-	sidebar.Position = UDim2.new(0, 0, 0, 44)
+	sidebar.Size = UDim2.new(0, 130, 1, -38)
+	sidebar.Position = UDim2.new(0, 0, 0, 38)
 	applyGlass(sidebar, {
 		color = COLORS.glassSurface,
 		transparency = TRANSPARENCY.glassSidebar,
@@ -306,8 +397,8 @@ local success, err = pcall(function()
 
 	local tabList = Instance.new("ScrollingFrame")
 	tabList.Name = "TabList"
-	tabList.Size = UDim2.new(1, -12, 1, -20)
-	tabList.Position = UDim2.new(0, 6, 0, 10)
+	tabList.Size = UDim2.new(1, -10, 1, -16)
+	tabList.Position = UDim2.new(0, 5, 0, 8)
 	tabList.BackgroundTransparency = 1
 	tabList.BorderSizePixel = 0
 	tabList.ScrollBarThickness = 0
@@ -316,7 +407,7 @@ local success, err = pcall(function()
 
 	local tabListLayout = Instance.new("UIListLayout")
 	tabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	tabListLayout.Padding = UDim.new(0, 6)
+	tabListLayout.Padding = UDim.new(0, 5)
 	tabListLayout.Parent = tabList
 
 	------------------------------------------------
@@ -324,8 +415,8 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local contentArea = Instance.new("Frame")
 	contentArea.Name = "ContentArea"
-	contentArea.Size = UDim2.new(1, -160, 1, -44)
-	contentArea.Position = UDim2.new(0, 160, 0, 44)
+	contentArea.Size = UDim2.new(1, -130, 1, -38)
+	contentArea.Position = UDim2.new(0, 130, 0, 38)
 	contentArea.BackgroundTransparency = 1
 	contentArea.ClipsDescendants = true
 	contentArea.ZIndex = 3

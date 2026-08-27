@@ -79,7 +79,7 @@ local success, err = pcall(function()
 		if isMinimized then
 			if UI.contentArea then UI.contentArea.Visible = false end
 			if UI.sidebar then UI.sidebar.Visible = false end
-			TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 44) }):Play()
+			TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 38) }):Play()
 		else
 			local tw = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = origSize })
 			tw.Completed:Connect(function()

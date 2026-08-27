@@ -68,7 +68,7 @@ local success, err = pcall(function()
 
 	-- Spawns an invisible collision safety plate underneath destination/vehicle
 	local function ensureSafetyPlate(pos, width)
-		width = width or 40
+		width = width or 35
 		local plate = workspace:FindFirstChild("__DdsSafetyPlate")
 		if not plate then
 			plate = Instance.new("Part")
@@ -83,6 +83,15 @@ local success, err = pcall(function()
 		plate.Size = Vector3.new(width, 2, width)
 		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
 		return plate
+	end
+
+	local function destroySafetyPlate()
+		pcall(function()
+			local plate = workspace:FindFirstChild("__DdsSafetyPlate")
+			if plate then
+				plate:Destroy()
+			end
+		end)
 	end
 
 	local function requestStreamAsync(pos)
@@ -119,13 +128,15 @@ local success, err = pcall(function()
 		pcall(function()
 			if safePos then
 				local rayParams = RaycastParams.new()
-				rayParams.FilterDescendantsInstances = { car, player.Character, workspace:FindFirstChild("__DdsSafetyPlate") }
+				local filter = { car, player.Character, workspace:FindFirstChild("__DdsSafetyPlate") }
+				rayParams.FilterDescendantsInstances = filter
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 15, safePos.Z), Vector3.new(0, -35, 0), rayParams)
+				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
-				ensureSafetyPlate(groundPos, 55)
+				-- Spawn safety plate under parked bike only
+				ensureSafetyPlate(groundPos, 35)
 				local curPiv = car:GetPivot()
 				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
 			end
@@ -234,6 +245,7 @@ local success, err = pcall(function()
 		cancelActiveDrive()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
+		destroySafetyPlate()
 
 		-- Request chunk streaming around destination
 		requestStreamAsync(targetPos)
@@ -831,6 +843,7 @@ local success, err = pcall(function()
 				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
+				destroySafetyPlate()
 			else
 				UI.Notify("⚠️ Boarding Timeout", "Passenger did not board. Resetting...", 3, "warning")
 				lastCompletedToken = token
