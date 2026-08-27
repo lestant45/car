@@ -66,11 +66,24 @@ local success, err = pcall(function()
 		return nil, nil
 	end
 
-	-- Clean up any legacy artificial safety plates
-	pcall(function()
-		local old = workspace:FindFirstChild("__DdsSafetyPlate")
-		if old then old:Destroy() end
-	end)
+	-- Spawns an invisible collision safety plate underneath destination/vehicle
+	local function ensureSafetyPlate(pos, width)
+		width = width or 40
+		local plate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if not plate then
+			plate = Instance.new("Part")
+			plate.Name = "__DdsSafetyPlate"
+			plate.Anchored = true
+			plate.CanCollide = true
+			plate.Transparency = 1
+			plate.CastShadow = false
+			plate.Material = Enum.Material.Concrete
+			pcall(function() plate.Parent = workspace end)
+		end
+		plate.Size = Vector3.new(width, 2, width)
+		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
+		return plate
+	end
 
 	local function requestStreamAsync(pos)
 		pcall(function()
@@ -208,7 +221,6 @@ local success, err = pcall(function()
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 
 		if not car or not seat or not (hum and hum.SeatPart) then
-			-- Ensure player is mounted before driving
 			if mountBike and not (hum and hum.SeatPart) then
 				mountBike()
 				car, seat = getPlayerVehicle()
@@ -223,7 +235,7 @@ local success, err = pcall(function()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
 
-		-- 1. Chunk streaming around destination
+		-- Request chunk streaming around destination
 		requestStreamAsync(targetPos)
 
 		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
@@ -237,8 +249,12 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- 2. Build Building & Prop filter to ignore elevated roofs
+		-- 2. Build Building & Prop filter to ignore elevated roofs and safety plate
 		local buildingFilter = { car, char }
+		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if existingPlate then
+			table.insert(buildingFilter, existingPlate)
+		end
 		for _, c in ipairs(workspace:GetChildren()) do
 			local name = c.Name:lower()
 			if name:sub(1, 8) == "building" or name:sub(1, 5) == "props" or name:sub(1, 7) == "setting" or name:find("bangunan") or name:find("rumah") or name:find("gedung") or name:find("pohon") or name:find("lampu") or name:find("barrier") or name:find("fence") or name:find("stop") then
