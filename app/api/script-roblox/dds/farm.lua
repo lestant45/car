@@ -238,7 +238,7 @@ local success, err = pcall(function()
 		local destP   = targetPos
 		local totalDist = (startP - destP).Magnitude
 
-		if totalDist <= 12 then
+		if totalDist <= 10 then
 			safelySettleAndUnanchor(car, destP)
 			isDrivingActive = false
 			return true
@@ -252,8 +252,8 @@ local success, err = pcall(function()
 			end
 		end
 
-		local duration = math.clamp(totalDist / speed, 0.4, 240.0)
-		local t0 = os.clock()
+		local traveledDist = 0
+		local lastTick = os.clock()
 		local driveFinished = false
 		local lastGroundY = startP.Y
 
@@ -264,8 +264,23 @@ local success, err = pcall(function()
 				return
 			end
 
-			local elapsed = os.clock() - t0
-			local alpha = math.clamp(elapsed / duration, 0, 1)
+			local now = os.clock()
+			local dt = math.clamp(now - lastTick, 0.001, 0.1)
+			lastTick = now
+
+			-- 🏎️ Dynamic smooth deceleration when within 150 studs of target
+			local remainingDist = math.max(0, totalDist - traveledDist)
+			local curSpeed = speed
+			if remainingDist < 150 then
+				local factor = math.clamp(remainingDist / 150, 0, 1)
+				-- Smoothstep easing curve
+				local ease = factor * factor * (3 - 2 * factor)
+				local minApproachSpeed = math.min(20, speed * 0.25)
+				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
+			end
+
+			traveledDist = traveledDist + curSpeed * dt
+			local alpha = math.clamp(traveledDist / totalDist, 0, 1)
 
 			-- Linear horizontal interpolation
 			local curX = startP.X + (destP.X - startP.X) * alpha
@@ -302,7 +317,7 @@ local success, err = pcall(function()
 				end
 
 				-- Velocity synchronization for server & physics acknowledgement
-				local velocityVec = moveDir * speed
+				local velocityVec = moveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = 1
 					seat.ThrottleFloat = 1
@@ -323,7 +338,7 @@ local success, err = pcall(function()
 				end
 			end)
 
-			if alpha >= 1 or (destP - curPos).Magnitude <= 10 then
+			if alpha >= 1 or (destP - curPos).Magnitude <= 6 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 			end
@@ -713,7 +728,14 @@ local success, err = pcall(function()
 		if taxiDropPos and taxiActive then
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
 			driveVehicleTo(taxiDropPos, Config.taxiSpeed)
-			task.wait(0.8)
+
+			-- Settle vehicle safely at destination
+			local car, seat = getPlayerVehicle()
+			safelySettleAndUnanchor(car, taxiDropPos)
+
+			-- Wait 3 seconds so passenger can comfortably step off the bike
+			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking (3s)...", 3, "success")
+			task.wait(3.0)
 		end
 
 		-- 7. Complete Trip & Acknowledge
