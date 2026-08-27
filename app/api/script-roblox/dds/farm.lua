@@ -607,8 +607,6 @@ local success, err = pcall(function()
 			task.wait(0.15)
 
 			pcall(function()
-				prompt.RequiresLineOfSight = false
-				prompt.MaxActivationDistance = 9999
 				if fireproximityprompt then
 					fireproximityprompt(prompt)
 				elseif prompt.InputHoldBegin then
@@ -792,9 +790,9 @@ local success, err = pcall(function()
 
 		-- While in WAITING_FOR_NEXT_ORDER:
 		-- Remain completely stationary at the exact destination.
-		-- Go online so server sends the next available order offer.
+		-- Humanized rate-limited delay before going online
 		if taxiActive then
-			task.wait(1.5)
+			task.wait(2.5)
 			TaxiEvent:FireServer("GoOnline")
 		end
 	end
@@ -1178,7 +1176,7 @@ local success, err = pcall(function()
 		toggleAutoRideGO(state)
 	end)
 
-	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 40, 160, math.floor(Config.taxiSpeed or 90), function(val)
+	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 120, math.floor(Config.taxiSpeed or 60), function(val)
 		Config.taxiSpeed = val
 	end)
 
