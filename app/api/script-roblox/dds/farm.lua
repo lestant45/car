@@ -285,6 +285,8 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
+		local navHeading = nil
+
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
 				if currentDriveConn then currentDriveConn:Disconnect() end
@@ -332,18 +334,20 @@ local success, err = pcall(function()
 			if directHitY then
 				-- Direct path has solid ground: move directly towards destination
 				actualMoveDir = directGoalDir
+				navHeading = directGoalDir
 				chosenY = directHitY
 				lastGroundY = chosenY
 			else
-				-- 🚨 Void/Jurang ahead: search 360° fan for the solid ground direction closest to destination
+				-- 🚨 Void/Cliff edge ahead: sweep 360° fan to turn along the edge of the land
+				local baseDir = navHeading or directGoalDir
 				local bestDir = nil
 				local bestDist = math.huge
 				local bestY = lastGroundY
 
-				for angle = 10, 170, 10 do
+				for angle = 10, 180, 10 do
 					for _, sign in ipairs({ 1, -1 }) do
 						local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
-						local testDir = (testRot * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+						local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
 						local testProbePos = carPos + testDir * probeDist
 						local testHitY = probeGround(testProbePos, lastGroundY)
 
@@ -356,18 +360,21 @@ local success, err = pcall(function()
 							end
 						end
 					end
-					if bestDir and angle >= 60 then
+					if bestDir and angle >= 90 then
 						break
 					end
 				end
 
 				if bestDir then
 					actualMoveDir = bestDir
+					navHeading = bestDir
 					chosenY = bestY
 					lastGroundY = chosenY
 				else
-					-- No safe ground direction found: stop vehicle on safe ground
-					actualMoveDir = Vector3.zero
+					-- Sharp corner: rotate 90 degrees along land
+					local rotLeft = CFrame.Angles(0, math.rad(90), 0)
+					navHeading = (rotLeft * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+					actualMoveDir = navHeading
 					chosenY = lastGroundY
 				end
 			end
