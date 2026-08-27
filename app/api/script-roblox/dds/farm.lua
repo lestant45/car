@@ -552,6 +552,51 @@ local success, err = pcall(function()
 		return hum.SeatPart ~= nil
 	end
 
+	-- Multi-layer verification that passenger is actually on the motorcycle
+	local function isPassengerOnboard()
+		if passengerSeated then return true end
+
+		-- 1. Check Phone GUI status (changes from "Picking up" to "Dropping off" / "Delivering")
+		local phoneActiveStatus = false
+		local phoneStillPickingUp = false
+		pcall(function()
+			local pg = player:FindFirstChild("PlayerGui")
+			local phone = pg and pg:FindFirstChild("Phone")
+			local rideGO = phone and phone:FindFirstChild("RideGO", true)
+			if rideGO then
+				for _, lbl in ipairs(rideGO:GetDescendants()) do
+					if lbl:IsA("TextLabel") and lbl.Visible then
+						local txt = lbl.Text:lower()
+						if txt:find("picking up") or txt:find("to passenger") then
+							phoneStillPickingUp = true
+						end
+						if txt:find("drop") or txt:find("deliver") or txt:find("in trip") or txt:find("to destination") then
+							phoneActiveStatus = true
+						end
+					end
+				end
+			end
+		end)
+
+		if phoneActiveStatus and not phoneStillPickingUp then
+			passengerSeated = true
+			return true
+		end
+
+		-- 2. Check if a passenger model or second seat occupant is sitting on the motorcycle
+		local car, seat = getPlayerVehicle()
+		if car then
+			for _, s in ipairs(car:GetDescendants()) do
+				if (s:IsA("Seat") or s:IsA("VehicleSeat")) and s ~= seat and s.Occupant then
+					passengerSeated = true
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
 	-- ── Full End-to-End Trip Automation ──────────────────────────────────
 	local function executeTripAsync(token, name, initialPickup, initialDrop)
 		if taxiBusy then return end
@@ -590,27 +635,44 @@ local success, err = pcall(function()
 		if taxiPickupPos and taxiActive then
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to walk & sit...", 4, "warning")
 
-			task.spawn(function()
-				local pStart = tick()
-				while not passengerSeated and taxiActive and (tick() - pStart < 16) do
-					pcall(function()
-						for _, p in ipairs(workspace:GetDescendants()) do
-							if p:IsA("ProximityPrompt") and p.Enabled and (p.ActionText:find("Ride") or p.ActionText:find("Board") or p.ObjectText:find("Passenger")) then
-								if fireproximityprompt then fireproximityprompt(p) end
-							end
-						end
-					end)
-					task.wait(0.5)
+			-- Ensure player is firmly seated so DDS triggers passenger walking
+			mountBike()
+
+			local waitStartBoard = tick()
+			while not isPassengerOnboard() and taxiActive and (tick() - waitStartBoard < 45) do
+				holdVehicleStable(taxiPickupPos, 0.4, function() return not isPassengerOnboard() end)
+
+				-- Re-check seating if game prompted "Get on your motorbike"
+				local currentHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+				if not (currentHum and currentHum.SeatPart) then
+					mountBike()
 				end
-			end)
 
-			-- Wait while holding position until passenger is seated
-			holdVehicleStable(taxiPickupPos, 16, function() return not passengerSeated end)
+				-- Re-trigger nearby ProximityPrompts for passenger/bike
+				pcall(function()
+					for _, p in ipairs(workspace:GetDescendants()) do
+						if p:IsA("ProximityPrompt") and p.Enabled and (p.ActionText:find("Ride") or p.ActionText:find("Board") or p.ObjectText:find("Passenger")) then
+							if fireproximityprompt then fireproximityprompt(p) end
+						end
+					end
+				end)
+			end
 
-			-- Post-boarding pause so passenger is fully settled on rear seat before driving off
-			local settleDelay = tonumber(Config.passengerBoardDelay) or 3
-			UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
-			holdVehicleStable(taxiPickupPos, settleDelay, function() return true end)
+			-- ONLY proceed if passenger actually boarded the bike!
+			if isPassengerOnboard() then
+				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
+				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
+				holdVehicleStable(taxiPickupPos, settleDelay, function() return true end)
+			else
+				UI.Notify("⚠️ Boarding Failed", "Passenger did not board. Re-checking order...", 3, "warning")
+				taxiBusy = false
+				taxiToken = nil
+				if taxiActive then
+					task.wait(2)
+					TaxiEvent:FireServer("GoOnline")
+				end
+				return
+			end
 		end
 
 		task.wait(0.3)
@@ -784,7 +846,7 @@ local success, err = pcall(function()
 		taxiToken     = nil
 		taxiPickupPos = nil
 		taxiDropPos   = nil
-		passengerBoarded = false
+		passengerSeated = false
 		Config.autoRideGO = state
 
 		if state then
