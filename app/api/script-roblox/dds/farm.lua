@@ -470,7 +470,7 @@ local success, err = pcall(function()
 	local taxiToken       = nil
 	local taxiPickupPos   = nil
 	local taxiDropPos     = nil
-	local passengerBoarded = false
+	local passengerSeated = false
 	local taxiOverlayPoller = nil
 
 	-- Helper: extract Vector3 from dynamic payload formats
@@ -557,7 +557,7 @@ local success, err = pcall(function()
 		if taxiBusy then return end
 		taxiBusy = true
 		taxiToken = token
-		passengerBoarded = false
+		passengerSeated = false
 		taxiPickupPos = parsePosition(initialPickup)
 		taxiDropPos   = parsePosition(initialDrop)
 
@@ -586,11 +586,13 @@ local success, err = pcall(function()
 			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
 		end
 
-		-- 5. Hold vehicle stable on ground and wait for passenger to board
+		-- 5. Hold vehicle stable on ground and wait for passenger to walk & sit
 		if taxiPickupPos and taxiActive then
+			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to walk & sit...", 4, "warning")
+
 			task.spawn(function()
 				local pStart = tick()
-				while not passengerBoarded and taxiActive and (tick() - pStart < 12) do
+				while not passengerSeated and taxiActive and (tick() - pStart < 16) do
 					pcall(function()
 						for _, p in ipairs(workspace:GetDescendants()) do
 							if p:IsA("ProximityPrompt") and p.Enabled and (p.ActionText:find("Ride") or p.ActionText:find("Board") or p.ObjectText:find("Passenger")) then
@@ -601,10 +603,17 @@ local success, err = pcall(function()
 					task.wait(0.5)
 				end
 			end)
-			holdVehicleStable(taxiPickupPos, 12, function() return not passengerBoarded end)
+
+			-- Wait while holding position until passenger is seated
+			holdVehicleStable(taxiPickupPos, 16, function() return not passengerSeated end)
+
+			-- Post-boarding pause so passenger is fully settled on rear seat before driving off
+			local settleDelay = tonumber(Config.passengerBoardDelay) or 3
+			UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
+			holdVehicleStable(taxiPickupPos, settleDelay, function() return true end)
 		end
 
-		task.wait(0.5)
+		task.wait(0.3)
 
 		-- 6. Ride smoothly to Drop-off Location
 		if not taxiDropPos and taxiActive then
@@ -630,7 +639,7 @@ local success, err = pcall(function()
 		taxiToken = nil
 		taxiPickupPos = nil
 		taxiDropPos = nil
-		passengerBoarded = false
+		passengerSeated = false
 
 		-- 8. Ready for next order
 		if taxiActive then
@@ -681,21 +690,23 @@ local success, err = pcall(function()
 					if drop then taxiDropPos   = parsePosition(drop) end
 				end
 
-			elseif eventType == "PassengerBoarding" or eventType == "PassengerSeated" then
-				passengerBoarded = true
-				UI.Notify("Passenger Boarding 🛵", "Passenger is getting on...", 2, "warning")
+			elseif eventType == "PassengerBoarding" then
+				-- Passenger started walking towards bike
+				UI.Notify("Passenger Approaching 🚶", "Passenger is walking to the bike...", 3, "warning")
 
-			elseif eventType == "TripStarted" then
-				passengerBoarded = true
+			elseif eventType == "TripStarted" or eventType == "PassengerSeated" then
+				passengerSeated = true
 				if payload then
 					local drop = payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos
 					if drop then taxiDropPos = parsePosition(drop) end
 				end
-				UI.Notify("Trip Started! 🚀", "En route to destination.", 2, "success")
+				UI.Notify("Trip Started! 🚀", "Passenger on board.", 2, "success")
 
-				-- If driving was done manually or if trip is awaiting drop-off drive, trigger navigation
+				-- If driving was done manually or if trip is awaiting drop-off drive, trigger navigation with delay
 				if taxiDropPos and not isDrivingActive then
 					task.spawn(function()
+						local settleDelay = tonumber(Config.passengerBoardDelay) or 3
+						task.wait(settleDelay)
 						driveVehicleTo(taxiDropPos, Config.taxiSpeed)
 						task.wait(0.5)
 						if taxiActive then
@@ -711,7 +722,7 @@ local success, err = pcall(function()
 				end
 
 			elseif eventType == "OrderCompleted" or eventType == "TripComplete" then
-				passengerBoarded = false
+				passengerSeated = false
 				task.wait(0.3)
 				TaxiEvent:FireServer("AckTripComplete")
 				taxiBusy = false
@@ -726,7 +737,7 @@ local success, err = pcall(function()
 				taxiToken = nil
 				taxiPickupPos = nil
 				taxiDropPos = nil
-				passengerBoarded = false
+				passengerSeated = false
 				cancelActiveDrive()
 				UI.Notify("Order Reset", "Waiting for next offer...", 2, "warning")
 				if taxiActive then
@@ -1023,6 +1034,10 @@ local success, err = pcall(function()
 
 	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 40, 160, math.floor(Config.taxiSpeed or 90), function(val)
 		Config.taxiSpeed = val
+	end)
+
+	UI.AddSlider(tab, "Boarding Pause Delay (s)", 1, 8, math.floor(Config.passengerBoardDelay or 3), function(val)
+		Config.passengerBoardDelay = val
 	end)
 
 	UI.AddSection(tab, "Courier Package Delivery")
