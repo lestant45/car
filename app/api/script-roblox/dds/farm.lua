@@ -265,8 +265,9 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local hit = workspace:Raycast(Vector3.new(probePos.X, refY + 15, probePos.Z), Vector3.new(0, -40, 0), rayParams)
-			if hit and hit.Position.Y < 25 then
+			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 75), probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -180, 0), rayParams)
+			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 then
 				return hit.Position.Y + 0.3
 			end
 			return nil
@@ -305,7 +306,7 @@ local success, err = pcall(function()
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
 			local dist = flatDelta.Magnitude
 
-			if dist <= 5 then
+			if dist <= 12 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -329,14 +330,13 @@ local success, err = pcall(function()
 			local directHitY = probeGround(directProbePos, lastGroundY)
 
 			local actualMoveDir = directGoalDir
-			local chosenY = lastGroundY
+			local targetElevY = lastGroundY
 
 			if directHitY then
 				-- Direct path has solid ground: move directly towards destination
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
-				chosenY = directHitY
-				lastGroundY = chosenY
+				targetElevY = directHitY
 			else
 				-- 🚨 Void/Cliff edge ahead: sweep 360° fan to turn along the edge of the land
 				local baseDir = navHeading or directGoalDir
@@ -368,16 +368,25 @@ local success, err = pcall(function()
 				if bestDir then
 					actualMoveDir = bestDir
 					navHeading = bestDir
-					chosenY = bestY
-					lastGroundY = chosenY
+					targetElevY = bestY
 				else
 					-- Sharp corner: rotate 90 degrees along land
 					local rotLeft = CFrame.Angles(0, math.rad(90), 0)
 					navHeading = (rotLeft * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
 					actualMoveDir = navHeading
-					chosenY = lastGroundY
+					targetElevY = lastGroundY
 				end
 			end
+
+			-- Smooth vertical descent/ascent rate (avoids jerky vertical snaps on balconies and slopes)
+			local maxVertStep = math.max(25 * dt, 1.2)
+			local chosenY = lastGroundY
+			if chosenY > targetElevY then
+				chosenY = math.max(targetElevY, chosenY - maxVertStep)
+			elseif chosenY < targetElevY then
+				chosenY = math.min(targetElevY, chosenY + maxVertStep)
+			end
+			lastGroundY = chosenY
 
 			local newX = carPos.X + actualMoveDir.X * stepDist
 			local newZ = carPos.Z + actualMoveDir.Z * stepDist
