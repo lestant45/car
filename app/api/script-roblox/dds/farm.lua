@@ -66,24 +66,11 @@ local success, err = pcall(function()
 		return nil, nil
 	end
 
-	-- Spawns an invisible collision safety plate underneath destination
-	local function ensureSafetyPlate(pos, width)
-		width = width or 55
-		local plate = workspace:FindFirstChild("__DdsSafetyPlate")
-		if not plate then
-			plate = Instance.new("Part")
-			plate.Name = "__DdsSafetyPlate"
-			plate.Anchored = true
-			plate.CanCollide = true
-			plate.Transparency = 1
-			plate.CastShadow = false
-			plate.Material = Enum.Material.Concrete
-			pcall(function() plate.Parent = workspace end)
-		end
-		plate.Size = Vector3.new(width, 4, width)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 2.0, pos.Z)
-		return plate
-	end
+	-- Clean up any legacy artificial safety plates
+	pcall(function()
+		local old = workspace:FindFirstChild("__DdsSafetyPlate")
+		if old then old:Destroy() end
+	end)
 
 	local function requestStreamAsync(pos)
 		pcall(function()
@@ -236,8 +223,7 @@ local success, err = pcall(function()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
 
-		-- 1. Ensure collision safety plate & chunk streaming around destination
-		ensureSafetyPlate(targetPos, 60)
+		-- 1. Chunk streaming around destination
 		requestStreamAsync(targetPos)
 
 		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
