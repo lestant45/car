@@ -102,19 +102,37 @@ local success, err = pcall(function()
 				ensureSafetyPlate(safePos, 55)
 				car:PivotTo(CFrame.new(safePos + Vector3.new(0, 2.0, 0)))
 			end
+			-- Restore ONLY official collision parts on the DDS motorcycle to prevent physics explosion/unseat
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
-					part.CanCollide = true
+					local name = part.Name:lower()
+					if name == "dds_collision" or name == "primarypart" or name:find("tire") or name == "paint" or name == "foot" or name == "p" then
+						part.CanCollide = true
+					else
+						part.CanCollide = false
+					end
 				end
 			end
-			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
+			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
 			if seat then
 				seat.Throttle = 0
 				seat.ThrottleFloat = 0
 				seat.AssemblyLinearVelocity = Vector3.zero
+			end
+
+			-- Ensure player stays firmly seated on the motorcycle
+			local char = player.Character
+			local hum  = char and char:FindFirstChildOfClass("Humanoid")
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and seat and hum then
+				if not hum.Sit or hum.SeatPart ~= seat then
+					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					hum.Sit = true
+					seat:Sit(hum)
+				end
 			end
 		end)
 	end

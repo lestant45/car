@@ -149,17 +149,36 @@ local success, err = pcall(function()
 				local char = player.Character
 				if char then
 					local hum = char:FindFirstChildOfClass("Humanoid")
+					local root = char:FindFirstChild("HumanoidRootPart")
 					local isSeated = hum and hum.SeatPart ~= nil
+
 					for _, v in ipairs(char:GetDescendants()) do
 						if v:IsA("BasePart") then
-							if isSeated and (v.Name == "HumanoidRootPart" or v.Name == "LowerTorso" or v.Name == "UpperTorso" or v.Name == "Torso") then
-								-- Keep sitting weld and RootPart aligned with vehicle seat
-								if hum and hum.SeatPart and hum.Sit == false then
-									hum.Sit = true
+							if isSeated then
+								-- When seated in a vehicle: keep sitting position and don't unseat
+								if v.Name == "HumanoidRootPart" or v.Name == "LowerTorso" or v.Name == "UpperTorso" or v.Name == "Torso" then
+									if hum and hum.SeatPart and hum.Sit == false then
+										hum.Sit = true
+									end
+								else
+									v.CanCollide = false
 								end
 							else
+								-- When on foot: phase through walls
 								v.CanCollide = false
 							end
+						end
+					end
+
+					-- Anti-Void protection for on-foot Noclip (prevents falling through map if not flying)
+					if not isSeated and not flyActive and root then
+						local rayParams = RaycastParams.new()
+						rayParams.FilterDescendantsInstances = { char }
+						rayParams.FilterType = Enum.RaycastFilterType.Exclude
+						local hit = workspace:Raycast(root.Position + Vector3.new(0, 2, 0), Vector3.new(0, -6, 0), rayParams)
+						if hit and root.AssemblyLinearVelocity.Y < -5 then
+							root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+							root.CFrame = CFrame.new(root.Position.X, hit.Position.Y + 3.0, root.Position.Z) * (root.CFrame - root.Position)
 						end
 					end
 				end
