@@ -254,11 +254,11 @@ local success, err = pcall(function()
 		-- 2. Compute true road waypoints using PathfindingService
 		local PathfindingService = game:GetService("PathfindingService")
 		local path = PathfindingService:CreatePath({
-			AgentRadius = 1.0,
+			AgentRadius = 1.2,
 			AgentHeight = 3.0,
 			AgentCanJump = false,
 			AgentCanClimb = false,
-			WaypointSpacing = 10,
+			WaypointSpacing = 8,
 			Costs = { Water = math.huge }
 		})
 
@@ -274,9 +274,25 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Fallback to smooth segmented route if PathfindingService returned insufficient nodes
+		-- If PathfindingService found no navmesh (due to streaming), divide distance into dense road probes
 		if #waypoints < 2 then
-			waypoints = { startP, destP }
+			local totalDist = (startP - destP).Magnitude
+			local steps = math.clamp(math.floor(totalDist / 12), 2, 80)
+			for i = 0, steps do
+				local alpha = i / steps
+				local probeX = startP.X + (destP.X - startP.X) * alpha
+				local probeZ = startP.Z + (destP.Z - startP.Z) * alpha
+				local rayP = RaycastParams.new()
+				rayP.FilterDescendantsInstances = { car, char }
+				rayP.FilterType = Enum.RaycastFilterType.Exclude
+				local hit = workspace:Raycast(Vector3.new(probeX, startP.Y + 30, probeZ), Vector3.new(0, -60, 0), rayP)
+				if hit then
+					table.insert(waypoints, Vector3.new(probeX, hit.Position.Y + 0.3, probeZ))
+				end
+			end
+			if #waypoints < 2 then
+				waypoints = { startP, destP }
+			end
 		end
 
 		-- Selective Noclip on vehicle, driver, and passenger to smoothly phase through traffic/gates
@@ -297,7 +313,7 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			return workspace:Raycast(Vector3.new(probePos.X, refY + 25, probePos.Z), Vector3.new(0, -50, 0), rayParams)
+			return workspace:Raycast(Vector3.new(probePos.X, refY + 20, probePos.Z), Vector3.new(0, -45, 0), rayParams)
 		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
@@ -352,28 +368,47 @@ local success, err = pcall(function()
 			local moveDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
 			local stepDist = curSpeed * dt
 
-			-- Calculate overall progress for smooth height transition between islands
-			local overallDist = math.max(1, (startP - destP).Magnitude)
-			local overallAlpha = math.clamp(1 - (totalRemainingDist / overallDist), 0, 1)
-			local expectedHeight = startP.Y + (destP.Y - startP.Y) * overallAlpha
+			-- 🛡️ Genuine Road Probe: strictly follow real in-game terrain/road surface
+			local forwardProbePos = carPos + moveDir * math.max(stepDist * 1.5, 3)
+			local fwdHit = probeGround(forwardProbePos, lastGroundY)
 
-			-- Terrain / Road elevation raycast
-			local hit = probeGround(Vector3.new(carPos.X, lastGroundY + 15, carPos.Z), lastGroundY)
+			local actualMoveDir = moveDir
+			local chosenY = lastGroundY
 
-			local chosenY
-			if hit then
-				-- Touching solid land on island
-				chosenY = hit.Position.Y + 0.3
+			if fwdHit then
+				-- Direct road path is solid: follow naturally
+				chosenY = fwdHit.Position.Y + 0.3
 				lastGroundY = chosenY
 			else
-				-- Crossing ocean/gap between islands: smoothly transition height and deploy dynamic road plate
-				chosenY = expectedHeight
-				lastGroundY = chosenY
-				ensureSafetyPlate(Vector3.new(carPos.X, chosenY, carPos.Z), 45)
+				-- Ahead has no ground (void/cliff edge): search left/right angles for genuine road asphalt
+				local foundSafeRoad = false
+				for angle = 15, 120, 15 do
+					for _, sign in ipairs({ -1, 1 }) do
+						local rotCF = CFrame.Angles(0, math.rad(angle * sign), 0)
+						local altDir = (rotCF * Vector3.new(moveDir.X, 0, moveDir.Z)).Unit
+						local altProbePos = carPos + altDir * math.max(stepDist * 1.5, 3)
+						local altHit = probeGround(altProbePos, lastGroundY)
+						if altHit then
+							actualMoveDir = altDir
+							chosenY = altHit.Position.Y + 0.3
+							lastGroundY = chosenY
+							foundSafeRoad = true
+							break
+						end
+					end
+					if foundSafeRoad then break end
+				end
+
+				-- If genuine road ends or is not streamed yet: hold position and stream ahead without crossing void
+				if not foundSafeRoad then
+					chosenY = lastGroundY
+					requestStreamAsync(destP)
+					actualMoveDir = Vector3.zero
+				end
 			end
 
-			local newX = carPos.X + moveDir.X * stepDist
-			local newZ = carPos.Z + moveDir.Z * stepDist
+			local newX = carPos.X + actualMoveDir.X * stepDist
+			local newZ = carPos.Z + actualMoveDir.Z * stepDist
 			local newPos = Vector3.new(newX, chosenY, newZ)
 
 			local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
@@ -410,10 +445,10 @@ local success, err = pcall(function()
 				end
 
 				-- Velocity synchronization for physics & server replication
-				local velocityVec = moveDir * curSpeed
+				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
-					seat.Throttle = 1
-					seat.ThrottleFloat = 1
+					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
+					seat.ThrottleFloat = actualMoveDir.Magnitude > 0 and 1 or 0
 					seat.AssemblyLinearVelocity = velocityVec
 				end
 				local prim = car.PrimaryPart or seat
