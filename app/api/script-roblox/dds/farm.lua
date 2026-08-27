@@ -208,7 +208,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- 🚗 Safe Direct-Landing Vehicle Engine (Zero Void Fly, 100% Anti-Kick)
+	-- 🛣️ Pure Road Waypoint Navigation Engine (Real Driving, Follows Road Network, No Teleport)
 	local function driveVehicleTo(targetPos, speed)
 		if typeof(targetPos) == "CFrame" then
 			targetPos = targetPos.Position
@@ -221,13 +221,13 @@ local success, err = pcall(function()
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 
 		if not car or not seat or not (hum and hum.SeatPart) then
-			-- Ensure player is mounted before landing
+			-- Ensure player is mounted before driving
 			if mountBike and not (hum and hum.SeatPart) then
 				mountBike()
 				car, seat = getPlayerVehicle()
 			end
 			if not car or not seat then
-				warn("[HipHub DDS] driveVehicleTo: Vehicle not found, operation aborted to protect player")
+				warn("[HipHub DDS] driveVehicleTo: Vehicle not found, driving aborted to keep player safe")
 				return false
 			end
 		end
@@ -236,43 +236,206 @@ local success, err = pcall(function()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
 
-		-- 1. Ensure collision safety plate & chunk streaming around target
+		-- 1. Ensure collision safety plate & chunk streaming around destination
 		ensureSafetyPlate(targetPos, 60)
 		requestStreamAsync(targetPos)
-		task.wait(0.15)
 
-		-- 2. Calculate true solid ground elevation
-		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { car, char, workspace:FindFirstChild("__DdsSafetyPlate") }
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		local hit = workspace:Raycast(Vector3.new(targetPos.X, targetPos.Y + 35, targetPos.Z), Vector3.new(0, -70, 0), rayParams)
-		local groundY = hit and (hit.Position.Y + 0.3) or targetPos.Y
-		local safePos = Vector3.new(targetPos.X, groundY, targetPos.Z)
+		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
+		local startCF = car:GetPivot()
+		local startP  = startCF.Position
+		local destP   = targetPos
 
-		-- 3. Direct Landing on solid ground (Zero mid-air void transit)
-		pcall(function()
-			local currentPivot = car:GetPivot()
-			local safeCF = CFrame.new(safePos) * (currentPivot - currentPivot.Position)
-			car:PivotTo(safeCF)
+		if (startP - destP).Magnitude <= 6 then
+			safelySettleAndUnanchor(car, destP)
+			isDrivingActive = false
+			return true
+		end
 
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
+		-- 2. Compute true road waypoints using PathfindingService
+		local PathfindingService = game:GetService("PathfindingService")
+		local path = PathfindingService:CreatePath({
+			AgentRadius = 2.5,
+			AgentHeight = 4.5,
+			AgentCanJump = false,
+			AgentCanClimb = false,
+			WaypointSpacing = 14
+		})
+
+		local success, _ = pcall(function()
+			path:ComputeAsync(startP, destP)
+		end)
+
+		local waypoints = {}
+		if success and path.Status == Enum.PathStatus.Success then
+			local rawWaypoints = path:GetWaypoints()
+			for _, wp in ipairs(rawWaypoints) do
+				table.insert(waypoints, wp.Position)
+			end
+		end
+
+		-- Fallback to smooth segmented route if PathfindingService returned insufficient nodes
+		if #waypoints < 2 then
+			waypoints = { startP, destP }
+		end
+
+		-- Selective Noclip on vehicle, driver, and passenger to smoothly phase through traffic/gates
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				part.Anchored = false
+			end
+		end
+
+		local driveFinished = false
+		local currentWpIndex = 1
+		local lastTick = os.clock()
+		local lastGroundY = startP.Y
+
+		currentDriveConn = RunService.Heartbeat:Connect(function()
+			if not isDrivingActive then
+				if currentDriveConn then currentDriveConn:Disconnect() end
+				driveFinished = true
+				return
 			end
 
-			if root and seat and hum then
-				root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-				hum.Sit = true
-				seat:Sit(hum)
+			local now = os.clock()
+			local dt = math.clamp(now - lastTick, 0.001, 0.1)
+			lastTick = now
+
+			local carCF = car:GetPivot()
+			local carPos = carCF.Position
+			local targetWp = waypoints[currentWpIndex]
+
+			if not targetWp then
+				driveFinished = true
+				if currentDriveConn then currentDriveConn:Disconnect() end
+				return
+			end
+
+			local totalRemainingDist = (carPos - destP).Magnitude
+			local segDelta = targetWp - carPos
+			local segFlatDelta = Vector3.new(segDelta.X, 0, segDelta.Z)
+			local segDist = segFlatDelta.Magnitude
+
+			-- If reached current waypoint, advance to next
+			if segDist < 7 then
+				currentWpIndex = currentWpIndex + 1
+				if currentWpIndex > #waypoints then
+					driveFinished = true
+					if currentDriveConn then currentDriveConn:Disconnect() end
+					return
+				end
+				targetWp = waypoints[currentWpIndex]
+				segDelta = targetWp - carPos
+				segFlatDelta = Vector3.new(segDelta.X, 0, segDelta.Z)
+				segDist = segFlatDelta.Magnitude
+			end
+
+			-- 🏎️ Dynamic smooth deceleration when within 120 studs of destination
+			local curSpeed = speed
+			if totalRemainingDist < 120 then
+				local factor = math.clamp(totalRemainingDist / 120, 0, 1)
+				local ease = factor * factor * (3 - 2 * factor)
+				local minApproachSpeed = math.min(18, speed * 0.3)
+				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
+			end
+
+			local moveDir = segFlatDelta.Magnitude > 0.1 and segFlatDelta.Unit or Vector3.new(0, 0, -1)
+			local stepDist = curSpeed * dt
+			local newX = carPos.X + moveDir.X * stepDist
+			local newZ = carPos.Z + moveDir.Z * stepDist
+
+			-- Terrain / Road elevation raycast
+			local rayParams = RaycastParams.new()
+			rayParams.FilterDescendantsInstances = { car, char }
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			local hit = workspace:Raycast(Vector3.new(newX, lastGroundY + 25, newZ), Vector3.new(0, -50, 0), rayParams)
+
+			local newY
+			if hit then
+				newY = hit.Position.Y + 0.3
+				lastGroundY = newY
+			else
+				newY = lastGroundY
+				ensureSafetyPlate(Vector3.new(newX, newY, newZ), 35)
+			end
+
+			local newPos = Vector3.new(newX, newY, newZ)
+			local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
+			local currentRot = CFrame.Angles(0, currentYaw, 0)
+			local currentCF  = CFrame.new(newPos) * currentRot
+
+			pcall(function()
+				car:PivotTo(currentCF)
+
+				-- Maintain noclip on vehicle, character, and passenger
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+						part.Anchored = false
+					end
+				end
+
+				if char then
+					for _, part in ipairs(char:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
+					end
+				end
+
+				local activeMissions = workspace:FindFirstChild("ActiveMissions")
+				local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+				if passengerNpc then
+					for _, part in ipairs(passengerNpc:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
+					end
+				end
+
+				-- Velocity synchronization for physics & server replication
+				local velocityVec = moveDir * curSpeed
+				if seat:IsA("VehicleSeat") then
+					seat.Throttle = 1
+					seat.ThrottleFloat = 1
+					seat.AssemblyLinearVelocity = velocityVec
+				end
+				local prim = car.PrimaryPart or seat
+				if prim then
+					prim.AssemblyLinearVelocity = velocityVec
+				end
+
+				-- Keep character firmly seated in driver seat & prevent ragdoll ejection
+				if root and seat and hum then
+					if not hum.Sit or hum.SeatPart ~= seat then
+						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+						hum.Sit = true
+						seat:Sit(hum)
+					end
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+				end
+			end)
+
+			if totalRemainingDist <= 5 then
+				driveFinished = true
+				if currentDriveConn then currentDriveConn:Disconnect() end
 			end
 		end)
 
-		task.wait(0.2)
-		safelySettleAndUnanchor(car, safePos)
+		while not driveFinished and isDrivingActive do
+			task.wait(0.03)
+		end
+
+		if currentDriveConn then
+			pcall(function() currentDriveConn:Disconnect() end)
+			currentDriveConn = nil
+		end
+
+		safelySettleAndUnanchor(car, destP)
 		isDrivingActive = false
-		return true
+		return (car:GetPivot().Position - destP).Magnitude <= 15
 	end
 
 	-- Universal Safe Navigation Function (handles vehicles or characters)
@@ -666,11 +829,6 @@ local success, err = pcall(function()
 		end
 
 		if taxiDropPos and taxiActive then
-			-- Calculate trip distance & required realistic travel time so server route validation passes instantly
-			local tripDist = (taxiDropPos - (taxiPickupPos or (player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position) or taxiDropPos)).Magnitude
-			local speed = tonumber(Config.taxiSpeed) or 65
-			local neededTripDuration = math.clamp(math.floor(tripDist / speed), 6, 28)
-
 			-- STATE: DRIVING_TO_DESTINATION
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
@@ -683,13 +841,6 @@ local success, err = pcall(function()
 			-- Settle vehicle firmly on solid road at exact drop-off coordinates
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiDropPos)
-
-			-- Realistic Route Simulation Wait: safely parked at destination
-			UI.Notify("At Destination 🛵", string.format("Completing trip route (%ds)...", neededTripDuration), 3, "warning")
-			local startWait = tick()
-			while (tick() - startWait < neededTripDuration) and taxiActive do
-				task.wait(0.5)
-			end
 
 			-- Wait for server trigger / passenger to disembark from the bike
 			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 3, "success")
