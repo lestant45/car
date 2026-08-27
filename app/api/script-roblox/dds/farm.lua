@@ -520,14 +520,20 @@ local success, err = pcall(function()
 	local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 	local SpawnCarRemote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
 
-	local TAXI_BIKE_NAME  = "Yamahax-MioSporty"
-	local taxiActive      = false
-	local taxiBusy        = false
-	local taxiToken       = nil
-	local taxiPickupPos   = nil
-	local taxiDropPos     = nil
-	local passengerSeated = false
-	local taxiOverlayPoller = nil
+	local TAXI_BIKE_NAME      = "Yamahax-MioSporty"
+	local taxiActive          = false
+	local taxiBusy            = false
+	local taxiState           = "IDLE" -- IDLE, WAITING_FOR_NEXT_ORDER, NEW_ORDER_DETECTED, PICKING_UP, DRIVING_TO_DESTINATION, DROPPING_OFF
+	local taxiToken           = nil
+	local lastCompletedToken  = nil
+	local taxiPickupPos       = nil
+	local taxiDropPos         = nil
+	local passengerSeated     = false
+	local taxiOverlayPoller   = nil
+
+	local function setTaxiState(newState)
+		taxiState = newState
+	end
 
 	-- Helper: extract Vector3 from dynamic payload formats
 	local function parsePosition(val)
@@ -644,11 +650,27 @@ local success, err = pcall(function()
 	-- ── Full End-to-End Trip Automation ──────────────────────────────────
 	local function executeTripAsync(token, name, initialPickup, initialDrop)
 		if taxiBusy then return end
+		if not token or token == lastCompletedToken then
+			-- Ignore stale or already completed order
+			return
+		end
+
 		taxiBusy = true
 		taxiToken = token
 		passengerSeated = false
 		taxiPickupPos = parsePosition(initialPickup)
 		taxiDropPos   = parsePosition(initialDrop)
+
+		-- STATE: NEW_ORDER_DETECTED
+		setTaxiState("NEW_ORDER_DETECTED")
+		print("[PASSENGER] New order detected")
+		if taxiPickupPos then
+			print("[PASSENGER] New pickup location acquired")
+		end
+		print("[PASSENGER] Resuming normal passenger workflow")
+
+		-- STATE: PICKING_UP
+		setTaxiState("PICKING_UP")
 
 		-- 1. Accept Order
 		TaxiEvent:FireServer("AcceptOrder", token)
@@ -705,8 +727,11 @@ local success, err = pcall(function()
 				task.wait(settleDelay)
 			else
 				UI.Notify("⚠️ Boarding Timeout", "Passenger did not board. Resetting...", 3, "warning")
+				lastCompletedToken = token
 				taxiBusy = false
 				taxiToken = nil
+				setTaxiState("WAITING_FOR_NEXT_ORDER")
+				print("[PASSENGER] Waiting at current destination for next order...")
 				if taxiActive then
 					task.wait(2)
 					TaxiEvent:FireServer("GoOnline")
@@ -726,23 +751,34 @@ local success, err = pcall(function()
 		end
 
 		if taxiDropPos and taxiActive then
+			-- STATE: DRIVING_TO_DESTINATION
+			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
 			driveVehicleTo(taxiDropPos, Config.taxiSpeed)
 
-			-- Settle vehicle safely at destination
+			-- STATE: DROPPING_OFF
+			setTaxiState("DROPPING_OFF")
+			print("[PASSENGER] Reached destination")
+
+			-- Settle vehicle safely at exact destination
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiDropPos)
 
-			-- Wait 3 seconds so passenger can comfortably step off the bike
+			-- Wait until passenger completes normal drop-off/exit interaction
 			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking (3s)...", 3, "success")
 			task.wait(3.0)
+			print("[PASSENGER] Passenger drop-off confirmed")
 		end
 
 		-- 7. Complete Trip & Acknowledge
 		if taxiActive then
 			TaxiEvent:FireServer("AckTripComplete")
+			print("[PASSENGER] Order completed")
 			UI.Notify("🏆 Trip Complete!", "Fare earned. Waiting for next order...", 3, "success")
 		end
+
+		-- Record completed order token to guarantee we never re-execute it
+		lastCompletedToken = token
 
 		taxiBusy = false
 		taxiToken = nil
@@ -750,7 +786,13 @@ local success, err = pcall(function()
 		taxiDropPos = nil
 		passengerSeated = false
 
-		-- 8. Ready for next order
+		-- STATE: WAITING_FOR_NEXT_ORDER
+		setTaxiState("WAITING_FOR_NEXT_ORDER")
+		print("[PASSENGER] Waiting at current destination for next order...")
+
+		-- While in WAITING_FOR_NEXT_ORDER:
+		-- Remain completely stationary at the exact destination.
+		-- Go online so server sends the next available order offer.
 		if taxiActive then
 			task.wait(1.5)
 			TaxiEvent:FireServer("GoOnline")
@@ -772,6 +814,9 @@ local success, err = pcall(function()
 
 			if eventType == "DutyStarted" then
 				UI.Notify("RideGO Online ✅", "Mounted & waiting for orders...", 3, "success")
+				if not taxiBusy then
+					setTaxiState("WAITING_FOR_NEXT_ORDER")
+				end
 
 			elseif eventType == "OrderOffer" and not taxiBusy then
 				local token = payload and (payload.Token or payload.token or payload.OrderId)
@@ -781,7 +826,10 @@ local success, err = pcall(function()
 				local pickPos = payload and (payload.PickupPos or payload.PickupPosition or payload.Pickup or payload.StartPos)
 				local dropP   = payload and (payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos)
 
-				if not token then return end
+				if not token or token == lastCompletedToken then
+					-- Ignore stale/duplicate order
+					return
+				end
 
 				if isAnom then
 					UI.Notify("👻 ANOMALY ORDER!", "Rare passenger: " .. name, 4, "warning")
@@ -811,19 +859,6 @@ local success, err = pcall(function()
 				end
 				UI.Notify("Trip Started! 🚀", "Passenger on board.", 2, "success")
 
-				-- If driving was done manually or if trip is awaiting drop-off drive, trigger navigation with delay
-				if taxiDropPos and not isDrivingActive then
-					task.spawn(function()
-						local settleDelay = tonumber(Config.passengerBoardDelay) or 3
-						task.wait(settleDelay)
-						driveVehicleTo(taxiDropPos, Config.taxiSpeed)
-						task.wait(0.5)
-						if taxiActive then
-							TaxiEvent:FireServer("AckTripComplete")
-						end
-					end)
-				end
-
 			elseif eventType == "DutyEnded" then
 				if taxiActive and not taxiBusy then
 					task.wait(1.5)
@@ -832,13 +867,14 @@ local success, err = pcall(function()
 
 			elseif eventType == "OrderCompleted" or eventType == "TripComplete" then
 				passengerSeated = false
-				task.wait(0.3)
-				TaxiEvent:FireServer("AckTripComplete")
-				taxiBusy = false
-				taxiToken = nil
-				if taxiActive then
-					task.wait(1.5)
-					TaxiEvent:FireServer("GoOnline")
+				if not taxiBusy then
+					task.wait(0.3)
+					TaxiEvent:FireServer("AckTripComplete")
+					setTaxiState("WAITING_FOR_NEXT_ORDER")
+					if taxiActive then
+						task.wait(1.5)
+						TaxiEvent:FireServer("GoOnline")
+					end
 				end
 
 			elseif eventType == "OrderExpired" or eventType == "OrderCancelled" or eventType == "OrderDeclined" then
@@ -848,6 +884,8 @@ local success, err = pcall(function()
 				taxiDropPos = nil
 				passengerSeated = false
 				cancelActiveDrive()
+				setTaxiState("WAITING_FOR_NEXT_ORDER")
+				print("[PASSENGER] Waiting at current destination for next order...")
 				UI.Notify("Order Reset", "Waiting for next offer...", 2, "warning")
 				if taxiActive then
 					task.wait(2)
@@ -876,7 +914,9 @@ local success, err = pcall(function()
 								local last = _G.HipHubTaxiLog[#_G.HipHubTaxiLog]
 								local args = last.args or {}
 								if args[1] == "OrderOffer" and type(args[2]) == "table" and args[2].Token then
-									task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName, args[2].PickupPos, args[2].DropPos)
+									if args[2].Token ~= lastCompletedToken then
+										task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName, args[2].PickupPos, args[2].DropPos)
+									end
 								end
 							end
 						end
@@ -888,13 +928,15 @@ local success, err = pcall(function()
 	end
 
 	local function toggleAutoRideGO(state)
-		taxiActive    = state
-		taxiBusy      = false
-		taxiToken     = nil
-		taxiPickupPos = nil
-		taxiDropPos   = nil
-		passengerSeated = false
-		Config.autoRideGO = state
+		taxiActive         = state
+		taxiBusy           = false
+		taxiToken          = nil
+		lastCompletedToken = nil
+		taxiPickupPos      = nil
+		taxiDropPos        = nil
+		passengerSeated    = false
+		taxiState          = state and "WAITING_FOR_NEXT_ORDER" or "IDLE"
+		Config.autoRideGO  = state
 
 		if state then
 			changeTeam("RideGO Driver")
@@ -905,23 +947,18 @@ local success, err = pcall(function()
 				task.wait(0.3)
 			end
 
-			-- 1. Spawn motorcycle
-			UI.Notify("🏍️ Spawning Bike", "Spawning " .. TAXI_BIKE_NAME .. "...", 2, "warning")
-			spawnTaxiBike()
-
-			-- 2. Mount the motorcycle immediately
-			UI.Notify("🏍️ Mounting Bike", "Getting on motorcycle...", 2, "warning")
-			mountBike()
-
-			-- 3. Go online to receive OrderOffer events
-			if TaxiEvent then
-				TaxiEvent:FireServer("GoOnline")
-			end
-
-			-- 4. Start overlay backup poller
 			startPhoneOverlayPoller()
 
-			UI.Notify("Auto RideGO Active ✅", "Bike ready & seated. Waiting for orders.", 3, "success")
+			-- Spawn & mount taxi bike
+			task.spawn(function()
+				mountBike()
+				task.wait(1)
+				if TaxiEvent then
+					TaxiEvent:FireServer("GoOnline")
+				end
+			end)
+
+			UI.Notify("RideGO Auto-Farm ON", "Waiting for orders at current location...", 3, "success")
 		else
 			if taxiOverlayPoller then
 				task.cancel(taxiOverlayPoller)
@@ -931,7 +968,7 @@ local success, err = pcall(function()
 			if TaxiEvent then
 				TaxiEvent:FireServer("GoOffline")
 			end
-			UI.Notify("Auto RideGO Stopped", "Went offline.", 2, "warning")
+			UI.Notify("RideGO Auto-Farm OFF", "Driver offline.", 2, "warning")
 		end
 	end
 
