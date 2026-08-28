@@ -1091,37 +1091,19 @@ local success, err = pcall(function()
 			safelySettleAndUnanchor(car, taxiDropPos)
 			ensureDriverSeated()
 
-			-- ⏱️ Natural Server Speed & Route Duration Safeguard:
-			-- Hitung durasi wajar perjalanan di server (kecepatan rata-rata aman 75 stud/s)
-			local safeAvgSpeed = 75
-			local minTripTime = math.min(tripDistance / safeAvgSpeed, 40)
-			local elapsedTripTime = tick() - tripStartTime
-
-			if elapsedTripTime < minTripTime then
-				local waitDiff = math.ceil(minTripTime - elapsedTripTime)
-				if waitDiff > 0 and waitDiff <= 30 then
-					UI.Notify("📍 Tiba di Destinasi", string.format("Memvalidasi rute wajar (%.0fs)...", waitDiff), waitDiff, "warning")
-					local routeHoldStart = tick()
-					while (tick() - routeHoldStart < waitDiff) and taxiActive do
-						ensureDriverSeated()
-						task.wait(0.5)
-					end
-				end
-			end
-
-			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 3, "success")
+			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 2, "success")
 			local disembarkWait = tick()
-			while isPassengerOnboard() and taxiActive and (tick() - disembarkWait < 18) do
-				task.wait(0.4)
+			while isPassengerOnboard() and taxiActive and (tick() - disembarkWait < 8) do
+				task.wait(0.3)
 			end
 
-			task.wait(1.5)
+			task.wait(0.5)
 		end
 
 		-- 7. Complete Trip & Acknowledge
 		if taxiActive then
 			TaxiEvent:FireServer("AckTripComplete")
-			UI.Notify("🏆 Trip Complete!", "Fare earned. Waiting for next order...", 3, "success")
+			UI.Notify("🏆 Trip Complete!", "Fare earned. Ready for next order!", 2, "success")
 		end
 
 		lastCompletedToken = token
@@ -1132,11 +1114,6 @@ local success, err = pcall(function()
 		passengerSeated = false
 
 		setTaxiState("WAITING_FOR_NEXT_ORDER")
-
-		if taxiActive then
-			task.wait(2.5)
-			TaxiEvent:FireServer("GoOnline")
-		end
 	end
 
 	-- Taxi Remote Events Listener
@@ -1231,12 +1208,12 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Phone Screen Overlay Poller (backup)
+	-- Phone Screen Overlay Poller (Fast auto-accept on UI popup)
 	local function startPhoneOverlayPoller()
 		if taxiOverlayPoller then return end
 		taxiOverlayPoller = task.spawn(function()
 			while taxiActive do
-				task.wait(0.5)
+				task.wait(0.2)
 				if not taxiBusy and taxiActive then
 					pcall(function()
 						local pg = player:FindFirstChild("PlayerGui")
@@ -1251,6 +1228,7 @@ local success, err = pcall(function()
 								local args = last.args or {}
 								if args[1] == "OrderOffer" and type(args[2]) == "table" and args[2].Token then
 									if args[2].Token ~= lastCompletedToken then
+										overlay.Visible = false
 										task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName, args[2].PickupPos, args[2].DropPos)
 									end
 								end
