@@ -495,6 +495,26 @@ local success, err = pcall(function()
 			pcall(function() seat:Sit(hum) end)
 		end
 
+		-- ⏱️ Jeda 1 Detik di Daratan Seberang + Pengecekan Kursi Pengemudi & Penumpang
+		UI.Notify("🌉 Jurang Dilompati", "Mendarat di seberang, menstabilkan posisi (1s)...", 1.2, "success")
+		task.wait(1.0)
+
+		-- Verifikasi pengemudi tetap duduk di motor sebelum melanjutkan berkendara
+		ensureDriverSeated()
+
+		-- Nol-kan kembali seluruh kecepatan agar mulai melaju dari 0 km/h secara mulus
+		pcall(function()
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity  = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+			if seat then
+				seat.AssemblyLinearVelocity = Vector3.zero
+			end
+		end)
+
 		return landPos
 	end
 
@@ -737,6 +757,23 @@ local success, err = pcall(function()
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
+
+			-- 🛑 150-Stud Cliff Lookahead: Jika 150 stud ke depan ada jurang, lakukan pengereman bertahap hingga 0 km/h di tepi jurang
+			local solidAheadDist = 150
+			for lookDist = 15, 150, 15 do
+				local testPos = carPos + directGoalDir * lookDist
+				if not probeGround(testPos, lastGroundY) then
+					solidAheadDist = lookDist
+					break
+				end
+			end
+
+			if solidAheadDist < 150 then
+				local cliffProgress = math.clamp((solidAheadDist - 15) / 135, 0, 1)
+				local targetCliffSpeed = speed * (cliffProgress * cliffProgress)
+				curSpeed = math.min(curSpeed, targetCliffSpeed)
+			end
+
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 4)
 
