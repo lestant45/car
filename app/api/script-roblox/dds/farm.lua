@@ -143,14 +143,49 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- 🛣️ Road & Ground detection whitelist for DDS map
+	local function isRoadOrGround(obj)
+		if obj:IsA("Terrain") then return true end
+		local name = obj.Name:upper()
+		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("RUMAH") or name:find("GEDUNG")
+			or name:find("HOUSE") or name:find("LANTAI") or name:find("SHOP") or name:find("DEALER")
+			or name:find("GARAGE") or name:find("PAGAR") or name:find("RAIL") or name:find("LAMPU")
+			or name:find("POHON") or name:find("PROPS") or name:find("SETTING") or name:find("STOPPER")
+			or name:find("MACHINE") or name:find("MODEL") or name:find("MONTOR") or name:find("CAR")
+			or name:find("VEHICLE") or name:find("MISSION") or name:find("QUEST") or name:find("MANCING")
+			or name:find("JOB") or name:find("FLAG") or name:find("SIGN") or name:find("CONE")
+			or name:find("BARRIER") or name:find("PITCH") or name:find("STAGE") or name:find("PANGGUNG")
+			or name:find("TIMER") or name:find("DISPLAY") or name:find("HELMET")
+		then
+			return false
+		end
+		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" then
+			return true
+		end
+		return false
+	end
+
+	local function getGroundExcludeFilter(car)
+		local filter = { car, player.Character }
+		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if existingPlate then
+			table.insert(filter, existingPlate)
+		end
+		for _, c in ipairs(workspace:GetChildren()) do
+			if not isRoadOrGround(c) then
+				table.insert(filter, c)
+			end
+		end
+		return filter
+	end
+
 	local function safelySettleAndUnanchor(car, safePos)
 		if not car then return end
 		neutralizeBikeHazards(car)
 		pcall(function()
 			if safePos then
 				local rayParams = RaycastParams.new()
-				local filter = { car, player.Character, workspace:FindFirstChild("__DdsSafetyPlate") }
-				rayParams.FilterDescendantsInstances = filter
+				rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
@@ -363,18 +398,8 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- 2. Build Building & Prop filter to ignore elevated roofs and safety plate
-		local buildingFilter = { car, char }
-		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
-		if existingPlate then
-			table.insert(buildingFilter, existingPlate)
-		end
-		for _, c in ipairs(workspace:GetChildren()) do
-			local name = c.Name:lower()
-			if name:sub(1, 8) == "building" or name:sub(1, 5) == "props" or name:sub(1, 7) == "setting" or name:find("bangunan") or name:find("rumah") or name:find("gedung") or name:find("pohon") or name:find("lampu") or name:find("barrier") or name:find("fence") or name:find("stop") then
-				table.insert(buildingFilter, c)
-			end
-		end
+		-- 2. Build comprehensive Ground filter to ignore ALL buildings, houses, roofs, and props
+		local buildingFilter = getGroundExcludeFilter(car)
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = buildingFilter
@@ -462,40 +487,39 @@ local success, err = pcall(function()
 				return
 			end
 
-			-- 🚨 Stuck Recovery: jika tidak ada progress ke destination selama >= 3 detik,
-			-- teleport maju langsung ke arah destination menembus rintangan (dinding, pagar, dll)
+			-- 🚨 Stuck Recovery: jika tidak ada progress ke destination selama >= 2.5 detik,
+			-- teleport maju langsung ke arah destination menembus rintangan (dinding, rumah, dll)
 			local nowClock = os.clock()
-			if dist < stuckLastDist - 2 then
+			if dist < stuckLastDist - 2.5 then
 				-- Progress normal: update tracker
 				stuckLastDist = dist
 				stuckLastTime = nowClock
-			elseif (nowClock - stuckLastTime) >= 3.0 and stuckNudgeCount < 8 then
-				-- Stuck selama >= 3 detik dan belum terlalu banyak nudge: paksa maju
+			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 then
+				-- Stuck selama >= 2.5 detik dan belum terlalu banyak nudge: paksa maju
 				stuckNudgeCount = stuckNudgeCount + 1
 				stuckLastTime   = nowClock
 				stuckLastDist   = dist
 
 				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
-				-- Teleport maju 25 stud ke arah destination (menembus rintangan)
-				local nudgeDist = math.min(25, dist - 5)
+				-- Teleport maju 30 stud ke arah destination (menembus rintangan/gedung)
+				local nudgeDist = math.min(30, dist - 4)
 				if nudgeDist > 0 then
 					local nudgePos2D = Vector3.new(
 						carPos.X + nudgeDir.X * nudgeDist,
 						0,
 						carPos.Z + nudgeDir.Z * nudgeDist
 					)
-					-- Cari Y ground di titik nudge
+					-- Cari Y ground asli di bawah bangunan di titik nudge
 					local nudgeRp = RaycastParams.new()
-					nudgeRp.FilterDescendantsInstances = { car, player.Character }
+					nudgeRp.FilterDescendantsInstances = buildingFilter
 					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
 					local nudgeHit = workspace:Raycast(
 						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
 						Vector3.new(0, -140, 0),
 						nudgeRp
 					)
-					local nudgeY = (nudgeHit and nudgeHit.Normal and nudgeHit.Normal.Y >= 0.6
-						and nudgeHit.Position.Y >= -20 and nudgeHit.Position.Y <= 50)
-						and (nudgeHit.Position.Y + 2.5)
+					local nudgeY = (nudgeHit and nudgeHit.Position.Y >= -20 and nudgeHit.Position.Y <= 50)
+						and (nudgeHit.Position.Y + 1.5)
 						or lastGroundY
 					local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
 
