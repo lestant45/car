@@ -559,18 +559,6 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 🎯 Direct Destination Sector Leap Fallback:
-		-- Jika jurang sangat lebar (> 300 stud), minta stream langsung di sekitar titik tujuan
-		-- dan teleport ke daratan tujuan jika valid!
-		if flatDiff.Magnitude > 300 then
-			requestStreamAsync(toPos)
-			local destHit = workspace:Raycast(Vector3.new(toPos.X, 60, toPos.Z), Vector3.new(0, -120, 0), brp)
-			if destHit and destHit.Position.Y >= -20 and destHit.Position.Y <= 75 then
-				local landPos = Vector3.new(toPos.X, destHit.Position.Y + 0.5, toPos.Z)
-				return teleportVehicleAcrossVoid(car, landPos, baseDir)
-			end
-		end
-
 		return nil
 	end
 
@@ -632,21 +620,11 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Noclip on vehicle, driver, and passenger
+		-- Selective Noclip on vehicle parts
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
 				part.Anchored = false
-			end
-		end
-
-		-- Pre-check void bridge
-		if (startP - destP).Magnitude > 20 then
-			local bridgeLanding = attemptVoidBridge(car, startP, destP, buildingFilter)
-			if bridgeLanding then
-				startP = bridgeLanding
-				UI.Notify("🌉 Jurang Dilompati", "Melanjutkan navigasi...", 2, "success")
-				task.wait(0.1)
 			end
 		end
 
