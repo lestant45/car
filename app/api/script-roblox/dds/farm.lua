@@ -1,6 +1,6 @@
--- 💰 HipHub DDS — Advanced Auto-Farm Suite
+-- 💰 HipHub DDS — RideGO Taxi Auto-Farm Engine
 -- Drag Drive Simulator (Place ID: 131378148336503)
--- Features: Auto Barista, Auto RideGO Taxi, Auto Courier, Auto Drag Race, Auto Daily Quests, Auto Codes
+-- Features: Fully Autonomous RideGO Taxi Farming, Void Bridging & Anti-Accident Stabilization
 
 local success, err = pcall(function()
 	local UI = _G.HipHubUI
@@ -14,19 +14,13 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
-		autoBarista = false,
-		baristaMinigameDelay = 2.2,
 		autoRideGO = false,
 		taxiSpeed = 90,
-		autoCourier = false,
-		courierSpeed = 95,
-		autoDragRace = false,
-		dragTargetTime = 6.5,
-		autoDailyQuests = false
+		passengerBoardDelay = 3
 	}
 
 	------------------------------------------------
-	-- 🛠️ CDID-STYLE ROBUST VEHICLE & MOVEMENT ENGINE
+	-- 🛠️ 1. VEHICLE & MOVEMENT CORE ENGINE
 	------------------------------------------------
 	local currentDriveConn = nil
 	local isDrivingActive  = false
@@ -55,7 +49,7 @@ local success, err = pcall(function()
 			return model or seat.Parent, seat
 		end
 
-		-- Search workspace direct children for player's motorcycle (avoid matching player's Character model)
+		-- Search workspace direct children for player's motorcycle
 		for _, c in ipairs(workspace:GetChildren()) do
 			if c:IsA("Model") and c ~= char and (c.Name:find(player.Name) or c.Name:find("Montor") or c:FindFirstChild("DriveSeat")) then
 				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
@@ -94,12 +88,110 @@ local success, err = pcall(function()
 		end)
 	end
 
+	local TAXI_BIKE_NAME = "Yamahax-MioSporty"
+
+	local function spawnTaxiBike()
+		local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+		local remote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
+		if not remote then return end
+		pcall(function() remote:FireServer(TAXI_BIKE_NAME) end)
+		task.wait(2)
+	end
+
+	local function findRidePrompt()
+		local car, seat = getPlayerVehicle()
+		if car then
+			for _, pr in ipairs(car:GetDescendants()) do
+				if pr:IsA("ProximityPrompt") and pr.ActionText == "Ride" then
+					return pr, pr.Parent
+				end
+			end
+		end
+		for _, c in ipairs(workspace:GetChildren()) do
+			if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c:FindFirstChild("DriveSeat")) then
+				for _, pr in ipairs(c:GetDescendants()) do
+					if pr:IsA("ProximityPrompt") and pr.ActionText == "Ride" then
+						return pr, pr.Parent
+					end
+				end
+			end
+		end
+		return nil, nil
+	end
+
+	local function neutralizeBikeHazards(car)
+		if not car then return end
+		pcall(function()
+			for _, s in ipairs(car:GetDescendants()) do
+				if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident")) then
+					s.Disabled = true
+				end
+			end
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+				hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			end
+		end)
+	end
+
+	local function mountBike()
+		local char = player.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if not hum then return false end
+		if hum.SeatPart then return true end
+
+		local prompt, seatPart = findRidePrompt()
+		if not prompt or not seatPart then
+			UI.Notify("⚠️ Bike Not Found", "Spawning new motorcycle...", 2, "warning")
+			spawnTaxiBike()
+			prompt, seatPart = findRidePrompt()
+			if not prompt or not seatPart then return false end
+		end
+
+		local car = seatPart:FindFirstAncestorOfClass("Model") or seatPart.Parent
+		if car then
+			neutralizeBikeHazards(car)
+			-- Upright bike so it's not tipped over
+			pcall(function()
+				local pivot = car:GetPivot()
+				car:PivotTo(CFrame.new(pivot.Position + Vector3.new(0, 1.5, 0)))
+			end)
+		end
+
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if root and seatPart then
+			root.CFrame = seatPart.CFrame + Vector3.new(0, 1.0, 0)
+			task.wait(0.15)
+
+			pcall(function()
+				if fireproximityprompt then
+					fireproximityprompt(prompt)
+				elseif prompt.InputHoldBegin then
+					prompt:InputHoldBegin()
+					task.wait(prompt.HoldDuration + 0.1)
+					prompt:InputHoldEnd()
+				end
+			end)
+			task.wait(0.5)
+
+			-- Direct Seat Sit fallback if proximity prompt didn't seat
+			if not hum.SeatPart and (seatPart:IsA("VehicleSeat") or seatPart:IsA("Seat")) then
+				pcall(function() seatPart:Sit(hum) end)
+				task.wait(0.3)
+			end
+		end
+
+		return hum.SeatPart ~= nil
+	end
+
 	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi.
-	-- Dipanggil setelah tiba di pickup & setelah tiba di drop-off.
 	local function ensureDriverSeated()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		if hum and hum.SeatPart then return true end -- sudah duduk, tidak perlu apa-apa
+		if hum and hum.SeatPart then return true end
 
 		UI.Notify("⚠️ Driver Not Seated", "Re-mounting motorcycle...", 2, "warning")
 		local ok = mountBike()
@@ -125,24 +217,6 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function neutralizeBikeHazards(car)
-		if not car then return end
-		pcall(function()
-			for _, s in ipairs(car:GetDescendants()) do
-				if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident")) then
-					s.Disabled = true
-				end
-			end
-			local char = player.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			if hum then
-				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-			end
-		end)
-	end
-
 	-- 🧹 UNIVERSAL DESTROY ALL BUILDINGS & OBSTACLES (Ground & Roads Only Mode)
 	local function shouldDestroyBuilding(obj)
 		if not obj or not obj.Parent then return false end
@@ -151,7 +225,7 @@ local success, err = pcall(function()
 		local char = player.Character
 		if char and (obj == char or obj:IsDescendantOf(char)) then return false end
 		if obj.Name:find("HipHub") or obj.Name:find("SafetyPlate") then return false end
-		if obj.Name == "ActiveMissions" or obj.Name == "BaristaJob" or obj.Name == "Job_Point" or obj.Name == "DragRace" or obj.Name == "SensorDragTimer" then
+		if obj.Name == "ActiveMissions" or obj.Name == "Job_Point" or obj.Name == "SensorDragTimer" then
 			return false
 		end
 
@@ -179,7 +253,7 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- 2. Models with tall parts or roof/wall materials inside any folder (JL_*, V1.1.1, etc.)
+		-- 2. Models with tall parts or roof/wall materials inside any folder
 		if obj:IsA("Model") then
 			local maxY = -999
 			local hasRoofOrWall = false
@@ -222,7 +296,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Auto-destroy newly streamed chunks anywhere in workspace or subfolders
+	-- Auto-destroy newly streamed chunks anywhere in workspace
 	workspace.DescendantAdded:Connect(function(descendant)
 		if shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
@@ -232,7 +306,6 @@ local success, err = pcall(function()
 		end
 	end)
 
-	-- Run initial building destruction
 	task.spawn(destroyAllBuildings)
 
 	-- 🛣️ Road & Ground detection whitelist for DDS map
@@ -323,60 +396,13 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 🛡️ Holds vehicle stably anchored on surface so it NEVER falls into void while waiting
-	local function holdVehicleStable(targetPos, maxDuration, conditionFunc)
-		local car, seat = getPlayerVehicle()
-		if not car then return end
-
-		local destP = typeof(targetPos) == "CFrame" and targetPos.Position or targetPos
-		-- Raycast down to find true solid surface
-		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { car, player.Character }
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		local hit = workspace:Raycast(Vector3.new(destP.X, destP.Y + 30, destP.Z), Vector3.new(0, -60, 0), rayParams)
-		local groundY = hit and (hit.Position.Y + 2.2) or (destP.Y + 2.0)
-		local stablePos = Vector3.new(destP.X, groundY, destP.Z)
-		local stableCF = CFrame.new(stablePos)
-
-		ensureSafetyPlate(stablePos, 55)
-
-		local t0 = tick()
-		while (not conditionFunc or conditionFunc()) and (tick() - t0 < maxDuration) and taxiActive do
-			pcall(function()
-				car:PivotTo(stableCF)
-
-				local char = player.Character
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				local hum  = char and char:FindFirstChildOfClass("Humanoid")
-				if root and seat and hum then
-					if not hum.Sit or hum.SeatPart ~= seat then
-						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-						hum.Sit = true
-						seat:Sit(hum)
-					end
-				end
-
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-			end)
-			task.wait(0.1)
-		end
-	end
-
 	-- 🌉 Void Bridge Engine: scan jalur lurus ke destination, deteksi gap/jurang,
-	-- lalu teleport vehicle ke ground pertama di sisi seberang sehingga normal
-	-- navigation bisa lanjut tanpa harus memutar mengelilingi seluruh peta.
-	-- Mengembalikan Vector3 landing spot jika bridge dilakukan, atau nil jika tidak ada gap.
+	-- lalu teleport vehicle ke ground pertama di sisi seberang.
 	local function attemptVoidBridge(car, fromPos, toPos, filterList)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		if flatDiff.Magnitude < 10 then return nil end
 		local flatDir = flatDiff.Unit
 
-		-- Gunakan filterList (buildingFilter) jika tersedia, agar atap bangunan ter-exclude
 		local brp = RaycastParams.new()
 		brp.FilterDescendantsInstances = filterList or { car, player.Character }
 		brp.FilterType = Enum.RaycastFilterType.Exclude
@@ -440,10 +466,10 @@ local success, err = pcall(function()
 			end
 		end
 
-		return nil -- tidak ada gap yang bisa di-bridge
+		return nil
 	end
 
-	-- 🛣️ Pure Road Waypoint Navigation Engine (Real Driving, Follows Road Network)
+	-- 🛣️ Pure Road Navigation Engine
 	local function driveVehicleTo(targetPos, speed, destroyPlateAfterStuds)
 		if typeof(targetPos) == "CFrame" then
 			targetPos = targetPos.Position
@@ -452,11 +478,10 @@ local success, err = pcall(function()
 
 		local car, seat = getPlayerVehicle()
 		local char = player.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 
 		if not car or not seat or not (hum and hum.SeatPart) then
-			if mountBike and not (hum and hum.SeatPart) then
+			if not (hum and hum.SeatPart) then
 				mountBike()
 				car, seat = getPlayerVehicle()
 			end
@@ -469,13 +494,12 @@ local success, err = pcall(function()
 		cancelActiveDrive()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
-		-- Jika destroyPlateAfterStuds tidak ditentukan, hapus plate langsung (behavior default)
+
 		local plateDestroyedDeferred = false
 		if not destroyPlateAfterStuds or destroyPlateAfterStuds <= 0 then
 			destroySafetyPlate()
 		end
 
-		-- Request chunk streaming around destination
 		requestStreamAsync(targetPos)
 
 		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
@@ -489,15 +513,12 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- 2. Build comprehensive Ground filter to ignore ALL buildings, houses, roofs, and props
 		local buildingFilter = getGroundExcludeFilter(car)
-
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = buildingFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			-- Raycast vertikal yang mencakup seluruh elevasi jalan di DDS (Y = -15 s/d 35)
 			local rayOrigin = Vector3.new(probePos.X, math.clamp(refY + 20, 20, 50), probePos.Z)
 			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -75, 0), rayParams)
 			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 and hit.Normal.Y >= 0.5 then
@@ -506,7 +527,7 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Selective Noclip on vehicle, driver, and passenger to smoothly phase through traffic/gates
+		-- Noclip on vehicle, driver, and passenger
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.CanCollide = false
@@ -514,16 +535,13 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 🌉 Void Bridge pre-check: jika destination dipisah jurang dari posisi sekarang,
-		-- scan jalur lurus, lalu teleport ke ground pertama di sisi seberang.
-		-- buildingFilter diteruskan agar atap bangunan tidak dianggap sebagai landing spot.
-		-- Setelah itu drive normal melanjutkan dari titik landing.
+		-- Pre-check void bridge
 		if (startP - destP).Magnitude > 20 then
 			local bridgeLanding = attemptVoidBridge(car, startP, destP, buildingFilter)
 			if bridgeLanding then
 				startP = bridgeLanding
-				UI.Notify("🌉 Void Bridged", "Melompati jurang, melanjutkan navigasi...", 2, "warning")
-				task.wait(0.15)
+				UI.Notify("🌉 Jurang Dilompati", "Melanjutkan navigasi...", 2, "success")
+				task.wait(0.1)
 			end
 		end
 
@@ -531,17 +549,15 @@ local success, err = pcall(function()
 		local driveFinished = false
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
-		local distTravelled = 0  -- Total jarak tempuh dari posisi awal (untuk deferred plate removal)
 
-		-- 🚨 Stuck detection: track progress menuju destination
 		local stuckLastDist   = totalDist
 		local stuckLastTime   = os.clock()
-		local stuckNudgeCount = 0  -- berapa kali sudah di-nudge (batasi agar tidak loop selamanya)
+		local stuckNudgeCount = 0
 
 		local navHeading = nil
-		local edgeFollowSign = 1  -- Konsisten mengikuti satu sisi (1 = kanan, -1 = kiri) untuk mencegah osilasi bolak-balik di tepi jurang
+		local edgeFollowSign = 1
 		local curHeadingAngle = math.atan2(-((destP - startP).Unit).X, -((destP - startP).Unit).Z)
-		local lastBridgeScanTime = 0  -- Rate-limit void bridge scan saat berada di tepi jurang
+		local lastBridgeScanTime = 0
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -561,7 +577,7 @@ local success, err = pcall(function()
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
 			local dist = flatDelta.Magnitude
 
-			-- 🛡️ Deferred safetyPlate removal: hapus plate setelah berjalan ≥ N stud dari startP
+			-- Deferred safetyPlate removal
 			if not plateDestroyedDeferred and destroyPlateAfterStuds and destroyPlateAfterStuds > 0 then
 				local flatTravelled = Vector3.new(carPos.X - startP.X, 0, carPos.Z - startP.Z).Magnitude
 				if flatTravelled >= destroyPlateAfterStuds then
@@ -576,21 +592,17 @@ local success, err = pcall(function()
 				return
 			end
 
-			-- 🚨 Stuck Recovery: jika tidak ada progress ke destination selama >= 2.5 detik,
-			-- teleport maju langsung ke arah destination menembus rintangan (dinding, rumah, dll)
+			-- Stuck Recovery
 			local nowClock = os.clock()
 			if dist < stuckLastDist - 2.5 then
-				-- Progress normal: update tracker
 				stuckLastDist = dist
 				stuckLastTime = nowClock
 			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 then
-				-- Stuck selama >= 2.5 detik dan belum terlalu banyak nudge: paksa maju
 				stuckNudgeCount = stuckNudgeCount + 1
 				stuckLastTime   = nowClock
 				stuckLastDist   = dist
 
 				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
-				-- Teleport maju 30 stud ke arah destination (menembus rintangan/gedung)
 				local nudgeDist = math.min(30, dist - 4)
 				if nudgeDist > 0 then
 					local nudgePos2D = Vector3.new(
@@ -598,7 +610,6 @@ local success, err = pcall(function()
 						0,
 						carPos.Z + nudgeDir.Z * nudgeDist
 					)
-					-- Cari Y ground asli di bawah bangunan di titik nudge
 					local nudgeRp = RaycastParams.new()
 					nudgeRp.FilterDescendantsInstances = buildingFilter
 					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
@@ -607,8 +618,6 @@ local success, err = pcall(function()
 						Vector3.new(0, -140, 0),
 						nudgeRp
 					)
-					-- 🛡️ STRICT VOID GUARD: Hanya bypass jika titik landing benar-benar memiliki tanah/jalan padat!
-					-- Jika titik landing adalah jurang kosong, batalkan bypass seketika agar tidak terbang ke void!
 					if nudgeHit and nudgeHit.Position.Y >= -15 and nudgeHit.Position.Y <= 35 then
 						local nudgeY = nudgeHit.Position.Y + 0.3
 						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
@@ -628,14 +637,13 @@ local success, err = pcall(function()
 
 						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
 					else
-						-- Titik depan adalah jurang kosong: batalkan bypass dan flip arah susur tebing
 						edgeFollowSign = -edgeFollowSign
 						stuckLastTime = nowClock
 					end
 				end
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when approaching destination
+			-- Dynamic speed deceleration
 			local curSpeed = speed
 			if dist < 120 then
 				local factor = math.clamp(dist / 120, 0, 1)
@@ -648,7 +656,6 @@ local success, err = pcall(function()
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 3.5)
 
-			-- 🛡️ Test if direct path to destination has solid ground
 			local directProbePos = carPos + directGoalDir * probeDist
 			local directHitY = probeGround(directProbePos, lastGroundY)
 
@@ -656,13 +663,11 @@ local success, err = pcall(function()
 			local targetElevY = lastGroundY
 
 			if directHitY then
-				-- Direct path has solid ground: move directly towards destination
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🌉 Void/Cliff edge ahead: cek apakah ada daratan seberang di garis lurus tujuan untuk dilompati
-				local nowClock = os.clock()
+				-- 🌉 Real-time Void Bridge Scan
 				local bridged = false
 				if (nowClock - lastBridgeScanTime) >= 0.8 then
 					lastBridgeScanTime = nowClock
@@ -682,49 +687,48 @@ local success, err = pcall(function()
 				end
 
 				if not bridged then
-					-- Sweep fan konsisten pada sisi edgeFollowSign untuk menyusuri daratan tanpa osilasi
-				local baseDir = navHeading or directGoalDir
-				local bestDir = nil
-				local bestDist = math.huge
-				local bestY = lastGroundY
+					local baseDir = navHeading or directGoalDir
+					local bestDir = nil
+					local bestDist = math.huge
+					local bestY = lastGroundY
 
-				-- Coba sisi aktif terlebih dahulu
-				local signOrder = { edgeFollowSign, -edgeFollowSign }
-				for _, s in ipairs(signOrder) do
-					for angle = 10, 160, 10 do
-						local testRot = CFrame.Angles(0, math.rad(angle * s), 0)
-						local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-						local testProbePos = carPos + testDir * probeDist
-						local testHitY = probeGround(testProbePos, lastGroundY)
+					local signOrder = { edgeFollowSign, -edgeFollowSign }
+					for _, s in ipairs(signOrder) do
+						for angle = 10, 160, 10 do
+							local testRot = CFrame.Angles(0, math.rad(angle * s), 0)
+							local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+							local testProbePos = carPos + testDir * probeDist
+							local testHitY = probeGround(testProbePos, lastGroundY)
 
-						if testHitY then
-							local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-							if testDistToGoal < bestDist then
-								bestDist = testDistToGoal
-								bestDir = testDir
-								bestY = testHitY
-								edgeFollowSign = s
+							if testHitY then
+								local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+								if testDistToGoal < bestDist then
+									bestDist = testDistToGoal
+									bestDir = testDir
+									bestY = testHitY
+									edgeFollowSign = s
+								end
 							end
 						end
+						if bestDir then
+							break
+						end
 					end
-					if bestDir then
-						break
-					end
-				end
 
-				if bestDir then
-					actualMoveDir = bestDir
-					navHeading = bestDir
-					targetElevY = bestY
-				else
-					-- 🛑 Tidak ada ground di arah mana pun: BERHENTI diam di tempat, jangan pernah melangkah ke jurang!
-					actualMoveDir = Vector3.zero
-					stepDist = 0
-					targetElevY = lastGroundY
+					if bestDir then
+						actualMoveDir = bestDir
+						navHeading = bestDir
+						targetElevY = bestY
+					else
+						-- 🛑 Hard-Stop Anti-Void: diam di tempat jika tidak ada daratan
+						actualMoveDir = Vector3.zero
+						stepDist = 0
+						targetElevY = lastGroundY
+					end
 				end
 			end
 
-			-- Smooth vertical descent/ascent rate (avoids jerky vertical snaps on balconies and slopes)
+			-- Smooth vertical step
 			local maxVertStep = math.max(25 * dt, 1.2)
 			local chosenY = lastGroundY
 			if chosenY > targetElevY then
@@ -738,7 +742,7 @@ local success, err = pcall(function()
 			local newZ = carPos.Z + actualMoveDir.Z * stepDist
 			local newPos = Vector3.new(newX, chosenY, newZ)
 
-			-- 🏎️ Smooth Angular Steering (Mencegah geter/shaking dan snap 0 derajat saat berhenti di tepi tebing)
+			-- Smooth Angular Steering
 			if actualMoveDir.Magnitude > 0.05 then
 				local targetAngle = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
@@ -751,7 +755,6 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				-- Maintain noclip on vehicle, character, and passenger
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
@@ -777,7 +780,6 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Velocity synchronization for physics & server replication
 				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
@@ -789,7 +791,7 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- Keep character firmly seated in driver seat & prevent ragdoll ejection
+				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
 						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
@@ -816,54 +818,6 @@ local success, err = pcall(function()
 		return (car:GetPivot().Position - destP).Magnitude <= 15
 	end
 
-	-- Universal Safe Navigation Function (handles vehicles or characters)
-	local function safeTweenTo(targetCFrame, speedStudsPerSec)
-		local targetPos = typeof(targetCFrame) == "CFrame" and targetCFrame.Position or targetCFrame
-		local char = player.Character
-		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-
-		if hum and hum.SeatPart then
-			return driveVehicleTo(targetPos, speedStudsPerSec or Config.taxiSpeed)
-		end
-
-		-- Character on foot: safe Heartbeat lerp
-		local root = getRootPart()
-		if not root then return false end
-
-		speedStudsPerSec = speedStudsPerSec or 60
-		local startPos = root.Position
-		local totalDist = (startPos - targetPos).Magnitude
-		local duration = math.clamp(totalDist / speedStudsPerSec, 0.2, 120.0)
-		local t0 = os.clock()
-		local finished = false
-
-		local conn = RunService.Heartbeat:Connect(function()
-			local elapsed = os.clock() - t0
-			local alpha = math.clamp(elapsed / duration, 0, 1)
-			local curPos = startPos:Lerp(targetPos, alpha)
-			root.CFrame = CFrame.new(curPos)
-			root.AssemblyLinearVelocity = Vector3.zero
-			if alpha >= 1 then
-				finished = true
-			end
-		end)
-
-		while not finished do task.wait(0.03) end
-		if conn then conn:Disconnect() end
-		return true
-	end
-
-	------------------------------------------------
-	-- ☕ 1. AUTO BARISTA JOB (Starbooks Coffee)
-	------------------------------------------------
-	local BaristaAssets = ReplicatedStorage:WaitForChild("BaristaAssets", 10)
-	local BaristaEvent = BaristaAssets and BaristaAssets:WaitForChild("Events", 10) and BaristaAssets.Events:WaitForChild("BaristaEvent", 10)
-	local BaristaJob = workspace:FindFirstChild("BaristaJob")
-
-	local baristaActive = false
-	local baristaToken = nil
-	local baristaCurrentOrder = nil
-
 	local function changeTeam(teamName)
 		pcall(function()
 			local teamChangeRequest = ReplicatedStorage:FindFirstChild("teamChangeRequest")
@@ -877,111 +831,15 @@ local success, err = pcall(function()
 		end)
 	end
 
-	if BaristaEvent then
-		BaristaEvent.OnClientEvent:Connect(function(action, data)
-			if not baristaActive then return end
-
-			if action == "JobStarted" then
-				baristaToken = data and data.Token
-				task.wait(0.5)
-				BaristaEvent:FireServer("RequestCustomer")
-			elseif action == "SpawnNPC" then
-				baristaToken = data and data.Token
-				baristaCurrentOrder = data
-				if data and (data.IsAnomalyNPC or data.IsMenuAnomaly) then
-					UI.Notify("👻 Anomaly Customer!", "Serving: " .. tostring(data.MenuName), 3, "warning")
-				end
-
-				task.delay(1.5, function()
-					if baristaActive and BaristaEvent then
-						BaristaEvent:FireServer("TryBrew")
-					end
-				end)
-			elseif action == "StartMinigameAllowed" then
-				local delayTime = Config.baristaMinigameDelay or 2.2
-				task.delay(delayTime, function()
-					if baristaActive and BaristaEvent and baristaToken then
-						BaristaEvent:FireServer("CompleteMinigame", { Token = baristaToken })
-					end
-				end)
-			elseif action == "BrewSuccess" then
-				task.delay(0.5, function()
-					if baristaActive and BaristaEvent then
-						BaristaEvent:FireServer("ServeOrder")
-					end
-				end)
-			elseif action == "OrderServed" then
-				task.delay(1.5, function()
-					if baristaActive and BaristaEvent then
-						BaristaEvent:FireServer("RequestCustomer")
-					end
-				end)
-			elseif action == "MachineBroken" then
-				task.delay(0.5, function()
-					if baristaActive and BaristaEvent then
-						BaristaEvent:FireServer("RestockSupplies")
-					end
-				end)
-			elseif action == "RestockSuccess" then
-				task.delay(0.5, function()
-					if baristaActive and BaristaEvent then
-						BaristaEvent:FireServer("TryBrew")
-					end
-				end)
-			elseif action == "DirtyTable" then
-				task.delay(0.5, function()
-					if baristaActive and BaristaEvent and data then
-						BaristaEvent:FireServer("CleanTable", data)
-					end
-				end)
-			end
-		end)
-	end
-
-	local function toggleAutoBarista(state)
-		baristaActive = state
-		Config.autoBarista = state
-
-		if state then
-			changeTeam("Barista")
-			task.wait(1)
-
-			local root = getRootPart()
-			if root and BaristaJob and BaristaJob:FindFirstChild("Counter") then
-				local counter = BaristaJob.Counter:FindFirstChild("PartModel") or BaristaJob.Counter
-				local part = counter:FindFirstChildWhichIsA("BasePart", true)
-				if part and (root.Position - part.Position).Magnitude > 50 then
-					root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-					task.wait(1)
-				end
-			end
-
-			if BaristaEvent then
-				BaristaEvent:FireServer("ToggleJob")
-				task.wait(0.5)
-				BaristaEvent:FireServer("RequestCustomer")
-			end
-			UI.Notify("Auto Barista Started", "Automatically serving customers & solving minigames.", 3, "success")
-		else
-			if BaristaEvent then
-				BaristaEvent:FireServer("ToggleJob")
-			end
-			UI.Notify("Auto Barista Stopped", "Shift ended.", 2, "warning")
-		end
-	end
-
 	------------------------------------------------
-	-- 🚕 2. AUTO RIDEGO TAXI (CDID-Style Movement Engine)
+	-- 🚕 2. AUTO RIDEGO TAXI CONTROLLER
 	------------------------------------------------
 	local TaxiAssets = ReplicatedStorage:WaitForChild("TaxiAssets", 10)
 	local TaxiEvent = TaxiAssets and TaxiAssets:WaitForChild("Events", 10) and TaxiAssets.Events:WaitForChild("TaxiEvent", 10)
-	local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
-	local SpawnCarRemote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
 
-	local TAXI_BIKE_NAME      = "Yamahax-MioSporty"
 	local taxiActive          = false
 	local taxiBusy            = false
-	local taxiState           = "IDLE" -- IDLE, WAITING_FOR_NEXT_ORDER, NEW_ORDER_DETECTED, PICKING_UP, DRIVING_TO_DESTINATION, DROPPING_OFF
+	local taxiState           = "IDLE"
 	local taxiToken           = nil
 	local lastCompletedToken  = nil
 	local taxiPickupPos       = nil
@@ -993,7 +851,6 @@ local success, err = pcall(function()
 		taxiState = newState
 	end
 
-	-- Helper: extract Vector3 from dynamic payload formats
 	local function parsePosition(val)
 		if typeof(val) == "Vector3" then return val end
 		if typeof(val) == "CFrame" then return val.Position end
@@ -1008,88 +865,8 @@ local success, err = pcall(function()
 		return nil
 	end
 
-	local function spawnTaxiBike()
-		if not SpawnCarRemote then return end
-		pcall(function() SpawnCarRemote:FireServer(TAXI_BIKE_NAME) end)
-		task.wait(2)
-	end
-
-	local function findRidePrompt()
-		local car, seat = getPlayerVehicle()
-		if car then
-			for _, pr in ipairs(car:GetDescendants()) do
-				if pr:IsA("ProximityPrompt") and pr.ActionText == "Ride" then
-					return pr, pr.Parent
-				end
-			end
-		end
-		for _, c in ipairs(workspace:GetChildren()) do
-			if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c:FindFirstChild("DriveSeat")) then
-				for _, pr in ipairs(c:GetDescendants()) do
-					if pr:IsA("ProximityPrompt") and pr.ActionText == "Ride" then
-						return pr, pr.Parent
-					end
-				end
-			end
-		end
-		return nil, nil
-	end
-
-	local function mountBike()
-		local char = player.Character
-		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		if not hum then return false end
-		if hum.SeatPart then return true end
-
-		local prompt, seatPart = findRidePrompt()
-		if not prompt or not seatPart then
-			UI.Notify("⚠️ Bike Not Found", "Spawning new motorcycle...", 2, "warning")
-			spawnTaxiBike()
-			prompt, seatPart = findRidePrompt()
-			if not prompt or not seatPart then return false end
-		end
-
-		local car = seatPart:FindFirstAncestorOfClass("Model") or seatPart.Parent
-		if car then
-			neutralizeBikeHazards(car)
-			-- Upright bike so it's not tipped over
-			pcall(function()
-				local pivot = car:GetPivot()
-				car:PivotTo(CFrame.new(pivot.Position + Vector3.new(0, 1.5, 0)))
-			end)
-		end
-
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if root and seatPart then
-			root.CFrame = seatPart.CFrame + Vector3.new(0, 1.0, 0)
-			task.wait(0.15)
-
-			pcall(function()
-				if fireproximityprompt then
-					fireproximityprompt(prompt)
-				elseif prompt.InputHoldBegin then
-					prompt:InputHoldBegin()
-					task.wait(prompt.HoldDuration + 0.1)
-					prompt:InputHoldEnd()
-				end
-			end)
-			task.wait(0.5)
-
-			-- Direct Seat Sit fallback if proximity prompt didn't seat
-			if not hum.SeatPart and (seatPart:IsA("VehicleSeat") or seatPart:IsA("Seat")) then
-				pcall(function() seatPart:Sit(hum) end)
-				task.wait(0.2)
-			end
-		end
-
-		return hum.SeatPart ~= nil
-	end
-
-	-- Exact verification that passenger is seated (based on decompiled TaxiClient RideGO_SeatWeld & TripStarted event)
 	local function isPassengerOnboard()
 		if passengerSeated then return true end
-
-		-- Check exact RideGO passenger instance in ActiveMissions
 		local activeMissions = workspace:FindFirstChild("ActiveMissions")
 		local passenger = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
 		if passenger then
@@ -1099,17 +876,12 @@ local success, err = pcall(function()
 				return true
 			end
 		end
-
 		return false
 	end
 
-	-- ── Full End-to-End Trip Automation ──────────────────────────────────
 	local function executeTripAsync(token, name, initialPickup, initialDrop)
 		if taxiBusy then return end
-		if not token or token == lastCompletedToken then
-			-- Ignore stale or already completed order
-			return
-		end
+		if not token or token == lastCompletedToken then return end
 
 		taxiBusy = true
 		taxiToken = token
@@ -1117,15 +889,7 @@ local success, err = pcall(function()
 		taxiPickupPos = parsePosition(initialPickup)
 		taxiDropPos   = parsePosition(initialDrop)
 
-		-- STATE: NEW_ORDER_DETECTED
 		setTaxiState("NEW_ORDER_DETECTED")
-		print("[PASSENGER] New order detected")
-		if taxiPickupPos then
-			print("[PASSENGER] New pickup location acquired")
-		end
-		print("[PASSENGER] Resuming normal passenger workflow")
-
-		-- STATE: PICKING_UP
 		setTaxiState("PICKING_UP")
 
 		-- 1. Accept Order
@@ -1141,27 +905,24 @@ local success, err = pcall(function()
 			mountBike()
 		end
 
-		-- 3. Wait for pickup coordinates (if not in initial payload)
+		-- 3. Wait for pickup coordinates
 		local waitStart = tick()
 		while not taxiPickupPos and taxiActive and (tick() - waitStart < 5) do
 			task.wait(0.2)
 		end
 
-		-- 4. Ride smoothly to Passenger Pickup Location
+		-- 4. Drive to Pickup
 		if taxiPickupPos and taxiActive then
 			UI.Notify("🏍️ Heading to Pickup", "Driving to passenger...", 2, "warning")
 			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
 		end
 
-		-- 5. Wait for passenger to walk & sit (listen for RideGO_SeatWeld or TripStarted)
+		-- 5. Wait for passenger boarding
 		if taxiPickupPos and taxiActive then
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
-			-- Settle bike on road at pickup point
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiPickupPos)
-
-			-- ✅ Safety check: pastikan player duduk di kursi pengemudi setelah tiba di pickup
 			ensureDriverSeated()
 
 			local waitStartBoard = tick()
@@ -1173,19 +934,16 @@ local success, err = pcall(function()
 				task.wait(0.4)
 			end
 
-			-- ONLY proceed if passenger actually boarded the bike!
 			if isPassengerOnboard() then
 				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
-				-- Safety plate akan dihapus secara deferred oleh driveVehicleTo setelah ≥ 50 stud perjalanan
 			else
 				UI.Notify("⚠️ Boarding Timeout", "Passenger did not board. Resetting...", 3, "warning")
 				lastCompletedToken = token
 				taxiBusy = false
 				taxiToken = nil
 				setTaxiState("WAITING_FOR_NEXT_ORDER")
-				print("[PASSENGER] Waiting at current destination for next order...")
 				if taxiActive then
 					task.wait(2)
 					TaxiEvent:FireServer("GoOnline")
@@ -1196,7 +954,7 @@ local success, err = pcall(function()
 
 		task.wait(0.3)
 
-		-- 6. Ride smoothly to Drop-off Location
+		-- 6. Drive to Drop-off
 		if not taxiDropPos and taxiActive then
 			local dropWait = tick()
 			while not taxiDropPos and taxiActive and (tick() - dropWait < 5) do
@@ -1205,25 +963,15 @@ local success, err = pcall(function()
 		end
 
 		if taxiDropPos and taxiActive then
-			-- STATE: DRIVING_TO_DESTINATION
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
-			-- destroyPlateAfterStuds=50: plate baru dihapus setelah motor sudah berjalan 50 stud dari pickup,
-			-- cukup jauh untuk fisika motor stabil di atas road asli sehingga player tidak "accident"
 			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
 
-			-- STATE: DROPPING_OFF
 			setTaxiState("DROPPING_OFF")
-			print("[PASSENGER] Reached destination")
-
-			-- Settle vehicle firmly on solid road at exact drop-off coordinates
 			local car, seat = getPlayerVehicle()
 			safelySettleAndUnanchor(car, taxiDropPos)
-
-			-- ✅ Safety check: pastikan player duduk di kursi pengemudi setelah tiba di drop-off
 			ensureDriverSeated()
 
-			-- Wait for server trigger / passenger to disembark from the bike
 			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 3, "success")
 			local disembarkWait = tick()
 			while isPassengerOnboard() and taxiActive and (tick() - disembarkWait < 8) do
@@ -1231,39 +979,30 @@ local success, err = pcall(function()
 			end
 
 			task.wait(1.5)
-			print("[PASSENGER] Passenger drop-off confirmed")
 		end
 
 		-- 7. Complete Trip & Acknowledge
 		if taxiActive then
 			TaxiEvent:FireServer("AckTripComplete")
-			print("[PASSENGER] Order completed")
 			UI.Notify("🏆 Trip Complete!", "Fare earned. Waiting for next order...", 3, "success")
 		end
 
-		-- Record completed order token to guarantee we never re-execute it
 		lastCompletedToken = token
-
 		taxiBusy = false
 		taxiToken = nil
 		taxiPickupPos = nil
 		taxiDropPos = nil
 		passengerSeated = false
 
-		-- STATE: WAITING_FOR_NEXT_ORDER
 		setTaxiState("WAITING_FOR_NEXT_ORDER")
-		print("[PASSENGER] Waiting at current destination for next order...")
 
-		-- While in WAITING_FOR_NEXT_ORDER:
-		-- Remain completely stationary at the exact destination.
-		-- Humanized rate-limited delay before going online
 		if taxiActive then
 			task.wait(2.5)
 			TaxiEvent:FireServer("GoOnline")
 		end
 	end
 
-	-- ── Taxi Remote Events Listener ──────────────────────────────────────
+	-- Taxi Remote Events Listener
 	if TaxiEvent then
 		_G.HipHubTaxiLog = {}
 
@@ -1290,10 +1029,7 @@ local success, err = pcall(function()
 				local pickPos = payload and (payload.PickupPos or payload.PickupPosition or payload.Pickup or payload.StartPos)
 				local dropP   = payload and (payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos)
 
-				if not token or token == lastCompletedToken then
-					-- Ignore stale/duplicate order
-					return
-				end
+				if not token or token == lastCompletedToken then return end
 
 				if isAnom then
 					UI.Notify("👻 ANOMALY ORDER!", "Rare passenger: " .. name, 4, "warning")
@@ -1312,7 +1048,6 @@ local success, err = pcall(function()
 				end
 
 			elseif eventType == "PassengerBoarding" then
-				-- Passenger started walking towards bike
 				UI.Notify("Passenger Approaching 🚶", "Passenger is walking to the bike...", 3, "warning")
 
 			elseif eventType == "TripStarted" or eventType == "PassengerSeated" then
@@ -1349,7 +1084,6 @@ local success, err = pcall(function()
 				passengerSeated = false
 				cancelActiveDrive()
 				setTaxiState("WAITING_FOR_NEXT_ORDER")
-				print("[PASSENGER] Waiting at current destination for next order...")
 				UI.Notify("Order Reset", "Waiting for next offer...", 2, "warning")
 				if taxiActive then
 					task.wait(2)
@@ -1359,7 +1093,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- ── Phone Screen Overlay Poller (backup) ──────────────────────────────
+	-- Phone Screen Overlay Poller (backup)
 	local function startPhoneOverlayPoller()
 		if taxiOverlayPoller then return end
 		taxiOverlayPoller = task.spawn(function()
@@ -1413,7 +1147,6 @@ local success, err = pcall(function()
 
 			startPhoneOverlayPoller()
 
-			-- Spawn & mount taxi bike
 			task.spawn(function()
 				mountBike()
 				task.wait(1)
@@ -1437,206 +1170,8 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📦 3. AUTO COURIER DELIVERY (Package Delivery)
+	-- 🖼️ 3. UI COMPONENTS IN FARM TAB
 	------------------------------------------------
-	local courierActive = false
-	local courierThread = nil
-
-	local function toggleAutoCourier(state)
-		courierActive = state
-		Config.autoCourier = state
-
-		if state then
-			changeTeam("Courier")
-			task.wait(1)
-
-			if not courierThread then
-				courierThread = task.spawn(function()
-					while courierActive do
-						local success, loopErr = pcall(function()
-							local livrason = workspace:FindFirstChild("Livrason")
-							local settingsMod = ReplicatedStorage:FindFirstChild("Delivery System") and ReplicatedStorage["Delivery System"]:FindFirstChild("Settings")
-
-							if settingsMod and settingsMod:FindFirstChild("ServiceEvent") then
-								settingsMod.ServiceEvent:FireServer("RequestJobUpdate")
-							end
-
-							if livrason and livrason:FindFirstChild("Location") then
-								local activeTarget = nil
-								for _, loc in ipairs(livrason.Location:GetChildren()) do
-									local block = loc:FindFirstChild("Block")
-									local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
-									if prompt and prompt.Enabled then
-										activeTarget = block
-										break
-									end
-								end
-
-								if activeTarget then
-									safeTweenTo(activeTarget.CFrame + Vector3.new(0, 3, 0), Config.courierSpeed)
-									task.wait(0.5)
-									local prompt = activeTarget:FindFirstChildOfClass("ProximityPrompt")
-									if prompt and prompt.Enabled and fireproximityprompt then
-										fireproximityprompt(prompt)
-									end
-									task.wait(1)
-								else
-									local jobPoint = workspace:FindFirstChild("Job_Point")
-									local courierPt = jobPoint and (jobPoint:FindFirstChild("Courier_Point") or jobPoint:FindFirstChild("Courier_Point1"))
-									if courierPt then
-										local part = courierPt:FindFirstChildWhichIsA("BasePart", true)
-										if part then
-											safeTweenTo(part.CFrame + Vector3.new(0, 3, 0), Config.courierSpeed)
-											task.wait(1)
-										end
-									end
-								end
-							end
-						end)
-
-						task.wait(1)
-					end
-					courierThread = nil
-				end)
-			end
-
-			UI.Notify("Auto Courier Started", "Delivering packages continuously.", 3, "success")
-		else
-			if courierThread then
-				task.cancel(courierThread)
-				courierThread = nil
-			end
-			cancelActiveDrive()
-			UI.Notify("Auto Courier Stopped", "Delivery loop halted.", 2, "warning")
-		end
-	end
-
-	------------------------------------------------
-	-- 🏁 4. AUTO DRAG RACE (Circuit Drag Strip)
-	------------------------------------------------
-	local dragActive = false
-	local dragThread = nil
-
-	local function toggleAutoDragRace(state)
-		dragActive = state
-		Config.autoDragRace = state
-
-		if state then
-			if not dragThread then
-				dragThread = task.spawn(function()
-					while dragActive do
-						pcall(function()
-							local sdt = workspace:FindFirstChild("SensorDragTimer")
-							local startFolder = sdt and sdt:FindFirstChild("SensorStart")
-							local finishFolder = sdt and sdt:FindFirstChild("SensorFinish")
-
-							local root = getRootPart()
-							if root and startFolder and finishFolder then
-								local startPart = startFolder:FindFirstChildWhichIsA("BasePart", true)
-								local finishPart = finishFolder:FindFirstChildWhichIsA("BasePart", true)
-
-								if startPart and finishPart then
-									root.CFrame = startPart.CFrame + Vector3.new(0, 3, 0)
-									task.wait(2)
-
-									local targetDuration = Config.dragTargetTime or 6.5
-									local speed = (startPart.Position - finishPart.Position).Magnitude / targetDuration
-									safeTweenTo(finishPart.CFrame + Vector3.new(0, 3, 0), speed)
-									task.wait(4)
-								end
-							end
-						end)
-						task.wait(2)
-					end
-					dragThread = nil
-				end)
-			end
-			UI.Notify("Auto Drag Race Active", "Racing drag strip for maximum XP.", 3, "success")
-		else
-			if dragThread then
-				task.cancel(dragThread)
-				dragThread = nil
-			end
-			cancelActiveDrive()
-			UI.Notify("Auto Drag Race Stopped", "Drag strip loop halted.", 2, "warning")
-		end
-	end
-
-	------------------------------------------------
-	-- 📜 5. AUTO DAILY QUESTS CLAIMER
-	------------------------------------------------
-	local function claimAllQuests()
-		local dq = ReplicatedStorage:FindFirstChild("DailyQuestRemotes")
-		if not dq then return end
-
-		local getQuest = dq:FindFirstChild("GetQuestData")
-		local claimQuest = dq:FindFirstChild("ClaimQuest")
-
-		if getQuest and claimQuest then
-			local questData = getQuest:InvokeServer()
-			local claimedCount = 0
-			if questData then
-				for categoryName, categoryQuests in pairs(questData) do
-					for questKey, q in pairs(categoryQuests) do
-						if q.Completed and not q.Claimed then
-							claimQuest:FireServer(questKey)
-							claimedCount = claimedCount + 1
-							task.wait(0.2)
-						end
-					end
-				end
-			end
-
-			if claimedCount > 0 then
-				UI.Notify("Quests Claimed!", "Successfully claimed " .. claimedCount .. " rewards.", 3, "success")
-			else
-				UI.Notify("Daily Quests", "All completed quests are already claimed.", 2, "warning")
-			end
-		end
-	end
-
-	------------------------------------------------
-	-- 🎁 6. AUTO REDEEM ACTIVE CODES
-	------------------------------------------------
-	local ACTIVE_CODES = {
-		"LIMITED",
-		"BIGUPDATE",
-		"DRAGRACE",
-		"ADVTEAM",
-		"SURAKARTA",
-		"STARBOOKS",
-		"RIDEGO",
-		"RELEASE"
-	}
-
-	local function redeemAllCodes()
-		local rc = ReplicatedStorage:FindFirstChild("RedeemCodeEvents")
-		local redeemFunc = rc and rc:FindFirstChild("Redeem")
-		if not redeemFunc then return end
-
-		task.spawn(function()
-			for _, code in ipairs(ACTIVE_CODES) do
-				pcall(function()
-					local res = redeemFunc:InvokeServer(code)
-					task.wait(0.4)
-				end)
-			end
-			UI.Notify("Codes Redeemed", "Attempted redemption on all promotional codes.", 3, "success")
-		end)
-	end
-
-	------------------------------------------------
-	-- 🖼️ UI COMPONENTS IN FARM TAB
-	------------------------------------------------
-	UI.AddSection(tab, "Starbooks Barista Auto-Farm")
-	UI.AddToggle(tab, "Auto Barista Shift", "Automates customer ordering, coffee brewing minigame & cleanup", Config.autoBarista, function(state)
-		toggleAutoBarista(state)
-	end)
-
-	UI.AddSlider(tab, "Minigame Solve Delay (s)", 1, 5, math.floor(Config.baristaMinigameDelay or 2), function(val)
-		Config.baristaMinigameDelay = val
-	end)
-
 	UI.AddSection(tab, "RideGO Taxi Auto-Driver")
 	UI.AddToggle(tab, "Auto RideGO Taxi", "Goes online, auto-accepts orders & smoothly navigates to drops", Config.autoRideGO, function(state)
 		toggleAutoRideGO(state)
@@ -1649,36 +1184,8 @@ local success, err = pcall(function()
 	UI.AddSlider(tab, "Boarding Pause Delay (s)", 1, 8, math.floor(Config.passengerBoardDelay or 3), function(val)
 		Config.passengerBoardDelay = val
 	end)
-
-	UI.AddSection(tab, "Courier Package Delivery")
-	UI.AddToggle(tab, "Auto Courier Delivery", "Picks up packages and completes deliveries continuously", Config.autoCourier, function(state)
-		toggleAutoCourier(state)
-	end)
-
-	UI.AddSlider(tab, "Courier Speed (Studs/s)", 40, 180, math.floor(Config.courierSpeed or 95), function(val)
-		Config.courierSpeed = val
-	end)
-
-	UI.AddSection(tab, "Drag Race Strip Automation")
-	UI.AddToggle(tab, "Auto Drag Racer", "Automatically lines up, launches & finishes drag races", Config.autoDragRace, function(state)
-		toggleAutoDragRace(state)
-	end)
-
-	UI.AddSlider(tab, "Target Record Time (s)", 3, 12, math.floor(Config.dragTargetTime or 6), function(val)
-		Config.dragTargetTime = val
-	end)
-
-	UI.AddSection(tab, "Quests & Promo Codes")
-	UI.AddButton(tab, "Claim All Finished Quests", "Claim Quests", function()
-		claimAllQuests()
-	end)
-
-	UI.AddButton(tab, "Redeem All Promo Codes", "Redeem Codes", function()
-		redeemAllCodes()
-	end)
 end)
 
 if not success then
 	warn("[HipHub DDS Farm Error]:", err)
 end
-
