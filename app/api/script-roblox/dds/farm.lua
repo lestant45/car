@@ -525,6 +525,9 @@ local success, err = pcall(function()
 		if flatDiff.Magnitude < 10 then return nil end
 		local baseDir = flatDiff.Unit
 
+		-- Pre-stream daratan tujuan di seberang
+		requestStreamAsync(toPos)
+
 		local brp = RaycastParams.new()
 		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
 		local filter = { car, player.Character }
@@ -532,9 +535,9 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai jarak penuh ke destination (max 4000 stud)
-		local maxScan = math.min(flatDiff.Magnitude * 1.05, 4000)
-		local stepSize = 25
+		-- Scan sampai jarak penuh ke destination (hingga 12.000 stud untuk rute jarak jauh)
+		local maxScan = math.min(flatDiff.Magnitude * 1.05, 12000)
+		local stepSize = 35
 
 		-- Scan lurus ke depan (0 deg), lalu coba sudut menyamping luas (±15, ±30, ±45, ±60, ±75, ±90)
 		local scanAngles = { 0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90 }
@@ -553,8 +556,8 @@ local success, err = pcall(function()
 				local pz = fromPos.Z + flatDir.Z * curDist
 				local testPos = Vector3.new(px, 0, pz)
 
-				-- Request stream chunk setiap 100 stud pemindaian jurang
-				if inVoid and curDist % 100 == 0 then
+				-- Request stream chunk setiap 140 stud pemindaian jurang
+				if inVoid and curDist % 140 == 0 then
 					requestStreamAsync(testPos)
 				end
 
