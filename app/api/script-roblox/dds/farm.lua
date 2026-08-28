@@ -143,6 +143,105 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- 🧹 DESTROY ALL BUILDINGS & OBSTACLES (Ground & Roads Only Mode)
+	local function shouldDestroyBuilding(obj)
+		if not obj or not obj.Parent then return false end
+		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
+
+		local char = player.Character
+		if char and (obj == char or obj:IsDescendantOf(char)) then return false end
+		if obj.Name:find("HipHub") or obj.Name:find("SafetyPlate") then return false end
+		if obj.Name == "ActiveMissions" or obj.Name == "BaristaJob" or obj.Name == "Job_Point" or obj.Name == "DragRace" or obj.Name == "SensorDragTimer" then
+			return false
+		end
+		-- Keep actual ground & roads
+		if obj.Name == "BASEPLATE" or obj.Name == "OTHER_GRASS" or obj.Name == "RoadsNew" or obj.Name == "TrotoarNew" or obj.Name == "ZEBRA_CROSS" or obj.Name == "OTHER_FLYOVER_PURWOSARI" then
+			return false
+		end
+
+		local name = obj.Name:upper()
+		-- 1. Direct building/obstacle folders and models in workspace
+		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
+			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
+			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
+			or name:find("RUMAH") or name:find("PITCH") or name:find("SHIRT") or name:find("MEDKIT")
+			or name:find("BILLBOARD") or name:find("CONE") or name:find("PANGGUNG") or name:find("HELMET")
+			or name:find("SHOWCASE") or name:find("TITIK_KUMPUL") or name:find("FLAG") or name:find("SIGN")
+			or name:find("DEALERSTASIUN") or name:find("MODIFICATIONGARAGE")
+		then
+			return true
+		end
+
+		-- 2. Models inside road folders (like JL_MANAHAN) that are buildings/houses/fences/roofs
+		if obj:IsA("Model") and obj.Parent and obj.Parent.Name:find("JL_") then
+			local maxY = -999
+			local hasRoofOrWall = false
+			for _, p in ipairs(obj:GetDescendants()) do
+				if p:IsA("BasePart") then
+					if p.Position.Y > maxY then maxY = p.Position.Y end
+					local mat = tostring(p.Material)
+					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") then
+						hasRoofOrWall = true
+					end
+				end
+			end
+			if maxY > 8 or hasRoofOrWall then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function destroyAllBuildings()
+		pcall(function()
+			-- Clean workspace direct children
+			for _, c in ipairs(workspace:GetChildren()) do
+				if shouldDestroyBuilding(c) then
+					pcall(function() c:Destroy() end)
+				end
+			end
+			-- Clean inside JL_ folders (like JL_MANAHAN)
+			for _, c in ipairs(workspace:GetChildren()) do
+				if c.Name:find("JL_") then
+					for _, ch in ipairs(c:GetChildren()) do
+						if shouldDestroyBuilding(ch) then
+							pcall(function() ch:Destroy() end)
+						end
+					end
+				end
+			end
+		end)
+	end
+
+	-- Auto-destroy newly streamed chunks from StreamingEnabled
+	workspace.ChildAdded:Connect(function(child)
+		task.wait(0.1)
+		if shouldDestroyBuilding(child) then
+			pcall(function() child:Destroy() end)
+		elseif child.Name:find("JL_") then
+			child.ChildAdded:Connect(function(subChild)
+				task.wait(0.1)
+				if shouldDestroyBuilding(subChild) then
+					pcall(function() subChild:Destroy() end)
+				end
+			end)
+		end
+	end)
+
+	local jlManahan = workspace:FindFirstChild("JL_MANAHAN")
+	if jlManahan then
+		jlManahan.ChildAdded:Connect(function(child)
+			task.wait(0.1)
+			if shouldDestroyBuilding(child) then
+				pcall(function() child:Destroy() end)
+			end
+		end)
+	end
+
+	-- Run initial building destruction
+	task.spawn(destroyAllBuildings)
+
 	-- 🛣️ Road & Ground detection whitelist for DDS map
 	local function isRoadOrGround(obj)
 		if obj:IsA("Terrain") then return true end
@@ -187,7 +286,7 @@ local success, err = pcall(function()
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 6, safePos.Z), Vector3.new(0, -18, 0), rayParams)
+				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
@@ -237,11 +336,11 @@ local success, err = pcall(function()
 		if not car then return end
 
 		local destP = typeof(targetPos) == "CFrame" and targetPos.Position or targetPos
-		-- Raycast down to find true solid surface (low altitude)
+		-- Raycast down to find true solid surface
 		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
+		rayParams.FilterDescendantsInstances = { car, player.Character }
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		local hit = workspace:Raycast(Vector3.new(destP.X, destP.Y + 6, destP.Z), Vector3.new(0, -18, 0), rayParams)
+		local hit = workspace:Raycast(Vector3.new(destP.X, destP.Y + 30, destP.Z), Vector3.new(0, -60, 0), rayParams)
 		local groundY = hit and (hit.Position.Y + 2.2) or (destP.Y + 2.0)
 		local stablePos = Vector3.new(destP.X, groundY, destP.Z)
 		local stableCF = CFrame.new(stablePos)
@@ -304,9 +403,8 @@ local success, err = pcall(function()
 			local px = fromPos.X + flatDir.X * (i * stepSize)
 			local pz = fromPos.Z + flatDir.Z * (i * stepSize)
 
-			-- Low-altitude scan: tidak menabrak atap atau lampu
-			local origin = Vector3.new(px, refY + 5.0, pz)
-			local hit = workspace:Raycast(origin, Vector3.new(0, -20, 0), brp)
+			local origin = Vector3.new(px, math.max(refY + 50, 70), pz)
+			local hit = workspace:Raycast(origin, Vector3.new(0, -140, 0), brp)
 
 			local solidY = hit and hit.Position.Y
 			-- Syarat valid ground:
@@ -407,33 +505,18 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			refY = refY or startP.Y or 0
-			-- 🚀 Low-Altitude Ground Raycast:
-			-- Tembak raycast dari ketinggian +3.5 stud di atas road level saat ini ke bawah 12 stud.
-			-- Karena atap berada di Y >= 15 dan lampu di Y >= 35, raycast ini 100% melewati bawah atap
-			-- dan HANYA mendeteksi lantai/aspal jalan asli di bawah gedung.
+			-- 🎯 Low-Altitude Raycast: menembak dari refY + 3.5 ke bawah 12 stud langsung ke aspal jalan
+			-- Menghindari menabrak atap atau tiang tinggi di atas road level
 			local rayOrigin = Vector3.new(probePos.X, refY + 3.5, probePos.Z)
 			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -12, 0), rayParams)
-			if hit
-				and hit.Position.Y >= -15 and hit.Position.Y <= 35
-				and (not hit.Normal or hit.Normal.Y >= 0.55)
-			then
+			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 and hit.Normal.Y >= 0.6 then
 				return hit.Position.Y + 0.3
 			end
-
-			-- Fallback jika jalan menanjak/menurun (misal ramp flyover): coba rentang sedikit lebih tinggi
-			local rampOrigin = Vector3.new(probePos.X, refY + 8.0, probePos.Z)
-			local rampHit = workspace:Raycast(rampOrigin, Vector3.new(0, -18, 0), rayParams)
-			if rampHit
-				and rampHit.Position.Y >= -15 and rampHit.Position.Y <= 35
-				and (not rampHit.Normal or rampHit.Normal.Y >= 0.55)
-			then
-				-- Validasi agar bukan atap (perbedaan tinggi maks 5 stud per step)
-				if math.abs(rampHit.Position.Y - refY) <= 5.0 then
-					return rampHit.Position.Y + 0.3
-				end
+			-- Fallback jika jalan menurun (turunan curam)
+			local hitDeep = workspace:Raycast(Vector3.new(probePos.X, refY + 5, probePos.Z), Vector3.new(0, -25, 0), rayParams)
+			if hitDeep and hitDeep.Position.Y >= -15 and hitDeep.Position.Y <= 35 and hitDeep.Normal.Y >= 0.6 then
+				return hitDeep.Position.Y + 0.3
 			end
-
 			return nil
 		end
 
@@ -526,13 +609,13 @@ local success, err = pcall(function()
 						0,
 						carPos.Z + nudgeDir.Z * nudgeDist
 					)
-					-- Cari Y ground asli di bawah bangunan di titik nudge (low altitude)
+					-- Cari Y ground asli di bawah bangunan di titik nudge
 					local nudgeRp = RaycastParams.new()
 					nudgeRp.FilterDescendantsInstances = buildingFilter
 					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
 					local nudgeHit = workspace:Raycast(
-						Vector3.new(nudgePos2D.X, lastGroundY + 4.0, nudgePos2D.Z),
-						Vector3.new(0, -12, 0),
+						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
+						Vector3.new(0, -140, 0),
 						nudgeRp
 					)
 					local nudgeY = (nudgeHit and nudgeHit.Position.Y >= -20 and nudgeHit.Position.Y <= 50)
