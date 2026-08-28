@@ -520,17 +520,20 @@ local success, err = pcall(function()
 
 	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (multi-angle luas & long-range),
 	-- lalu teleport vehicle ke ground seberang dengan safety plate.
-	local function attemptVoidBridge(car, fromPos, toPos, filterList)
+	local function attemptVoidBridge(car, fromPos, toPos)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		if flatDiff.Magnitude < 10 then return nil end
 		local baseDir = flatDiff.Unit
 
 		local brp = RaycastParams.new()
-		brp.FilterDescendantsInstances = filterList or { car, player.Character }
+		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		local filter = { car, player.Character }
+		if safetyPlate then table.insert(filter, safetyPlate) end
+		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai jarak penuh ke destination (max 3800 stud)
-		local maxScan = math.min(flatDiff.Magnitude * 1.05, 3800)
+		-- Scan sampai jarak penuh ke destination (max 4000 stud)
+		local maxScan = math.min(flatDiff.Magnitude * 1.05, 4000)
 		local stepSize = 25
 
 		-- Scan lurus ke depan (0 deg), lalu coba sudut menyamping luas (±15, ±30, ±45, ±60, ±75, ±90)
@@ -794,9 +797,13 @@ local success, err = pcall(function()
 				targetElevY = lastGroundY
 
 				local nowClock = os.clock()
-				if (nowClock - lastBridgeScanTime) >= 0.6 then
+				-- 🛑 Reset stuck tracking: Jangan pernah memicu Stuck Bypass saat sedang sengaja berhenti di tepi jurang!
+				stuckLastTime = nowClock
+				stuckLastDist = dist
+
+				if (nowClock - lastBridgeScanTime) >= 0.25 then
 					lastBridgeScanTime = nowClock
-					local bridgeLanding = attemptVoidBridge(car, carPos, destP, buildingFilter)
+					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
