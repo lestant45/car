@@ -382,8 +382,8 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filterList or { car, player.Character }
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai sejauh jarak ke destination (max 220 stud)
-		local maxScan = math.min(flatDiff.Magnitude * 1.1, 220)
+		-- Scan sampai sejauh jarak ke destination (max 350 stud)
+		local maxScan = math.min(flatDiff.Magnitude * 1.1, 350)
 		local stepSize = 4
 		local refY    = fromPos.Y
 		-- Landing Y harus dekat dengan ground level awal (max ±12 stud)
@@ -540,6 +540,7 @@ local success, err = pcall(function()
 		local stuckNudgeCount = 0  -- berapa kali sudah di-nudge (batasi agar tidak loop selamanya)
 
 		local navHeading = nil
+		local edgeFollowSign = 1  -- Konsisten mengikuti satu sisi (1 = kanan, -1 = kiri) untuk mencegah osilasi bolak-balik di tepi jurang
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -605,26 +606,31 @@ local success, err = pcall(function()
 						Vector3.new(0, -140, 0),
 						nudgeRp
 					)
-					local nudgeY = (nudgeHit and nudgeHit.Position.Y >= -20 and nudgeHit.Position.Y <= 50)
-						and (nudgeHit.Position.Y + 1.5)
-						or lastGroundY
-					local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
+					-- 🛡️ STRICT VOID GUARD: Hanya bypass jika titik landing benar-benar memiliki tanah/jalan padat!
+					-- Jika titik landing adalah jurang kosong, batalkan bypass seketika agar tidak terbang ke void!
+					if nudgeHit and nudgeHit.Position.Y >= -15 and nudgeHit.Position.Y <= 35 then
+						local nudgeY = nudgeHit.Position.Y + 0.3
+						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
 
-					-- Pasang safety plate di landing, teleport, nol-kan velocity
-					pcall(function()
-						ensureSafetyPlate(nudgeLand, 40)
-						local yaw = math.atan2(-nudgeDir.X, -nudgeDir.Z)
-						car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
-						for _, part in ipairs(car:GetDescendants()) do
-							if part:IsA("BasePart") then
-								part.AssemblyLinearVelocity  = Vector3.zero
-								part.AssemblyAngularVelocity = Vector3.zero
+						pcall(function()
+							ensureSafetyPlate(nudgeLand, 40)
+							local yaw = math.atan2(-nudgeDir.X, -nudgeDir.Z)
+							car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
+							for _, part in ipairs(car:GetDescendants()) do
+								if part:IsA("BasePart") then
+									part.AssemblyLinearVelocity  = Vector3.zero
+									part.AssemblyAngularVelocity = Vector3.zero
+								end
 							end
-						end
-						lastGroundY = nudgeY
-					end)
+							lastGroundY = nudgeY
+						end)
 
-					UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
+						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
+					else
+						-- Titik depan adalah jurang kosong: batalkan bypass dan flip arah susur tebing
+						edgeFollowSign = -edgeFollowSign
+						stuckLastTime = nowClock
+					end
 				end
 			end
 
@@ -662,15 +668,17 @@ local success, err = pcall(function()
 					targetElevY = bridgeLanding.Y
 					lastGroundY = bridgeLanding.Y
 				else
-					-- Sweep fan to turn along the edge of solid ground
+					-- Sweep fan konsisten pada sisi edgeFollowSign untuk menyusuri daratan tanpa osilasi
 					local baseDir = navHeading or directGoalDir
 					local bestDir = nil
 					local bestDist = math.huge
 					local bestY = lastGroundY
 
-					for angle = 10, 160, 10 do
-						for _, sign in ipairs({ 1, -1 }) do
-							local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
+					-- Coba sisi aktif terlebih dahulu
+					local signOrder = { edgeFollowSign, -edgeFollowSign }
+					for _, s in ipairs(signOrder) do
+						for angle = 10, 160, 10 do
+							local testRot = CFrame.Angles(0, math.rad(angle * s), 0)
 							local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
 							local testProbePos = carPos + testDir * probeDist
 							local testHitY = probeGround(testProbePos, lastGroundY)
@@ -681,10 +689,11 @@ local success, err = pcall(function()
 									bestDist = testDistToGoal
 									bestDir = testDir
 									bestY = testHitY
+									edgeFollowSign = s
 								end
 							end
 						end
-						if bestDir and angle >= 90 then
+						if bestDir then
 							break
 						end
 					end
