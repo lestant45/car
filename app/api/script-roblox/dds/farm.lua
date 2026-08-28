@@ -691,7 +691,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 12 then
+			if dist <= 4.0 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -993,11 +993,37 @@ local success, err = pcall(function()
 			ensureDriverSeated()
 
 			local waitStartBoard = tick()
+			local lastApproachTime = tick()
 			while not isPassengerOnboard() and taxiActive and (tick() - waitStartBoard < 30) do
 				local checkHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 				if not (checkHum and checkHum.SeatPart) then
 					mountBike()
 				end
+
+				-- 🚶 Proximity Safety Check: Jika penumpang belum naik setelah ≥ 2.5s,
+				-- gerakkan motor mendekat tepat di samping posisi fisik penumpang NPC (2.5 stud)
+				if (tick() - lastApproachTime) >= 2.5 then
+					lastApproachTime = tick()
+					local activeMissions = workspace:FindFirstChild("ActiveMissions")
+					local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+					local passHrp = passengerNpc and passengerNpc:FindFirstChild("HumanoidRootPart")
+					local currentCar, seat = getPlayerVehicle()
+
+					if passHrp and currentCar then
+						local passPos = passHrp.Position
+						local currentCarPos = currentCar:GetPivot().Position
+						local distToPass = (Vector3.new(currentCarPos.X, 0, currentCarPos.Z) - Vector3.new(passPos.X, 0, passPos.Z)).Magnitude
+
+						if distToPass > 3.0 and distToPass < 60 then
+							UI.Notify("🚶 Mendekati Penumpang", string.format("Merayap mendekat (%.1fm)...", distToPass * 0.28), 1.5, "warning")
+							local approachDir = (currentCarPos - passPos).Magnitude > 0.1 and (currentCarPos - passPos).Unit or Vector3.new(1, 0, 0)
+							local approachPos = passPos + Vector3.new(approachDir.X, 0, approachDir.Z).Unit * 2.5
+							safelySettleAndUnanchor(currentCar, Vector3.new(approachPos.X, passPos.Y, approachPos.Z))
+							ensureDriverSeated()
+						end
+					end
+				end
+
 				task.wait(0.4)
 			end
 
