@@ -798,6 +798,15 @@ local success, err = pcall(function()
 				stepDist = 0
 				targetElevY = lastGroundY
 
+				-- 🛡️ Pasang SafetyPlate di bawah motor dan bekukan momentum agar motor tidak bisa jatuh bebas!
+				ensureSafetyPlate(carPos, 40)
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity  = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+
 				local nowClock = os.clock()
 				-- 🛑 Reset stuck tracking: Jangan pernah memicu Stuck Bypass saat sedang sengaja berhenti di tepi jurang!
 				stuckLastTime = nowClock
@@ -957,17 +966,19 @@ local success, err = pcall(function()
 		if newState == "IDLE" then
 			updateLiveStatus("⚪ Offline / Idle", Color3.fromRGB(148, 163, 184))
 		elseif newState == "WAITING_FOR_NEXT_ORDER" then
-			updateLiveStatus("🟢 Online — Waiting for Orders...", Color3.fromRGB(56, 189, 248))
+			updateLiveStatus("🟢 Online — Menunggu Orderan...", Color3.fromRGB(56, 189, 248))
 		elseif newState == "NEW_ORDER_DETECTED" then
-			updateLiveStatus("⚡ Order Received — Accepting...", Color3.fromRGB(168, 85, 247))
+			updateLiveStatus("⚡ Orderan Diterima — Mempersiapkan...", Color3.fromRGB(168, 85, 247))
 		elseif newState == "PICKING_UP" then
-			updateLiveStatus("🛵 Driving to Pickup Passenger...", Color3.fromRGB(250, 204, 21))
+			updateLiveStatus("🛵 Menuju Lokasi Jemput Penumpang...", Color3.fromRGB(250, 204, 21))
 		elseif newState == "WAITING_FOR_PASSENGER" then
-			updateLiveStatus("📍 Arrived — Waiting for Passenger...", Color3.fromRGB(251, 146, 60))
+			updateLiveStatus("📍 Tiba di Lokasi — Menunggu Penumpang Naik...", Color3.fromRGB(251, 146, 60))
+		elseif newState == "DRIVING_TO_DESTINATION" then
+			updateLiveStatus("🚗 Mengantar Penumpang ke Destinasi...", Color3.fromRGB(74, 222, 128))
 		elseif newState == "DROPPING_OFF" then
-			updateLiveStatus("🚗 Delivering Passenger to Destination...", Color3.fromRGB(74, 222, 128))
+			updateLiveStatus("🏁 Tiba di Destinasi — Penumpang Turun...", Color3.fromRGB(52, 211, 153))
 		elseif newState == "ORDER_COMPLETED" then
-			updateLiveStatus("✅ Trip Completed — Getting Next Order...", Color3.fromRGB(34, 197, 94))
+			updateLiveStatus("✅ Perjalanan Selesai — Orderan Berikutnya...", Color3.fromRGB(34, 197, 94))
 		end
 	end
 
@@ -1039,6 +1050,7 @@ local success, err = pcall(function()
 
 		-- 5. Wait for passenger boarding
 		if taxiPickupPos and taxiActive then
+			setTaxiState("WAITING_FOR_PASSENGER")
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
 			local car, seat = getPlayerVehicle()
