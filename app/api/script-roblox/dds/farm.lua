@@ -561,6 +561,10 @@ local success, err = pcall(function()
 				local origin = Vector3.new(px, math.clamp(refY + 30, 30, 65), pz)
 				local hit = workspace:Raycast(origin, Vector3.new(0, -110, 0), brp)
 
+				if hit and hit.Instance and (hit.Instance.Name == "__DdsSafetyPlate" or hit.Instance.Name:find("SafetyPlate") or hit.Instance.Name:find("HipHub")) then
+					hit = nil
+				end
+
 				local solidY = hit and hit.Position.Y
 				local isGround = solidY
 					and solidY >= -20 and solidY <= 75
@@ -637,8 +641,14 @@ local success, err = pcall(function()
 		local function probeGround(probePos, refY)
 			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 55), probePos.Z)
 			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -130, 0), rayParams)
-			if hit and hit.Position.Y >= -20 and hit.Position.Y <= 75 and hit.Normal.Y >= 0.2 then
-				return hit.Position.Y + 0.3
+			if hit and hit.Instance then
+				local hitName = hit.Instance.Name
+				if hitName == "__DdsSafetyPlate" or hitName:find("SafetyPlate") or hitName:find("HipHub") then
+					return nil
+				end
+				if hit.Position.Y >= -20 and hit.Position.Y <= 75 and hit.Normal.Y >= 0.2 then
+					return hit.Position.Y + 0.3
+				end
 			end
 			return nil
 		end
@@ -780,15 +790,18 @@ local success, err = pcall(function()
 			end
 
 			local stepDist = curSpeed * dt
-			local probeDist = math.max(stepDist * 1.6, 4)
+			local probeDist = math.max(stepDist * 1.6, 6)
 
 			local directProbePos = carPos + directGoalDir * probeDist
 			local directHitY = probeGround(directProbePos, lastGroundY)
 
+			-- 🛑 Jika jarak jurang ≤ 18 stud ATAU tanah langsung di depan hilang, BERHENTI DIAM dan mulai memindai seberang!
+			local isAtCliffEdge = (solidAheadDist <= 18) or (directHitY == nil)
+
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY then
+			if not isAtCliffEdge and directHitY then
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
@@ -796,6 +809,7 @@ local success, err = pcall(function()
 				-- 🌉 Real-time Void Bridge Scan (Motor BERHENTI DIAM di tanah aman saat memindai)
 				actualMoveDir = Vector3.zero
 				stepDist = 0
+				curSpeed = 0
 				targetElevY = lastGroundY
 
 				-- 🛡️ Pasang SafetyPlate di bawah motor dan bekukan momentum agar motor tidak bisa jatuh bebas!
