@@ -456,6 +456,19 @@ local success, err = pcall(function()
 						end
 					end
 
+					-- Pastikan driver tetap duduk stabil di kursi pengemudi saat mendarat
+					local char = player.Character
+					local hum  = char and char:FindFirstChildOfClass("Humanoid")
+					local root = char and char:FindFirstChild("HumanoidRootPart")
+					local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
+					if root and seat and hum then
+						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+						hum.Sit = true
+						seat:Sit(hum)
+						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					end
+
 					return landPos
 				end
 			else
@@ -636,6 +649,7 @@ local success, err = pcall(function()
 						end)
 
 						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
+						return -- Selesaikan frame ini agar posisi bypass tidak ter-override
 					else
 						edgeFollowSign = -edgeFollowSign
 						stuckLastTime = nowClock
@@ -674,8 +688,6 @@ local success, err = pcall(function()
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP, buildingFilter)
 					if bridgeLanding then
 						bridged = true
-						actualMoveDir = Vector3.zero
-						stepDist = 0
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
 						stuckLastTime = nowClock
@@ -683,6 +695,7 @@ local success, err = pcall(function()
 						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(-newDir.X, -newDir.Z)
 						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, melanjutkan perjalanan...", 2, "success")
+						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
 
