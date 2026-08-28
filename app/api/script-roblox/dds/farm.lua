@@ -396,85 +396,93 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 🌉 Void Bridge Engine: scan jalur lurus ke destination, deteksi gap/jurang,
-	-- lalu teleport vehicle ke ground pertama di sisi seberang.
+	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (multi-angle), deteksi gap/jurang,
+	-- lalu teleport vehicle ke ground pertama di sisi seberang dengan safety plate.
 	local function attemptVoidBridge(car, fromPos, toPos, filterList)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		if flatDiff.Magnitude < 10 then return nil end
-		local flatDir = flatDiff.Unit
+		local baseDir = flatDiff.Unit
 
 		local brp = RaycastParams.new()
 		brp.FilterDescendantsInstances = filterList or { car, player.Character }
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai sejauh jarak ke destination (max 1200 stud)
 		local maxScan = math.min(flatDiff.Magnitude * 1.05, 1200)
-		local stepSize = 10
-		local refY    = fromPos.Y
+		local stepSize = 12
 		local maxLandingYDelta = 15
-		local inVoid  = false
-		local voidEnteredAt = nil
 
-		for i = 1, math.ceil(maxScan / stepSize) do
-			local curDist = i * stepSize
-			local px = fromPos.X + flatDir.X * curDist
-			local pz = fromPos.Z + flatDir.Z * curDist
-			local testPos = Vector3.new(px, 0, pz)
+		-- Scan lurus ke depan terlebih dahulu (0 deg), lalu coba sudut menyamping (±15, ±30, ±45)
+		local scanAngles = { 0, 15, -15, 30, -30, 45, -45 }
 
-			-- Request stream chunk setiap 60 stud pemindaian jurang
-			if inVoid and curDist % 60 == 0 then
-				requestStreamAsync(testPos)
-			end
+		for _, ang in ipairs(scanAngles) do
+			local scanRot = CFrame.Angles(0, math.rad(ang), 0)
+			local flatDir = (scanRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
 
-			local origin = Vector3.new(px, math.clamp(refY + 25, 25, 55), pz)
-			local hit = workspace:Raycast(origin, Vector3.new(0, -85, 0), brp)
+			local refY = fromPos.Y
+			local inVoid = false
+			local voidEnteredAt = nil
 
-			local solidY = hit and hit.Position.Y
-			local isGround = solidY
-				and solidY >= -15 and solidY <= 35
-				and math.abs(solidY - fromPos.Y) <= (inVoid and maxLandingYDelta or 999)
-				and (not hit.Normal or hit.Normal.Y >= 0.5)
+			for i = 1, math.ceil(maxScan / stepSize) do
+				local curDist = i * stepSize
+				local px = fromPos.X + flatDir.X * curDist
+				local pz = fromPos.Z + flatDir.Z * curDist
+				local testPos = Vector3.new(px, 0, pz)
 
-			if isGround then
-				refY = solidY
-				if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15) then
-					-- ✅ Ground padat ditemukan di daratan seberang jurang!
-					local landPos = Vector3.new(px, solidY + 0.5, pz)
-
-					-- Pasang safety plate di landing spot daratan seberang
-					ensureSafetyPlate(landPos, 45)
-
-					-- Teleport vehicle ke landing, hadap ke arah destination
-					local yaw = math.atan2(-flatDir.X, -flatDir.Z)
-					car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
-
-					-- Nol-kan momentum agar tidak melayang
-					for _, part in ipairs(car:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.AssemblyLinearVelocity  = Vector3.zero
-							part.AssemblyAngularVelocity = Vector3.zero
-						end
-					end
-
-					-- Pastikan driver tetap duduk stabil di kursi pengemudi saat mendarat
-					local char = player.Character
-					local hum  = char and char:FindFirstChildOfClass("Humanoid")
-					local root = char and char:FindFirstChild("HumanoidRootPart")
-					local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
-					if root and seat and hum then
-						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-						hum.Sit = true
-						seat:Sit(hum)
-						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-					end
-
-					return landPos
+				-- Request stream chunk setiap 50 stud pemindaian jurang
+				if inVoid and curDist % 50 == 0 then
+					requestStreamAsync(testPos)
 				end
-			else
-				if not inVoid then
-					inVoid = true
-					voidEnteredAt = curDist
+
+				local origin = Vector3.new(px, math.clamp(refY + 25, 25, 55), pz)
+				local hit = workspace:Raycast(origin, Vector3.new(0, -85, 0), brp)
+
+				local solidY = hit and hit.Position.Y
+				local isGround = solidY
+					and solidY >= -15 and solidY <= 35
+					and math.abs(solidY - fromPos.Y) <= (inVoid and maxLandingYDelta or 999)
+					and (not hit.Normal or hit.Normal.Y >= 0.5)
+
+				if isGround then
+					refY = solidY
+					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15) then
+						-- ✅ Ground padat ditemukan di daratan seberang jurang!
+						local landPos = Vector3.new(px, solidY + 0.5, pz)
+
+						-- Pasang safety plate di landing spot daratan seberang
+						ensureSafetyPlate(landPos, 45)
+
+						-- Teleport vehicle ke landing, hadap ke arah destination
+						local yaw = math.atan2(-baseDir.X, -baseDir.Z)
+						car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
+
+						-- Nol-kan momentum agar tidak melayang
+						for _, part in ipairs(car:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.AssemblyLinearVelocity  = Vector3.zero
+								part.AssemblyAngularVelocity = Vector3.zero
+							end
+						end
+
+						-- Pastikan driver tetap duduk stabil di kursi pengemudi saat mendarat
+						local char = player.Character
+						local hum  = char and char:FindFirstChildOfClass("Humanoid")
+						local root = char and char:FindFirstChild("HumanoidRootPart")
+						local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
+						if root and seat and hum then
+							root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+							hum.Sit = true
+							seat:Sit(hum)
+							hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+							hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+						end
+
+						return landPos
+					end
+				else
+					if not inVoid then
+						inVoid = true
+						voidEnteredAt = curDist
+					end
 				end
 			end
 		end
@@ -681,13 +689,16 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🌉 Real-time Void Bridge Scan
-				local bridged = false
-				if (nowClock - lastBridgeScanTime) >= 0.8 then
+				-- 🌉 Real-time Void Bridge Scan (Motor BERHENTI DIAM di tanah aman saat memindai)
+				actualMoveDir = Vector3.zero
+				stepDist = 0
+				targetElevY = lastGroundY
+
+				local nowClock = os.clock()
+				if (nowClock - lastBridgeScanTime) >= 0.6 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP, buildingFilter)
 					if bridgeLanding then
-						bridged = true
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
 						stuckLastTime = nowClock
@@ -696,47 +707,6 @@ local success, err = pcall(function()
 						curHeadingAngle = math.atan2(-newDir.X, -newDir.Z)
 						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, melanjutkan perjalanan...", 2, "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
-					end
-				end
-
-				if not bridged then
-					local baseDir = navHeading or directGoalDir
-					local bestDir = nil
-					local bestDist = math.huge
-					local bestY = lastGroundY
-
-					local signOrder = { edgeFollowSign, -edgeFollowSign }
-					for _, s in ipairs(signOrder) do
-						for angle = 10, 160, 10 do
-							local testRot = CFrame.Angles(0, math.rad(angle * s), 0)
-							local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-							local testProbePos = carPos + testDir * probeDist
-							local testHitY = probeGround(testProbePos, lastGroundY)
-
-							if testHitY then
-								local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-								if testDistToGoal < bestDist then
-									bestDist = testDistToGoal
-									bestDir = testDir
-									bestY = testHitY
-									edgeFollowSign = s
-								end
-							end
-						end
-						if bestDir then
-							break
-						end
-					end
-
-					if bestDir then
-						actualMoveDir = bestDir
-						navHeading = bestDir
-						targetElevY = bestY
-					else
-						-- 🛑 Hard-Stop Anti-Void: diam di tempat jika tidak ada daratan
-						actualMoveDir = Vector3.zero
-						stepDist = 0
-						targetElevY = lastGroundY
 					end
 				end
 			end
