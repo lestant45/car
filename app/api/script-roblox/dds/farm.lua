@@ -239,9 +239,9 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Keep actual ground, roads, hills, grass & river water surfaces
+		-- Keep actual ground, roads, hills, grass, bridges, flyovers & river water surfaces
 		local name = obj.Name:upper()
-		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("WEIGHT") then
+		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("WEIGHT") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
 			return false
 		end
 		if (name:sub(1, 3) == "JL_" or name:find("JL_SLR")) and not name:find("BUILDING") and not name:find("RUKO") then
@@ -334,7 +334,7 @@ local success, err = pcall(function()
 		then
 			return false
 		end
-		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("UNION") or name:find("WEIGHT") then
+		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("UNION") or name:find("WEIGHT") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
 			return true
 		end
 		return false
@@ -558,13 +558,13 @@ local success, err = pcall(function()
 					requestStreamAsync(testPos)
 				end
 
-				local origin = Vector3.new(px, math.clamp(refY + 30, 30, 65), pz)
-				local hit = workspace:Raycast(origin, Vector3.new(0, -110, 0), brp)
+				local origin = Vector3.new(px, math.max(refY + 40, 60), pz)
+				local hit = workspace:Raycast(origin, Vector3.new(0, -150, 0), brp)
 
 				local solidY = hit and hit.Position.Y
 				local isGround = solidY
-					and solidY >= -20 and solidY <= 75
-					and (not hit.Normal or hit.Normal.Y >= 0.25)
+					and solidY >= -30 and solidY <= 300
+					and (not hit.Normal or hit.Normal.Y >= 0.15)
 
 				if isGround then
 					refY = solidY
@@ -635,9 +635,9 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 55), probePos.Z)
-			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -130, 0), rayParams)
-			if hit and hit.Position.Y >= -20 and hit.Position.Y <= 75 and hit.Normal.Y >= 0.2 then
+			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 40, 60), probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -150, 0), rayParams)
+			if hit and hit.Position.Y >= -30 and hit.Position.Y <= 300 and hit.Normal.Y >= 0.15 then
 				return hit.Position.Y + 0.3
 			end
 			return nil
@@ -721,10 +721,10 @@ local success, err = pcall(function()
 					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
 					local nudgeHit = workspace:Raycast(
 						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
-						Vector3.new(0, -140, 0),
+						Vector3.new(0, -150, 0),
 						nudgeRp
 					)
-					if nudgeHit and nudgeHit.Position.Y >= -15 and nudgeHit.Position.Y <= 35 then
+					if nudgeHit and nudgeHit.Position.Y >= -30 and nudgeHit.Position.Y <= 300 then
 						local nudgeY = nudgeHit.Position.Y + 0.3
 						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
 
