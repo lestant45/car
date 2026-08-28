@@ -422,6 +422,11 @@ local success, err = pcall(function()
 		local lastGroundY = startP.Y
 		local distTravelled = 0  -- Total jarak tempuh dari posisi awal (untuk deferred plate removal)
 
+		-- 🚨 Stuck detection: track progress menuju destination
+		local stuckLastDist   = totalDist
+		local stuckLastTime   = os.clock()
+		local stuckNudgeCount = 0  -- berapa kali sudah di-nudge (batasi agar tidak loop selamanya)
+
 		local navHeading = nil
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
@@ -455,6 +460,61 @@ local success, err = pcall(function()
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
+			end
+
+			-- 🚨 Stuck Recovery: jika tidak ada progress ke destination selama >= 3 detik,
+			-- teleport maju langsung ke arah destination menembus rintangan (dinding, pagar, dll)
+			local nowClock = os.clock()
+			if dist < stuckLastDist - 2 then
+				-- Progress normal: update tracker
+				stuckLastDist = dist
+				stuckLastTime = nowClock
+			elseif (nowClock - stuckLastTime) >= 3.0 and stuckNudgeCount < 8 then
+				-- Stuck selama >= 3 detik dan belum terlalu banyak nudge: paksa maju
+				stuckNudgeCount = stuckNudgeCount + 1
+				stuckLastTime   = nowClock
+				stuckLastDist   = dist
+
+				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
+				-- Teleport maju 25 stud ke arah destination (menembus rintangan)
+				local nudgeDist = math.min(25, dist - 5)
+				if nudgeDist > 0 then
+					local nudgePos2D = Vector3.new(
+						carPos.X + nudgeDir.X * nudgeDist,
+						0,
+						carPos.Z + nudgeDir.Z * nudgeDist
+					)
+					-- Cari Y ground di titik nudge
+					local nudgeRp = RaycastParams.new()
+					nudgeRp.FilterDescendantsInstances = { car, player.Character }
+					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
+					local nudgeHit = workspace:Raycast(
+						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
+						Vector3.new(0, -140, 0),
+						nudgeRp
+					)
+					local nudgeY = (nudgeHit and nudgeHit.Normal and nudgeHit.Normal.Y >= 0.6
+						and nudgeHit.Position.Y >= -20 and nudgeHit.Position.Y <= 50)
+						and (nudgeHit.Position.Y + 2.5)
+						or lastGroundY
+					local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
+
+					-- Pasang safety plate di landing, teleport, nol-kan velocity
+					pcall(function()
+						ensureSafetyPlate(nudgeLand, 40)
+						local yaw = math.atan2(-nudgeDir.X, -nudgeDir.Z)
+						car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
+						for _, part in ipairs(car:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.AssemblyLinearVelocity  = Vector3.zero
+								part.AssemblyAngularVelocity = Vector3.zero
+							end
+						end
+						lastGroundY = nudgeY
+					end)
+
+					UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
+				end
 			end
 
 			-- 🏎️ Dynamic smooth deceleration when approaching destination
