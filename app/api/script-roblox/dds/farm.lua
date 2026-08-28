@@ -187,7 +187,7 @@ local success, err = pcall(function()
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
+				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 6, safePos.Z), Vector3.new(0, -18, 0), rayParams)
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
@@ -237,11 +237,11 @@ local success, err = pcall(function()
 		if not car then return end
 
 		local destP = typeof(targetPos) == "CFrame" and targetPos.Position or targetPos
-		-- Raycast down to find true solid surface
+		-- Raycast down to find true solid surface (low altitude)
 		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { car, player.Character }
+		rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		local hit = workspace:Raycast(Vector3.new(destP.X, destP.Y + 30, destP.Z), Vector3.new(0, -60, 0), rayParams)
+		local hit = workspace:Raycast(Vector3.new(destP.X, destP.Y + 6, destP.Z), Vector3.new(0, -18, 0), rayParams)
 		local groundY = hit and (hit.Position.Y + 2.2) or (destP.Y + 2.0)
 		local stablePos = Vector3.new(destP.X, groundY, destP.Z)
 		local stableCF = CFrame.new(stablePos)
@@ -304,8 +304,9 @@ local success, err = pcall(function()
 			local px = fromPos.X + flatDir.X * (i * stepSize)
 			local pz = fromPos.Z + flatDir.Z * (i * stepSize)
 
-			local origin = Vector3.new(px, math.max(refY + 50, 70), pz)
-			local hit = workspace:Raycast(origin, Vector3.new(0, -140, 0), brp)
+			-- Low-altitude scan: tidak menabrak atap atau lampu
+			local origin = Vector3.new(px, refY + 5.0, pz)
+			local hit = workspace:Raycast(origin, Vector3.new(0, -20, 0), brp)
 
 			local solidY = hit and hit.Position.Y
 			-- Syarat valid ground:
@@ -406,17 +407,33 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 75), probePos.Z)
-			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -180, 0), rayParams)
-			-- Validasi:
-			--   1. Y dalam range road/ground yang valid
-			--   2. Normal permukaan cukup tegak (>= 0.7) — reject atap miring, dinding, tangga curam
+			refY = refY or startP.Y or 0
+			-- 🚀 Low-Altitude Ground Raycast:
+			-- Tembak raycast dari ketinggian +3.5 stud di atas road level saat ini ke bawah 12 stud.
+			-- Karena atap berada di Y >= 15 dan lampu di Y >= 35, raycast ini 100% melewati bawah atap
+			-- dan HANYA mendeteksi lantai/aspal jalan asli di bawah gedung.
+			local rayOrigin = Vector3.new(probePos.X, refY + 3.5, probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -12, 0), rayParams)
 			if hit
 				and hit.Position.Y >= -15 and hit.Position.Y <= 35
-				and hit.Normal.Y >= 0.7
+				and (not hit.Normal or hit.Normal.Y >= 0.55)
 			then
 				return hit.Position.Y + 0.3
 			end
+
+			-- Fallback jika jalan menanjak/menurun (misal ramp flyover): coba rentang sedikit lebih tinggi
+			local rampOrigin = Vector3.new(probePos.X, refY + 8.0, probePos.Z)
+			local rampHit = workspace:Raycast(rampOrigin, Vector3.new(0, -18, 0), rayParams)
+			if rampHit
+				and rampHit.Position.Y >= -15 and rampHit.Position.Y <= 35
+				and (not rampHit.Normal or rampHit.Normal.Y >= 0.55)
+			then
+				-- Validasi agar bukan atap (perbedaan tinggi maks 5 stud per step)
+				if math.abs(rampHit.Position.Y - refY) <= 5.0 then
+					return rampHit.Position.Y + 0.3
+				end
+			end
+
 			return nil
 		end
 
@@ -509,13 +526,13 @@ local success, err = pcall(function()
 						0,
 						carPos.Z + nudgeDir.Z * nudgeDist
 					)
-					-- Cari Y ground asli di bawah bangunan di titik nudge
+					-- Cari Y ground asli di bawah bangunan di titik nudge (low altitude)
 					local nudgeRp = RaycastParams.new()
 					nudgeRp.FilterDescendantsInstances = buildingFilter
 					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
 					local nudgeHit = workspace:Raycast(
-						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
-						Vector3.new(0, -140, 0),
+						Vector3.new(nudgePos2D.X, lastGroundY + 4.0, nudgePos2D.Z),
+						Vector3.new(0, -12, 0),
 						nudgeRp
 					)
 					local nudgeY = (nudgeHit and nudgeHit.Position.Y >= -20 and nudgeHit.Position.Y <= 50)
