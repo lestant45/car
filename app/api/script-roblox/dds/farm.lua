@@ -406,8 +406,8 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (multi-angle), deteksi gap/jurang,
-	-- lalu teleport vehicle ke ground pertama di sisi seberang dengan safety plate.
+	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (multi-angle luas & long-range),
+	-- lalu teleport vehicle ke ground seberang dengan safety plate.
 	local function attemptVoidBridge(car, fromPos, toPos, filterList)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		if flatDiff.Magnitude < 10 then return nil end
@@ -417,12 +417,12 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filterList or { car, player.Character }
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		local maxScan = math.min(flatDiff.Magnitude * 1.05, 1200)
-		local stepSize = 12
-		local maxLandingYDelta = 15
+		-- Scan sampai jarak penuh ke destination (max 3800 stud)
+		local maxScan = math.min(flatDiff.Magnitude * 1.05, 3800)
+		local stepSize = 25
 
-		-- Scan lurus ke depan terlebih dahulu (0 deg), lalu coba sudut menyamping (±15, ±30, ±45)
-		local scanAngles = { 0, 15, -15, 30, -30, 45, -45 }
+		-- Scan lurus ke depan (0 deg), lalu coba sudut menyamping luas (±15, ±30, ±45, ±60, ±75, ±90)
+		local scanAngles = { 0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90 }
 
 		for _, ang in ipairs(scanAngles) do
 			local scanRot = CFrame.Angles(0, math.rad(ang), 0)
@@ -438,19 +438,18 @@ local success, err = pcall(function()
 				local pz = fromPos.Z + flatDir.Z * curDist
 				local testPos = Vector3.new(px, 0, pz)
 
-				-- Request stream chunk setiap 50 stud pemindaian jurang
-				if inVoid and curDist % 50 == 0 then
+				-- Request stream chunk setiap 100 stud pemindaian jurang
+				if inVoid and curDist % 100 == 0 then
 					requestStreamAsync(testPos)
 				end
 
-				local origin = Vector3.new(px, math.clamp(refY + 25, 25, 55), pz)
-				local hit = workspace:Raycast(origin, Vector3.new(0, -85, 0), brp)
+				local origin = Vector3.new(px, math.clamp(refY + 30, 30, 65), pz)
+				local hit = workspace:Raycast(origin, Vector3.new(0, -110, 0), brp)
 
 				local solidY = hit and hit.Position.Y
 				local isGround = solidY
-					and solidY >= -15 and solidY <= 35
-					and math.abs(solidY - fromPos.Y) <= (inVoid and maxLandingYDelta or 999)
-					and (not hit.Normal or hit.Normal.Y >= 0.5)
+					and solidY >= -20 and solidY <= 75
+					and (not hit.Normal or hit.Normal.Y >= 0.25)
 
 				if isGround then
 					refY = solidY
@@ -458,17 +457,14 @@ local success, err = pcall(function()
 						-- ✅ Ground padat ditemukan di daratan seberang jurang!
 						local landPos = Vector3.new(px, solidY + 0.5, pz)
 
-						-- Pasang safety plate di landing spot daratan seberang
 						ensureSafetyPlate(landPos, 45)
 
-						-- Nol-kan momentum sebelum dan sesudah teleport agar tidak ada gaya inersia tabrakan
 						local prim = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
 						if prim then
 							prim.AssemblyLinearVelocity  = Vector3.zero
 							prim.AssemblyAngularVelocity = Vector3.zero
 						end
 
-						-- Teleport vehicle ke landing, hadap ke arah destination
 						local yaw = math.atan2(-baseDir.X, -baseDir.Z)
 						car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
 
@@ -479,7 +475,6 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- Pastikan driver tetap duduk stabil di kursi pengemudi saat mendarat
 						local char = player.Character
 						local hum  = char and char:FindFirstChildOfClass("Humanoid")
 						local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -500,6 +495,46 @@ local success, err = pcall(function()
 						voidEnteredAt = curDist
 					end
 				end
+			end
+		end
+
+		-- 🎯 Direct Destination Sector Leap Fallback:
+		-- Jika jurang sangat lebar (> 300 stud), minta stream langsung di sekitar titik tujuan
+		-- dan teleport ke daratan tujuan jika valid!
+		if flatDiff.Magnitude > 300 then
+			requestStreamAsync(toPos)
+			local destHit = workspace:Raycast(Vector3.new(toPos.X, 60, toPos.Z), Vector3.new(0, -120, 0), brp)
+			if destHit and destHit.Position.Y >= -20 and destHit.Position.Y <= 75 then
+				local landPos = Vector3.new(toPos.X, destHit.Position.Y + 0.5, toPos.Z)
+				ensureSafetyPlate(landPos, 50)
+				local prim = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+				if prim then
+					prim.AssemblyLinearVelocity  = Vector3.zero
+					prim.AssemblyAngularVelocity = Vector3.zero
+				end
+				local yaw = math.atan2(-baseDir.X, -baseDir.Z)
+				car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
+
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity  = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+
+				local char = player.Character
+				local hum  = char and char:FindFirstChildOfClass("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
+				if root and seat and hum then
+					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+					hum.Sit = true
+					seat:Sit(hum)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+				end
+
+				return landPos
 			end
 		end
 
@@ -556,9 +591,9 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 30, 45), probePos.Z)
-			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -95, 0), rayParams)
-			if hit and hit.Position.Y >= -20 and hit.Position.Y <= 75 and hit.Normal.Y >= 0.25 then
+			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 35, 55), probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -130, 0), rayParams)
+			if hit and hit.Position.Y >= -20 and hit.Position.Y <= 75 and hit.Normal.Y >= 0.2 then
 				return hit.Position.Y + 0.3
 			end
 			return nil
@@ -727,8 +762,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Smooth vertical step
-			local maxVertStep = math.max(25 * dt, 1.2)
+			-- Smooth vertical descent/ascent rate
+			local maxVertStep = math.max(50 * dt, 2.5)
 			local chosenY = lastGroundY
 			if chosenY > targetElevY then
 				chosenY = math.max(targetElevY, chosenY - maxVertStep)
