@@ -498,17 +498,11 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			-- 🎯 Low-Altitude Raycast: menembak dari refY + 3.5 ke bawah 12 stud langsung ke aspal jalan
-			-- Menghindari menabrak atap atau tiang tinggi di atas road level
-			local rayOrigin = Vector3.new(probePos.X, refY + 3.5, probePos.Z)
-			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -12, 0), rayParams)
-			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 and hit.Normal.Y >= 0.6 then
+			-- Raycast vertikal yang mencakup seluruh elevasi jalan di DDS (Y = -15 s/d 35)
+			local rayOrigin = Vector3.new(probePos.X, math.clamp(refY + 20, 20, 50), probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -75, 0), rayParams)
+			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 and hit.Normal.Y >= 0.5 then
 				return hit.Position.Y + 0.3
-			end
-			-- Fallback jika jalan menurun (turunan curam)
-			local hitDeep = workspace:Raycast(Vector3.new(probePos.X, refY + 5, probePos.Z), Vector3.new(0, -25, 0), rayParams)
-			if hitDeep and hitDeep.Position.Y >= -15 and hitDeep.Position.Y <= 35 and hitDeep.Normal.Y >= 0.6 then
-				return hitDeep.Position.Y + 0.3
 			end
 			return nil
 		end
@@ -660,43 +654,51 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🚨 Void/Cliff edge ahead: sweep 360° fan to turn along the edge of the land
-				local baseDir = navHeading or directGoalDir
-				local bestDir = nil
-				local bestDist = math.huge
-				local bestY = lastGroundY
+				-- 🚨 Void/Cliff edge ahead: coba lompat gap jurang ke sisi seberang
+				local bridgeLanding = attemptVoidBridge(car, carPos, destP, buildingFilter)
+				if bridgeLanding then
+					actualMoveDir = Vector3.zero
+					stepDist = 0
+					targetElevY = bridgeLanding.Y
+					lastGroundY = bridgeLanding.Y
+				else
+					-- Sweep fan to turn along the edge of solid ground
+					local baseDir = navHeading or directGoalDir
+					local bestDir = nil
+					local bestDist = math.huge
+					local bestY = lastGroundY
 
-				for angle = 10, 180, 10 do
-					for _, sign in ipairs({ 1, -1 }) do
-						local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
-						local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-						local testProbePos = carPos + testDir * probeDist
-						local testHitY = probeGround(testProbePos, lastGroundY)
+					for angle = 10, 160, 10 do
+						for _, sign in ipairs({ 1, -1 }) do
+							local testRot = CFrame.Angles(0, math.rad(angle * sign), 0)
+							local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+							local testProbePos = carPos + testDir * probeDist
+							local testHitY = probeGround(testProbePos, lastGroundY)
 
-						if testHitY then
-							local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-							if testDistToGoal < bestDist then
-								bestDist = testDistToGoal
-								bestDir = testDir
-								bestY = testHitY
+							if testHitY then
+								local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+								if testDistToGoal < bestDist then
+									bestDist = testDistToGoal
+									bestDir = testDir
+									bestY = testHitY
+								end
 							end
 						end
+						if bestDir and angle >= 90 then
+							break
+						end
 					end
-					if bestDir and angle >= 90 then
-						break
-					end
-				end
 
-				if bestDir then
-					actualMoveDir = bestDir
-					navHeading = bestDir
-					targetElevY = bestY
-				else
-					-- Sharp corner: rotate 90 degrees along land
-					local rotLeft = CFrame.Angles(0, math.rad(90), 0)
-					navHeading = (rotLeft * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-					actualMoveDir = navHeading
-					targetElevY = lastGroundY
+					if bestDir then
+						actualMoveDir = bestDir
+						navHeading = bestDir
+						targetElevY = bestY
+					else
+						-- 🛑 Tidak ada ground di arah mana pun: BERHENTI, jangan pernah melangkah ke jurang/void!
+						actualMoveDir = Vector3.zero
+						stepDist = 0
+						targetElevY = lastGroundY
+					end
 				end
 			end
 
