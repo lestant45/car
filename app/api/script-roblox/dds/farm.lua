@@ -761,7 +761,7 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 150-Stud Cliff Lookahead: Jika 150 stud ke depan ada jurang, lakukan pengereman bertahap hingga 0 km/h di tepi jurang
+			-- 🛑 150-Stud Cliff Lookahead: Jika 150 stud ke depan ada jurang, lakukan pengereman bertahap hingga minimum crawl speed
 			local solidAheadDist = 150
 			for lookDist = 15, 150, 15 do
 				local testPos = carPos + directGoalDir * lookDist
@@ -773,8 +773,10 @@ local success, err = pcall(function()
 
 			if solidAheadDist < 150 then
 				local cliffProgress = math.clamp((solidAheadDist - 15) / 135, 0, 1)
-				local targetCliffSpeed = speed * (cliffProgress * cliffProgress)
+				local minCliffSpeed = 10
+				local targetCliffSpeed = minCliffSpeed + (speed - minCliffSpeed) * (cliffProgress * cliffProgress)
 				curSpeed = math.min(curSpeed, targetCliffSpeed)
+				updateLiveStatus(string.format("🟡 Melambat Menuju Jurang (%d studs/s)...", math.floor(curSpeed)), Color3.fromRGB(251, 191, 36))
 			end
 
 			local stepDist = curSpeed * dt
@@ -800,6 +802,8 @@ local success, err = pcall(function()
 				-- 🛑 Reset stuck tracking: Jangan pernah memicu Stuck Bypass saat sedang sengaja berhenti di tepi jurang!
 				stuckLastTime = nowClock
 				stuckLastDist = dist
+
+				updateLiveStatus("🌉 Memindai Daratan Seberang Jurang...", Color3.fromRGB(192, 132, 252))
 
 				if (nowClock - lastBridgeScanTime) >= 0.25 then
 					lastBridgeScanTime = nowClock
@@ -935,9 +939,36 @@ local success, err = pcall(function()
 	local taxiDropPos         = nil
 	local passengerSeated     = false
 	local taxiOverlayPoller   = nil
+	local liveStatusLabel     = nil
+
+	local function updateLiveStatus(statusText, color)
+		if liveStatusLabel then
+			pcall(function()
+				liveStatusLabel.Text = statusText
+				if color then
+					liveStatusLabel.TextColor3 = color
+				end
+			end)
+		end
+	end
 
 	local function setTaxiState(newState)
 		taxiState = newState
+		if newState == "IDLE" then
+			updateLiveStatus("⚪ Offline / Idle", Color3.fromRGB(148, 163, 184))
+		elseif newState == "WAITING_FOR_NEXT_ORDER" then
+			updateLiveStatus("🟢 Online — Waiting for Orders...", Color3.fromRGB(56, 189, 248))
+		elseif newState == "NEW_ORDER_DETECTED" then
+			updateLiveStatus("⚡ Order Received — Accepting...", Color3.fromRGB(168, 85, 247))
+		elseif newState == "PICKING_UP" then
+			updateLiveStatus("🛵 Driving to Pickup Passenger...", Color3.fromRGB(250, 204, 21))
+		elseif newState == "WAITING_FOR_PASSENGER" then
+			updateLiveStatus("📍 Arrived — Waiting for Passenger...", Color3.fromRGB(251, 146, 60))
+		elseif newState == "DROPPING_OFF" then
+			updateLiveStatus("🚗 Delivering Passenger to Destination...", Color3.fromRGB(74, 222, 128))
+		elseif newState == "ORDER_COMPLETED" then
+			updateLiveStatus("✅ Trip Completed — Getting Next Order...", Color3.fromRGB(34, 197, 94))
+		end
 	end
 
 	local function parsePosition(val)
@@ -1288,6 +1319,51 @@ local success, err = pcall(function()
 	-- 🖼️ 3. UI COMPONENTS IN FARM TAB
 	------------------------------------------------
 	UI.AddSection(tab, "RideGO Taxi Auto-Driver")
+
+	-- 📊 Real-time Live Activity Tracker Card
+	local statusCard = Instance.new("Frame")
+	statusCard.Name = "TaxiLiveStatusCard"
+	statusCard.Size = UDim2.new(1, 0, 0, 48)
+	statusCard.BackgroundColor3 = Color3.fromRGB(15, 23, 42)
+	statusCard.BackgroundTransparency = 0.35
+	statusCard.ZIndex = 5
+	statusCard.Parent = tab
+
+	local statusCorner = Instance.new("UICorner")
+	statusCorner.CornerRadius = UDim.new(0, 8)
+	statusCorner.Parent = statusCard
+
+	local statusStroke = Instance.new("UIStroke")
+	statusStroke.Color = Color3.fromRGB(56, 189, 248)
+	statusStroke.Transparency = 0.6
+	statusStroke.Thickness = 1
+	statusStroke.Parent = statusCard
+
+	local statusHeader = Instance.new("TextLabel")
+	statusHeader.Size = UDim2.new(1, -20, 0, 16)
+	statusHeader.Position = UDim2.new(0, 12, 0, 6)
+	statusHeader.BackgroundTransparency = 1
+	statusHeader.Text = "ACTIVE STATUS"
+	statusHeader.TextColor3 = Color3.fromRGB(148, 163, 184)
+	statusHeader.Font = Enum.Font.GothamBold
+	statusHeader.TextSize = 9
+	statusHeader.TextXAlignment = Enum.TextXAlignment.Left
+	statusHeader.ZIndex = 6
+	statusHeader.Parent = statusCard
+
+	liveStatusLabel = Instance.new("TextLabel")
+	liveStatusLabel.Name = "LiveStatusValue"
+	liveStatusLabel.Size = UDim2.new(1, -20, 0, 20)
+	liveStatusLabel.Position = UDim2.new(0, 12, 0, 22)
+	liveStatusLabel.BackgroundTransparency = 1
+	liveStatusLabel.Text = Config.autoRideGO and "🟢 Online — Waiting for Orders..." or "⚪ Offline / Idle"
+	liveStatusLabel.TextColor3 = Config.autoRideGO and Color3.fromRGB(56, 189, 248) or Color3.fromRGB(148, 163, 184)
+	liveStatusLabel.Font = Enum.Font.GothamSemibold
+	liveStatusLabel.TextSize = 11
+	liveStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	liveStatusLabel.ZIndex = 6
+	liveStatusLabel.Parent = statusCard
+
 	UI.AddToggle(tab, "Auto RideGO Taxi", "Goes online, auto-accepts orders & smoothly navigates to drops", Config.autoRideGO, function(state)
 		toggleAutoRideGO(state)
 	end)
