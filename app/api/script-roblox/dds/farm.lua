@@ -417,7 +417,6 @@ local success, err = pcall(function()
 
 					-- Pasang safety plate di landing spot sebelum teleport
 					ensureSafetyPlate(landPos, 50)
-					task.wait(0.06)
 
 					-- Teleport vehicle ke landing, hadap ke arah destination
 					local yaw = math.atan2(-flatDir.X, -flatDir.Z)
@@ -541,6 +540,7 @@ local success, err = pcall(function()
 
 		local navHeading = nil
 		local edgeFollowSign = 1  -- Konsisten mengikuti satu sisi (1 = kanan, -1 = kiri) untuk mencegah osilasi bolak-balik di tepi jurang
+		local curHeadingAngle = math.atan2(-((destP - startP).Unit).X, -((destP - startP).Unit).Z)
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -660,54 +660,45 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🚨 Void/Cliff edge ahead: coba lompat gap jurang ke sisi seberang
-				local bridgeLanding = attemptVoidBridge(car, carPos, destP, buildingFilter)
-				if bridgeLanding then
-					actualMoveDir = Vector3.zero
-					stepDist = 0
-					targetElevY = bridgeLanding.Y
-					lastGroundY = bridgeLanding.Y
-				else
-					-- Sweep fan konsisten pada sisi edgeFollowSign untuk menyusuri daratan tanpa osilasi
-					local baseDir = navHeading or directGoalDir
-					local bestDir = nil
-					local bestDist = math.huge
-					local bestY = lastGroundY
+				-- Sweep fan konsisten pada sisi edgeFollowSign untuk menyusuri daratan tanpa osilasi
+				local baseDir = navHeading or directGoalDir
+				local bestDir = nil
+				local bestDist = math.huge
+				local bestY = lastGroundY
 
-					-- Coba sisi aktif terlebih dahulu
-					local signOrder = { edgeFollowSign, -edgeFollowSign }
-					for _, s in ipairs(signOrder) do
-						for angle = 10, 160, 10 do
-							local testRot = CFrame.Angles(0, math.rad(angle * s), 0)
-							local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
-							local testProbePos = carPos + testDir * probeDist
-							local testHitY = probeGround(testProbePos, lastGroundY)
+				-- Coba sisi aktif terlebih dahulu
+				local signOrder = { edgeFollowSign, -edgeFollowSign }
+				for _, s in ipairs(signOrder) do
+					for angle = 10, 160, 10 do
+						local testRot = CFrame.Angles(0, math.rad(angle * s), 0)
+						local testDir = (testRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+						local testProbePos = carPos + testDir * probeDist
+						local testHitY = probeGround(testProbePos, lastGroundY)
 
-							if testHitY then
-								local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
-								if testDistToGoal < bestDist then
-									bestDist = testDistToGoal
-									bestDir = testDir
-									bestY = testHitY
-									edgeFollowSign = s
-								end
+						if testHitY then
+							local testDistToGoal = (Vector3.new(testProbePos.X, 0, testProbePos.Z) - Vector3.new(destP.X, 0, destP.Z)).Magnitude
+							if testDistToGoal < bestDist then
+								bestDist = testDistToGoal
+								bestDir = testDir
+								bestY = testHitY
+								edgeFollowSign = s
 							end
 						end
-						if bestDir then
-							break
-						end
 					end
-
 					if bestDir then
-						actualMoveDir = bestDir
-						navHeading = bestDir
-						targetElevY = bestY
-					else
-						-- 🛑 Tidak ada ground di arah mana pun: BERHENTI, jangan pernah melangkah ke jurang/void!
-						actualMoveDir = Vector3.zero
-						stepDist = 0
-						targetElevY = lastGroundY
+						break
 					end
+				end
+
+				if bestDir then
+					actualMoveDir = bestDir
+					navHeading = bestDir
+					targetElevY = bestY
+				else
+					-- 🛑 Tidak ada ground di arah mana pun: BERHENTI diam di tempat, jangan pernah melangkah ke jurang!
+					actualMoveDir = Vector3.zero
+					stepDist = 0
+					targetElevY = lastGroundY
 				end
 			end
 
@@ -725,8 +716,14 @@ local success, err = pcall(function()
 			local newZ = carPos.Z + actualMoveDir.Z * stepDist
 			local newPos = Vector3.new(newX, chosenY, newZ)
 
-			local currentYaw = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
-			local currentRot = CFrame.Angles(0, currentYaw, 0)
+			-- 🏎️ Smooth Angular Steering (Mencegah geter/shaking dan snap 0 derajat saat berhenti di tepi tebing)
+			if actualMoveDir.Magnitude > 0.05 then
+				local targetAngle = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
+				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -12 * dt, 12 * dt)
+			end
+
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
 			local currentCF  = CFrame.new(newPos) * currentRot
 
 			pcall(function()
