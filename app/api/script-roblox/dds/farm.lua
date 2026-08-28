@@ -1078,6 +1078,9 @@ local success, err = pcall(function()
 			end
 		end
 
+		local tripStartTime = tick()
+		local tripDistance = (taxiPickupPos and taxiDropPos) and (Vector3.new(taxiDropPos.X, 0, taxiDropPos.Z) - Vector3.new(taxiPickupPos.X, 0, taxiPickupPos.Z)).Magnitude or 1000
+
 		if taxiDropPos and taxiActive then
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
@@ -1088,10 +1091,28 @@ local success, err = pcall(function()
 			safelySettleAndUnanchor(car, taxiDropPos)
 			ensureDriverSeated()
 
+			-- ⏱️ Natural Server Speed & Route Duration Safeguard:
+			-- Hitung durasi wajar perjalanan di server (kecepatan rata-rata aman 75 stud/s)
+			local safeAvgSpeed = 75
+			local minTripTime = math.min(tripDistance / safeAvgSpeed, 40)
+			local elapsedTripTime = tick() - tripStartTime
+
+			if elapsedTripTime < minTripTime then
+				local waitDiff = math.ceil(minTripTime - elapsedTripTime)
+				if waitDiff > 0 and waitDiff <= 30 then
+					UI.Notify("📍 Tiba di Destinasi", string.format("Memvalidasi rute wajar (%.0fs)...", waitDiff), waitDiff, "warning")
+					local routeHoldStart = tick()
+					while (tick() - routeHoldStart < waitDiff) and taxiActive do
+						ensureDriverSeated()
+						task.wait(0.5)
+					end
+				end
+			end
+
 			UI.Notify("Arrived at Destination 🏁", "Passenger disembarking...", 3, "success")
 			local disembarkWait = tick()
-			while isPassengerOnboard() and taxiActive and (tick() - disembarkWait < 8) do
-				task.wait(0.3)
+			while isPassengerOnboard() and taxiActive and (tick() - disembarkWait < 18) do
+				task.wait(0.4)
 			end
 
 			task.wait(1.5)
@@ -1182,9 +1203,10 @@ local success, err = pcall(function()
 
 			elseif eventType == "OrderCompleted" or eventType == "TripComplete" then
 				passengerSeated = false
+				UI.Notify("🏆 Order Selesai!", "Pembayaran diterima & penumpang turun.", 3, "success")
+				task.wait(0.5)
+				TaxiEvent:FireServer("AckTripComplete")
 				if not taxiBusy then
-					task.wait(0.3)
-					TaxiEvent:FireServer("AckTripComplete")
 					setTaxiState("WAITING_FOR_NEXT_ORDER")
 					if taxiActive then
 						task.wait(1.5)
