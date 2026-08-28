@@ -143,7 +143,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 🧹 DESTROY ALL BUILDINGS & OBSTACLES (Ground & Roads Only Mode)
+	-- 🧹 UNIVERSAL DESTROY ALL BUILDINGS & OBSTACLES (Ground & Roads Only Mode)
 	local function shouldDestroyBuilding(obj)
 		if not obj or not obj.Parent then return false end
 		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
@@ -154,38 +154,45 @@ local success, err = pcall(function()
 		if obj.Name == "ActiveMissions" or obj.Name == "BaristaJob" or obj.Name == "Job_Point" or obj.Name == "DragRace" or obj.Name == "SensorDragTimer" then
 			return false
 		end
-		-- Keep actual ground & roads
-		if obj.Name == "BASEPLATE" or obj.Name == "OTHER_GRASS" or obj.Name == "RoadsNew" or obj.Name == "TrotoarNew" or obj.Name == "ZEBRA_CROSS" or obj.Name == "OTHER_FLYOVER_PURWOSARI" then
+
+		-- Keep actual ground, roads & river water surfaces
+		local name = obj.Name:upper()
+		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") then
+			return false
+		end
+		if (name:sub(1, 3) == "JL_" or name:find("JL_SLR")) and not name:find("BUILDING") and not name:find("RUKO") then
 			return false
 		end
 
-		local name = obj.Name:upper()
-		-- 1. Direct building/obstacle folders and models in workspace
+		-- 1. Direct building/obstacle keywords
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
 			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
 			or name:find("RUMAH") or name:find("PITCH") or name:find("SHIRT") or name:find("MEDKIT")
 			or name:find("BILLBOARD") or name:find("CONE") or name:find("PANGGUNG") or name:find("HELMET")
 			or name:find("SHOWCASE") or name:find("TITIK_KUMPUL") or name:find("FLAG") or name:find("SIGN")
-			or name:find("DEALERSTASIUN") or name:find("MODIFICATIONGARAGE")
+			or name:find("DEALER") or name:find("GARAGE") or name:find("SATLANTAS") or name == "RS"
+			or name:find("INDOMART") or name:find("PLATINUM") or name:find("GATAU") or name:find("PJL")
+			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
+			or name:find("PROPBANGUNAN")
 		then
 			return true
 		end
 
-		-- 2. Models inside road folders (like JL_MANAHAN) that are buildings/houses/fences/roofs
-		if obj:IsA("Model") and obj.Parent and obj.Parent.Name:find("JL_") then
+		-- 2. Models with tall parts or roof/wall materials inside any folder (JL_*, V1.1.1, etc.)
+		if obj:IsA("Model") then
 			local maxY = -999
 			local hasRoofOrWall = false
 			for _, p in ipairs(obj:GetDescendants()) do
 				if p:IsA("BasePart") then
 					if p.Position.Y > maxY then maxY = p.Position.Y end
 					local mat = tostring(p.Material)
-					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") then
+					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") or mat:find("Wood") then
 						hasRoofOrWall = true
 					end
 				end
 			end
-			if maxY > 8 or hasRoofOrWall then
+			if maxY > 7 or hasRoofOrWall then
 				return true
 			end
 		end
@@ -195,18 +202,19 @@ local success, err = pcall(function()
 
 	local function destroyAllBuildings()
 		pcall(function()
-			-- Clean workspace direct children
 			for _, c in ipairs(workspace:GetChildren()) do
 				if shouldDestroyBuilding(c) then
 					pcall(function() c:Destroy() end)
-				end
-			end
-			-- Clean inside JL_ folders (like JL_MANAHAN)
-			for _, c in ipairs(workspace:GetChildren()) do
-				if c.Name:find("JL_") then
+				elseif c:IsA("Folder") or c:IsA("Model") then
 					for _, ch in ipairs(c:GetChildren()) do
 						if shouldDestroyBuilding(ch) then
 							pcall(function() ch:Destroy() end)
+						elseif ch:IsA("Folder") or ch:IsA("Model") then
+							for _, sub in ipairs(ch:GetChildren()) do
+								if shouldDestroyBuilding(sub) then
+									pcall(function() sub:Destroy() end)
+								end
+							end
 						end
 					end
 				end
@@ -214,30 +222,15 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Auto-destroy newly streamed chunks from StreamingEnabled
-	workspace.ChildAdded:Connect(function(child)
-		task.wait(0.1)
-		if shouldDestroyBuilding(child) then
-			pcall(function() child:Destroy() end)
-		elseif child.Name:find("JL_") then
-			child.ChildAdded:Connect(function(subChild)
-				task.wait(0.1)
-				if shouldDestroyBuilding(subChild) then
-					pcall(function() subChild:Destroy() end)
-				end
-			end)
+	-- Auto-destroy newly streamed chunks anywhere in workspace or subfolders
+	workspace.DescendantAdded:Connect(function(descendant)
+		if shouldDestroyBuilding(descendant) then
+			task.wait(0.05)
+			if shouldDestroyBuilding(descendant) then
+				pcall(function() descendant:Destroy() end)
+			end
 		end
 	end)
-
-	local jlManahan = workspace:FindFirstChild("JL_MANAHAN")
-	if jlManahan then
-		jlManahan.ChildAdded:Connect(function(child)
-			task.wait(0.1)
-			if shouldDestroyBuilding(child) then
-				pcall(function() child:Destroy() end)
-			end
-		end)
-	end
 
 	-- Run initial building destruction
 	task.spawn(destroyAllBuildings)
@@ -258,7 +251,7 @@ local success, err = pcall(function()
 		then
 			return false
 		end
-		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" then
+		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI") or name:find("SUNGAI") then
 			return true
 		end
 		return false
