@@ -239,9 +239,9 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Keep actual ground, roads & river water surfaces
+		-- Keep actual ground, roads, hills, grass & river water surfaces
 		local name = obj.Name:upper()
-		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") then
+		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("WEIGHT") then
 			return false
 		end
 		if (name:sub(1, 3) == "JL_" or name:find("JL_SLR")) and not name:find("BUILDING") and not name:find("RUKO") then
@@ -326,7 +326,7 @@ local success, err = pcall(function()
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("SHOP") or name:find("DEALER")
 			or name:find("GARAGE") or name:find("PAGAR") or name:find("RAIL") or name:find("LAMPU")
 			or name:find("POHON") or name:find("PROPS") or name:find("SETTING") or name:find("STOPPER")
-			or name:find("MACHINE") or name:find("MODEL") or name:find("MONTOR") or name:find("CAR")
+			or name:find("MACHINE") or name:find("MONTOR") or name:find("CAR")
 			or name:find("VEHICLE") or name:find("MISSION") or name:find("QUEST") or name:find("MANCING")
 			or name:find("JOB") or name:find("FLAG") or name:find("SIGN") or name:find("CONE")
 			or name:find("BARRIER") or name:find("PITCH") or name:find("STAGE") or name:find("PANGGUNG")
@@ -334,7 +334,7 @@ local success, err = pcall(function()
 		then
 			return false
 		end
-		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI") or name:find("SUNGAI") then
+		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("UNION") or name:find("WEIGHT") then
 			return true
 		end
 		return false
@@ -556,9 +556,9 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local rayOrigin = Vector3.new(probePos.X, math.clamp(refY + 20, 20, 50), probePos.Z)
-			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -75, 0), rayParams)
-			if hit and hit.Position.Y >= -15 and hit.Position.Y <= 35 and hit.Normal.Y >= 0.5 then
+			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 30, 45), probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -95, 0), rayParams)
+			if hit and hit.Position.Y >= -20 and hit.Position.Y <= 75 and hit.Normal.Y >= 0.25 then
 				return hit.Position.Y + 0.3
 			end
 			return nil
@@ -681,7 +681,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when approaching destination OR approaching a cliff/void edge (150 Studs Lookahead)
+			-- 🏎️ Dynamic smooth deceleration when approaching destination
 			local curSpeed = speed
 			if dist < 120 then
 				local factor = math.clamp(dist / 120, 0, 1)
@@ -691,25 +691,8 @@ local success, err = pcall(function()
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
-
-			-- 🛑 150-Stud Cliff Lookahead: deteksi jurang dari jarak 150 stud dan perlambat secara bertahap (mencegah inersia mendadak)
-			local solidGroundAheadDist = 150
-			for lookDist = 15, 150, 15 do
-				local testPos = carPos + directGoalDir * lookDist
-				if not probeGround(testPos, lastGroundY) then
-					solidGroundAheadDist = lookDist
-					break
-				end
-			end
-
-			if solidGroundAheadDist < 150 then
-				local cliffFactor = math.clamp((solidGroundAheadDist - 20) / 130, 0, 1)
-				local targetCliffSpeed = speed * (cliffFactor * cliffFactor)
-				curSpeed = math.min(curSpeed, targetCliffSpeed)
-			end
-
 			local stepDist = curSpeed * dt
-			local probeDist = math.max(stepDist * 1.6, 3.5)
+			local probeDist = math.max(stepDist * 1.6, 4)
 
 			local directProbePos = carPos + directGoalDir * probeDist
 			local directHitY = probeGround(directProbePos, lastGroundY)
