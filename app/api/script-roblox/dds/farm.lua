@@ -120,19 +120,29 @@ local success, err = pcall(function()
 	end
 
 	local function neutralizeBikeHazards(car)
-		if not car then return end
 		pcall(function()
-			for _, s in ipairs(car:GetDescendants()) do
-				if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident")) then
-					s.Disabled = true
+			if car then
+				for _, s in ipairs(car:GetDescendants()) do
+					if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident")) then
+						s.Disabled = true
+					end
 				end
 			end
 			local char = player.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			if hum then
-				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			if char then
+				for _, s in ipairs(char:GetDescendants()) do
+					if s:IsA("Script") or s:IsA("LocalScript") then
+						if s.Name == "RagdollHandler" or s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") then
+							s.Disabled = true
+						end
+					end
+				end
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+				end
 			end
 		end)
 	end
@@ -451,11 +461,17 @@ local success, err = pcall(function()
 						-- Pasang safety plate di landing spot daratan seberang
 						ensureSafetyPlate(landPos, 45)
 
+						-- Nol-kan momentum sebelum dan sesudah teleport agar tidak ada gaya inersia tabrakan
+						local prim = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+						if prim then
+							prim.AssemblyLinearVelocity  = Vector3.zero
+							prim.AssemblyAngularVelocity = Vector3.zero
+						end
+
 						-- Teleport vehicle ke landing, hadap ke arah destination
 						local yaw = math.atan2(-baseDir.X, -baseDir.Z)
 						car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
 
-						-- Nol-kan momentum agar tidak melayang
 						for _, part in ipairs(car:GetDescendants()) do
 							if part:IsA("BasePart") then
 								part.AssemblyLinearVelocity  = Vector3.zero
@@ -665,7 +681,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Dynamic speed deceleration
+			-- 🏎️ Dynamic smooth deceleration when approaching destination OR approaching a cliff/void edge (150 Studs Lookahead)
 			local curSpeed = speed
 			if dist < 120 then
 				local factor = math.clamp(dist / 120, 0, 1)
@@ -675,6 +691,23 @@ local success, err = pcall(function()
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
+
+			-- 🛑 150-Stud Cliff Lookahead: deteksi jurang dari jarak 150 stud dan perlambat secara bertahap (mencegah inersia mendadak)
+			local solidGroundAheadDist = 150
+			for lookDist = 15, 150, 15 do
+				local testPos = carPos + directGoalDir * lookDist
+				if not probeGround(testPos, lastGroundY) then
+					solidGroundAheadDist = lookDist
+					break
+				end
+			end
+
+			if solidGroundAheadDist < 150 then
+				local cliffFactor = math.clamp((solidGroundAheadDist - 20) / 130, 0, 1)
+				local targetCliffSpeed = speed * (cliffFactor * cliffFactor)
+				curSpeed = math.min(curSpeed, targetCliffSpeed)
+			end
+
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 3.5)
 
