@@ -406,6 +406,98 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- 🛡️ Synchronized Atomic Pivot & Physics Stabilization Leap
+	local function teleportVehicleAcrossVoid(car, landPos, baseDir)
+		ensureSafetyPlate(landPos, 50)
+
+		local char = player.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
+		local prim = car.PrimaryPart or seat or car:FindFirstChildWhichIsA("BasePart")
+
+		local activeMissions = workspace:FindFirstChild("ActiveMissions")
+		local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+		local passRoot = passengerNpc and passengerNpc:FindFirstChild("HumanoidRootPart")
+
+		local targetYaw = math.atan2(-baseDir.X, -baseDir.Z)
+		local targetRot = CFrame.Angles(0, targetYaw, 0)
+		local targetCF  = CFrame.new(landPos) * targetRot
+
+		-- 1. Freeze physics (Anchored = true) to prevent weld snap / distance separation forces
+		pcall(function()
+			if prim then prim.Anchored = true end
+			if seat then seat.Anchored = true end
+			if root then root.Anchored = true end
+			if passRoot then passRoot.Anchored = true end
+		end)
+
+		-- 2. Zero all velocities on car, driver, and passenger
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.AssemblyLinearVelocity  = Vector3.zero
+				part.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+		if root then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		if passRoot then
+			passRoot.AssemblyLinearVelocity = Vector3.zero
+			passRoot.AssemblyAngularVelocity = Vector3.zero
+		end
+
+		-- 3. Synchronized Atomic Leap (Teleport motorcycle, driver, and passenger together)
+		car:PivotTo(targetCF)
+		if root and seat then
+			root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+		end
+		if passRoot and seat then
+			passRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, -1.2)
+		end
+
+		task.wait(0.04)
+
+		-- 4. Re-establish driver seat connection firmly
+		if root and seat and hum then
+			hum.Sit = true
+			pcall(function() seat:Sit(hum) end)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+		end
+
+		-- 5. Unanchor cleanly on top of safety plate
+		pcall(function()
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = false
+					part.AssemblyLinearVelocity  = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+			if root then
+				root.Anchored = false
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+			if passRoot then
+				passRoot.Anchored = false
+				passRoot.AssemblyLinearVelocity = Vector3.zero
+				passRoot.AssemblyAngularVelocity = Vector3.zero
+			end
+		end)
+
+		task.wait(0.05)
+
+		-- Double-check driver seat connection
+		if hum and not hum.SeatPart and seat then
+			pcall(function() seat:Sit(hum) end)
+		end
+
+		return landPos
+	end
+
 	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (multi-angle luas & long-range),
 	-- lalu teleport vehicle ke ground seberang dengan safety plate.
 	local function attemptVoidBridge(car, fromPos, toPos, filterList)
@@ -456,38 +548,7 @@ local success, err = pcall(function()
 					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15) then
 						-- ✅ Ground padat ditemukan di daratan seberang jurang!
 						local landPos = Vector3.new(px, solidY + 0.5, pz)
-
-						ensureSafetyPlate(landPos, 45)
-
-						local prim = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
-						if prim then
-							prim.AssemblyLinearVelocity  = Vector3.zero
-							prim.AssemblyAngularVelocity = Vector3.zero
-						end
-
-						local yaw = math.atan2(-baseDir.X, -baseDir.Z)
-						car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
-
-						for _, part in ipairs(car:GetDescendants()) do
-							if part:IsA("BasePart") then
-								part.AssemblyLinearVelocity  = Vector3.zero
-								part.AssemblyAngularVelocity = Vector3.zero
-							end
-						end
-
-						local char = player.Character
-						local hum  = char and char:FindFirstChildOfClass("Humanoid")
-						local root = char and char:FindFirstChild("HumanoidRootPart")
-						local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
-						if root and seat and hum then
-							root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-							hum.Sit = true
-							seat:Sit(hum)
-							hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-							hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-						end
-
-						return landPos
+						return teleportVehicleAcrossVoid(car, landPos, baseDir)
 					end
 				else
 					if not inVoid then
@@ -506,35 +567,7 @@ local success, err = pcall(function()
 			local destHit = workspace:Raycast(Vector3.new(toPos.X, 60, toPos.Z), Vector3.new(0, -120, 0), brp)
 			if destHit and destHit.Position.Y >= -20 and destHit.Position.Y <= 75 then
 				local landPos = Vector3.new(toPos.X, destHit.Position.Y + 0.5, toPos.Z)
-				ensureSafetyPlate(landPos, 50)
-				local prim = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
-				if prim then
-					prim.AssemblyLinearVelocity  = Vector3.zero
-					prim.AssemblyAngularVelocity = Vector3.zero
-				end
-				local yaw = math.atan2(-baseDir.X, -baseDir.Z)
-				car:PivotTo(CFrame.new(landPos) * CFrame.Angles(0, yaw, 0))
-
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity  = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-
-				local char = player.Character
-				local hum  = char and char:FindFirstChildOfClass("Humanoid")
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
-				if root and seat and hum then
-					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-					hum.Sit = true
-					seat:Sit(hum)
-					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-				end
-
-				return landPos
+				return teleportVehicleAcrossVoid(car, landPos, baseDir)
 			end
 		end
 
