@@ -370,11 +370,10 @@ local success, err = pcall(function()
 	-- 🌉 Void Bridge Engine: scan jalur lurus ke destination, deteksi gap/jurang,
 	-- lalu teleport vehicle ke ground pertama di sisi seberang sehingga normal
 	-- navigation bisa lanjut tanpa harus memutar mengelilingi seluruh peta.
-	-- filterList: sama dengan buildingFilter di driveVehicleTo agar atap bangunan tidak dianggap ground.
 	-- Mengembalikan Vector3 landing spot jika bridge dilakukan, atau nil jika tidak ada gap.
 	local function attemptVoidBridge(car, fromPos, toPos, filterList)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
-		if flatDiff.Magnitude < 5 then return nil end
+		if flatDiff.Magnitude < 10 then return nil end
 		local flatDir = flatDiff.Unit
 
 		-- Gunakan filterList (buildingFilter) jika tersedia, agar atap bangunan ter-exclude
@@ -382,41 +381,42 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filterList or { car, player.Character }
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai sejauh jarak ke destination (max 350 stud)
-		local maxScan = math.min(flatDiff.Magnitude * 1.1, 350)
-		local stepSize = 4
+		-- Scan sampai sejauh jarak ke destination (max 1200 stud)
+		local maxScan = math.min(flatDiff.Magnitude * 1.05, 1200)
+		local stepSize = 10
 		local refY    = fromPos.Y
-		-- Landing Y harus dekat dengan ground level awal (max ±12 stud)
-		-- Ini mencegah teleport ke atap bangunan yang berada jauh di atas road level
-		local maxLandingYDelta = 12
+		local maxLandingYDelta = 15
 		local inVoid  = false
 		local voidEnteredAt = nil
 
 		for i = 1, math.ceil(maxScan / stepSize) do
-			local px = fromPos.X + flatDir.X * (i * stepSize)
-			local pz = fromPos.Z + flatDir.Z * (i * stepSize)
+			local curDist = i * stepSize
+			local px = fromPos.X + flatDir.X * curDist
+			local pz = fromPos.Z + flatDir.Z * curDist
+			local testPos = Vector3.new(px, 0, pz)
 
-			local origin = Vector3.new(px, math.max(refY + 50, 70), pz)
-			local hit = workspace:Raycast(origin, Vector3.new(0, -140, 0), brp)
+			-- Request stream chunk setiap 60 stud pemindaian jurang
+			if inVoid and curDist % 60 == 0 then
+				requestStreamAsync(testPos)
+			end
+
+			local origin = Vector3.new(px, math.clamp(refY + 25, 25, 55), pz)
+			local hit = workspace:Raycast(origin, Vector3.new(0, -85, 0), brp)
 
 			local solidY = hit and hit.Position.Y
-			-- Syarat valid ground:
-			--   1. Y dalam range global peta
-			--   2. Y tidak terlalu jauh dari fromPos.Y (bukan atap yang tinggi)
-			--   3. Normal permukaan mendekati vertikal ke atas (bukan kemiringan atap)
 			local isGround = solidY
-				and solidY >= -20 and solidY <= 50
+				and solidY >= -15 and solidY <= 35
 				and math.abs(solidY - fromPos.Y) <= (inVoid and maxLandingYDelta or 999)
-				and (not hit.Normal or hit.Normal.Y >= 0.7)
+				and (not hit.Normal or hit.Normal.Y >= 0.5)
 
 			if isGround then
 				refY = solidY
-				if inVoid then
-					-- ✅ Ground ditemukan di sisi seberang jurang, di elevasi road yang valid!
-					local landPos = Vector3.new(px, solidY + 2.5, pz)
+				if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15) then
+					-- ✅ Ground padat ditemukan di daratan seberang jurang!
+					local landPos = Vector3.new(px, solidY + 0.5, pz)
 
-					-- Pasang safety plate di landing spot sebelum teleport
-					ensureSafetyPlate(landPos, 50)
+					-- Pasang safety plate di landing spot daratan seberang
+					ensureSafetyPlate(landPos, 45)
 
 					-- Teleport vehicle ke landing, hadap ke arah destination
 					local yaw = math.atan2(-flatDir.X, -flatDir.Z)
@@ -435,7 +435,7 @@ local success, err = pcall(function()
 			else
 				if not inVoid then
 					inVoid = true
-					voidEnteredAt = i * stepSize
+					voidEnteredAt = curDist
 				end
 			end
 		end
@@ -541,6 +541,7 @@ local success, err = pcall(function()
 		local navHeading = nil
 		local edgeFollowSign = 1  -- Konsisten mengikuti satu sisi (1 = kanan, -1 = kiri) untuk mencegah osilasi bolak-balik di tepi jurang
 		local curHeadingAngle = math.atan2(-((destP - startP).Unit).X, -((destP - startP).Unit).Z)
+		local lastBridgeScanTime = 0  -- Rate-limit void bridge scan saat berada di tepi jurang
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -660,7 +661,28 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- Sweep fan konsisten pada sisi edgeFollowSign untuk menyusuri daratan tanpa osilasi
+				-- 🌉 Void/Cliff edge ahead: cek apakah ada daratan seberang di garis lurus tujuan untuk dilompati
+				local nowClock = os.clock()
+				local bridged = false
+				if (nowClock - lastBridgeScanTime) >= 0.8 then
+					lastBridgeScanTime = nowClock
+					local bridgeLanding = attemptVoidBridge(car, carPos, destP, buildingFilter)
+					if bridgeLanding then
+						bridged = true
+						actualMoveDir = Vector3.zero
+						stepDist = 0
+						lastGroundY = bridgeLanding.Y
+						targetElevY = bridgeLanding.Y
+						stuckLastTime = nowClock
+						stuckLastDist = (destP - bridgeLanding).Magnitude
+						local newDir = (destP - bridgeLanding).Unit
+						curHeadingAngle = math.atan2(-newDir.X, -newDir.Z)
+						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, melanjutkan perjalanan...", 2, "success")
+					end
+				end
+
+				if not bridged then
+					-- Sweep fan konsisten pada sisi edgeFollowSign untuk menyusuri daratan tanpa osilasi
 				local baseDir = navHeading or directGoalDir
 				local bestDir = nil
 				local bestDist = math.huge
