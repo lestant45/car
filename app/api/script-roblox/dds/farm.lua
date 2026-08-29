@@ -89,8 +89,8 @@ local success, err = pcall(function()
 			plate.Material = Enum.Material.Concrete
 			pcall(function() plate.Parent = workspace end)
 		end
-		plate.Size = Vector3.new(width, 2, width)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
+		plate.Size = Vector3.new(width, 1, width)
+		plate.CFrame = CFrame.new(pos.X, pos.Y - 0.6, pos.Z)
 		return plate
 	end
 
@@ -379,16 +379,19 @@ local success, err = pcall(function()
 				rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
-				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
+				local groundY = hit and hit.Position.Y or (safePos.Y - 1.5)
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
-				-- Spawn wide solid safety plate under parked bike (60x60) so it cannot fall through
+				-- Spawn solid safety plate with top face at groundY
 				ensureSafetyPlate(groundPos, 60)
+
+				-- Pivot motorcycle at groundY + 2.0 so tires rest cleanly ON TOP of the surface
 				local curPiv = car:GetPivot()
-				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
+				local settlePos = Vector3.new(safePos.X, groundY + 2.0, safePos.Z)
+				car:PivotTo(CFrame.new(settlePos) * (curPiv - curPiv.Position))
 			end
 
-			-- Must be Anchored = false with 0 velocity so server detects stopped vehicle and triggers passenger boarding
+			-- Zero all velocities so physics settles smoothly without tension
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
@@ -437,7 +440,7 @@ local success, err = pcall(function()
 
 		local targetYaw = math.atan2(-baseDir.X, -baseDir.Z)
 		local targetRot = CFrame.Angles(0, targetYaw, 0)
-		local targetCF  = CFrame.new(landPos) * targetRot
+		local targetCF  = CFrame.new(landPos.X, landPos.Y + 2.0, landPos.Z) * targetRot
 
 		-- 1. Freeze physics (Anchored = true) to prevent weld snap / distance separation forces
 		pcall(function()
