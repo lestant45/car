@@ -93,7 +93,7 @@ local success, err = pcall(function()
 
 	-- Spawns an invisible collision safety plate underneath destination/vehicle
 	local function ensureSafetyPlate(pos, width)
-		width = width or 35
+		width = width or 80
 		local plate = workspace:FindFirstChild("__DdsSafetyPlate")
 		if not plate then
 			plate = Instance.new("Part")
@@ -105,8 +105,8 @@ local success, err = pcall(function()
 			plate.Material = Enum.Material.Concrete
 			pcall(function() plate.Parent = workspace end)
 		end
-		plate.Size = Vector3.new(width, 2, width)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
+		plate.Size = Vector3.new(width, 4, width)
+		plate.CFrame = CFrame.new(pos.X, pos.Y - 2.0, pos.Z)
 		return plate
 	end
 
@@ -735,6 +735,7 @@ local success, err = pcall(function()
 		local curHeadingAngle = math.atan2(((destP - startP).Unit).X, ((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
 		local bridgeHoldUntil = 0
+		local bridgeLandCF = nil
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 
@@ -747,22 +748,31 @@ local success, err = pcall(function()
 
 			local now = os.clock()
 
-			-- 🛑 Void Bridge Landing Hold: Berhenti total selama 2.0 detik setelah mendarat di seberang jurang
+			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama 2.0 detik
 			if now < bridgeHoldUntil then
 				lastTick = now
 				ensureDriverSeated()
 				pcall(function()
-					if seat then
-						seat.Throttle = 0
-						seat.ThrottleFloat = 0
-						seat.AssemblyLinearVelocity = Vector3.zero
-						seat.AssemblyAngularVelocity = Vector3.zero
+					if bridgeLandCF then
+						car:PivotTo(bridgeLandCF)
 					end
 					for _, part in ipairs(car:GetDescendants()) do
 						if part:IsA("BasePart") then
 							part.AssemblyLinearVelocity = Vector3.zero
 							part.AssemblyAngularVelocity = Vector3.zero
 						end
+					end
+					if seat then
+						seat.Throttle = 0
+						seat.ThrottleFloat = 0
+						seat.AssemblyLinearVelocity = Vector3.zero
+						seat.AssemblyAngularVelocity = Vector3.zero
+					end
+					local root = char and char:FindFirstChild("HumanoidRootPart")
+					if root and seat then
+						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+						root.AssemblyLinearVelocity = Vector3.zero
+						root.AssemblyAngularVelocity = Vector3.zero
 					end
 				end)
 				return
@@ -944,6 +954,7 @@ local success, err = pcall(function()
 						stuckLastDist = (destP - bridgeLanding).Magnitude
 						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
+						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
 						bridgeHoldUntil = os.clock() + 2.0
 						driveStartTime = os.clock() + 2.0
 						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
