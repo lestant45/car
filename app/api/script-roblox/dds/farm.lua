@@ -263,6 +263,36 @@ local success, err = pcall(function()
 	end
 
 	-- 🧹 UNIVERSAL DESTROY ALL BUILDINGS & OBSTACLES (Ground & Roads Only Mode)
+	local function isRoadOrGround(obj)
+		if not obj then return false end
+		if obj:IsA("Terrain") then return true end
+		local name = obj.Name:upper()
+		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("RUMAH") or name:find("GEDUNG")
+			or name:find("HOUSE") or name:find("LANTAI") or name:find("SHOP") or name:find("DEALER")
+			or name:find("GARAGE") or name:find("PAGAR") or name:find("RAIL") or name:find("LAMPU")
+			or name:find("POHON") or name:find("PROPS") or name:find("SETTING") or name:find("STOPPER")
+			or name:find("MACHINE") or name:find("MONTOR") or name:find("CAR")
+			or name:find("VEHICLE") or name:find("MISSION") or name:find("QUEST") or name:find("MANCING")
+			or name:find("JOB") or name:find("FLAG") or name:find("SIGN") or name:find("CONE")
+			or name:find("BARRIER") or name:find("PITCH") or name:find("STAGE") or name:find("PANGGUNG")
+			or name:find("TIMER") or name:find("DISPLAY") or name:find("HELMET") or name:find("KFC")
+			or name:find("RESTAURANT") or name:find("GATE") or name:find("MOLDING") or name:find("MEJA")
+		then
+			return false
+		end
+		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW"
+			or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI")
+			or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN")
+			or name:find("GRASS") or name:find("MESH") or name:find("UNION") or name:find("WEIGHT")
+			or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS")
+			or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") or name:find("TROTO")
+			or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT") or name:find("ASPAL")
+		then
+			return true
+		end
+		return false
+	end
+
 	local function shouldDestroyBuilding(obj)
 		if not obj or not obj.Parent then return false end
 		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
@@ -274,16 +304,18 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Keep actual ground, roads, hills, grass, bridges, flyovers & river water surfaces
-		local name = obj.Name:upper()
-		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("WEIGHT") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
+		-- Keep the folder container for streets (e.g. JL_MANAHAN) so road parts inside remain organized
+		if obj:IsA("Folder") and obj.Name:sub(1, 3) == "JL_" then
 			return false
 		end
-		if (name:sub(1, 3) == "JL_" or name:find("JL_SLR")) and not name:find("BUILDING") and not name:find("RUKO") then
+
+		-- Keep actual ground, roads, hills, grass, bridges, flyovers & river water surfaces
+		if isRoadOrGround(obj) then
 			return false
 		end
 
 		-- 1. Direct building/obstacle keywords
+		local name = obj.Name:upper()
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
 			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
@@ -293,25 +325,38 @@ local success, err = pcall(function()
 			or name:find("DEALER") or name:find("GARAGE") or name:find("SATLANTAS") or name == "RS"
 			or name:find("INDOMART") or name:find("PLATINUM") or name:find("GATAU") or name:find("PJL")
 			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
-			or name:find("PROPBANGUNAN")
+			or name:find("PROPBANGUNAN") or name:find("GATE") or name:find("KFC") or name:find("RESTAURANT")
+			or name:find("WARUNG") or name:find("TOKO") or name:find("JOGLO") or name:find("STADION")
+			or name:find("MOLDING") or name:find("MEJA") or name:find("KURSI")
 		then
 			return true
 		end
 
-		-- 2. Models with tall parts or roof/wall materials inside any folder
-		if obj:IsA("Model") then
-			local maxY = -999
-			local hasRoofOrWall = false
-			for _, p in ipairs(obj:GetDescendants()) do
-				if p:IsA("BasePart") then
-					if p.Position.Y > maxY then maxY = p.Position.Y end
-					local mat = tostring(p.Material)
-					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") or mat:find("Wood") then
-						hasRoofOrWall = true
-					end
+		-- 2. Items inside JL_ street folders (JL_MANAHAN, JL_KLATEN, etc.) that do not contain road/trotoar meshes
+		local parent = obj.Parent
+		if parent and (parent.Name:sub(1, 3) == "JL_" or parent.Name:find("JL_SLR")) then
+			local hasRoad = false
+			for _, d in ipairs(obj:GetDescendants()) do
+				if isRoadOrGround(d) then
+					hasRoad = true
+					break
 				end
 			end
-			if maxY > 7 or hasRoofOrWall then
+			if not hasRoad then
+				return true
+			end
+		end
+
+		-- 3. Models with tall parts or roof/wall materials inside any folder
+		if obj:IsA("Model") then
+			local hasRoad = false
+			for _, d in ipairs(obj:GetDescendants()) do
+				if isRoadOrGround(d) then
+					hasRoad = true
+					break
+				end
+			end
+			if not hasRoad then
 				return true
 			end
 		end
@@ -352,28 +397,6 @@ local success, err = pcall(function()
 	end)
 
 	task.spawn(destroyAllBuildings)
-
-	-- 🛣️ Road & Ground detection whitelist for DDS map
-	local function isRoadOrGround(obj)
-		if obj:IsA("Terrain") then return true end
-		local name = obj.Name:upper()
-		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("RUMAH") or name:find("GEDUNG")
-			or name:find("HOUSE") or name:find("LANTAI") or name:find("SHOP") or name:find("DEALER")
-			or name:find("GARAGE") or name:find("PAGAR") or name:find("RAIL") or name:find("LAMPU")
-			or name:find("POHON") or name:find("PROPS") or name:find("SETTING") or name:find("STOPPER")
-			or name:find("MACHINE") or name:find("MONTOR") or name:find("CAR")
-			or name:find("VEHICLE") or name:find("MISSION") or name:find("QUEST") or name:find("MANCING")
-			or name:find("JOB") or name:find("FLAG") or name:find("SIGN") or name:find("CONE")
-			or name:find("BARRIER") or name:find("PITCH") or name:find("STAGE") or name:find("PANGGUNG")
-			or name:find("TIMER") or name:find("DISPLAY") or name:find("HELMET")
-		then
-			return false
-		end
-		if name:sub(1, 3) == "JL_" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("UNION") or name:find("WEIGHT") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
-			return true
-		end
-		return false
-	end
 
 	local function getGroundExcludeFilter(car)
 		local filter = { car, player.Character }
