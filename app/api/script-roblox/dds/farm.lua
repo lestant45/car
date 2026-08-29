@@ -256,24 +256,23 @@ local success, err = pcall(function()
 
 		-- Keep actual ground, roads, hills, grass, bridges, flyovers & river water surfaces
 		local name = obj.Name:upper()
-		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("WEIGHT") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
-			return false
-		end
-		if (name:sub(1, 3) == "JL_" or name:find("JL_SLR")) and not name:find("BUILDING") and not name:find("RUKO") then
+		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("WEIGHT") or (name:find("FLYOVER") and not name:find("LAMP") and not name:find("POLE")) or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
 			return false
 		end
 
 		-- 1. Direct building/obstacle keywords
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
-			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
+			or name:find("POHON") or name:find("LAMPU") or name:find("LAMP") or name:find("BARRIER") or name:find("GEDUNG")
 			or name:find("RUMAH") or name:find("PITCH") or name:find("SHIRT") or name:find("MEDKIT")
 			or name:find("BILLBOARD") or name:find("CONE") or name:find("PANGGUNG") or name:find("HELMET")
 			or name:find("SHOWCASE") or name:find("TITIK_KUMPUL") or name:find("FLAG") or name:find("SIGN")
 			or name:find("DEALER") or name:find("GARAGE") or name:find("SATLANTAS") or name == "RS"
 			or name:find("INDOMART") or name:find("PLATINUM") or name:find("GATAU") or name:find("PJL")
 			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
-			or name:find("PROPBANGUNAN")
+			or name:find("PROPBANGUNAN") or name:find("GATE") or name:find("DOOR") or name:find("WALL")
+			or name:find("FENCE") or name:find("TIANG") or name:find("TREE") or name:find("BUSH")
+			or name:find("BENCH") or name:find("KURS") or name:find("TENDA") or name:find("WARUNG")
 		then
 			return true
 		end
@@ -286,12 +285,12 @@ local success, err = pcall(function()
 				if p:IsA("BasePart") then
 					if p.Position.Y > maxY then maxY = p.Position.Y end
 					local mat = tostring(p.Material)
-					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") or mat:find("Wood") then
+					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") or mat:find("Wood") or mat:find("Plaster") then
 						hasRoofOrWall = true
 					end
 				end
 			end
-			if maxY > 7 or hasRoofOrWall then
+			if maxY > 5 or hasRoofOrWall then
 				return true
 			end
 		end
@@ -301,25 +300,27 @@ local success, err = pcall(function()
 
 	local function destroyAllBuildings()
 		pcall(function()
-			for _, c in ipairs(workspace:GetChildren()) do
-				if shouldDestroyBuilding(c) then
-					pcall(function() c:Destroy() end)
-				elseif c:IsA("Folder") or c:IsA("Model") then
-					for _, ch in ipairs(c:GetChildren()) do
-						if shouldDestroyBuilding(ch) then
-							pcall(function() ch:Destroy() end)
-						elseif ch:IsA("Folder") or ch:IsA("Model") then
-							for _, sub in ipairs(ch:GetChildren()) do
-								if shouldDestroyBuilding(sub) then
-									pcall(function() sub:Destroy() end)
-								end
-							end
-						end
+			local function scan(container, depth)
+				if depth > 4 or not container then return end
+				for _, c in ipairs(container:GetChildren()) do
+					if shouldDestroyBuilding(c) then
+						pcall(function() c:Destroy() end)
+					elseif c:IsA("Folder") or c:IsA("Model") then
+						scan(c, depth + 1)
 					end
 				end
 			end
+			scan(workspace, 1)
 		end)
 	end
+
+	-- Continuous background sweeper (runs every 3 seconds to clear newly streamed chunks)
+	task.spawn(function()
+		while true do
+			destroyAllBuildings()
+			task.wait(3.0)
+		end
+	end)
 
 	-- Auto-destroy newly streamed chunks anywhere in workspace
 	workspace.DescendantAdded:Connect(function(descendant)
