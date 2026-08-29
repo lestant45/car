@@ -33,6 +33,32 @@ local success, err = pcall(function()
 		isDrivingActive = false
 	end
 
+	-- 🛡️ 24/7 Universal Anti-AFK Engine (Prevents Error Code: 267)
+	task.spawn(function()
+		local vu = game:GetService("VirtualUser")
+		local vim = game:GetService("VirtualInputManager")
+
+		player.Idled:Connect(function()
+			pcall(function()
+				vu:CaptureController()
+				vu:ClickButton2(Vector2.new(0, 0))
+			end)
+		end)
+
+		while true do
+			task.wait(120)
+			pcall(function()
+				vu:CaptureController()
+				vu:ClickButton2(Vector2.new(0, 0))
+				if vim then
+					vim:SendKeyEvent(true, Enum.KeyCode.RightShift, false, game)
+					task.wait(0.05)
+					vim:SendKeyEvent(false, Enum.KeyCode.RightShift, false, game)
+				end
+			end)
+		end
+	end)
+
 	local function getRootPart()
 		local char = player.Character
 		return char and char:FindFirstChild("HumanoidRootPart")
@@ -354,7 +380,7 @@ local success, err = pcall(function()
 		return filter
 	end
 
-	local function safelySettleAndUnanchor(car, safePos)
+	local function safelySettleAndUnanchor(car, safePos, keepAnchored)
 		if not car then return end
 		neutralizeBikeHazards(car)
 		pcall(function()
@@ -366,30 +392,29 @@ local success, err = pcall(function()
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
-				-- Spawn safety plate under parked bike only
-				ensureSafetyPlate(groundPos, 35)
+				-- Spawn wide safety plate under parked bike (60x60)
+				ensureSafetyPlate(groundPos, 60)
 				local curPiv = car:GetPivot()
 				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
 			end
-			-- Restore collision parts on the DDS motorcycle so tires firmly touch the road trigger
+
+			-- While parked waiting for passenger/dropoff, anchor the vehicle so it CANNOT fall through ground
+			local shouldAnchor = (keepAnchored ~= false)
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
-					part.Anchored = false
+					part.Anchored = shouldAnchor
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
-					local name = part.Name:lower()
-					if name == "dds_collision" or name == "primarypart" or name:find("tire") or name:find("wheel") or name == "paint" or name == "foot" or name == "p" then
-						part.CanCollide = true
-					else
-						part.CanCollide = false
-					end
+					part.CanCollide = true
 				end
 			end
+
 			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
 			if seat then
 				seat.Throttle = 0
 				seat.ThrottleFloat = 0
 				seat.AssemblyLinearVelocity = Vector3.zero
+				if shouldAnchor then seat.Anchored = true end
 			end
 
 			-- Ensure player stays firmly seated on the motorcycle
@@ -400,7 +425,7 @@ local success, err = pcall(function()
 				if not hum.Sit or hum.SeatPart ~= seat then
 					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 					hum.Sit = true
-					seat:Sit(hum)
+					pcall(function() seat:Sit(hum) end)
 				end
 			end
 		end)
@@ -681,6 +706,22 @@ local success, err = pcall(function()
 
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
+
+			-- 🔒 Enforced Seat Lock: Kunci pengemudi setiap frame agar tidak terlempar di Redfinger
+			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
+				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
+				hum.Sit = true
+				pcall(function() seat:Sit(hum) end)
+			end
+
+			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh di bawah Y < -20
+			if carPos.Y < -20 then
+				local rescuePos = Vector3.new(carPos.X, math.max(lastGroundY, 5), carPos.Z)
+				ensureSafetyPlate(rescuePos, 80)
+				car:PivotTo(CFrame.new(rescuePos))
+				lastGroundY = rescuePos.Y
+				if root and seat then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
+			end
 
 			local delta = destP - carPos
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
