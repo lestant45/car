@@ -25,6 +25,37 @@ local success, err = pcall(function()
 	local currentDriveConn = nil
 	local isDrivingActive  = false
 
+	-- 🛡️ 24/7 Universal Anti-AFK Engine (Zero-Service, 100% Safe & Undetected)
+	task.spawn(function()
+		pcall(function()
+			if getconnections then
+				for _, conn in ipairs(getconnections(player.Idled)) do
+					if conn.Disable then
+						conn:Disable()
+					elseif conn.Disconnect then
+						conn:Disconnect()
+					end
+				end
+			end
+		end)
+		-- Continuous micro-activity heartbeat to prevent server-side inactivity kick
+		while true do
+			task.wait(60)
+			pcall(function()
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum and hum.SeatPart then
+					local seat = hum.SeatPart
+					if seat:IsA("VehicleSeat") then
+						seat.SteerFloat = 0.001
+						task.wait(0.05)
+						seat.SteerFloat = 0
+					end
+				end
+			end)
+		end
+	end)
+
 	local function cancelActiveDrive()
 		if currentDriveConn then
 			pcall(function() currentDriveConn:Disconnect() end)
@@ -1211,20 +1242,31 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Phone Screen Overlay Poller (Fast auto-accept on UI popup)
+	-- Phone Screen Overlay Poller & Auto-Dismiss Complete Screen
 	local function startPhoneOverlayPoller()
 		if taxiOverlayPoller then return end
 		taxiOverlayPoller = task.spawn(function()
+			local lastKeepAliveTime = tick()
 			while taxiActive do
 				task.wait(0.2)
-				if not taxiBusy and taxiActive then
+				if taxiActive then
 					pcall(function()
 						local pg = player:FindFirstChild("PlayerGui")
 						local phone = pg and pg:FindFirstChild("Phone")
 						local rideGO = phone and phone:FindFirstChild("RideGO", true)
 						local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
+						local complete = appFrame and appFrame:FindFirstChild("CompleteOverlay")
 						local overlay = appFrame and appFrame:FindFirstChild("OrderOverlay")
 
+						-- 1. Auto-Dismiss Complete Screen agar UI tidak pernah nyangkut di ringkasan trip
+						if complete and complete.Visible then
+							complete.Visible = false
+							if TaxiEvent then
+								TaxiEvent:FireServer("AckTripComplete")
+							end
+						end
+
+						-- 2. Auto-Accept orderan baru yang masuk
 						if overlay and overlay.Visible and not taxiBusy then
 							if #_G.HipHubTaxiLog > 0 then
 								local last = _G.HipHubTaxiLog[#_G.HipHubTaxiLog]
@@ -1235,6 +1277,15 @@ local success, err = pcall(function()
 										task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName, args[2].PickupPos, args[2].DropPos)
 									end
 								end
+							end
+						end
+
+						-- 3. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
+						if not taxiBusy and (tick() - lastKeepAliveTime >= 35) then
+							lastKeepAliveTime = tick()
+							ensureDriverSeated()
+							if TaxiEvent then
+								TaxiEvent:FireServer("GoOnline")
 							end
 						end
 					end)
