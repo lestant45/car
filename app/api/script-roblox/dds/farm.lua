@@ -623,7 +623,7 @@ local success, err = pcall(function()
 	local function attemptVoidBridge(car, fromPos, toPos)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		local totalDistToDest = flatDiff.Magnitude
-		if totalDistToDest < 10 then return nil end
+		if totalDistToDest < 100 then return nil end
 		local baseDir = flatDiff.Unit
 
 		-- Pre-stream daratan tujuan di seberang
@@ -658,8 +658,8 @@ local success, err = pcall(function()
 				local pz = fromPos.Z + flatDir.Z * curDist
 				local testPos = Vector3.new(px, 0, pz)
 
-				-- Request stream chunk setiap 140 stud pemindaian jurang
-				if inVoid and curDist % 140 == 0 then
+				-- Request stream chunk setiap 100 stud pemindaian jurang
+				if inVoid and curDist % 100 == 0 then
 					requestStreamAsync(testPos)
 				end
 
@@ -673,10 +673,11 @@ local success, err = pcall(function()
 
 				if isGround then
 					refY = solidY
-					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15) then
+					-- 🌉 Validasi Jurang Nyata: Jurang harus memiliki celah hampa udara minimal 45 stud berturut-turut!
+					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 45) then
 						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
-						-- 🛡️ Forward Progress Gate: Pastikan titik pendaratan benar-benar LEBIH DEKAT ke tujuan minimal 15 stud!
-						if landDistToDest < totalDistToDest - 15 then
+						-- 🛡️ Forward Progress Gate: Pastikan titik pendaratan benar-benar LEBIH DEKAT ke tujuan minimal 40 stud!
+						if landDistToDest < totalDistToDest - 40 then
 							local landPos = Vector3.new(px, solidY + 0.5, pz)
 							return teleportVehicleAcrossVoid(car, landPos, baseDir)
 						end
