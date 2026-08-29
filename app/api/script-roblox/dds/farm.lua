@@ -944,6 +944,9 @@ local success, err = pcall(function()
 			-- 🛑 300-Stud Long-Range Cliff Lookahead: Pengereman dari jarak 300 stud menuju <10 km/h di tepi jurang
 			local solidAheadDist = 300
 			for lookDist = 15, 300, 15 do
+				if lookDist >= dist then
+					break
+				end
 				local testPos = carPos + directGoalDir * lookDist
 				if not probeGround(testPos, lastGroundY) then
 					solidAheadDist = lookDist
@@ -951,7 +954,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 300 then
+			if solidAheadDist < 300 and solidAheadDist < dist then
 				local edgeFactor = math.clamp(solidAheadDist / 300, 0, 1)
 				local cliffTargetSpeed = math.max(0, speed * edgeFactor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
@@ -978,12 +981,12 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY and curSpeed > 0.1 then
+			if directHitY then
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🌉 Real-time Void Bridge Scan (Motor BERHENTI DIAM TOTAL di tanah aman saat memindai)
+				-- 🌉 Real-time Void Bridge Scan (Hanya jika benar-benar tidak ada tanah di depan motor)
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
