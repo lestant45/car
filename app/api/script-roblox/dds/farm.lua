@@ -633,11 +633,12 @@ local success, err = pcall(function()
 		return landPos
 	end
 
-	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (multi-angle luas & long-range),
+	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (hanya sudut maju ke arah tujuan),
 	-- lalu teleport vehicle ke ground seberang dengan safety plate.
 	local function attemptVoidBridge(car, fromPos, toPos)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
-		if flatDiff.Magnitude < 10 then return nil end
+		local totalDistToDest = flatDiff.Magnitude
+		if totalDistToDest < 10 then return nil end
 		local baseDir = flatDiff.Unit
 
 		-- Pre-stream daratan tujuan di seberang
@@ -650,12 +651,13 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai jarak penuh ke destination (hingga 12.000 stud untuk rute jarak jauh)
-		local maxScan = math.min(flatDiff.Magnitude * 1.05, 12000)
+		-- Scan sampai jarak penuh ke destination (maksimal 3000 stud)
+		local maxScan = math.min(totalDistToDest * 1.05, 3000)
 		local stepSize = 35
 
-		-- Scan lurus ke depan (0 deg), lalu coba sudut menyamping luas (±15, ±30, ±45, ±60, ±75, ±90)
-		local scanAngles = { 0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90 }
+		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
+		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
+		local scanAngles = { 0, 10, -10, 20, -20, 30, -30 }
 
 		for _, ang in ipairs(scanAngles) do
 			local scanRot = CFrame.Angles(0, math.rad(ang), 0)
@@ -687,9 +689,12 @@ local success, err = pcall(function()
 				if isGround then
 					refY = solidY
 					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15) then
-						-- ✅ Ground padat ditemukan di daratan seberang jurang!
-						local landPos = Vector3.new(px, solidY + 0.5, pz)
-						return teleportVehicleAcrossVoid(car, landPos, baseDir)
+						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
+						-- 🛡️ Forward Progress Gate: Pastikan titik pendaratan benar-benar LEBIH DEKAT ke tujuan minimal 15 stud!
+						if landDistToDest < totalDistToDest - 15 then
+							local landPos = Vector3.new(px, solidY + 0.5, pz)
+							return teleportVehicleAcrossVoid(car, landPos, baseDir)
+						end
 					end
 				else
 					if not inVoid then
@@ -1343,7 +1348,7 @@ local success, err = pcall(function()
 			while isPassengerOnboard() and taxiActive do
 				local nowT = tick()
 
-				-- Deteksi notifikasi "Verifying your trip route" dari UI game
+				-- Deteksi notifikasi "Memverifikasi rute perjalananmu" (Bahasa Indonesia & English)
 				local isVerifying = false
 				pcall(function()
 					local pGui = player:FindFirstChild("PlayerGui")
@@ -1351,7 +1356,10 @@ local success, err = pcall(function()
 						for _, g in ipairs(pGui:GetDescendants()) do
 							if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
 								local txt = (g.Text or ""):lower()
-								if txt:find("verifying your trip route") or txt:find("hold on a moment") or txt:find("verifying trip") then
+								if txt:find("memverifikasi rute") or txt:find("verifying your trip route")
+									or txt:find("tunggu sebentar") or txt:find("hold on a moment")
+									or txt:find("verifikasi rute") or txt:find("verifying trip")
+								then
 									isVerifying = true
 									break
 								end
@@ -1360,32 +1368,37 @@ local success, err = pcall(function()
 					end
 				end)
 
-				if isVerifying and (nowT - lastVerifyCheck >= 1.5) then
+				if isVerifying and (nowT - lastVerifyCheck >= 1.2) then
 					lastVerifyCheck = nowT
 					verifyCount = verifyCount + 1
-					UI.Notify("⚠️ Verifying Route (" .. verifyCount .. "/5)", "Waiting for server confirmation...", 1.5, "warning")
+					UI.Notify("⚠️ Verifikasi Rute (" .. verifyCount .. "/5)", "Menunggu konfirmasi server DDS...", 1.5, "warning")
 					if verifyCount >= 5 then
-						UI.Notify("❌ Route Verification Limit", "Canceling order to take new rides...", 3, "error")
+						UI.Notify("❌ Batas Verifikasi Tercapai", "Mereset status RideGO untuk orderan baru...", 3, "error")
 						break
 					end
 				end
 
-				-- Batas waktu maksimal disembark 12 detik
-				if (nowT - disembarkWait > 12) then
-					UI.Notify("⚠️ Disembark Timeout", "Canceling stuck order to take new rides...", 3, "warning")
+				-- Batas waktu maksimal disembark 10 detik
+				if (nowT - disembarkWait > 10) then
+					UI.Notify("⚠️ Disembark Timeout", "Penumpang tidak turun. Mereset RideGO...", 3, "warning")
 					break
 				end
 
 				task.wait(0.35)
 			end
 
-			-- Jika penumpang belum turun (gagal verifikasi rute > 5x atau timeout)
+			-- Jika penumpang belum turun (gagal verifikasi rute > 5x atau timeout):
+			-- Lakukan siklus Reset RideGO (GESER UNTUK OFFLINE -> ON KEMBALI)
 			if isPassengerOnboard() and taxiActive then
+				UI.Notify("🔄 Resetting Duty", "Mematikan & menyalakan kembali RideGO...", 3, "warning")
 				pcall(function()
 					TaxiEvent:FireServer("CancelOrder", token)
 					TaxiEvent:FireServer("CancelOrder")
 					TaxiEvent:FireServer("CancelTrip")
+					TaxiEvent:FireServer("GoOffline")
+					TaxiEvent:FireServer("DutyToggle")
 				end)
+
 				lastCompletedToken = token
 				taxiBusy = false
 				taxiToken = nil
@@ -1393,8 +1406,12 @@ local success, err = pcall(function()
 				taxiDropPos = nil
 				passengerSeated = false
 				setTaxiState("WAITING_FOR_NEXT_ORDER")
-				task.wait(2)
-				pcall(function() TaxiEvent:FireServer("GoOnline") end)
+
+				task.wait(1.5)
+				pcall(function()
+					TaxiEvent:FireServer("GoOnline")
+					TaxiEvent:FireServer("DutyToggle")
+				end)
 				return
 			end
 
