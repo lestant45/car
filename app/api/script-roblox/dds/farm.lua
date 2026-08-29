@@ -766,7 +766,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 4.0 and (currentSmoothSpeed <= 12 or dist <= 2.0) then
+			if dist <= 4.0 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -824,12 +824,13 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when approaching destination (250-stud long range)
+			-- 🏎️ Dynamic smooth deceleration when approaching destination
 			local targetSpeed = speed
-			if dist < 250 then
-				local factor = math.clamp((dist - 3.0) / 247.0, 0, 1)
-				local destTargetSpeed = speed * (factor * factor)
-				targetSpeed = math.min(targetSpeed, destTargetSpeed)
+			if dist < 120 then
+				local factor = math.clamp(dist / 120, 0, 1)
+				local ease = factor * factor * (3 - 2 * factor)
+				local minApproachSpeed = math.min(18, speed * 0.3)
+				targetSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
 			-- 🚀 Smooth 2-Second Progressive Acceleration from 0 to full slider speed
@@ -842,9 +843,9 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 300-Stud Long-Range Cliff Lookahead: Pengereman bertahap mulus dari 300 stud menuju 0 km/h tepat di tepi jurang
-			local solidAheadDist = 300
-			for lookDist = 15, 300, 15 do
+			-- 🛑 150-Stud Cliff Lookahead: Perlambat secara bertahap saat mendekati jurang (merayap stabil 15 stud/s)
+			local solidAheadDist = 150
+			for lookDist = 15, 150, 15 do
 				local testPos = carPos + directGoalDir * lookDist
 				if not probeGround(testPos, lastGroundY) then
 					solidAheadDist = lookDist
@@ -852,16 +853,17 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 300 then
-				local edgeFactor = math.clamp((solidAheadDist - 12) / 288, 0, 1)
-				local cliffTargetSpeed = speed * (edgeFactor * edgeFactor)
+			if solidAheadDist < 150 then
+				local factor = math.clamp(solidAheadDist / 150, 0, 1)
+				local minCrawlSpeed = 15
+				local cliffTargetSpeed = minCrawlSpeed + (speed - minCrawlSpeed) * (factor * factor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
 			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
 			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
-			local maxDecelRate = 85 * dt
+			local maxDecelRate = 75 * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
