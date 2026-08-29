@@ -692,6 +692,7 @@ local success, err = pcall(function()
 		local curHeadingAngle = math.atan2(-((destP - startP).Unit).X, -((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
 		local bridgeHoldUntil = 0
+		local driveStartTime = os.clock()
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -809,6 +810,14 @@ local success, err = pcall(function()
 				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
+			-- 🚀 Smooth 2-Second Progressive Acceleration from 0 to full slider speed
+			local elapsedAcc = math.max(0, now - driveStartTime)
+			if elapsedAcc < 2.0 then
+				local accFactor = math.clamp(elapsedAcc / 2.0, 0, 1)
+				local easeAcc = accFactor * accFactor * (3 - 2 * accFactor)
+				curSpeed = math.max(10 * accFactor, curSpeed * easeAcc)
+			end
+
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛑 150-Stud Cliff Lookahead: Perlambat secara bertahap saat mendekati jurang (melambat halus ke 15 stud/s)
@@ -863,6 +872,7 @@ local success, err = pcall(function()
 						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(-newDir.X, -newDir.Z)
 						bridgeHoldUntil = os.clock() + 2.0
+						driveStartTime = os.clock() + 2.0
 						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
