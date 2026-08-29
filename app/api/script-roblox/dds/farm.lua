@@ -965,9 +965,11 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 Cliff Lookahead: Pengereman menuju tepi jurang (mulai mengerem jika tebing < 80 stud di depan)
-			local solidAheadDist = 80
-			for lookDist = 10, 80, 10 do
+			-- 🛑 2-Stage Cliff Lookahead: Pengereman menuju tepi jurang
+			-- Stage 1 (300 -> 50 stud sebelum jurang): Kecepatan turun mulus dari slider speed ke 15 km/h
+			-- Stage 2 (50 -> 0 stud sebelum tepi jurang): Kecepatan merayap dari 15 km/h ke 0 km/h tepat di tepi jurang
+			local solidAheadDist = 300
+			for lookDist = 15, 300, 15 do
 				if lookDist >= dist then
 					break
 				end
@@ -978,8 +980,14 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 80 and solidAheadDist < dist then
-				local cliffTargetSpeed = math.max(0, math.min(targetSpeed, 15 * (solidAheadDist / 80)))
+			if solidAheadDist < 300 and solidAheadDist < dist then
+				local cliffTargetSpeed = speed
+				if solidAheadDist < 50 then
+					cliffTargetSpeed = math.max(0, 15 * (solidAheadDist / 50))
+				else
+					local factor = (solidAheadDist - 50) / 250
+					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
+				end
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
