@@ -131,23 +131,38 @@ local success, err = pcall(function()
 
 	local function findRidePrompt()
 		local car, seat = getPlayerVehicle()
-		if car then
-			local prompt = car:FindFirstChildWhichIsA("ProximityPrompt", true)
-			local seatPart = seat or car:FindFirstChild("DriveSeat", true) or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)
-			if seatPart then
-				return prompt, seatPart
-			end
-		end
-		for _, c in ipairs(workspace:GetChildren()) do
-			if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
-				local prompt = c:FindFirstChildWhichIsA("ProximityPrompt", true)
-				local seatPart = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
-				if seatPart then
-					return prompt, seatPart
+		if not car and not seat then
+			for _, c in ipairs(workspace:GetChildren()) do
+				if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
+					car = c
+					seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
+					break
 				end
 			end
 		end
-		return nil, nil
+
+		local seatPart = seat or (car and (car:FindFirstChild("DriveSeat", true) or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)))
+		if not seatPart then return nil, nil end
+
+		-- 1. Search prompt inside DriveSeat directly
+		local prompt = seatPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+		-- 2. Search prompt in entire car excluding Lock, Tuner, Kickstand, Trunk
+		if not prompt and car then
+			for _, p in ipairs(car:GetDescendants()) do
+				if p:IsA("ProximityPrompt") then
+					local pn = p.Name:lower()
+					local an = (p.ActionText or ""):lower()
+					local on = (p.ObjectText or ""):lower()
+					if not (pn:find("lock") or pn:find("tuner") or pn:find("trunk") or pn:find("bagasi") or pn:find("kickstand") or an:find("lock") or on:find("lock")) then
+						prompt = p
+						break
+					end
+				end
+			end
+		end
+
+		return prompt, seatPart
 	end
 
 	local function neutralizeBikeHazards(car)
@@ -189,11 +204,13 @@ local success, err = pcall(function()
 		if not hum or not root then return false end
 		if hum.SeatPart then return true end
 
+		-- Reset sitting state palsu di udara
+		hum.Sit = false
+
 		local prompt, seatPart = findRidePrompt()
 		if not seatPart then
 			UI.Notify("🏍️ Spawning Motor", "Memanggil motor baru...", 2.5, "warning")
 			spawnTaxiBike()
-			-- Tunggu hingga motor berhasil spawn di workspace (maksimal 4 detik)
 			local spawnWait = os.clock()
 			while not seatPart and (os.clock() - spawnWait < 4.0) do
 				task.wait(0.25)
@@ -210,14 +227,16 @@ local success, err = pcall(function()
 			neutralizeBikeHazards(car)
 		end
 
-		-- Teleport player tepat di atas kursi motor
-		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.8, 0)
-		task.wait(0.15)
+		pcall(function() seatPart.Disabled = false end)
+
+		-- Pindahkan posisi player tepat menempel di atas kursi motor
+		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
+		task.wait(0.1)
 
 		-- Loop agresif verifikasi duduk (maksimal 3.0 detik)
 		local sitStart = os.clock()
-		while (not hum.SeatPart or hum.SeatPart ~= seatPart) and (os.clock() - sitStart < 3.0) do
-			-- 1. Trigger ProximityPrompt jika ada
+		while not hum.SeatPart and (os.clock() - sitStart < 3.0) do
+			-- 1. Trigger ProximityPrompt pengemudi jika ada
 			if prompt then
 				pcall(function()
 					if fireproximityprompt then
@@ -230,21 +249,29 @@ local success, err = pcall(function()
 				end)
 			end
 
-			-- 2. Direct sit fallback
+			-- 2. Trigger native touch event via firetouchinterest
 			pcall(function()
-				hum.Sit = true
+				if firetouchinterest then
+					firetouchinterest(root, seatPart, 0)
+					task.wait(0.02)
+					firetouchinterest(root, seatPart, 1)
+				end
+			end)
+
+			-- 3. Native seat sit call (tanpa hum.Sit = true agar tidak duduk di udara)
+			pcall(function()
 				seatPart:Sit(hum)
 			end)
 
-			root.CFrame = seatPart.CFrame + Vector3.new(0, 0.5, 0)
+			root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
 			task.wait(0.25)
 		end
 
 		local isSeated = (hum.SeatPart ~= nil)
 		if isSeated then
-			UI.Notify("✅ Driver Seated", "Motor berhasil dinaiki.", 1.5, "success")
+			UI.Notify("✅ Driver Seated", "Motor berhasil dikendarai.", 1.5, "success")
 		else
-			UI.Notify("⚠️ Gagal Duduk", "Mencoba kembali menaiki motor...", 2, "warning")
+			UI.Notify("⚠️ Belum Duduk", "Gagal menaiki motor, mencoba kembali...", 2, "warning")
 		end
 
 		return isSeated
