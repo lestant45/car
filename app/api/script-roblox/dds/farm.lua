@@ -369,7 +369,7 @@ local success, err = pcall(function()
 		return filter
 	end
 
-	local function safelySettleAndUnanchor(car, safePos, keepAnchored)
+	local function safelySettleAndUnanchor(car, safePos)
 		if not car then return end
 		neutralizeBikeHazards(car)
 		pcall(function()
@@ -381,17 +381,16 @@ local success, err = pcall(function()
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
-				-- Spawn wide safety plate under parked bike (60x60)
+				-- Spawn wide solid safety plate under parked bike (60x60) so it cannot fall through
 				ensureSafetyPlate(groundPos, 60)
 				local curPiv = car:GetPivot()
 				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
 			end
 
-			-- While parked waiting for passenger/dropoff, anchor the vehicle so it CANNOT fall through ground
-			local shouldAnchor = (keepAnchored ~= false)
+			-- Must be Anchored = false with 0 velocity so server detects stopped vehicle and triggers passenger boarding
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
-					part.Anchored = shouldAnchor
+					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 					part.CanCollide = true
@@ -400,10 +399,11 @@ local success, err = pcall(function()
 
 			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
 			if seat then
+				seat.Anchored = false
 				seat.Throttle = 0
 				seat.ThrottleFloat = 0
 				seat.AssemblyLinearVelocity = Vector3.zero
-				if shouldAnchor then seat.Anchored = true end
+				seat.AssemblyAngularVelocity = Vector3.zero
 			end
 
 			-- Ensure player stays firmly seated on the motorcycle
