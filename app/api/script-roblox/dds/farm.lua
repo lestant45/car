@@ -154,7 +154,7 @@ local success, err = pcall(function()
 		pcall(function()
 			if car then
 				for _, s in ipairs(car:GetDescendants()) do
-					if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident")) then
+					if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll")) then
 						s.Disabled = true
 					end
 				end
@@ -163,15 +163,19 @@ local success, err = pcall(function()
 			if char then
 				for _, s in ipairs(char:GetDescendants()) do
 					if s:IsA("Script") or s:IsA("LocalScript") then
-						if s.Name == "RagdollHandler" or s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") then
+						if s.Name == "RagdollHandler" or s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll") then
 							s.Disabled = true
 						end
 					end
+					if s:IsA("BasePart") then
+						s.CanCollide = false
+					end
 				end
-				local hum = char:FindFirstChildOfClass("Humanoid")
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
 				end
 			end
@@ -729,6 +733,24 @@ local success, err = pcall(function()
 
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
+
+			-- 🔒 Enforced Frame-Level Seat Lock: pastikan pengemudi tidak pernah terlempar dari motor saat melaju
+			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
+				hum.Sit = true
+				pcall(function() seat:Sit(hum) end)
+			end
+
+			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh di bawah Y < -20
+			if carPos.Y < -20 then
+				local rescuePos = Vector3.new(carPos.X, math.max(lastGroundY, 5), carPos.Z)
+				ensureSafetyPlate(rescuePos, 80)
+				car:PivotTo(CFrame.new(rescuePos))
+				lastGroundY = rescuePos.Y
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and seat then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
+			end
 
 			local delta = destP - carPos
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
