@@ -377,6 +377,15 @@ local success, err = pcall(function()
 			return false
 		end
 
+		-- 🏛️ Bangunan Khusus / Atap / Joglo / Sasana Krida (Bahkan jika ditaruh di dalam folder jalan, tetap hapus jika itu atap/gedung)
+		local name = obj.Name:upper()
+		if name:find("SASANA") or name:find("KRIDA") or name:find("JOGLO") or name:find("PENDOPO")
+			or name:find("ATAP") or name:find("ROOF") or name:find("GENTENG") or name:find("CANOPY")
+			or name:find("KANOPI") or name:find("GEDUNG") or name:find("BUILDING") or name:find("BANGUNAN")
+		then
+			return true
+		end
+
 		-- 🛣️ JANGAN PERNAH HAPUS JALANAN, FOLDER JL_ (JL_MANAHAN, JL_KLATEN, DLL), ATAU SEMUA ISINYA!
 		local cur = obj
 		while cur and cur ~= workspace and cur ~= game do
@@ -393,10 +402,9 @@ local success, err = pcall(function()
 		end
 
 		-- 1. Direct building/obstacle keywords
-		local name = obj.Name:upper()
-		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
+		if name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
-			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
+			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER")
 			or name:find("RUMAH") or name:find("PITCH") or name:find("SHIRT") or name:find("MEDKIT")
 			or name:find("BILLBOARD") or name:find("CONE") or name:find("PANGGUNG") or name:find("HELMET")
 			or name:find("SHOWCASE") or name:find("TITIK_KUMPUL") or name:find("FLAG") or name:find("SIGN")
@@ -404,7 +412,7 @@ local success, err = pcall(function()
 			or name:find("INDOMART") or name:find("PLATINUM") or name:find("GATAU") or name:find("PJL")
 			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
 			or name:find("PROPBANGUNAN") or name:find("GATE") or name:find("KFC") or name:find("RESTAURANT")
-			or name:find("WARUNG") or name:find("TOKO") or name:find("JOGLO") or name:find("STADION")
+			or name:find("WARUNG") or name:find("TOKO") or name:find("STADION")
 			or name:find("MOLDING") or name:find("MEJA") or name:find("KURSI")
 		then
 			return true
@@ -755,10 +763,11 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, 2),
 				Vector3.new(0, 0, -2)
 			}
+			local rayHeight = (refY and refY > -20) and math.min(refY + 8, refY + 12) or 15
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, math.max(refY + 40, 60), pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -150, 0), rayParams)
+				local rayOrigin = Vector3.new(pos.X, rayHeight, pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -60, 0), rayParams)
 				if hit and hit.Position.Y >= -30 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
