@@ -766,7 +766,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 4.0 then
+			if dist <= 4.0 and (currentSmoothSpeed <= 12 or dist <= 2.0) then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -824,13 +824,12 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when approaching destination
+			-- 🏎️ Dynamic smooth deceleration when approaching destination (250-stud long range)
 			local targetSpeed = speed
-			if dist < 120 then
-				local factor = math.clamp(dist / 120, 0, 1)
-				local ease = factor * factor * (3 - 2 * factor)
-				local minApproachSpeed = math.min(18, speed * 0.3)
-				targetSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
+			if dist < 250 then
+				local factor = math.clamp((dist - 3.0) / 247.0, 0, 1)
+				local destTargetSpeed = speed * (factor * factor)
+				targetSpeed = math.min(targetSpeed, destTargetSpeed)
 			end
 
 			-- 🚀 Smooth 2-Second Progressive Acceleration from 0 to full slider speed
@@ -838,7 +837,7 @@ local success, err = pcall(function()
 			if elapsedAcc < 2.0 then
 				local accFactor = math.clamp(elapsedAcc / 2.0, 0, 1)
 				local easeAcc = accFactor * accFactor * (3 - 2 * accFactor)
-				targetSpeed = math.max(10 * accFactor, targetSpeed * easeAcc)
+				targetSpeed = math.min(targetSpeed, math.max(10 * accFactor, targetSpeed * easeAcc))
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
@@ -862,7 +861,7 @@ local success, err = pcall(function()
 			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
 			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
-			local maxDecelRate = 75 * dt
+			local maxDecelRate = 85 * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
