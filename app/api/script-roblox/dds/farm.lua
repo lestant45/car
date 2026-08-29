@@ -83,7 +83,8 @@ local success, err = pcall(function()
 		-- Search workspace direct children for player's motorcycle
 		for _, c in ipairs(workspace:GetChildren()) do
 			if c:IsA("Model") and c ~= char and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
-				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
+				-- 🎯 UTAMAKAN SELALU DriveSeat (Kursi Pengemudi)
+				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
 				if seat then return c, seat end
 			end
 		end
@@ -130,26 +131,34 @@ local success, err = pcall(function()
 	end
 
 	local function findRidePrompt()
-		local car, seat = getPlayerVehicle()
-		if car then
-			for _, pr in ipairs(car:GetDescendants()) do
-				if pr:IsA("ProximityPrompt") and (pr.ActionText:find("Ride") or pr.ActionText:find("Drive") or pr.ObjectText:find("Montor") or pr.ObjectText:find("Motor")) then
-					return pr, pr.Parent
+		local car, _ = getPlayerVehicle()
+		if not car then
+			for _, c in ipairs(workspace:GetChildren()) do
+				if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
+					car = c
+					break
 				end
-			end
-			local seatPart = car:FindFirstChild("DriveSeat", true) or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)
-			if seatPart then
-				local prompt = seatPart:FindFirstChildWhichIsA("ProximityPrompt", true) or car:FindFirstChildWhichIsA("ProximityPrompt", true)
-				return prompt, seatPart
 			end
 		end
-		for _, c in ipairs(workspace:GetChildren()) do
-			if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true)) then
-				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
-				if seat then
-					local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt", true) or c:FindFirstChildWhichIsA("ProximityPrompt", true)
-					return prompt, seat
+
+		if car then
+			-- 🎯 PRIORITAS 1: Cari kursi pengemudi resmi (DriveSeat / VehicleSeat)
+			local driveSeat = car:FindFirstChild("DriveSeat", true)
+				or car:FindFirstChildWhichIsA("VehicleSeat", true)
+
+			if driveSeat then
+				-- Cari ProximityPrompt yang melekat di DriveSeat atau model
+				local prompt = driveSeat:FindFirstChildWhichIsA("ProximityPrompt", true)
+					or (driveSeat.Parent and driveSeat.Parent:FindFirstChildWhichIsA("ProximityPrompt"))
+				if not prompt then
+					for _, pr in ipairs(car:GetDescendants()) do
+						if pr:IsA("ProximityPrompt") and (pr.ActionText:find("Ride") or pr.ActionText:find("Drive") or pr.ObjectText:find("Montor") or pr.ObjectText:find("Motor")) then
+							prompt = pr
+							break
+						end
+					end
 				end
+				return prompt, driveSeat
 			end
 		end
 		return nil, nil
@@ -192,26 +201,32 @@ local success, err = pcall(function()
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not root then return false end
-		if hum.SeatPart then return true end
+
+		-- Check if already properly seated on DRIVER seat
+		if hum.SeatPart and (hum.SeatPart.Name == "DriveSeat" or hum.SeatPart:IsA("VehicleSeat")) then
+			return true
+		elseif hum.SeatPart then
+			-- Accidental passenger seat sit: Unseat immediately
+			hum.Sit = false
+			task.wait(0.15)
+		end
 
 		-- Loop up to 3 attempts with full cloud-spawn polling
 		for attempt = 1, 3 do
-			if hum.SeatPart then return true end
-
-			local prompt, seatPart = findRidePrompt()
-			if not seatPart then
+			local prompt, driveSeat = findRidePrompt()
+			if not driveSeat then
 				UI.Notify("🏍️ Spawning Motor", "Memanggil motor dari server...", 2, "warning")
 				spawnTaxiBike()
 				-- Polling loop: tunggu hingga motor benar-benar tereplikasi di workspace (maks 5s)
 				local spawnWait = tick()
-				while not seatPart and (tick() - spawnWait < 5) do
+				while not driveSeat and (tick() - spawnWait < 5) do
 					task.wait(0.3)
-					prompt, seatPart = findRidePrompt()
+					prompt, driveSeat = findRidePrompt()
 				end
 			end
 
-			if seatPart then
-				local car = seatPart:FindFirstAncestorOfClass("Model") or seatPart.Parent
+			if driveSeat then
+				local car = driveSeat:FindFirstAncestorOfClass("Model") or driveSeat.Parent
 				if car then
 					neutralizeBikeHazards(car)
 					-- Tegakkan posisi motor agar tidak miring/terguling
@@ -221,8 +236,8 @@ local success, err = pcall(function()
 					end)
 				end
 
-				-- Teleport karakter tepat di atas DriveSeat
-				root.CFrame = seatPart.CFrame + Vector3.new(0, 0.8, 0)
+				-- Teleport karakter tepat di atas DriveSeat (Kursi Pengemudi)
+				root.CFrame = driveSeat.CFrame + Vector3.new(0, 0.8, 0)
 				task.wait(0.2)
 
 				-- Eksekusi ProximityPrompt
@@ -238,21 +253,21 @@ local success, err = pcall(function()
 					end)
 				end
 
-				-- Fallback direct sit
+				-- Fallback direct sit di DriveSeat
 				pcall(function()
 					hum.Sit = true
-					seatPart:Sit(hum)
+					driveSeat:Sit(hum)
 				end)
 
-				-- Tunggu konfirmasi duduk (maks 1.5s)
+				-- Tunggu konfirmasi duduk di DriveSeat (maks 1.5s)
 				local sitWait = tick()
-				while not hum.SeatPart and (tick() - sitWait < 1.5) do
-					pcall(function() seatPart:Sit(hum) end)
+				while (not hum.SeatPart or (hum.SeatPart ~= driveSeat and hum.SeatPart.Name ~= "DriveSeat")) and (tick() - sitWait < 1.5) do
+					pcall(function() driveSeat:Sit(hum) end)
 					task.wait(0.15)
 				end
 
-				if hum.SeatPart then
-					UI.Notify("✅ Driver Seated", "Pengemudi duduk aman di motor.", 1.5, "success")
+				if hum.SeatPart and (hum.SeatPart == driveSeat or hum.SeatPart.Name == "DriveSeat" or hum.SeatPart:IsA("VehicleSeat")) then
+					UI.Notify("✅ Driver Seated", "Pengemudi duduk di kursi depan motor.", 1.5, "success")
 					return true
 				end
 			end
@@ -260,21 +275,23 @@ local success, err = pcall(function()
 			task.wait(0.5)
 		end
 
-		return hum.SeatPart ~= nil
+		return (hum.SeatPart and (hum.SeatPart.Name == "DriveSeat" or hum.SeatPart:IsA("VehicleSeat"))) or false
 	end
 
-	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi.
+	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi (DriveSeat).
 	local function ensureDriverSeated()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		if hum and hum.SeatPart then return true end
+		if hum and hum.SeatPart and (hum.SeatPart.Name == "DriveSeat" or hum.SeatPart:IsA("VehicleSeat")) then
+			return true
+		end
 
-		UI.Notify("⚠️ Belum Duduk di Motor", "Menaiki motor pengemudi...", 2, "warning")
+		UI.Notify("⚠️ Belum Duduk di Kursi Sopir", "Menaiki kursi pengemudi motor...", 2, "warning")
 		local ok = mountBike()
 		if ok then
 			return true
 		end
-		warn("[HipHub DDS] ensureDriverSeated: gagal duduk setelah mountBike")
+		warn("[HipHub DDS] ensureDriverSeated: gagal duduk di DriveSeat setelah mountBike")
 		return false
 	end
 
