@@ -690,20 +690,6 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Jika daratan di seberang jurang berjarak sangat jauh (antar pulau seperti Dealer Kawzaki),
-		-- probe daratan di sekitar pulau tujuan dengan pre-stream
-		requestStreamAsync(toPos)
-		for _, off in ipairs({ Vector3.zero, -baseDir * 30, -baseDir * 60, Vector3.new(20, 0, 0), Vector3.new(-20, 0, 0) }) do
-			local checkPos = toPos + off
-			local origin = Vector3.new(checkPos.X, math.max(checkPos.Y + 60, 80), checkPos.Z)
-			local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), brp)
-			local solidY = hit and hit.Position.Y
-			if solidY and solidY >= -30 and solidY <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-				local landPos = Vector3.new(checkPos.X, solidY + 0.5, checkPos.Z)
-				return teleportVehicleAcrossVoid(car, landPos, baseDir)
-			end
-		end
-
 		return nil
 	end
 
@@ -753,9 +739,12 @@ local success, err = pcall(function()
 			return true
 		end
 
-		local buildingFilter = getGroundExcludeFilter(car)
+		local rayFilter = { car, player.Character }
+		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if existingPlate then table.insert(rayFilter, existingPlate) end
+
 		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = buildingFilter
+		rayParams.FilterDescendantsInstances = rayFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
