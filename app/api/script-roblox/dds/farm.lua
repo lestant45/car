@@ -760,10 +760,20 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
-			local rayOrigin = Vector3.new(probePos.X, math.max(refY + 40, 60), probePos.Z)
-			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -150, 0), rayParams)
-			if hit and hit.Position.Y >= -30 and hit.Position.Y <= 300 and hit.Normal.Y >= 0.15 then
-				return hit.Position.Y + 0.3
+			local offsets = {
+				Vector3.zero,
+				Vector3.new(2, 0, 0),
+				Vector3.new(-2, 0, 0),
+				Vector3.new(0, 0, 2),
+				Vector3.new(0, 0, -2)
+			}
+			for _, off in ipairs(offsets) do
+				local pos = probePos + off
+				local rayOrigin = Vector3.new(pos.X, math.max(refY + 40, 60), pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -150, 0), rayParams)
+				if hit and hit.Position.Y >= -30 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+					return hit.Position.Y + 0.3
+				end
 			end
 			return nil
 		end
@@ -986,23 +996,30 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
+			-- Jarak aman dekat tujuan (dist < 100 stud) atau baru selesai mendarat (now - driveStartTime < 3.5s):
+			-- Gunakan lastGroundY agar motor langsung mulai melaju tanpa macet diam
+			local isNearDestination = (dist < 100)
+			local isRecentlyLanded = (now - driveStartTime < 3.5)
+
 			if directHitY then
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
+			elseif isNearDestination or isRecentlyLanded then
+				-- Tetap melaju mulus di atas jalanan yang aman tanpa macet/berhenti
+				actualMoveDir = directGoalDir
+				navHeading = directGoalDir
+				targetElevY = lastGroundY
 			else
-				-- 🌉 Real-time Void Bridge Scan (Hanya jika benar-benar tidak ada tanah di depan motor)
+				-- 🌉 Real-time Void Bridge Scan: HANYA jika benar-benar jurang dan jarak masih jauh (> 100 stud)
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
 				targetElevY = lastGroundY
 
 				local nowClock = os.clock()
-				-- 🛑 Reset stuck tracking: Jangan pernah memicu Stuck Bypass saat sedang sengaja berhenti di tepi jurang!
-				stuckLastTime = nowClock
-				stuckLastDist = dist
 
-				if (nowClock - lastBridgeScanTime) >= 0.25 then
+				if (nowClock - lastBridgeScanTime) >= 0.25 and dist >= 100 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
