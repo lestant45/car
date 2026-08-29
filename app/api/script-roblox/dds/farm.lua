@@ -90,8 +90,7 @@ local success, err = pcall(function()
 			pcall(function() plate.Parent = workspace end)
 		end
 		plate.Size = Vector3.new(width, 2, width)
-		-- Top surface of plate is at pos.Y - 0.5 (flush safely underneath road to never clip tires)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.5, pos.Z)
+		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.2, pos.Z)
 		return plate
 	end
 
@@ -381,12 +380,12 @@ local success, err = pcall(function()
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
-				-- Spawn wide solid safety plate under parked bike (60x60) flush beneath road
+				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
+
+				-- Spawn wide solid safety plate under parked bike (60x60) so it cannot fall through
 				ensureSafetyPlate(groundPos, 60)
 				local curPiv = car:GetPivot()
-				-- Elevate pivot +0.85 studs so tires sit naturally on surface without clipping
-				local settleY = groundY + 0.85
-				car:PivotTo(CFrame.new(groundPos.X, settleY, groundPos.Z) * (curPiv - curPiv.Position))
+				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
 			end
 
 			-- Must be Anchored = false with 0 velocity so server detects stopped vehicle and triggers passenger boarding
@@ -438,8 +437,7 @@ local success, err = pcall(function()
 
 		local targetYaw = math.atan2(-baseDir.X, -baseDir.Z)
 		local targetRot = CFrame.Angles(0, targetYaw, 0)
-		local bikeLandPos = Vector3.new(landPos.X, landPos.Y + 0.85, landPos.Z)
-		local targetCF  = CFrame.new(bikeLandPos) * targetRot
+		local targetCF  = CFrame.new(landPos) * targetRot
 
 		-- 1. Freeze physics (Anchored = true) to prevent weld snap / distance separation forces
 		pcall(function()
