@@ -439,7 +439,9 @@ local success, err = pcall(function()
 
 	-- 🛡️ Synchronized Atomic Pivot & Physics Stabilization Leap
 	local function teleportVehicleAcrossVoid(car, landPos, baseDir)
-		ensureSafetyPlate(landPos, 50)
+		-- 1. Pre-stream daratan seberang & bentangkan Safety Plate kokoh (60x60)
+		requestStreamAsync(landPos)
+		ensureSafetyPlate(landPos, 60)
 
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
@@ -455,7 +457,7 @@ local success, err = pcall(function()
 		local targetRot = CFrame.Angles(0, targetYaw, 0)
 		local targetCF  = CFrame.new(landPos) * targetRot
 
-		-- 1. Freeze physics (Anchored = true) to prevent weld snap / distance separation forces
+		-- 2. Freeze physics (Anchored = true) to prevent weld snap / separation forces
 		pcall(function()
 			if prim then prim.Anchored = true end
 			if seat then seat.Anchored = true end
@@ -463,7 +465,7 @@ local success, err = pcall(function()
 			if passRoot then passRoot.Anchored = true end
 		end)
 
-		-- 2. Zero all velocities on car, driver, and passenger
+		-- 3. Zero all velocities on car, driver, and passenger
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.AssemblyLinearVelocity  = Vector3.zero
@@ -479,7 +481,7 @@ local success, err = pcall(function()
 			passRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		-- 3. Synchronized Atomic Leap (Teleport motorcycle, driver, and passenger together)
+		-- 4. Synchronized Atomic Leap (Teleport motorcycle, driver, and passenger together)
 		car:PivotTo(targetCF)
 		if root and seat then
 			root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
@@ -488,17 +490,18 @@ local success, err = pcall(function()
 			passRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, -1.2)
 		end
 
-		task.wait(0.04)
+		task.wait(0.1)
 
-		-- 4. Re-establish driver seat connection firmly
+		-- 5. Re-establish driver seat connection firmly & disable ragdoll/falling damage
 		if root and seat and hum then
-			hum.Sit = true
-			pcall(function() seat:Sit(hum) end)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+			hum.Sit = true
+			pcall(function() seat:Sit(hum) end)
 		end
 
-		-- 5. Unanchor cleanly on top of safety plate
+		-- 6. Unanchor cleanly on top of safety plate
 		pcall(function()
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -519,18 +522,25 @@ local success, err = pcall(function()
 			end
 		end)
 
-		task.wait(0.05)
-
-		-- Double-check driver seat connection
-		if hum and not hum.SeatPart and seat then
-			pcall(function() seat:Sit(hum) end)
+		-- ⏱️ Jeda 2.0 Detik Stabilisasi Total di Seberang Jurang
+		UI.Notify("🌉 Jurang Dilompati", "Mendarat di seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
+		local stabilizeStart = tick()
+		while (tick() - stabilizeStart < 2.0) do
+			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
+				root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+				hum.Sit = true
+				pcall(function() seat:Sit(hum) end)
+			end
+			pcall(function()
+				if seat then
+					seat.AssemblyLinearVelocity = Vector3.zero
+					seat.AssemblyAngularVelocity = Vector3.zero
+				end
+			end)
+			task.wait(0.2)
 		end
 
-		-- ⏱️ Jeda 1 Detik di Daratan Seberang + Pengecekan Kursi Pengemudi & Penumpang
-		UI.Notify("🌉 Jurang Dilompati", "Mendarat di seberang, menstabilkan posisi (1s)...", 1.2, "success")
-		task.wait(1.0)
-
-		-- Verifikasi pengemudi tetap duduk di motor sebelum melanjutkan berkendara
+		-- Verifikasi akhir pengemudi tetap duduk di motor sebelum melanjutkan berkendara
 		ensureDriverSeated()
 
 		-- Nol-kan kembali seluruh kecepatan agar mulai melaju dari 0 km/h secara mulus
@@ -543,6 +553,7 @@ local success, err = pcall(function()
 			end
 			if seat then
 				seat.AssemblyLinearVelocity = Vector3.zero
+				seat.AssemblyAngularVelocity = Vector3.zero
 			end
 		end)
 
