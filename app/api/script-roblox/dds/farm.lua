@@ -766,7 +766,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 4.0 then
+			if dist <= 3.0 or (dist <= 5.0 and currentSmoothSpeed <= 8) then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -828,9 +828,8 @@ local success, err = pcall(function()
 			local targetSpeed = speed
 			if dist < 120 then
 				local factor = math.clamp(dist / 120, 0, 1)
-				local ease = factor * factor * (3 - 2 * factor)
-				local minApproachSpeed = math.min(18, speed * 0.3)
-				targetSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
+				-- Linear easing to 0 at the exact arrival point
+				targetSpeed = math.max(0, speed * factor)
 			end
 
 			-- 🚀 Smooth 2-Second Progressive Acceleration from 0 to full slider speed
@@ -1012,7 +1011,30 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		safelySettleAndUnanchor(car, destP)
+		-- Natural smooth stop on road without PivotTo jarring
+		pcall(function()
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = false
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
+			if seat then
+				seat.Throttle = 0
+				seat.ThrottleFloat = 0
+				seat.AssemblyLinearVelocity = Vector3.zero
+				seat.AssemblyAngularVelocity = Vector3.zero
+			end
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and seat then
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+		end)
+
 		isDrivingActive = false
 		return (car:GetPivot().Position - destP).Magnitude <= 15
 	end
