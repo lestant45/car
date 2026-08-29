@@ -697,6 +697,7 @@ local success, err = pcall(function()
 		local lastBridgeScanTime = 0
 		local bridgeHoldUntil = 0
 		local driveStartTime = os.clock()
+		local currentSmoothSpeed = 0
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -824,12 +825,12 @@ local success, err = pcall(function()
 			end
 
 			-- 🏎️ Dynamic smooth deceleration when approaching destination
-			local curSpeed = speed
+			local targetSpeed = speed
 			if dist < 120 then
 				local factor = math.clamp(dist / 120, 0, 1)
 				local ease = factor * factor * (3 - 2 * factor)
 				local minApproachSpeed = math.min(18, speed * 0.3)
-				curSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
+				targetSpeed = minApproachSpeed + (speed - minApproachSpeed) * ease
 			end
 
 			-- 🚀 Smooth 2-Second Progressive Acceleration from 0 to full slider speed
@@ -837,14 +838,14 @@ local success, err = pcall(function()
 			if elapsedAcc < 2.0 then
 				local accFactor = math.clamp(elapsedAcc / 2.0, 0, 1)
 				local easeAcc = accFactor * accFactor * (3 - 2 * accFactor)
-				curSpeed = math.max(10 * accFactor, curSpeed * easeAcc)
+				targetSpeed = math.max(10 * accFactor, targetSpeed * easeAcc)
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 150-Stud Cliff Lookahead: Perlambat secara bertahap saat mendekati jurang (melambat halus ke 15 stud/s)
-			local solidAheadDist = 150
-			for lookDist = 15, 150, 15 do
+			-- 🛑 180-Stud Cliff Lookahead: Perlambat secara bertahap saat mendekati jurang (melambat halus ke 15 stud/s)
+			local solidAheadDist = 180
+			for lookDist = 15, 180, 15 do
 				local testPos = carPos + directGoalDir * lookDist
 				if not probeGround(testPos, lastGroundY) then
 					solidAheadDist = lookDist
@@ -852,12 +853,24 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 150 then
-				local factor = math.clamp(solidAheadDist / 150, 0, 1)
+			if solidAheadDist < 180 then
+				local factor = math.clamp(solidAheadDist / 180, 0, 1)
 				local minCrawlSpeed = 15
 				local cliffTargetSpeed = minCrawlSpeed + (speed - minCrawlSpeed) * (factor * factor)
-				curSpeed = math.min(curSpeed, cliffTargetSpeed)
+				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
+
+			-- 🛡️ Slew-Rate Limiter (Max 55 stud/s² acceleration & braking):
+			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
+			local maxAccelRate = 50 * dt
+			local maxDecelRate = 55 * dt
+			if currentSmoothSpeed < targetSpeed then
+				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
+			elseif currentSmoothSpeed > targetSpeed then
+				currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
+			end
+
+			local curSpeed = currentSmoothSpeed
 
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 4)
@@ -964,6 +977,7 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
+				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
@@ -973,6 +987,17 @@ local success, err = pcall(function()
 					end
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+					root.AssemblyLinearVelocity = velocityVec
+					root.AssemblyAngularVelocity = Vector3.zero
+				end
+
+				if passengerNpc then
+					local passHrp = passengerNpc:FindFirstChild("HumanoidRootPart")
+					if passHrp then
+						passHrp.AssemblyLinearVelocity = velocityVec
+						passHrp.AssemblyAngularVelocity = Vector3.zero
+					end
 				end
 			end)
 		end)
