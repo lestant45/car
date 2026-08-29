@@ -700,7 +700,34 @@ local success, err = pcall(function()
 			end
 		end
 
-		return nil
+		-- 🎯 Direct Destination Leap: Jika jurang sangat luas / pulau tujuan jauh (seperti Drag Race -> Offroad Track Klaten)
+		-- Langsung minta stream daratan tujuan dan melompat 1 kali instan tepat di daratan tujuan
+		requestStreamAsync(toPos)
+		local destOffsets = {
+			Vector3.zero,
+			-baseDir * 20,
+			-baseDir * 40,
+			-baseDir * 60,
+			Vector3.new(15, 0, 0),
+			Vector3.new(-15, 0, 0),
+			Vector3.new(0, 0, 15),
+			Vector3.new(0, 0, -15)
+		}
+
+		for _, off in ipairs(destOffsets) do
+			local checkPos = toPos + off
+			local origin = Vector3.new(checkPos.X, math.max(checkPos.Y + 40, 70), checkPos.Z)
+			local hit = workspace:Raycast(origin, Vector3.new(0, -160, 0), brp)
+			local solidY = hit and hit.Position.Y
+			if solidY and solidY >= -30 and solidY <= 350 and (not hit.Normal or hit.Normal.Y >= 0.15) then
+				local landPos = Vector3.new(checkPos.X, solidY + 0.5, checkPos.Z)
+				return teleportVehicleAcrossVoid(car, landPos, baseDir)
+			end
+		end
+
+		-- Jika daratan tujuan masih belum ter-stream oleh raycast lokal, gunakan koordinat toPos dengan SafetyPlate 80x80
+		local fallbackLandPos = Vector3.new(toPos.X, toPos.Y + 0.5, toPos.Z)
+		return teleportVehicleAcrossVoid(car, fallbackLandPos, baseDir)
 	end
 
 	-- 🛣️ Pure Road Navigation Engine
