@@ -33,21 +33,6 @@ local success, err = pcall(function()
 		isDrivingActive = false
 	end
 
-	-- 🛡️ 24/7 Universal Anti-AFK Engine (Zero-Service, 100% Safe & Undetected)
-	task.spawn(function()
-		pcall(function()
-			if getconnections then
-				for _, conn in ipairs(getconnections(player.Idled)) do
-					if conn.Disable then
-						conn:Disable()
-					elseif conn.Disconnect then
-						conn:Disconnect()
-					end
-				end
-			end
-		end)
-	end)
-
 	local function getRootPart()
 		local char = player.Character
 		return char and char:FindFirstChild("HumanoidRootPart")
@@ -256,23 +241,24 @@ local success, err = pcall(function()
 
 		-- Keep actual ground, roads, hills, grass, bridges, flyovers & river water surfaces
 		local name = obj.Name:upper()
-		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("WEIGHT") or (name:find("FLYOVER") and not name:find("LAMP") and not name:find("POLE")) or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
+		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW" or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("ROADRAIL") or name:find("AIR_SUNGAI") or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN") or name:find("GRASS") or name:find("MESH") or name:find("WEIGHT") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") then
+			return false
+		end
+		if (name:sub(1, 3) == "JL_" or name:find("JL_SLR")) and not name:find("BUILDING") and not name:find("RUKO") then
 			return false
 		end
 
 		-- 1. Direct building/obstacle keywords
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
-			or name:find("POHON") or name:find("LAMPU") or name:find("LAMP") or name:find("BARRIER") or name:find("GEDUNG")
+			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
 			or name:find("RUMAH") or name:find("PITCH") or name:find("SHIRT") or name:find("MEDKIT")
 			or name:find("BILLBOARD") or name:find("CONE") or name:find("PANGGUNG") or name:find("HELMET")
 			or name:find("SHOWCASE") or name:find("TITIK_KUMPUL") or name:find("FLAG") or name:find("SIGN")
 			or name:find("DEALER") or name:find("GARAGE") or name:find("SATLANTAS") or name == "RS"
 			or name:find("INDOMART") or name:find("PLATINUM") or name:find("GATAU") or name:find("PJL")
 			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
-			or name:find("PROPBANGUNAN") or name:find("GATE") or name:find("DOOR") or name:find("WALL")
-			or name:find("FENCE") or name:find("TIANG") or name:find("TREE") or name:find("BUSH")
-			or name:find("BENCH") or name:find("KURS") or name:find("TENDA") or name:find("WARUNG")
+			or name:find("PROPBANGUNAN")
 		then
 			return true
 		end
@@ -285,12 +271,12 @@ local success, err = pcall(function()
 				if p:IsA("BasePart") then
 					if p.Position.Y > maxY then maxY = p.Position.Y end
 					local mat = tostring(p.Material)
-					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") or mat:find("Wood") or mat:find("Plaster") then
+					if mat:find("ClayRoofTiles") or mat:find("WoodPlanks") or mat:find("Fabric") or mat:find("Glass") or mat:find("Brick") or mat:find("Wood") then
 						hasRoofOrWall = true
 					end
 				end
 			end
-			if maxY > 5 or hasRoofOrWall then
+			if maxY > 7 or hasRoofOrWall then
 				return true
 			end
 		end
@@ -300,27 +286,25 @@ local success, err = pcall(function()
 
 	local function destroyAllBuildings()
 		pcall(function()
-			local function scan(container, depth)
-				if depth > 4 or not container then return end
-				for _, c in ipairs(container:GetChildren()) do
-					if shouldDestroyBuilding(c) then
-						pcall(function() c:Destroy() end)
-					elseif c:IsA("Folder") or c:IsA("Model") then
-						scan(c, depth + 1)
+			for _, c in ipairs(workspace:GetChildren()) do
+				if shouldDestroyBuilding(c) then
+					pcall(function() c:Destroy() end)
+				elseif c:IsA("Folder") or c:IsA("Model") then
+					for _, ch in ipairs(c:GetChildren()) do
+						if shouldDestroyBuilding(ch) then
+							pcall(function() ch:Destroy() end)
+						elseif ch:IsA("Folder") or ch:IsA("Model") then
+							for _, sub in ipairs(ch:GetChildren()) do
+								if shouldDestroyBuilding(sub) then
+									pcall(function() sub:Destroy() end)
+								end
+							end
+						end
 					end
 				end
 			end
-			scan(workspace, 1)
 		end)
 	end
-
-	-- Continuous background sweeper (runs every 3 seconds to clear newly streamed chunks)
-	task.spawn(function()
-		while true do
-			destroyAllBuildings()
-			task.wait(3.0)
-		end
-	end)
 
 	-- Auto-destroy newly streamed chunks anywhere in workspace
 	workspace.DescendantAdded:Connect(function(descendant)
@@ -382,29 +366,30 @@ local success, err = pcall(function()
 				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
 				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
 
-				-- Spawn wide solid safety plate under parked bike (60x60) so it cannot fall through
-				ensureSafetyPlate(groundPos, 60)
+				-- Spawn safety plate under parked bike only
+				ensureSafetyPlate(groundPos, 35)
 				local curPiv = car:GetPivot()
 				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
 			end
-
-			-- Must be Anchored = false with 0 velocity so server detects stopped vehicle and triggers passenger boarding
+			-- Restore collision parts on the DDS motorcycle so tires firmly touch the road trigger
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
-					part.CanCollide = true
+					local name = part.Name:lower()
+					if name == "dds_collision" or name == "primarypart" or name:find("tire") or name:find("wheel") or name == "paint" or name == "foot" or name == "p" then
+						part.CanCollide = true
+					else
+						part.CanCollide = false
+					end
 				end
 			end
-
 			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
 			if seat then
-				seat.Anchored = false
 				seat.Throttle = 0
 				seat.ThrottleFloat = 0
 				seat.AssemblyLinearVelocity = Vector3.zero
-				seat.AssemblyAngularVelocity = Vector3.zero
 			end
 
 			-- Ensure player stays firmly seated on the motorcycle
@@ -415,7 +400,7 @@ local success, err = pcall(function()
 				if not hum.Sit or hum.SeatPart ~= seat then
 					root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 					hum.Sit = true
-					pcall(function() seat:Sit(hum) end)
+					seat:Sit(hum)
 				end
 			end
 		end)
@@ -696,22 +681,6 @@ local success, err = pcall(function()
 
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
-
-			-- 🔒 Enforced Seat Lock: Kunci pengemudi setiap frame agar tidak terlempar di Redfinger
-			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
-				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
-				hum.Sit = true
-				pcall(function() seat:Sit(hum) end)
-			end
-
-			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh di bawah Y < -20
-			if carPos.Y < -20 then
-				local rescuePos = Vector3.new(carPos.X, math.max(lastGroundY, 5), carPos.Z)
-				ensureSafetyPlate(rescuePos, 80)
-				car:PivotTo(CFrame.new(rescuePos))
-				lastGroundY = rescuePos.Y
-				if root and seat then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
-			end
 
 			local delta = destP - carPos
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
