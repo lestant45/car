@@ -377,14 +377,14 @@ local success, err = pcall(function()
 			return false
 		end
 
-		if obj.Name:find("HipHub") or obj.Name:find("SafetyPlate") then return false end
-		if obj.Name == "ActiveMissions" or obj.Name == "Job_Point" or obj.Name == "SensorDragTimer" then
-			return false
-		end
-
-		-- Keep the folder container for streets (e.g. JL_MANAHAN) so road parts inside remain organized
-		if obj:IsA("Folder") and obj.Name:sub(1, 3) == "JL_" then
-			return false
+		-- 🛣️ JANGAN PERNAH HAPUS JALANAN, FOLDER JL_ (JL_MANAHAN, JL_KLATEN, DLL), ATAU SEMUA ISINYA!
+		local cur = obj
+		while cur and cur ~= workspace and cur ~= game do
+			local n = cur.Name:upper()
+			if n:sub(1, 3) == "JL_" or n:find("JALAN") or n:find("STREET") or n:find("ROAD") or n:find("ROADSNEW") or n:find("TROTOARNEW") then
+				return false
+			end
+			cur = cur.Parent
 		end
 
 		-- Keep actual ground, roads, hills, grass, bridges, flyovers & river water surfaces
@@ -408,21 +408,6 @@ local success, err = pcall(function()
 			or name:find("MOLDING") or name:find("MEJA") or name:find("KURSI")
 		then
 			return true
-		end
-
-		-- 2. Items inside JL_ street folders (JL_MANAHAN, JL_KLATEN, etc.) that do not contain road/trotoar meshes
-		local parent = obj.Parent
-		if parent and (parent.Name:sub(1, 3) == "JL_" or parent.Name:find("JL_SLR")) then
-			local hasRoad = false
-			for _, d in ipairs(obj:GetDescendants()) do
-				if isRoadOrGround(d) then
-					hasRoad = true
-					break
-				end
-			end
-			if not hasRoad then
-				return true
-			end
 		end
 
 		return false
