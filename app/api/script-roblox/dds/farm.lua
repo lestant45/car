@@ -33,27 +33,28 @@ local success, err = pcall(function()
 		isDrivingActive = false
 	end
 
-	-- 🛡️ 24/7 Universal Anti-AFK Engine (Prevents Error Code: 267)
+	-- 🛡️ 24/7 Universal Anti-AFK Engine (Safe & Undetected)
 	task.spawn(function()
-		local vu = game:GetService("VirtualUser")
-		local vim = game:GetService("VirtualInputManager")
+		local vu = nil
+		pcall(function()
+			vu = game:FindService("VirtualUser") or game:GetService("VirtualUser")
+		end)
 
 		player.Idled:Connect(function()
 			pcall(function()
-				vu:CaptureController()
-				vu:ClickButton2(Vector2.new(0, 0))
+				if vu then
+					vu:CaptureController()
+					vu:ClickButton2(Vector2.zero)
+				end
 			end)
 		end)
 
 		while true do
-			task.wait(120)
+			task.wait(180)
 			pcall(function()
-				vu:CaptureController()
-				vu:ClickButton2(Vector2.new(0, 0))
-				if vim then
-					vim:SendKeyEvent(true, Enum.KeyCode.RightShift, false, game)
-					task.wait(0.05)
-					vim:SendKeyEvent(false, Enum.KeyCode.RightShift, false, game)
+				if vu then
+					vu:CaptureController()
+					vu:ClickButton2(Vector2.zero)
 				end
 			end)
 		end
