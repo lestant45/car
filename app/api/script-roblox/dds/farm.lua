@@ -1060,13 +1060,22 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural smooth stop on road without PivotTo jarring
+		-- Natural smooth stop on road: spawn safety plate and restore tire collision
 		pcall(function()
+			local curPos = car:GetPivot().Position
+			ensureSafetyPlate(curPos, 45)
+
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
+					local name = part.Name:lower()
+					if name == "dds_collision" or name == "primarypart" or name:find("tire") or name:find("wheel") or name == "paint" or name == "foot" or name == "p" then
+						part.CanCollide = true
+					else
+						part.CanCollide = false
+					end
 				end
 			end
 			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
