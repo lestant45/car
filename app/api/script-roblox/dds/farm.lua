@@ -457,7 +457,7 @@ local success, err = pcall(function()
 		local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
 		local passRoot = passengerNpc and passengerNpc:FindFirstChild("HumanoidRootPart")
 
-		local targetYaw = math.atan2(-baseDir.X, -baseDir.Z)
+		local targetYaw = math.atan2(baseDir.X, baseDir.Z)
 		local targetRot = CFrame.Angles(0, targetYaw, 0)
 		local targetCF  = CFrame.new(landPos) * targetRot
 
@@ -693,7 +693,7 @@ local success, err = pcall(function()
 
 		local navHeading = nil
 		local edgeFollowSign = 1
-		local curHeadingAngle = math.atan2(-((destP - startP).Unit).X, -((destP - startP).Unit).Z)
+		local curHeadingAngle = math.atan2(((destP - startP).Unit).X, ((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
 		local bridgeHoldUntil = 0
 		local driveStartTime = os.clock()
@@ -804,7 +804,7 @@ local success, err = pcall(function()
 
 						pcall(function()
 							ensureSafetyPlate(nudgeLand, 40)
-							local yaw = math.atan2(-nudgeDir.X, -nudgeDir.Z)
+							local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
 							car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
 							for _, part in ipairs(car:GetDescendants()) do
 								if part:IsA("BasePart") then
@@ -843,9 +843,9 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 180-Stud Cliff Lookahead: Perlambat secara bertahap saat mendekati jurang (melambat halus ke 15 stud/s)
-			local solidAheadDist = 180
-			for lookDist = 15, 180, 15 do
+			-- 🛑 300-Stud Long-Range Cliff Lookahead: Pengereman bertahap mulus dari 300 stud menuju 0 km/h tepat di tepi jurang
+			local solidAheadDist = 300
+			for lookDist = 15, 300, 15 do
 				local testPos = carPos + directGoalDir * lookDist
 				if not probeGround(testPos, lastGroundY) then
 					solidAheadDist = lookDist
@@ -853,17 +853,16 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 180 then
-				local factor = math.clamp(solidAheadDist / 180, 0, 1)
-				local minCrawlSpeed = 15
-				local cliffTargetSpeed = minCrawlSpeed + (speed - minCrawlSpeed) * (factor * factor)
+			if solidAheadDist < 300 then
+				local edgeFactor = math.clamp((solidAheadDist - 12) / 288, 0, 1)
+				local cliffTargetSpeed = speed * (edgeFactor * edgeFactor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
-			-- 🛡️ Slew-Rate Limiter (Max 55 stud/s² acceleration & braking):
+			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
 			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
-			local maxDecelRate = 55 * dt
+			local maxDecelRate = 75 * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
@@ -881,14 +880,15 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY then
+			if directHitY and curSpeed > 0.1 then
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🌉 Real-time Void Bridge Scan (Motor BERHENTI DIAM di tanah aman saat memindai)
+				-- 🌉 Real-time Void Bridge Scan (Motor BERHENTI DIAM TOTAL di tanah aman saat memindai)
 				actualMoveDir = Vector3.zero
 				stepDist = 0
+				currentSmoothSpeed = 0
 				targetElevY = lastGroundY
 
 				local nowClock = os.clock()
@@ -905,7 +905,7 @@ local success, err = pcall(function()
 						stuckLastTime = nowClock
 						stuckLastDist = (destP - bridgeLanding).Magnitude
 						local newDir = (destP - bridgeLanding).Unit
-						curHeadingAngle = math.atan2(-newDir.X, -newDir.Z)
+						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
 						bridgeHoldUntil = os.clock() + 2.0
 						driveStartTime = os.clock() + 2.0
 						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
@@ -930,7 +930,7 @@ local success, err = pcall(function()
 
 			-- Smooth Angular Steering
 			if actualMoveDir.Magnitude > 0.05 then
-				local targetAngle = math.atan2(-actualMoveDir.X, -actualMoveDir.Z)
+				local targetAngle = math.atan2(actualMoveDir.X, actualMoveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
 				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -12 * dt, 12 * dt)
 			end
