@@ -82,7 +82,7 @@ local success, err = pcall(function()
 
 		-- Search workspace direct children for player's motorcycle
 		for _, c in ipairs(workspace:GetChildren()) do
-			if c:IsA("Model") and c ~= char and (c.Name:find(player.Name) or c.Name:find("Montor") or c:FindFirstChild("DriveSeat")) then
+			if c:IsA("Model") and c ~= char and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
 				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
 				if seat then return c, seat end
 			end
@@ -293,35 +293,44 @@ local success, err = pcall(function()
 		return false
 	end
 
+	local function isVehicleOrSeatOrPlayer(obj)
+		if not obj then return false end
+		local char = player.Character
+		if char and (obj == char or obj:IsDescendantOf(char)) then return true end
+		if obj:IsA("VehicleSeat") or obj:IsA("Seat") or obj:IsA("ProximityPrompt") then return true end
+
+		-- Check if obj is or is inside any Vehicle/Motor model in workspace
+		local cur = obj
+		while cur and cur ~= workspace and cur ~= game do
+			if cur:IsA("Model") then
+				if cur:FindFirstChildWhichIsA("VehicleSeat", true) or cur:FindFirstChild("DriveSeat", true) then
+					return true
+				end
+				local n = cur.Name:upper()
+				if n:find("MONTOR") or n:find("YAMAHA") or n:find("MIO") or n:find("HONDA") or n:find("BEAT")
+					or n:find("VARIO") or n:find("NMAX") or n:find("PCX") or n:find("MOTOR") or n:find("BIKE")
+					or n:find("CAR") or n:find("MOBIL") or n:find("VEHICLE") or n:find(player.Name:upper())
+				then
+					return true
+				end
+			end
+			cur = cur.Parent
+		end
+
+		return false
+	end
+
 	local function shouldDestroyBuilding(obj)
 		if not obj or not obj.Parent then return false end
 		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
 
-		local char = player.Character
-		if char and (obj == char or obj:IsDescendantOf(char)) then return false end
+		-- 🏍️ JANGAN PERNAH HAPUS KENDARAAN, MOTOR, MOBIL, KURSI KENDARAAN, PROXIMITY PROMPT, ATAU PLAYER!
+		if isVehicleOrSeatOrPlayer(obj) then
+			return false
+		end
+
 		if obj.Name:find("HipHub") or obj.Name:find("SafetyPlate") then return false end
 		if obj.Name == "ActiveMissions" or obj.Name == "Job_Point" or obj.Name == "SensorDragTimer" then
-			return false
-		end
-
-		-- 🏍️ JANGAN PERNAH HAPUS KENDARAAN, MOTOR, MOBIL, KURSI KENDARAAN, ATAU PROXIMITY PROMPT!
-		if obj:IsA("VehicleSeat") or obj:IsA("Seat") or obj:IsA("ProximityPrompt") then
-			return false
-		end
-		if obj:FindFirstChildWhichIsA("VehicleSeat", true) or obj:FindFirstChild("DriveSeat", true) then
-			return false
-		end
-		local rootModel = obj:FindFirstAncestorOfClass("Model")
-		if rootModel and (rootModel:FindFirstChildWhichIsA("VehicleSeat", true) or rootModel:FindFirstChild("DriveSeat", true)) then
-			return false
-		end
-
-		local name = obj.Name:upper()
-		if name:find("YAMAHA") or name:find("MIO") or name:find("MONTOR") or name:find("HONDA")
-			or name:find("BEAT") or name:find("VARIO") or name:find("NMAX") or name:find("PCX")
-			or name:find("MOTOR") or name:find("BIKE") or name:find("CAR") or name:find("MOBIL")
-			or name:find(player.Name:upper())
-		then
 			return false
 		end
 
@@ -336,6 +345,7 @@ local success, err = pcall(function()
 		end
 
 		-- 1. Direct building/obstacle keywords
+		local name = obj.Name:upper()
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
 			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
@@ -355,20 +365,6 @@ local success, err = pcall(function()
 		-- 2. Items inside JL_ street folders (JL_MANAHAN, JL_KLATEN, etc.) that do not contain road/trotoar meshes
 		local parent = obj.Parent
 		if parent and (parent.Name:sub(1, 3) == "JL_" or parent.Name:find("JL_SLR")) then
-			local hasRoad = false
-			for _, d in ipairs(obj:GetDescendants()) do
-				if isRoadOrGround(d) then
-					hasRoad = true
-					break
-				end
-			end
-			if not hasRoad then
-				return true
-			end
-		end
-
-		-- 3. Models with tall parts or roof/wall materials inside any folder
-		if obj:IsA("Model") then
 			local hasRoad = false
 			for _, d in ipairs(obj:GetDescendants()) do
 				if isRoadOrGround(d) then
