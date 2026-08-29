@@ -522,25 +522,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- ⏱️ Jeda 2.0 Detik Stabilisasi Total di Seberang Jurang
-		UI.Notify("🌉 Jurang Dilompati", "Mendarat di seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
-		local stabilizeStart = tick()
-		while (tick() - stabilizeStart < 2.0) do
-			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
-				root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-				hum.Sit = true
-				pcall(function() seat:Sit(hum) end)
-			end
-			pcall(function()
-				if seat then
-					seat.AssemblyLinearVelocity = Vector3.zero
-					seat.AssemblyAngularVelocity = Vector3.zero
-				end
-			end)
-			task.wait(0.2)
-		end
-
-		-- Verifikasi akhir pengemudi tetap duduk di motor sebelum melanjutkan berkendara
+		-- Double-check driver seat connection
 		ensureDriverSeated()
 
 		-- Nol-kan kembali seluruh kecepatan agar mulai melaju dari 0 km/h secara mulus
@@ -709,6 +691,7 @@ local success, err = pcall(function()
 		local edgeFollowSign = 1
 		local curHeadingAngle = math.atan2(-((destP - startP).Unit).X, -((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
+		local bridgeHoldUntil = 0
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -718,6 +701,28 @@ local success, err = pcall(function()
 			end
 
 			local now = os.clock()
+
+			-- 🛑 Void Bridge Landing Hold: Berhenti total selama 2.0 detik setelah mendarat di seberang jurang
+			if now < bridgeHoldUntil then
+				lastTick = now
+				ensureDriverSeated()
+				pcall(function()
+					if seat then
+						seat.Throttle = 0
+						seat.ThrottleFloat = 0
+						seat.AssemblyLinearVelocity = Vector3.zero
+						seat.AssemblyAngularVelocity = Vector3.zero
+					end
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+				end)
+				return
+			end
+
 			local dt = math.clamp(now - lastTick, 0.001, 0.1)
 			lastTick = now
 
@@ -857,7 +862,8 @@ local success, err = pcall(function()
 						stuckLastDist = (destP - bridgeLanding).Magnitude
 						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(-newDir.X, -newDir.Z)
-						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, melanjutkan perjalanan...", 2, "success")
+						bridgeHoldUntil = os.clock() + 2.0
+						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
