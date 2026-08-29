@@ -678,13 +678,13 @@ local success, err = pcall(function()
 					requestStreamAsync(testPos)
 				end
 
-				local origin = Vector3.new(px, math.max(refY + 40, 60), pz)
-				local hit = workspace:Raycast(origin, Vector3.new(0, -150, 0), brp)
+				local origin = Vector3.new(px, math.max(refY + 60, 100), pz)
+				local hit = workspace:Raycast(origin, Vector3.new(0, -250, 0), brp)
 
 				local solidY = hit and hit.Position.Y
 				local isGround = solidY
-					and solidY >= -30 and solidY <= 300
-					and (not hit.Normal or hit.Normal.Y >= 0.15)
+					and solidY >= -50 and solidY <= 350
+					and (not hit.Normal or hit.Normal.Y >= 0.12)
 
 				if isGround then
 					refY = solidY
@@ -701,6 +701,30 @@ local success, err = pcall(function()
 						inVoid = true
 						voidEnteredAt = curDist
 					end
+				end
+			end
+		end
+
+		-- Jika jurang sangat luas / pulau tujuan belum ter-stream di tengah jalur:
+		-- Periksa daratan jalan raya di pulau tujuan (40-80 stud sebelum titik antar)
+		if totalDistToDest >= 300 then
+			local destCheckOffsets = {
+				-baseDir * 40,
+				-baseDir * 60,
+				-baseDir * 80,
+				Vector3.new(15, 0, 0),
+				Vector3.new(-15, 0, 0),
+				Vector3.new(0, 0, 15),
+				Vector3.new(0, 0, -15)
+			}
+			for _, off in ipairs(destCheckOffsets) do
+				local cPos = toPos + off
+				local org = Vector3.new(cPos.X, math.max(cPos.Y + 60, 100), cPos.Z)
+				local hit = workspace:Raycast(org, Vector3.new(0, -250, 0), brp)
+				local sY = hit and hit.Position.Y
+				if sY and sY >= -50 and sY <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+					local landPos = Vector3.new(cPos.X, sY + 0.5, cPos.Z)
+					return teleportVehicleAcrossVoid(car, landPos, baseDir)
 				end
 			end
 		end
@@ -938,27 +962,19 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when approaching destination (mulai pengereman dari jarak 300 stud)
+			-- 🏎️ Dynamic smooth deceleration when approaching destination (mulai pengereman linier aman dari 300 stud)
 			local targetSpeed = speed
 			if dist < 300 then
 				local factor = math.clamp(dist / 300, 0, 1)
-				-- Linier proporsional dari 300 stud: di jarak <10 stud kecepatan otomatis < 10 km/h
+				-- Linier proporsional dari 300 stud: di jarak 180 stud kecepatan tetap ~72 km/h, di <10 stud kecepatan < 10 km/h
 				targetSpeed = math.max(0, speed * factor)
-			end
-
-			-- 🚀 Smooth 2-Second Progressive Acceleration from 0 to full slider speed
-			local elapsedAcc = math.max(0, now - driveStartTime)
-			if elapsedAcc < 2.0 then
-				local accFactor = math.clamp(elapsedAcc / 2.0, 0, 1)
-				local easeAcc = accFactor * accFactor * (3 - 2 * accFactor)
-				targetSpeed = math.min(targetSpeed, math.max(10 * accFactor, targetSpeed * easeAcc))
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 300-Stud Long-Range Cliff Lookahead: Pengereman dari jarak 300 stud menuju <10 km/h di tepi jurang
-			local solidAheadDist = 300
-			for lookDist = 15, 300, 15 do
+			-- 🛑 Cliff Lookahead: Pengereman bertahap hanya saat jurang benar-benar berada dalam jarak <80 stud
+			local solidAheadDist = 80
+			for lookDist = 15, 80, 15 do
 				if lookDist >= dist then
 					break
 				end
@@ -969,8 +985,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 300 and solidAheadDist < dist then
-				local edgeFactor = math.clamp(solidAheadDist / 300, 0, 1)
+			if solidAheadDist < 80 and solidAheadDist < dist then
+				local edgeFactor = math.clamp(solidAheadDist / 80, 0, 1)
 				local cliffTargetSpeed = math.max(0, speed * edgeFactor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
