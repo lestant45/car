@@ -972,9 +972,9 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 Cliff Lookahead: Pengereman bertahap hanya saat jurang benar-benar berada dalam jarak <80 stud
-			local solidAheadDist = 80
-			for lookDist = 15, 80, 15 do
+			-- 🛑 300-Stud Cliff Lookahead: Pengereman bertahap dari jarak 300 stud menuju 0 km/h tepat di tepi jurang
+			local solidAheadDist = 300
+			for lookDist = 15, 300, 15 do
 				if lookDist >= dist then
 					break
 				end
@@ -985,8 +985,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 80 and solidAheadDist < dist then
-				local edgeFactor = math.clamp(solidAheadDist / 80, 0, 1)
+			if solidAheadDist < 300 and solidAheadDist < dist then
+				local edgeFactor = math.clamp(solidAheadDist / 300, 0, 1)
 				local cliffTargetSpeed = math.max(0, speed * edgeFactor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
