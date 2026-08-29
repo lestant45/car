@@ -805,6 +805,7 @@ local success, err = pcall(function()
 		local bridgeLandCF = nil
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
+		local cliffWaitStartTime = nil
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -1000,33 +1001,51 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			-- Jarak aman dekat tujuan (dist < 100 stud) atau baru selesai mendarat (now - driveStartTime < 3.5s):
-			-- Gunakan lastGroundY agar motor langsung mulai melaju tanpa macet diam
-			local isNearDestination = (dist < 100)
-			local isRecentlyLanded = (now - driveStartTime < 3.5)
-
 			if directHitY then
+				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
-			elseif isNearDestination or isRecentlyLanded then
-				-- Tetap melaju mulus di atas jalanan yang aman tanpa macet/berhenti
-				actualMoveDir = directGoalDir
-				navHeading = directGoalDir
-				targetElevY = lastGroundY
 			else
-				-- 🌉 Real-time Void Bridge Scan: HANYA jika benar-benar jurang dan jarak masih jauh (> 100 stud)
+				-- 🛑 TEPI JURANG: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
+				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
 				targetElevY = lastGroundY
 
 				local nowClock = os.clock()
+				cliffWaitStartTime = cliffWaitStartTime or nowClock
+
+				-- ⏱️ Timeout 5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 5s, batalkan orderan & reset RideGO
+				if (nowClock - cliffWaitStartTime) >= 5.0 then
+					cliffWaitStartTime = nil
+					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
+					cancelActiveDrive()
+					pcall(function()
+						TaxiEvent:FireServer("CancelOrder", taxiToken)
+						TaxiEvent:FireServer("CancelOrder")
+						TaxiEvent:FireServer("CancelTrip")
+						TaxiEvent:FireServer("GoOffline")
+						TaxiEvent:FireServer("DutyToggle")
+					end)
+					taxiBusy = false
+					taxiToken = nil
+					passengerSeated = false
+					setTaxiState("WAITING_FOR_NEXT_ORDER")
+					task.wait(1.5)
+					pcall(function()
+						TaxiEvent:FireServer("GoOnline")
+						TaxiEvent:FireServer("DutyToggle")
+					end)
+					return
+				end
 
 				if (nowClock - lastBridgeScanTime) >= 0.25 and dist >= 100 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
+						cliffWaitStartTime = nil
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
 						stuckLastTime = nowClock
