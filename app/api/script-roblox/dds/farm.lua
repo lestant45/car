@@ -678,12 +678,12 @@ local success, err = pcall(function()
 					requestStreamAsync(testPos)
 				end
 
-				local origin = Vector3.new(px, math.max(refY + 60, 100), pz)
-				local hit = workspace:Raycast(origin, Vector3.new(0, -250, 0), brp)
+				local origin = Vector3.new(px, math.max(refY + 60, 80), pz)
+				local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), brp)
 
 				local solidY = hit and hit.Position.Y
 				local isGround = solidY
-					and solidY >= -50 and solidY <= 350
+					and solidY >= -30 and solidY <= 350
 					and (not hit.Normal or hit.Normal.Y >= 0.12)
 
 				if isGround then
@@ -705,27 +705,17 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Jika jurang sangat luas / pulau tujuan belum ter-stream di tengah jalur:
-		-- Periksa daratan jalan raya di pulau tujuan (40-80 stud sebelum titik antar)
-		if totalDistToDest >= 300 then
-			local destCheckOffsets = {
-				-baseDir * 40,
-				-baseDir * 60,
-				-baseDir * 80,
-				Vector3.new(15, 0, 0),
-				Vector3.new(-15, 0, 0),
-				Vector3.new(0, 0, 15),
-				Vector3.new(0, 0, -15)
-			}
-			for _, off in ipairs(destCheckOffsets) do
-				local cPos = toPos + off
-				local org = Vector3.new(cPos.X, math.max(cPos.Y + 60, 100), cPos.Z)
-				local hit = workspace:Raycast(org, Vector3.new(0, -250, 0), brp)
-				local sY = hit and hit.Position.Y
-				if sY and sY >= -50 and sY <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-					local landPos = Vector3.new(cPos.X, sY + 0.5, cPos.Z)
-					return teleportVehicleAcrossVoid(car, landPos, baseDir)
-				end
+		-- Jika daratan di seberang jurang berjarak sangat jauh (antar pulau seperti Dealer Kawzaki),
+		-- probe daratan di sekitar pulau tujuan dengan pre-stream
+		requestStreamAsync(toPos)
+		for _, off in ipairs({ Vector3.zero, -baseDir * 30, -baseDir * 60, Vector3.new(20, 0, 0), Vector3.new(-20, 0, 0) }) do
+			local checkPos = toPos + off
+			local origin = Vector3.new(checkPos.X, math.max(checkPos.Y + 60, 80), checkPos.Z)
+			local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), brp)
+			local solidY = hit and hit.Position.Y
+			if solidY and solidY >= -30 and solidY <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local landPos = Vector3.new(checkPos.X, solidY + 0.5, checkPos.Z)
+				return teleportVehicleAcrossVoid(car, landPos, baseDir)
 			end
 		end
 
@@ -962,19 +952,22 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ Dynamic smooth deceleration when approaching destination (mulai pengereman linier aman dari 300 stud)
+			-- 🏎️ 2-Stage Smooth Deceleration:
+			-- Stage 1 (300 -> 50 stud): Kecepatan turun mulus dari slider speed ke 15 km/h
+			-- Stage 2 (50 -> 0 stud): Kecepatan merayap presisi dari 15 km/h ke 0 km/h tepat di tujuan
 			local targetSpeed = speed
-			if dist < 300 then
-				local factor = math.clamp(dist / 300, 0, 1)
-				-- Linier proporsional dari 300 stud: di jarak 180 stud kecepatan tetap ~72 km/h, di <10 stud kecepatan < 10 km/h
-				targetSpeed = math.max(0, speed * factor)
+			if dist < 50 then
+				targetSpeed = math.max(0, 15 * (dist / 50))
+			elseif dist < 300 then
+				local factor = (dist - 50) / 250
+				targetSpeed = 15 + math.max(0, speed - 15) * factor
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 300-Stud Cliff Lookahead: Pengereman bertahap dari jarak 300 stud menuju 0 km/h tepat di tepi jurang
-			local solidAheadDist = 300
-			for lookDist = 15, 300, 15 do
+			-- 🛑 Cliff Lookahead: Pengereman menuju tepi jurang (mulai mengerem jika tebing < 80 stud di depan)
+			local solidAheadDist = 80
+			for lookDist = 10, 80, 10 do
 				if lookDist >= dist then
 					break
 				end
@@ -985,9 +978,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 300 and solidAheadDist < dist then
-				local edgeFactor = math.clamp(solidAheadDist / 300, 0, 1)
-				local cliffTargetSpeed = math.max(0, speed * edgeFactor)
+			if solidAheadDist < 80 and solidAheadDist < dist then
+				local cliffTargetSpeed = math.max(0, math.min(targetSpeed, 15 * (solidAheadDist / 80)))
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
