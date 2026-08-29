@@ -304,6 +304,27 @@ local success, err = pcall(function()
 			return false
 		end
 
+		-- 🏍️ JANGAN PERNAH HAPUS KENDARAAN, MOTOR, MOBIL, KURSI KENDARAAN, ATAU PROXIMITY PROMPT!
+		if obj:IsA("VehicleSeat") or obj:IsA("Seat") or obj:IsA("ProximityPrompt") then
+			return false
+		end
+		if obj:FindFirstChildWhichIsA("VehicleSeat", true) or obj:FindFirstChild("DriveSeat", true) then
+			return false
+		end
+		local rootModel = obj:FindFirstAncestorOfClass("Model")
+		if rootModel and (rootModel:FindFirstChildWhichIsA("VehicleSeat", true) or rootModel:FindFirstChild("DriveSeat", true)) then
+			return false
+		end
+
+		local name = obj.Name:upper()
+		if name:find("YAMAHA") or name:find("MIO") or name:find("MONTOR") or name:find("HONDA")
+			or name:find("BEAT") or name:find("VARIO") or name:find("NMAX") or name:find("PCX")
+			or name:find("MOTOR") or name:find("BIKE") or name:find("CAR") or name:find("MOBIL")
+			or name:find(player.Name:upper())
+		then
+			return false
+		end
+
 		-- Keep the folder container for streets (e.g. JL_MANAHAN) so road parts inside remain organized
 		if obj:IsA("Folder") and obj.Name:sub(1, 3) == "JL_" then
 			return false
@@ -315,7 +336,6 @@ local success, err = pcall(function()
 		end
 
 		-- 1. Direct building/obstacle keywords
-		local name = obj.Name:upper()
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
 			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
