@@ -20,6 +20,64 @@ local success, err = pcall(function()
 	}
 
 	------------------------------------------------
+	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
+	------------------------------------------------
+	local TaxiAssets = ReplicatedStorage:WaitForChild("TaxiAssets", 10)
+	local TaxiEvent = TaxiAssets and TaxiAssets:WaitForChild("Events", 10) and TaxiAssets.Events:WaitForChild("TaxiEvent", 10)
+
+	local function getTaxiEvent()
+		if TaxiEvent then return TaxiEvent end
+		local assets = ReplicatedStorage:FindFirstChild("TaxiAssets")
+		local ev = assets and assets:FindFirstChild("Events") and assets.Events:FindFirstChild("TaxiEvent")
+		TaxiEvent = ev
+		return ev
+	end
+
+	local taxiActive          = false
+	local taxiBusy            = false
+	local taxiState           = "IDLE"
+	local taxiToken           = nil
+	local lastCompletedToken  = nil
+	local taxiPickupPos       = nil
+	local taxiDropPos         = nil
+	local passengerSeated     = false
+	local taxiOverlayPoller   = nil
+
+	local function setTaxiState(newState)
+		taxiState = newState
+	end
+
+	local function resetTaxiDutyCycle(specificToken)
+		local tok = specificToken or taxiToken
+		pcall(function()
+			local ev = getTaxiEvent()
+			if ev then
+				if tok then ev:FireServer("CancelOrder", tok) end
+				ev:FireServer("CancelOrder")
+				ev:FireServer("CancelTrip")
+				ev:FireServer("GoOffline")
+			end
+		end)
+
+		lastCompletedToken = tok
+		taxiBusy = false
+		taxiToken = nil
+		taxiPickupPos = nil
+		taxiDropPos = nil
+		passengerSeated = false
+		setTaxiState("WAITING_FOR_NEXT_ORDER")
+
+		task.wait(1.5)
+
+		pcall(function()
+			local ev = getTaxiEvent()
+			if ev then
+				ev:FireServer("GoOnline")
+			end
+		end)
+	end
+
+	------------------------------------------------
 	-- 🛠️ 1. VEHICLE & MOVEMENT CORE ENGINE
 	------------------------------------------------
 	local currentDriveConn = nil
@@ -949,21 +1007,8 @@ local success, err = pcall(function()
 					cliffWaitStartTime = nil
 					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
 					cancelActiveDrive()
-					pcall(function()
-						TaxiEvent:FireServer("CancelOrder", taxiToken)
-						TaxiEvent:FireServer("CancelOrder")
-						TaxiEvent:FireServer("CancelTrip")
-						TaxiEvent:FireServer("GoOffline")
-						TaxiEvent:FireServer("DutyToggle")
-					end)
-					taxiBusy = false
-					taxiToken = nil
-					passengerSeated = false
-					setTaxiState("WAITING_FOR_NEXT_ORDER")
-					task.wait(1.5)
-					pcall(function()
-						TaxiEvent:FireServer("GoOnline")
-						TaxiEvent:FireServer("DutyToggle")
+					task.spawn(function()
+						resetTaxiDutyCycle(taxiToken)
 					end)
 					return
 				end
@@ -1138,22 +1183,6 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🚕 2. AUTO RIDEGO TAXI CONTROLLER
 	------------------------------------------------
-	local TaxiAssets = ReplicatedStorage:WaitForChild("TaxiAssets", 10)
-	local TaxiEvent = TaxiAssets and TaxiAssets:WaitForChild("Events", 10) and TaxiAssets.Events:WaitForChild("TaxiEvent", 10)
-
-	local taxiActive          = false
-	local taxiBusy            = false
-	local taxiState           = "IDLE"
-	local taxiToken           = nil
-	local lastCompletedToken  = nil
-	local taxiPickupPos       = nil
-	local taxiDropPos         = nil
-	local passengerSeated     = false
-	local taxiOverlayPoller   = nil
-
-	local function setTaxiState(newState)
-		taxiState = newState
-	end
 
 	local function parsePosition(val)
 		if typeof(val) == "Vector3" then return val end
@@ -1358,27 +1387,7 @@ local success, err = pcall(function()
 			-- Lakukan siklus Reset RideGO (GESER UNTUK OFFLINE -> ON KEMBALI)
 			if isPassengerOnboard() and taxiActive then
 				UI.Notify("🔄 Resetting Duty", "Mematikan & menyalakan kembali RideGO...", 3, "warning")
-				pcall(function()
-					TaxiEvent:FireServer("CancelOrder", token)
-					TaxiEvent:FireServer("CancelOrder")
-					TaxiEvent:FireServer("CancelTrip")
-					TaxiEvent:FireServer("GoOffline")
-					TaxiEvent:FireServer("DutyToggle")
-				end)
-
-				lastCompletedToken = token
-				taxiBusy = false
-				taxiToken = nil
-				taxiPickupPos = nil
-				taxiDropPos = nil
-				passengerSeated = false
-				setTaxiState("WAITING_FOR_NEXT_ORDER")
-
-				task.wait(1.5)
-				pcall(function()
-					TaxiEvent:FireServer("GoOnline")
-					TaxiEvent:FireServer("DutyToggle")
-				end)
+				resetTaxiDutyCycle(token)
 				return
 			end
 
