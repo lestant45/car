@@ -977,78 +977,37 @@ local success, err = pcall(function()
 		local rayFilter = { car, player.Character }
 		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
 		if existingPlate then table.insert(rayFilter, existingPlate) end
+		local activeMissions = workspace:FindFirstChild("ActiveMissions")
+		if activeMissions then table.insert(rayFilter, activeMissions) end
+
+		-- Native C++ Raycast Filter: Masukkan semua model kendaraan lain ke exclusion list
+		for _, c in ipairs(workspace:GetChildren()) do
+			if c:IsA("Model") and c ~= car and c ~= player.Character then
+				local name = c.Name:lower()
+				if name:find("canter") or name:find("bus") or name:find("truck") or name:find("car") or name:find("montor") or name:find("zx25r") or c:FindFirstChild("DriveSeat") or c:FindFirstChild("Body") or c:FindFirstChildWhichIsA("VehicleSeat") then
+					table.insert(rayFilter, c)
+				end
+			end
+		end
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = rayFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		local function isObstacleInstance(inst)
-			if not inst then return false end
-			local mdl = inst:FindFirstAncestorOfClass("Model")
-			if mdl and mdl ~= workspace then
-				if mdl:FindFirstChildOfClass("Humanoid") then return true end
-				if mdl:FindFirstChildWhichIsA("VehicleSeat", true) or mdl:FindFirstChildWhichIsA("Seat", true) or mdl:FindFirstChild("DriveSeat", true) then
-					return true
-				end
-				local name = mdl.Name:lower()
-				if name:find("canter") or name:find("bus") or name:find("car") or name:find("truck") or name:find("motor") or name:find("montor") or name:find("vehicle") or name:find("zx25r") or name:find("tree") then
-					return true
-				end
-			end
-			return false
-		end
-
-		local function castThroughObstacles(origin, dir)
-			local curOrigin = origin
-			local remainingDist = dir.Magnitude
-			local castDir = dir.Unit
-			for p = 1, 6 do
-				local hit = workspace:Raycast(curOrigin, castDir * remainingDist, rayParams)
-				if not hit then
-					return nil
-				end
-				if not isObstacleInstance(hit.Instance) then
-					return hit
-				end
-				local distToHit = (hit.Position - curOrigin).Magnitude
-				if distToHit >= remainingDist - 0.5 then
-					return nil
-				end
-				remainingDist = remainingDist - distToHit - 0.3
-				curOrigin = hit.Position + (castDir * 0.3)
-			end
-			return nil
-		end
-
 		local function probeGround(probePos, refY)
-			local offsets = {
-				Vector3.zero,
-				Vector3.new(2, 0, 0),
-				Vector3.new(-2, 0, 0),
-				Vector3.new(0, 0, 2),
-				Vector3.new(0, 0, -2)
-			}
-
-			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 7 ke bawah sejauh 38 stud
-			-- Menembus rintangan mobil/bus (MestibisaCanter dll) untuk mendeteksi tanah/aspal sebenarnya di bawahnya
-			for _, off in ipairs(offsets) do
-				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = castThroughObstacles(rayOrigin, Vector3.new(0, -38, 0))
-				if hit and hit.Position.Y >= (refY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
-					return hit.Position.Y + 0.3
-				end
+			local checkY = refY or startP.Y
+			-- 1. Lapis Utama: Menembak 1 raycast cepat lurus ke bawah
+			local rayOrigin = Vector3.new(probePos.X, checkY + 7, probePos.Z)
+			local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
+			if hit and hit.Position.Y >= (checkY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (checkY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				return hit.Position.Y + 0.3
 			end
 
-			-- 2. Lapis Cadangan: HANYA jika refY belum ada (awal eksekusi script / baru spawn)
+			-- 2. Lapis Cadangan: HANYA jika checkY belum valid / baru spawn
 			if not refY or refY < -35 then
-				for _, off in ipairs(offsets) do
-					local pos = probePos + off
-					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
-					local hit = castThroughObstacles(rayOrigin, Vector3.new(0, -110, 0))
-					if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-						return hit.Position.Y + 0.3
-					end
+				local hitFallback = workspace:Raycast(Vector3.new(probePos.X, 60, probePos.Z), Vector3.new(0, -110, 0), rayParams)
+				if hitFallback and hitFallback.Position.Y >= -38 and hitFallback.Position.Y <= 350 and (not hitFallback.Normal or hitFallback.Normal.Y >= 0.12) then
+					return hitFallback.Position.Y + 0.3
 				end
 			end
 
@@ -1081,6 +1040,26 @@ local success, err = pcall(function()
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
+		-- 👻 Ghost Noclip Background Task: Nonaktifkan tabrakan kendaraan lain secara periodik tanpa membebani Heartbeat
+		task.spawn(function()
+			while isDrivingActive do
+				pcall(function()
+					for _, c in ipairs(workspace:GetChildren()) do
+						if c:IsA("Model") and c ~= car and c ~= char then
+							local name = c.Name:lower()
+							if name:find("canter") or name:find("bus") or name:find("truck") or name:find("car") or name:find("montor") or name:find("zx25r") or c:FindFirstChild("DriveSeat") or c:FindFirstChild("VehicleSeat") then
+								for _, part in ipairs(c:GetDescendants()) do
+									if part:IsA("BasePart") and part.CanCollide then
+										part.CanCollide = false
+									end
+								end
+							end
+						end
+					end
+				end)
+				task.wait(2.0)
+			end
+		end)
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -1230,22 +1209,19 @@ local success, err = pcall(function()
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛡️ 50-Stud Void/Cliff Safety Gate:
-			-- Cek apakah dalam jarak hingga 50 stud ke depan (atau hingga titik tujuan) ada jurang/ruang hampa.
+			-- Cek titik sampel strategis hingga 50 stud ke depan (atau hingga titik tujuan).
 			-- DILARANG KERAS BERJALAN MAJU KE ATAS JURANG KOSONG DALAM ALASAN APAPUN!
 			local maxCheckAhead = math.min(dist, 50)
 			local hasCliffAhead = false
 
-			for lookDist = 3, maxCheckAhead, 3 do
-				local testPos = carPos + directGoalDir * lookDist
-				if not probeGround(testPos, lastGroundY) then
-					hasCliffAhead = true
-					break
-				end
-			end
-			if not hasCliffAhead and maxCheckAhead > 0 then
-				local endTestPos = carPos + directGoalDir * maxCheckAhead
-				if not probeGround(endTestPos, lastGroundY) then
-					hasCliffAhead = true
+			local checkPoints = { 6, 16, 32, maxCheckAhead }
+			for _, lookDist in ipairs(checkPoints) do
+				if lookDist <= maxCheckAhead then
+					local testPos = carPos + directGoalDir * lookDist
+					if not probeGround(testPos, lastGroundY) then
+						hasCliffAhead = true
+						break
+					end
 				end
 			end
 
@@ -1383,19 +1359,6 @@ local success, err = pcall(function()
 					for _, part in ipairs(passengerNpc:GetDescendants()) do
 						if part:IsA("BasePart") then
 							part.CanCollide = false
-						end
-					end
-				end
-
-				-- 👻 Ghost Noclip: Tembus semua kendaraan lain (MestibisaCanter, Mobil, Truk, Bus) di workspace
-				for _, c in ipairs(workspace:GetChildren()) do
-					if c:IsA("Model") and c ~= car and c ~= char and c ~= passengerNpc then
-						if c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true) or c:FindFirstChild("DriveSeat", true) or c.Name:lower():find("canter") or c.Name:lower():find("bus") or c.Name:lower():find("truck") then
-							for _, part in ipairs(c:GetDescendants()) do
-								if part:IsA("BasePart") and part.CanCollide then
-									part.CanCollide = false
-								end
-							end
 						end
 					end
 				end
