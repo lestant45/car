@@ -1767,29 +1767,40 @@ local success, err = pcall(function()
 				task.wait(0.25)
 				if taxiActive and not isResettingTaxi then
 					pcall(function()
-						-- 0. Watchdog Diam di Satu Koordinat > 12 Detik:
-						local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-						local curPos = root and root.Position
-						if curPos then
-							if not lastTrackedPos then
-								lastTrackedPos = curPos
-								lastPosMovedTime = tick()
-							else
-								local dPos = (curPos - lastTrackedPos).Magnitude
-								if dPos > 3.5 then
+						-- 0. Watchdog Diam & Macet Cerdas:
+						-- Jika sedang dalam proses naik/turun penumpang, segarkan timer agar penumpang tidak terputus saat berjalan naik!
+						if taxiState == "PICKING_UP" or taxiState == "DROPPING_OFF" or taxiState == "NEW_ORDER_DETECTED" then
+							lastPosMovedTime = tick()
+							lastTrackedPos = nil
+						else
+							local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+							local curPos = root and root.Position
+							if curPos then
+								if not lastTrackedPos then
 									lastTrackedPos = curPos
 									lastPosMovedTime = tick()
 								else
-									-- Jika tidak berpindah posisi selama > 12 detik, reset toggle untuk mengatasi stuck dan mencari order baru
-									if (tick() - lastPosMovedTime >= 12.0) and not isResettingTaxi then
+									local dPos = (curPos - lastTrackedPos).Magnitude
+									if dPos > 3.5 then
+										lastTrackedPos = curPos
 										lastPosMovedTime = tick()
-										lastTrackedPos = nil
-										task.spawn(function()
-											if restartAutoRideGoToggle then
-												restartAutoRideGoToggle("Stuck di Tempat (12s)")
-											end
-										end)
-										return
+									else
+										-- A. Jika sedang berkendara tapi diam > 12s -> BENAR-BENAR STUCK (misal jurang / nabrak dinding)
+										-- B. Jika sedang menganggur menunggu orderan -> beri waktu longgar 45s agar matchmaking 7-15s masuk mulus
+										local isDriving = (isDrivingActive or taxiState == "DRIVING_TO_DESTINATION")
+										local threshold = isDriving and 12.0 or 45.0
+
+										if (tick() - lastPosMovedTime >= threshold) and not isResettingTaxi then
+											lastPosMovedTime = tick()
+											lastTrackedPos = nil
+											task.spawn(function()
+												if restartAutoRideGoToggle then
+													local reason = isDriving and "Stuck saat Berkendara (12s)" or "Idle Matchmaking Timeout (45s)"
+													restartAutoRideGoToggle(reason)
+												end
+											end)
+											return
+										end
 									end
 								end
 							end
