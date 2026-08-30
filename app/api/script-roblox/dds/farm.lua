@@ -1229,6 +1229,37 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
+			-- 🛑 2-Stage Cliff Lookahead (Chained-Elevation Smooth Deceleration):
+			-- Mencegah motor meluncur kencang ke bibir jurang tanpa pengereman yang memicu anti-cheat kick error 267!
+			-- Stage 1 (250 -> 60 stud sebelum jurang): Kecepatan turun mulus dari slider speed ke 25 stud/s
+			-- Stage 2 (60 -> 0 stud sebelum tepi jurang): Kecepatan merayap presisi dari 25 stud/s ke 6 stud/s tepat di bibir jurang
+			local solidAheadDist = 250
+			local lookRefY = lastGroundY
+			for lookDist = 10, 250, 10 do
+				if lookDist >= dist then
+					break
+				end
+				local testPos = carPos + directGoalDir * lookDist
+				local hitY = probeGround(testPos, lookRefY)
+				if hitY then
+					lookRefY = hitY
+				else
+					solidAheadDist = lookDist
+					break
+				end
+			end
+
+			if solidAheadDist < 250 and solidAheadDist < dist then
+				local cliffTargetSpeed = speed
+				if solidAheadDist <= 30 then
+					cliffTargetSpeed = math.max(6, 25 * (solidAheadDist / 30))
+				else
+					local factor = (solidAheadDist - 30) / 220
+					cliffTargetSpeed = 25 + math.max(0, speed - 25) * factor
+				end
+				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
+			end
+
 			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
 			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
