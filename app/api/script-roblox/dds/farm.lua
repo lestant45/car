@@ -820,25 +820,25 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- 1. Lapis Utama (Under-Ceiling Tracker): Menembak dari refY + 7 ke bawah sejauh 18 stud
-			-- Menjamin motor TIDAK AKAN PERNAH menaiki atap bangunan/Sasana Krida (atap berada di Y > refY + 15)
-			-- Menolak dasar jurang/lautan (Y < -10 atau drop > 10 stud ke bawah)
+			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 7 ke bawah sejauh 38 stud
+			-- Mendeteksi tanah/lembah hingga 30 stud ke bawah (seperti tanah merah di Y = -25 s/d -30)
+			-- Menolak dasar hampa jurang (jika tidak ada tanah dalam jarak 30 stud ke bawah atau Y < -38)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -18, 0), rayParams)
-				if hit and hit.Position.Y >= (refY - 10) and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
+				if hit and hit.Position.Y >= (refY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
 			end
 
 			-- 2. Lapis Cadangan: HANYA jika refY belum ada (awal eksekusi script / baru spawn)
-			if not refY or refY < -10 then
+			if not refY or refY < -35 then
 				for _, off in ipairs(offsets) do
 					local pos = probePos + off
 					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -100, 0), rayParams)
-					if hit and hit.Position.Y >= -5 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
+					if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
 						return hit.Position.Y + 0.3
 					end
 				end
@@ -927,8 +927,8 @@ local success, err = pcall(function()
 				pcall(function() seat:Sit(hum) end)
 			end
 
-			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh di bawah Y < -20
-			if carPos.Y < -20 then
+			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas di bawah Y < -45 (ruang hampa luar map)
+			if carPos.Y < -45 then
 				local rescuePos = Vector3.new(carPos.X, math.max(lastGroundY, 5), carPos.Z)
 				ensureSafetyPlate(rescuePos, 80)
 				car:PivotTo(CFrame.new(rescuePos))
