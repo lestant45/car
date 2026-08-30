@@ -42,13 +42,93 @@ local success, err = pcall(function()
 	local taxiDropPos         = nil
 	local passengerSeated     = false
 	local taxiOverlayPoller   = nil
+	local isResettingTaxi     = false
+
+	local changeTeam          = nil
+	local mountBike           = nil
+	local ensureDriverSeated  = nil
+	local cancelActiveDrive   = nil
+	local startPhoneOverlayPoller = nil
 
 	local function setTaxiState(newState)
 		taxiState = newState
 	end
 
-	local function resetTaxiDutyCycle(specificToken)
+	local function isRouteVerificationStuck()
+		local found = false
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			if not pGui then return end
+			for _, g in ipairs(pGui:GetDescendants()) do
+				if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
+					local txt = (g.Text or ""):lower()
+					if txt:find("memverifikasi rute") or txt:find("verifying your trip route")
+						or txt:find("verifikasi rute") or txt:find("verifying trip")
+						or txt:find("verifying route") or txt:find("memverifikasi perjalanan")
+						or txt:find("verifikasi perjalanan")
+					then
+						found = true
+						break
+					end
+				end
+			end
+		end)
+		return found
+	end
+
+	local function resetTaxiDutyCycle(specificToken, reason)
+		if isResettingTaxi then return end
+		isResettingTaxi = true
+
 		local tok = specificToken or taxiToken
+		lastCompletedToken = tok
+		taxiBusy = true
+		taxiToken = nil
+		taxiPickupPos = nil
+		taxiDropPos = nil
+		passengerSeated = false
+		setTaxiState("RESETTING_DUTY")
+
+		-- 1. Hentikan pergerakan motor & netralkan fisika
+		if cancelActiveDrive then
+			cancelActiveDrive()
+		end
+
+		local car, seat = getPlayerVehicle()
+		if car then
+			pcall(function()
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = false
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+				if seat then
+					seat.Throttle = 0
+					seat.ThrottleFloat = 0
+					seat.AssemblyLinearVelocity = Vector3.zero
+					seat.AssemblyAngularVelocity = Vector3.zero
+				end
+			end)
+		end
+
+		-- 2. Bersihkan UI phone / overlay jika ada yang tertinggal
+		pcall(function()
+			local pg = player:FindFirstChild("PlayerGui")
+			local phone = pg and pg:FindFirstChild("Phone")
+			local rideGO = phone and phone:FindFirstChild("RideGO", true)
+			local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
+			if appFrame then
+				local complete = appFrame:FindFirstChild("CompleteOverlay")
+				if complete then complete.Visible = false end
+				local overlay = appFrame:FindFirstChild("OrderOverlay")
+				if overlay then overlay.Visible = false end
+			end
+		end)
+
+		-- 3. Matikan status kerja (CancelOrder & GoOffline) persis seperti mematikan toggle Auto RideGO
+		UI.Notify("🔄 Resetting Duty", (reason or "Mereset status RideGO") .. " (Mematikan status kerja)...", 2.5, "warning")
 		pcall(function()
 			local ev = getTaxiEvent()
 			if ev then
@@ -59,22 +139,54 @@ local success, err = pcall(function()
 			end
 		end)
 
-		lastCompletedToken = tok
-		taxiBusy = false
-		taxiToken = nil
-		taxiPickupPos = nil
-		taxiDropPos = nil
-		passengerSeated = false
-		setTaxiState("WAITING_FOR_NEXT_ORDER")
+		-- Jeda aman 1.8 detik agar server memproses status offline dan penumpang ter-despawn
+		task.wait(1.8)
 
-		task.wait(1.5)
-
-		pcall(function()
-			local ev = getTaxiEvent()
-			if ev then
-				ev:FireServer("GoOnline")
+		-- 4. Nyalakan kembali status kerja jika toggle Auto RideGO masih aktif
+		if taxiActive or (Config and Config.autoRideGO) then
+			taxiActive = true
+			if changeTeam then
+				changeTeam("RideGO Driver")
 			end
-		end)
+			task.wait(0.6)
+
+			pcall(function()
+				local ev = getTaxiEvent()
+				if ev then
+					ev:FireServer("DismissIntro")
+				end
+			end)
+			task.wait(0.3)
+
+			if mountBike then
+				mountBike()
+			elseif ensureDriverSeated then
+				ensureDriverSeated()
+			end
+			task.wait(0.5)
+
+			pcall(function()
+				local ev = getTaxiEvent()
+				if ev then
+					ev:FireServer("GoOnline")
+				end
+			end)
+
+			if startPhoneOverlayPoller then
+				startPhoneOverlayPoller()
+			end
+
+			taxiBusy = false
+			passengerSeated = false
+			setTaxiState("WAITING_FOR_NEXT_ORDER")
+			isResettingTaxi = false
+			UI.Notify("RideGO Online ✅", "Status kerja aktif kembali. Siap menerima order!", 3, "success")
+		else
+			taxiBusy = false
+			passengerSeated = false
+			setTaxiState("IDLE")
+			isResettingTaxi = false
+		end
 	end
 
 	------------------------------------------------
@@ -114,7 +226,7 @@ local success, err = pcall(function()
 		end
 	end)
 
-	local function cancelActiveDrive()
+	cancelActiveDrive = function()
 		if currentDriveConn then
 			pcall(function() currentDriveConn:Disconnect() end)
 			currentDriveConn = nil
@@ -255,7 +367,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function mountBike()
+	mountBike = function()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -336,7 +448,7 @@ local success, err = pcall(function()
 	end
 
 	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi.
-	local function ensureDriverSeated()
+	ensureDriverSeated = function()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		if hum and hum.SeatPart then return true end
@@ -1249,7 +1361,7 @@ local success, err = pcall(function()
 		return (car:GetPivot().Position - destP).Magnitude <= 15
 	end
 
-	local function changeTeam(teamName)
+	changeTeam = function(teamName)
 		pcall(function()
 			local teamChangeRequest = ReplicatedStorage:FindFirstChild("teamChangeRequest")
 			if teamChangeRequest then
@@ -1371,15 +1483,8 @@ local success, err = pcall(function()
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
 			else
-				UI.Notify("⚠️ Boarding Timeout", "Passenger did not board. Resetting...", 3, "warning")
-				lastCompletedToken = token
-				taxiBusy = false
-				taxiToken = nil
-				setTaxiState("WAITING_FOR_NEXT_ORDER")
-				if taxiActive then
-					task.wait(2)
-					TaxiEvent:FireServer("GoOnline")
-				end
+				UI.Notify("⚠️ Boarding Timeout", "Penumpang tidak naik. Mereset status kerja...", 2.5, "warning")
+				resetTaxiDutyCycle(token, "Boarding Timeout")
 				return
 			end
 		end
@@ -1420,56 +1525,30 @@ local success, err = pcall(function()
 
 			UI.Notify("Arrived at Destination 🏁", "Waiting for passenger disembark...", 2, "success")
 			local disembarkWait = tick()
-			local verifyCount = 0
-			local lastVerifyCheck = 0
 
-			while isPassengerOnboard() and taxiActive do
+			while isPassengerOnboard() and taxiActive and not isResettingTaxi do
 				local nowT = tick()
 
-				-- Deteksi notifikasi "Memverifikasi rute perjalananmu" (Bahasa Indonesia & English)
-				local isVerifying = false
-				pcall(function()
-					local pGui = player:FindFirstChild("PlayerGui")
-					if pGui then
-						for _, g in ipairs(pGui:GetDescendants()) do
-							if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
-								local txt = (g.Text or ""):lower()
-								if txt:find("memverifikasi rute") or txt:find("verifying your trip route")
-									or txt:find("tunggu sebentar") or txt:find("hold on a moment")
-									or txt:find("verifikasi rute") or txt:find("verifying trip")
-								then
-									isVerifying = true
-									break
-								end
-							end
-						end
-					end
-				end)
-
-				if isVerifying and (nowT - lastVerifyCheck >= 1.2) then
-					lastVerifyCheck = nowT
-					verifyCount = verifyCount + 1
-					UI.Notify("⚠️ Verifikasi Rute (" .. verifyCount .. "/5)", "Menunggu konfirmasi server DDS...", 1.5, "warning")
-					if verifyCount >= 5 then
-						UI.Notify("❌ Batas Verifikasi Tercapai", "Mereset status RideGO untuk orderan baru...", 3, "error")
-						break
-					end
+				-- Deteksi cepat notifikasi "Memverifikasi rute" / "Verifying your trip route"
+				if isRouteVerificationStuck() then
+					UI.Notify("⚠️ Verifikasi Rute Terdeteksi", "Mereset status kerja (Offline -> Online)...", 2.5, "warning")
+					resetTaxiDutyCycle(token, "Verifikasi Rute Terdeteksi")
+					return
 				end
 
-				-- Batas waktu maksimal disembark 10 detik
-				if (nowT - disembarkWait > 10) then
-					UI.Notify("⚠️ Disembark Timeout", "Penumpang tidak turun. Mereset RideGO...", 3, "warning")
-					break
+				-- Fail-safe disembark timeout: Jika dalam 3.5 detik penumpang tidak turun, otomatis reset duty
+				if (nowT - disembarkWait > 3.5) then
+					UI.Notify("⚠️ Disembark Timeout", "Penumpang tidak turun. Mereset status kerja...", 2.5, "warning")
+					resetTaxiDutyCycle(token, "Disembark Timeout")
+					return
 				end
 
-				task.wait(0.35)
+				task.wait(0.25)
 			end
 
-			-- Jika penumpang belum turun (gagal verifikasi rute > 5x atau timeout):
-			-- Lakukan siklus Reset RideGO (GESER UNTUK OFFLINE -> ON KEMBALI)
-			if isPassengerOnboard() and taxiActive then
-				UI.Notify("🔄 Resetting Duty", "Mematikan & menyalakan kembali RideGO...", 3, "warning")
-				resetTaxiDutyCycle(token)
+			-- Jika penumpang masih belum turun:
+			if isPassengerOnboard() and taxiActive and not isResettingTaxi then
+				resetTaxiDutyCycle(token, "Passenger Stuck")
 				return
 			end
 
@@ -1584,14 +1663,14 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Phone Screen Overlay Poller & Auto-Dismiss Complete Screen
-	local function startPhoneOverlayPoller()
+	-- Phone Screen Overlay Poller & Auto-Dismiss Complete Screen & Verification Watchdog
+	startPhoneOverlayPoller = function()
 		if taxiOverlayPoller then return end
 		taxiOverlayPoller = task.spawn(function()
 			local lastKeepAliveTime = tick()
 			while taxiActive do
-				task.wait(0.2)
-				if taxiActive then
+				task.wait(0.25)
+				if taxiActive and not isResettingTaxi then
 					pcall(function()
 						local pg = player:FindFirstChild("PlayerGui")
 						local phone = pg and pg:FindFirstChild("Phone")
@@ -1622,7 +1701,13 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 3. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
+						-- 3. Watchdog Verifikasi Rute: Jika teks verifikasi rute muncul saat membawa penumpang / order aktif
+						if (taxiBusy or isPassengerOnboard()) and isRouteVerificationStuck() then
+							task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Verifikasi Rute")
+							return
+						end
+
+						-- 4. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
 						if not taxiBusy and (tick() - lastKeepAliveTime >= 35) then
 							lastKeepAliveTime = tick()
 							ensureDriverSeated()
