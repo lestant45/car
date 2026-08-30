@@ -633,26 +633,7 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function cleanupMestibisaCanter()
-		pcall(function()
-			for _, c in ipairs(workspace:GetChildren()) do
-				if c.Name == "MestibisaCanterFE84G" then
-					pcall(function() c:Destroy() end)
-				end
-			end
-			local vehiclesFolder = workspace:FindFirstChild("Vehicles") or workspace:FindFirstChild("Cars")
-			if vehiclesFolder then
-				for _, c in ipairs(vehiclesFolder:GetChildren()) do
-					if c.Name == "MestibisaCanterFE84G" then
-						pcall(function() c:Destroy() end)
-					end
-				end
-			end
-		end)
-	end
-
 	local function destroyAllBuildings()
-		cleanupMestibisaCanter()
 		pcall(function()
 			for _, c in ipairs(workspace:GetChildren()) do
 				if shouldDestroyBuilding(c) then
@@ -676,10 +657,6 @@ local success, err = pcall(function()
 
 	-- Auto-destroy newly streamed buildings KECUALI di area Manahan
 	workspace.DescendantAdded:Connect(function(descendant)
-		if descendant.Name == "MestibisaCanterFE84G" then
-			pcall(function() descendant:Destroy() end)
-			return
-		end
 		if shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
 			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
@@ -1005,24 +982,27 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 12 ke bawah sejauh 45 stud
-			-- Mendeteksi tanah/lembah mendatar, menanjak (+10 stud), atau menurun (-30 stud)
+			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 7 ke bawah sejauh 38 stud
+			-- Mendeteksi tanah/lembah hingga 30 stud ke bawah (seperti tanah merah di Y = -25 s/d -30)
+			-- Menolak dasar hampa jurang (jika tidak ada tanah dalam jarak 30 stud ke bawah atau Y < -38)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, (refY or 5) + 12, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -45, 0), rayParams)
-				if hit and hit.Position.Y >= ((refY or 5) - 30) and hit.Position.Y >= -38 and hit.Position.Y <= ((refY or 5) + 10) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
+				if hit and hit.Position.Y >= (refY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
 			end
 
-			-- 2. Lapis Cadangan (Ramp / Flyover / Hill Climb Fallback): Menembak dari ketinggian jika lapis 1 terhalang tanjakan
-			for _, off in ipairs(offsets) do
-				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, math.max((refY or 5) + 30, 60), pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -120, 0), rayParams)
-				if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-					return hit.Position.Y + 0.3
+			-- 2. Lapis Cadangan: HANYA jika refY belum ada (awal eksekusi script / baru spawn)
+			if not refY or refY < -35 then
+				for _, off in ipairs(offsets) do
+					local pos = probePos + off
+					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
+					if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+						return hit.Position.Y + 0.3
+					end
 				end
 			end
 
@@ -1055,35 +1035,9 @@ local success, err = pcall(function()
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
-		local postTeleportSafetyGate = false
-
-		local function isForwardContinuousSafe(fromPos, dir, refY, maxCheckDist)
-			local distToCheck = math.min(maxCheckDist or 50, (destP - fromPos).Magnitude)
-			if distToCheck <= 4 then
-				return true
-			end
-
-			local step = 3.0
-			local curRefY = refY
-			for d = step, distToCheck, step do
-				local testPos = fromPos + dir * d
-				local hitY = probeGround(testPos, curRefY)
-				if not hitY then
-					return false, d
-				end
-				curRefY = hitY
-			end
-
-			local endPos = fromPos + dir * distToCheck
-			if not probeGround(endPos, curRefY) then
-				return false, distToCheck
-			end
-
-			return true
-		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
-			if not isDrivingActive or isResettingTaxi then
+			if not isDrivingActive then
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				driveFinished = true
 				return
@@ -1229,33 +1183,28 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 2-Stage Cliff Lookahead (Chained-Elevation Smooth Deceleration):
-			-- Mencegah motor meluncur kencang ke bibir jurang tanpa pengereman yang memicu anti-cheat kick error 267!
-			-- Stage 1 (250 -> 60 stud sebelum jurang): Kecepatan turun mulus dari slider speed ke 25 stud/s
-			-- Stage 2 (60 -> 0 stud sebelum tepi jurang): Kecepatan merayap presisi dari 25 stud/s ke 6 stud/s tepat di bibir jurang
-			local solidAheadDist = 250
-			local lookRefY = lastGroundY
-			for lookDist = 10, 250, 10 do
+			-- 🛑 2-Stage Cliff Lookahead: Pengereman menuju tepi jurang
+			-- Stage 1 (300 -> 50 stud sebelum jurang): Kecepatan turun mulus dari slider speed ke 15 km/h
+			-- Stage 2 (50 -> 0 stud sebelum tepi jurang): Kecepatan merayap dari 15 km/h ke 0 km/h tepat di tepi jurang
+			local solidAheadDist = 300
+			for lookDist = 15, 300, 15 do
 				if lookDist >= dist then
 					break
 				end
 				local testPos = carPos + directGoalDir * lookDist
-				local hitY = probeGround(testPos, lookRefY)
-				if hitY then
-					lookRefY = hitY
-				else
+				if not probeGround(testPos, lastGroundY) then
 					solidAheadDist = lookDist
 					break
 				end
 			end
 
-			if solidAheadDist < 250 and solidAheadDist < dist then
+			if solidAheadDist < 300 and solidAheadDist < dist then
 				local cliffTargetSpeed = speed
-				if solidAheadDist <= 30 then
-					cliffTargetSpeed = math.max(6, 25 * (solidAheadDist / 30))
+				if solidAheadDist < 50 then
+					cliffTargetSpeed = math.max(0, 15 * (solidAheadDist / 50))
 				else
-					local factor = (solidAheadDist - 30) / 220
-					cliffTargetSpeed = 25 + math.max(0, speed - 25) * factor
+					local factor = (solidAheadDist - 50) / 250
+					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
 				end
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
@@ -1281,32 +1230,14 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			local isAllowedToDrive = false
-
-			if postTeleportSafetyGate then
-				-- 🛡️ POST-TELEPORT 50-STUD SAFETY GATE:
-				-- Setelah melompati jurang, pastikan 50 stud ke depan (atau sisa jarak ke tujuan) adalah daratan padat sebelum diizinkan melaju!
-				local isSafeAhead = directHitY and isForwardContinuousSafe(carPos, directGoalDir, lastGroundY, 50)
-				if isSafeAhead then
-					postTeleportSafetyGate = false
-					isAllowedToDrive = true
-				end
-			else
-				-- 🛣️ NORMAL ROAD DRIVING:
-				-- Menggunakan deteksi jalan normal probeGround pada probeDist
-				if directHitY then
-					isAllowedToDrive = true
-				end
-			end
-
-			if isAllowedToDrive then
+			if directHitY then
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 TEPI JURANG:
-				-- Motor diam total di atas aspal daratan asal (actualMoveDir = Vector3.zero, stepDist = 0, currentSmoothSpeed = 0)
+				-- 🛑 TEPI JURANG: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
+				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
@@ -1319,32 +1250,9 @@ local success, err = pcall(function()
 				if (nowClock - cliffWaitStartTime) >= 5.0 then
 					cliffWaitStartTime = nil
 					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
-
-					-- 1. Kunci posisi motor di daratan aman terakhir, nol-kan seluruh kecepatan
-					actualMoveDir = Vector3.zero
-					stepDist = 0
-					currentSmoothSpeed = 0
-					pcall(function()
-						for _, part in ipairs(car:GetDescendants()) do
-							if part:IsA("BasePart") then
-								part.AssemblyLinearVelocity = Vector3.zero
-								part.AssemblyAngularVelocity = Vector3.zero
-							end
-						end
-						if seat then
-							seat.Throttle = 0
-							seat.ThrottleFloat = 0
-							seat.AssemblyLinearVelocity = Vector3.zero
-							seat.AssemblyAngularVelocity = Vector3.zero
-						end
-					end)
-
-					-- 2. Hentikan task navigasi aktif seketika
 					cancelActiveDrive()
-
-					-- 3. Eksekusi reset status RideGO (CancelOrder, GoOffline -> GoOnline)
 					task.spawn(function()
-						resetTaxiDutyCycle(taxiToken, "Jurang Terlalu Luas / Void Bridge Failed")
+						resetTaxiDutyCycle(taxiToken)
 					end)
 					return
 				end
@@ -1363,8 +1271,7 @@ local success, err = pcall(function()
 						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
 						bridgeHoldUntil = os.clock() + 2.0
 						driveStartTime = os.clock() + 2.0
-						postTeleportSafetyGate = true -- 🔒 Kunci safety gate setelah teleport agar wajib memeriksa 50 stud lagi saat mendarat!
-						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, memeriksa jalur depan (50 stud)...", 2.0, "success")
+						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
@@ -1501,9 +1408,7 @@ local success, err = pcall(function()
 		end)
 
 		isDrivingActive = false
-		local endPos = car:GetPivot().Position
-		local flatEndDist = Vector3.new(endPos.X - destP.X, 0, endPos.Z - destP.Z).Magnitude
-		return flatEndDist <= 35 or (endPos - destP).Magnitude <= 40
+		return (car:GetPivot().Position - destP).Magnitude <= 15
 	end
 
 	changeTeam = function(teamName)
@@ -1538,23 +1443,15 @@ local success, err = pcall(function()
 	end
 
 	local function isPassengerOnboard()
-		if passengerSeated then return true end
 		local activeMissions = workspace:FindFirstChild("ActiveMissions")
 		local passenger = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
 		if passenger and passenger.Parent then
-			local car, seat = getPlayerVehicle()
-			if car and passenger:IsDescendantOf(car) then
-				return true
-			end
-			local hum = passenger:FindFirstChildOfClass("Humanoid")
-			if hum and hum.SeatPart then
-				return true
-			end
 			local hrp = passenger:FindFirstChild("HumanoidRootPart")
-			if hrp and seat and (hrp.Position - seat.Position).Magnitude < 6 then
+			if hrp then
 				return true
 			end
 		end
+		passengerSeated = false
 		return false
 	end
 
@@ -1597,16 +1494,13 @@ local success, err = pcall(function()
 		end
 
 		-- 4. Drive to Pickup
-		if taxiPickupPos and taxiActive and not isResettingTaxi then
+		if taxiPickupPos and taxiActive then
 			UI.Notify("🏍️ Heading to Pickup", "Driving to passenger...", 2, "warning")
 			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
-			if not taxiActive or isResettingTaxi then
-				return
-			end
 		end
 
 		-- 5. Wait for passenger boarding
-		if taxiPickupPos and taxiActive and not isResettingTaxi then
+		if taxiPickupPos and taxiActive then
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
 			local car, seat = getPlayerVehicle()
@@ -1625,7 +1519,7 @@ local success, err = pcall(function()
 			ensureDriverSeated()
 
 			local waitStartBoard = tick()
-			while not isPassengerOnboard() and taxiActive and not isResettingTaxi and (tick() - waitStartBoard < 25) do
+			while not isPassengerOnboard() and taxiActive and (tick() - waitStartBoard < 25) do
 				local checkHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 				if not (checkHum and checkHum.SeatPart) then
 					mountBike()
@@ -1647,9 +1541,9 @@ local success, err = pcall(function()
 		task.wait(0.3)
 
 		-- 6. Drive to Drop-off
-		if not taxiDropPos and taxiActive and not isResettingTaxi then
+		if not taxiDropPos and taxiActive then
 			local dropWait = tick()
-			while not taxiDropPos and taxiActive and not isResettingTaxi and (tick() - dropWait < 5) do
+			while not taxiDropPos and taxiActive and (tick() - dropWait < 5) do
 				task.wait(0.2)
 			end
 		end
@@ -1657,13 +1551,10 @@ local success, err = pcall(function()
 		local tripStartTime = tick()
 		local tripDistance = (taxiPickupPos and taxiDropPos) and (Vector3.new(taxiDropPos.X, 0, taxiDropPos.Z) - Vector3.new(taxiPickupPos.X, 0, taxiPickupPos.Z)).Magnitude or 1000
 
-		if taxiDropPos and taxiActive and not isResettingTaxi then
+		if taxiDropPos and taxiActive then
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
 			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
-			if not taxiActive or isResettingTaxi then
-				return
-			end
 
 			setTaxiState("DROPPING_OFF")
 			local car, seat = getPlayerVehicle()
@@ -1714,7 +1605,7 @@ local success, err = pcall(function()
 		end
 
 		-- 7. Complete Trip & Acknowledge
-		if taxiActive and not isResettingTaxi then
+		if taxiActive then
 			TaxiEvent:FireServer("AckTripComplete")
 			UI.Notify("🏆 Trip Complete!", "Fare earned. Ready for next order!", 2, "success")
 		end
