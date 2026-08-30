@@ -44,6 +44,8 @@ local success, err = pcall(function()
 	local taxiOverlayPoller   = nil
 	local isResettingTaxi     = false
 	local dropoffStuckTime    = nil
+	local taxiPickupAddr      = ""
+	local taxiDropAddr        = ""
 
 	local changeTeam          = nil
 	local mountBike           = nil
@@ -53,6 +55,38 @@ local success, err = pcall(function()
 
 	local function setTaxiState(newState)
 		taxiState = newState
+	end
+
+	local function isSasanaKridaTrip()
+		local pAddr = tostring(taxiPickupAddr or ""):lower()
+		local dAddr = tostring(taxiDropAddr or ""):lower()
+		if pAddr:find("sasana") or pAddr:find("krida") or dAddr:find("sasana") or dAddr:find("krida") then
+			return true
+		end
+
+		local isSasana = false
+		pcall(function()
+			local pg = player:FindFirstChild("PlayerGui")
+			local phone = pg and pg:FindFirstChild("Phone")
+			local rideGO = phone and phone:FindFirstChild("RideGO", true)
+			local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
+			local ordersPage = appFrame and appFrame:FindFirstChild("PageContainer") and appFrame.PageContainer:FindFirstChild("OrdersPage")
+			if ordersPage and ordersPage.Visible then
+				local routeCard = ordersPage:FindFirstChild("RouteCard", true)
+				if routeCard then
+					for _, desc in ipairs(routeCard:GetDescendants()) do
+						if desc:IsA("TextLabel") and desc.Visible then
+							local txt = desc.Text:lower()
+							if txt:find("sasana") or txt:find("krida") then
+								isSasana = true
+								return
+							end
+						end
+					end
+				end
+			end
+		end)
+		return isSasana
 	end
 
 	local function isRouteVerificationStuck()
@@ -884,7 +918,8 @@ local success, err = pcall(function()
 					requestStreamAsync(testPos)
 				end
 
-				local origin = Vector3.new(px, math.max(refY + 60, 80), pz)
+				local scanStartY = isSasanaKridaTrip() and math.max(refY + 7, 10) or math.max(refY + 60, 80)
+				local origin = Vector3.new(px, scanStartY, pz)
 				local solidY = nil
 				local localBrp = RaycastParams.new()
 				local localFilter = table.clone(filter)
@@ -1020,7 +1055,13 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			local startY = math.max((refY or 0) + 45, 60)
+			-- Khusus jika titik pickup / drop-off adalah Sasana Krida Building Manahan, tembak dari refY + 7 saja agar tidak mendarat di atap gedung
+			local startY
+			if isSasanaKridaTrip() then
+				startY = (refY or 0) + 7
+			else
+				startY = math.max((refY or 0) + 45, 60)
+			end
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
@@ -1511,7 +1552,7 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function executeTripAsync(token, name, initialPickup, initialDrop)
+	local function executeTripAsync(token, name, initialPickup, initialDrop, initialPickupAddr, initialDropAddr)
 		if taxiBusy then return end
 		if not token or token == lastCompletedToken then return end
 
@@ -1520,6 +1561,8 @@ local success, err = pcall(function()
 		passengerSeated = false
 		taxiPickupPos = parsePosition(initialPickup)
 		taxiDropPos   = parsePosition(initialDrop)
+		taxiPickupAddr = tostring(initialPickupAddr or "")
+		taxiDropAddr   = tostring(initialDropAddr or "")
 
 		setTaxiState("NEW_ORDER_DETECTED")
 		setTaxiState("PICKING_UP")
@@ -1671,6 +1714,8 @@ local success, err = pcall(function()
 		taxiToken = nil
 		taxiPickupPos = nil
 		taxiDropPos = nil
+		taxiPickupAddr = ""
+		taxiDropAddr = ""
 		passengerSeated = false
 
 		setTaxiState("WAITING_FOR_NEXT_ORDER")
@@ -1700,8 +1745,10 @@ local success, err = pcall(function()
 				local name  = payload and (payload.PassengerName or payload.Name) or "Passenger"
 				local isAnom = payload and payload.IsAnomaly or false
 				local fare  = payload and (payload.Fare or payload.Price) or 0
-				local pickPos = payload and (payload.PickupPos or payload.PickupPosition or payload.Pickup or payload.StartPos)
-				local dropP   = payload and (payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos)
+				local pickPos  = payload and (payload.PickupPos or payload.PickupPosition or payload.Pickup or payload.StartPos)
+				local dropP    = payload and (payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos)
+				local pickAddr = payload and (payload.PickupAddr or payload.PickupName or payload.PickupLocation or payload.StartAddr or payload.Pickup)
+				local dropAddr = payload and (payload.DropAddr or payload.DestinationAddr or payload.DropName or payload.TargetAddr or payload.Destination)
 
 				if not token or token == lastCompletedToken then return end
 
@@ -1711,7 +1758,7 @@ local success, err = pcall(function()
 					UI.Notify("🛵 New Order!", name .. " — Rp " .. tostring(fare), 3, "success")
 				end
 
-				task.spawn(executeTripAsync, token, name, pickPos, dropP)
+				task.spawn(executeTripAsync, token, name, pickPos, dropP, pickAddr, dropAddr)
 
 			elseif eventType == "OrderAccepted" then
 				if payload then
@@ -1719,6 +1766,8 @@ local success, err = pcall(function()
 					local drop = payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos
 					if pick then taxiPickupPos = parsePosition(pick) end
 					if drop then taxiDropPos   = parsePosition(drop) end
+					if payload.PickupAddr then taxiPickupAddr = tostring(payload.PickupAddr) end
+					if payload.DropAddr then taxiDropAddr = tostring(payload.DropAddr) end
 				end
 
 			elseif eventType == "PassengerBoarding" then
@@ -1729,6 +1778,7 @@ local success, err = pcall(function()
 				if payload then
 					local drop = payload.DropPos or payload.DropPosition or payload.Destination or payload.Drop or payload.TargetPos
 					if drop then taxiDropPos = parsePosition(drop) end
+					if payload.DropAddr then taxiDropAddr = tostring(payload.DropAddr) end
 				end
 				UI.Notify("Trip Started! 🚀", "Passenger on board.", 2, "success")
 
