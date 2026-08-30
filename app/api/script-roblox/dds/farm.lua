@@ -377,7 +377,7 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- 🛣️ JANGAN PERNAH HAPUS FOLDER JALAN ATAU AREA MANAHAN (JL_MANAHAN, MANAHAN_TOWN_SQUARE, DLL)!
+		-- 🏙️ JANGAN PERNAH HAPUS APAPUN DI AREA MANAHAN (JL_MANAHAN, MANAHAN TOWN SQUARE, DLL) ATAU JALANAN APAPUN!
 		local cur = obj
 		while cur and cur ~= workspace and cur ~= game do
 			local n = cur.Name:upper()
@@ -1090,12 +1090,7 @@ local success, err = pcall(function()
 
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
-						local pname = part.Name:lower()
-						if pname:find("tire") or pname:find("wheel") or pname == "dds_collision" or pname == "primarypart" then
-							part.CanCollide = true
-						else
-							part.CanCollide = false
-						end
+						part.CanCollide = false
 						part.Anchored = false
 					end
 				end
@@ -1129,13 +1124,13 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang (Native Seat Weld Friendly)
+				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
 						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 						hum.Sit = true
-						pcall(function() seat:Sit(hum) end)
+						seat:Sit(hum)
 					end
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
