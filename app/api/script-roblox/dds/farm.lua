@@ -982,27 +982,15 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 7 ke bawah sejauh 38 stud
-			-- Mendeteksi tanah/lembah hingga 30 stud ke bawah (seperti tanah merah di Y = -25 s/d -30)
-			-- Menolak dasar hampa jurang (jika tidak ada tanah dalam jarak 30 stud ke bawah atau Y < -38)
+			-- Pemindaian permukaan daratan: Menembak dari ketinggian aman di atas refY (refY + 45) ke bawah sejauh 110 stud
+			-- Mendeteksi flyover / jembatan / tanjakan tanjakan ke atas (hingga Y = +50) dan turunan lembah ke bawah (hingga Y = -38)
+			local startY = math.max((refY or 0) + 45, 60)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
-				if hit and hit.Position.Y >= (refY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
+				if hit and hit.Position.Y >= -38 and hit.Position.Y <= (startY + 5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
 					return hit.Position.Y + 0.3
-				end
-			end
-
-			-- 2. Lapis Cadangan: HANYA jika refY belum ada (awal eksekusi script / baru spawn)
-			if not refY or refY < -35 then
-				for _, off in ipairs(offsets) do
-					local pos = probePos + off
-					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
-					if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-						return hit.Position.Y + 0.3
-					end
 				end
 			end
 
