@@ -682,7 +682,7 @@ local success, err = pcall(function()
 	local function attemptVoidBridge(car, fromPos, toPos)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		local totalDistToDest = flatDiff.Magnitude
-		if totalDistToDest < 100 then return nil end
+		if totalDistToDest < 25 then return nil end
 		local baseDir = flatDiff.Unit
 
 		-- Pre-stream daratan tujuan di seberang
@@ -732,11 +732,12 @@ local success, err = pcall(function()
 
 				if isGround then
 					refY = solidY
-					-- 🌉 Validasi Jurang Nyata: Jurang harus memiliki celah hampa udara minimal 45 stud berturut-turut!
-					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 45) then
+					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 35) then
 						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
-						-- 🛡️ Forward Progress Gate: Pastikan titik pendaratan benar-benar LEBIH DEKAT ke tujuan minimal 40 stud!
-						if landDistToDest < totalDistToDest - 40 then
+						-- 🛡️ Forward Progress Gate: Adaptif berdasarkan jarak total
+						-- Jarak jauh (>200): butuh maju 40 stud. Jarak dekat (<200): cukup maju 5 stud saja
+						local minProgress = totalDistToDest > 200 and 40 or 5
+						if landDistToDest < totalDistToDest - minProgress then
 							local landPos = Vector3.new(px, solidY + 0.5, pz)
 							return teleportVehicleAcrossVoid(car, landPos, baseDir)
 						end
@@ -1091,7 +1092,7 @@ local success, err = pcall(function()
 					return
 				end
 
-				if (nowClock - lastBridgeScanTime) >= 0.25 and dist >= 100 then
+				if (nowClock - lastBridgeScanTime) >= 0.25 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
