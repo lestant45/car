@@ -47,6 +47,9 @@ local success, err = pcall(function()
 	local taxiPickupAddr      = ""
 	local taxiDropAddr        = ""
 
+	local autoRideGoToggle        = nil
+	local restartAutoRideGoToggle = nil
+
 	local changeTeam          = nil
 	local mountBike           = nil
 	local ensureDriverSeated  = nil
@@ -1836,10 +1839,41 @@ local success, err = pcall(function()
 		if taxiOverlayPoller then return end
 		taxiOverlayPoller = task.spawn(function()
 			local lastKeepAliveTime = tick()
+			local lastTrackedPos = nil
+			local lastPosMovedTime = tick()
+
 			while taxiActive do
 				task.wait(0.25)
 				if taxiActive and not isResettingTaxi then
 					pcall(function()
+						-- 0. Watchdog Diam di Satu Koordinat > 10 Detik:
+						local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+						local curPos = root and root.Position
+						if curPos then
+							if not lastTrackedPos then
+								lastTrackedPos = curPos
+								lastPosMovedTime = tick()
+							else
+								local dPos = (curPos - lastTrackedPos).Magnitude
+								if dPos > 3.5 then
+									lastTrackedPos = curPos
+									lastPosMovedTime = tick()
+								else
+									-- Jika tidak berpindah posisi selama > 10 detik
+									if (tick() - lastPosMovedTime >= 10.0) and not isResettingTaxi then
+										lastPosMovedTime = tick()
+										lastTrackedPos = nil
+										task.spawn(function()
+											if restartAutoRideGoToggle then
+												restartAutoRideGoToggle()
+											end
+										end)
+										return
+									end
+								end
+							end
+						end
+
 						local pg = player:FindFirstChild("PlayerGui")
 						local phone = pg and pg:FindFirstChild("Phone")
 						local rideGO = phone and phone:FindFirstChild("RideGO", true)
@@ -1957,11 +1991,30 @@ local success, err = pcall(function()
 		end
 	end
 
+	-- 🔄 Programmatic Toggle Cycle Reset (Mematikan toggle UI -> tunggu 1s -> nyalakan lagi)
+	restartAutoRideGoToggle = function()
+		if isResettingTaxi then return end
+		isResettingTaxi = true
+		UI.Notify("🔄 Idle Stuck (10s)", "Diam di satu koordinat >10s. Mereset Toggle RideGO...", 2.5, "warning")
+		if autoRideGoToggle and autoRideGoToggle.Set then
+			autoRideGoToggle.Set(false)
+			task.wait(1.0)
+			if autoRideGoToggle.Get and not autoRideGoToggle.Get() then
+				autoRideGoToggle.Set(true)
+			end
+		else
+			toggleAutoRideGO(false)
+			task.wait(1.0)
+			toggleAutoRideGO(true)
+		end
+		isResettingTaxi = false
+	end
+
 	------------------------------------------------
 	-- 🖼️ 3. UI COMPONENTS IN FARM TAB
 	------------------------------------------------
 	UI.AddSection(tab, "RideGO Taxi Auto-Driver")
-	UI.AddToggle(tab, "Auto RideGO Taxi", "Goes online, auto-accepts orders & smoothly navigates to drops", Config.autoRideGO, function(state)
+	autoRideGoToggle = UI.AddToggle(tab, "Auto RideGO Taxi", "Goes online, auto-accepts orders & smoothly navigates to drops", Config.autoRideGO, function(state)
 		toggleAutoRideGO(state)
 	end)
 
