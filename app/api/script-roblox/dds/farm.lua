@@ -105,9 +105,8 @@ local success, err = pcall(function()
 						local txt = (g.Text or ""):lower()
 						if txt:find("verifying your trip route")
 							or txt:find("memverifikasi rute")
-							or txt:find("hold on a moment")
-							or txt:find("verifying trip")
-							or txt:find("verifying route")
+							or (txt:find("verif") and txt:find("route"))
+							or (txt:find("verif") and txt:find("rute"))
 						then
 							found = true
 							return
@@ -130,7 +129,11 @@ local success, err = pcall(function()
 				local subText = statusStrip and statusStrip:FindFirstChild("SubText")
 				if subText and subText.Visible then
 					local txt = (subText.Text or ""):lower()
-					if txt:find("wait a moment") or txt:find("verif") then
+					if txt:find("verifying your trip route")
+						or txt:find("memverifikasi rute")
+						or (txt:find("verif") and txt:find("route"))
+						or (txt:find("verif") and txt:find("rute"))
+					then
 						found = true
 						return
 					end
@@ -149,7 +152,11 @@ local success, err = pcall(function()
 						for _, g in ipairs(sg:GetDescendants()) do
 							if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
 								local txt = (g.Text or ""):lower()
-								if txt:find("verifying") or txt:find("memverifikasi") then
+								if txt:find("verifying your trip route")
+									or txt:find("memverifikasi rute")
+									or (txt:find("verif") and txt:find("route"))
+									or (txt:find("verif") and txt:find("rute"))
+								then
 									found = true
 									return
 								end
@@ -1906,8 +1913,8 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 3. Watchdog Verifikasi Rute: Jika teks verifikasi rute muncul saat membawa penumpang / order aktif
-						if (taxiBusy or isPassengerOnboard() or isDrivingActive) and isRouteVerificationStuck() then
+						-- 3. Watchdog Verifikasi Rute: HANYA jika sedang aktif membawa penumpang menuju tujuan
+						if isPassengerOnboard() and (taxiState == "DRIVING_TO_DESTINATION" or taxiState == "DROPPING_OFF") and isRouteVerificationStuck() then
 							task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Verifikasi Rute")
 							return
 						end
