@@ -1838,6 +1838,7 @@ local success, err = pcall(function()
 		if taxiOverlayPoller then return end
 		taxiOverlayPoller = task.spawn(function()
 			local lastKeepAliveTime = tick()
+			local lastAfkCameraTime = tick()
 			local lastTrackedPos = nil
 			local lastPosMovedTime = tick()
 
@@ -1949,6 +1950,22 @@ local success, err = pcall(function()
 							if TaxiEvent then
 								TaxiEvent:FireServer("GoOnline")
 							end
+						end
+
+						-- 5. Anti-AFK Camera Keep-Alive (setiap 25s tanpa disallowed service)
+						if (tick() - lastAfkCameraTime >= 25) then
+							lastAfkCameraTime = tick()
+							pcall(function()
+								local cam = workspace.CurrentCamera
+								if cam then
+									local cf = cam.CFrame
+									cam.CFrame = cf * CFrame.Angles(0, 0.0004, 0)
+									task.wait(0.04)
+									if cam then
+										cam.CFrame = cf
+									end
+								end
+							end)
 						end
 					end)
 				end

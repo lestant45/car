@@ -100,11 +100,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
 	------------------------------------------------
-	-- Adonis Detection Avoided:
-	--   ❌ game:GetService("VirtualUser")         → Adonis flags this, kicks with Error 267
-	--   ❌ hookmetamethod on Idled signal          → Adonis AntiAntiIdle trip 0xC0FA6
-	--   ✅ mousemoverel (executor-native)          → Invisible to Adonis, no service access
-	--   ✅ Humanoid:ChangeState()                  → Fallback, resets idle timer safely
+	-- Adonis-Safe Camera Oscillation (Resets idle timer naturally without disallowed services or physics changes)
 	local antiAfkConn = nil
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
@@ -116,25 +112,17 @@ local success, err = pcall(function()
 		if state then
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
-				if tick() - lastTick > 55 then
+				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
-						-- Method 1: Executor mouse nudge (undetectable, preferred)
-						if mousemoverel then
-							mousemoverel(0, 1)
-							task.defer(function()
-								mousemoverel(0, -1)
-							end)
-						elseif mouse1press then
-							-- Method 2: Simulate mouse click off-screen
-							mouse1press()
-							task.defer(mouse1release)
-						else
-							-- Method 3: Humanoid state ping (pure Lua, no executor API needed)
-							local char = player.Character
-							local hum = char and char:FindFirstChildOfClass("Humanoid")
-							if hum then
-								hum:ChangeState(Enum.HumanoidStateType.Running)
+						-- Safe Camera Oscillation (Works seamlessly on PC & Redfinger)
+						local cam = workspace.CurrentCamera
+						if cam then
+							local cf = cam.CFrame
+							cam.CFrame = cf * CFrame.Angles(0, 0.0004, 0)
+							task.wait(0.04)
+							if cam then
+								cam.CFrame = cf
 							end
 						end
 					end)
@@ -165,16 +153,33 @@ local success, err = pcall(function()
 	-- ⚡ AUTO REJOIN ON ERROR / DISCONNECT
 	------------------------------------------------
 	local function setupAutoRejoin()
-		-- GuiService.ErrorMessageChanged is disallowed (Error 267)
-		-- Use Players.LocalPlayer.OnTeleport or detect connection loss via heartbeat gap
-		local Players = game:GetService("Players")
-		Players.LocalPlayer.OnTeleport:Connect(function(state)
-			if state == Enum.TeleportState.Failed and _G.HipHubConfig.misc.autoRejoin then
-				task.wait(2)
-				pcall(function()
-					TeleportService:Teleport(game.PlaceId)
+		-- 1. Deteksi via CoreGui Prompt Overlay (ErrorPrompt / Disconnect modal)
+		pcall(function()
+			local cGui = game:GetService("CoreGui")
+			local promptGui = cGui:WaitForChild("RobloxPromptGui", 5)
+			local overlay = promptGui and promptGui:WaitForChild("promptOverlay", 5)
+			if overlay then
+				overlay.ChildAdded:Connect(function(child)
+					if _G.HipHubConfig.misc.autoRejoin and (child.Name == "ErrorPrompt" or child.Name:find("Prompt") or child.Name:find("Error")) then
+						task.wait(2.5)
+						pcall(function()
+							TeleportService:Teleport(game.PlaceId, player)
+						end)
+					end
 				end)
 			end
+		end)
+
+		-- 2. Deteksi Teleport Failed
+		pcall(function()
+			player.OnTeleport:Connect(function(state)
+				if state == Enum.TeleportState.Failed and _G.HipHubConfig.misc.autoRejoin then
+					task.wait(2.5)
+					pcall(function()
+						TeleportService:Teleport(game.PlaceId, player)
+					end)
+				end
+			end)
 		end)
 	end
 	pcall(setupAutoRejoin)
