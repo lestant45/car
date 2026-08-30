@@ -195,12 +195,249 @@ local success, err = pcall(function()
 		_G.HipHubConfig.misc.autoRejoin = state
 	end)
 
-	UI.AddSection(tab, "Performance & Resource Optimization")
-	UI.AddToggle(tab, "Black Screen (Overnight AFK)", "Disables 3D viewport rendering to drop CPU/GPU usage to near zero", _G.HipHubConfig.misc.blackScreenEnabled, function(state)
+	------------------------------------------------
+	-- 🖤 BLACK SCREEN OVERNIGHT DASHBOARD
+	------------------------------------------------
+	_G.HipHubScriptStartTime = _G.HipHubScriptStartTime or tick()
+
+	local function getLivePlayerMoney()
+		-- 1. Scan PlayerGui for visible Rupiah text labels (e.g. "Rp. 317 244 372")
+		local pGui = player:FindFirstChild("PlayerGui")
+		if pGui then
+			for _, g in ipairs(pGui:GetDescendants()) do
+				if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible and g.TextTransparency < 0.5 then
+					local txt = g.Text
+					if txt and (txt:find("Rp%.") or txt:find("Rp ") or txt:find("RP") or txt:find("TOTAL %(Rp%)")) then
+						local clean = txt:match("[Rr][Pp]%.?%s*[%d%s%.,]+")
+						if clean and #clean > 3 then
+							return clean
+						end
+					end
+				end
+			end
+		end
+
+		-- 2. Fallback: leaderstats / Data folder Values
+		local stats = player:FindFirstChild("leaderstats") or player:FindFirstChild("Data") or player:FindFirstChild("Stats")
+		if stats then
+			for _, v in ipairs(stats:GetChildren()) do
+				if v:IsA("ValueBase") then
+					local n = v.Name:lower()
+					if n:find("money") or n:find("cash") or n:find("rp") or n:find("rupiah") or n:find("balance") then
+						local val = tonumber(v.Value) or 0
+						local formatted = tostring(val):reverse():gsub("(%d%d%d)", "%1."):reverse():gsub("^%.", "")
+						return "Rp " .. formatted
+					end
+				end
+			end
+		end
+
+		return "Rp 0"
+	end
+
+	local blackScreenGui = nil
+	local blackScreenLoop = nil
+
+	local function toggleBlackScreen(state)
 		_G.HipHubConfig.misc.blackScreenEnabled = state
+
 		pcall(function()
 			RunService:Set3dRenderingEnabled(not state)
 		end)
+
+		if state then
+			if blackScreenGui then
+				blackScreenGui:Destroy()
+				blackScreenGui = nil
+			end
+
+			local pGui = player:FindFirstChild("PlayerGui")
+			if not pGui then return end
+
+			local sg = Instance.new("ScreenGui")
+			sg.Name = "HipHub_BlackScreenOverlay"
+			sg.ResetOnSpawn = false
+			sg.DisplayOrder = 99999
+			sg.IgnoreGuiInset = true
+			sg.Parent = pGui
+			blackScreenGui = sg
+
+			local bg = Instance.new("Frame")
+			bg.Name = "Background"
+			bg.Size = UDim2.new(1, 0, 1, 0)
+			bg.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+			bg.BackgroundTransparency = 0
+			bg.BorderSizePixel = 0
+			bg.Parent = sg
+
+			-- Card Container
+			local card = Instance.new("Frame")
+			card.Name = "Card"
+			card.Size = UDim2.new(0, 480, 0, 310)
+			card.AnchorPoint = Vector2.new(0.5, 0.5)
+			card.Position = UDim2.new(0.5, 0, 0.5, 0)
+			card.BackgroundColor3 = Color3.fromRGB(15, 20, 32)
+			card.BorderSizePixel = 0
+			card.Parent = bg
+
+			local cardCorner = Instance.new("UICorner")
+			cardCorner.CornerRadius = UDim.new(0, 16)
+			cardCorner.Parent = card
+
+			local cardStroke = Instance.new("UIStroke")
+			cardStroke.Color = Color3.fromRGB(0, 212, 255)
+			cardStroke.Thickness = 1.5
+			cardStroke.Parent = card
+
+			-- Title
+			local title = Instance.new("TextLabel")
+			title.Size = UDim2.new(1, -40, 0, 36)
+			title.Position = UDim2.new(0, 20, 0, 18)
+			title.BackgroundTransparency = 1
+			title.Text = "🏎️ HIPHUB DDS — AFK DASHBOARD"
+			title.TextColor3 = Color3.fromRGB(0, 212, 255)
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 18
+			title.TextXAlignment = Enum.TextXAlignment.Center
+			title.Parent = card
+
+			-- User info label
+			local userLabel = Instance.new("TextLabel")
+			userLabel.Size = UDim2.new(1, -40, 0, 24)
+			userLabel.Position = UDim2.new(0, 20, 0, 62)
+			userLabel.BackgroundTransparency = 1
+			userLabel.Text = "👤 User: " .. player.DisplayName .. " (@" .. player.Name .. ")"
+			userLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+			userLabel.Font = Enum.Font.GothamMedium
+			userLabel.TextSize = 14
+			userLabel.TextXAlignment = Enum.TextXAlignment.Center
+			userLabel.Parent = card
+
+			-- Divider
+			local div = Instance.new("Frame")
+			div.Size = UDim2.new(1, -60, 0, 1)
+			div.Position = UDim2.new(0, 30, 0, 96)
+			div.BackgroundColor3 = Color3.fromRGB(35, 45, 70)
+			div.BorderSizePixel = 0
+			div.Parent = card
+
+			-- Stats Section: Runtime Box
+			local timeBox = Instance.new("Frame")
+			timeBox.Size = UDim2.new(0.48, -15, 0, 80)
+			timeBox.Position = UDim2.new(0, 20, 0, 110)
+			timeBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+			timeBox.BorderSizePixel = 0
+			timeBox.Parent = card
+
+			local tbCorner = Instance.new("UICorner")
+			tbCorner.CornerRadius = UDim.new(0, 10)
+			tbCorner.Parent = timeBox
+
+			local timeTitle = Instance.new("TextLabel")
+			timeTitle.Size = UDim2.new(1, 0, 0, 24)
+			timeTitle.Position = UDim2.new(0, 0, 0, 8)
+			timeTitle.BackgroundTransparency = 1
+			timeTitle.Text = "⏱️ SCRIPT RUNTIME"
+			timeTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
+			timeTitle.Font = Enum.Font.GothamBold
+			timeTitle.TextSize = 11
+			timeTitle.Parent = timeBox
+
+			local timeVal = Instance.new("TextLabel")
+			timeVal.Size = UDim2.new(1, 0, 0, 36)
+			timeVal.Position = UDim2.new(0, 0, 0, 34)
+			timeVal.BackgroundTransparency = 1
+			timeVal.Text = "00h 00m 00s"
+			timeVal.TextColor3 = Color3.fromRGB(0, 212, 255)
+			timeVal.Font = Enum.Font.GothamBold
+			timeVal.TextSize = 16
+			timeVal.Parent = timeBox
+
+			-- Stats Section: Money Box
+			local moneyBox = Instance.new("Frame")
+			moneyBox.Size = UDim2.new(0.48, -15, 0, 80)
+			moneyBox.Position = UDim2.new(0.52, 0, 0, 110)
+			moneyBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+			moneyBox.BorderSizePixel = 0
+			moneyBox.Parent = card
+
+			local mbCorner = Instance.new("UICorner")
+			mbCorner.CornerRadius = UDim.new(0, 10)
+			mbCorner.Parent = moneyBox
+
+			local moneyTitle = Instance.new("TextLabel")
+			moneyTitle.Size = UDim2.new(1, 0, 0, 24)
+			moneyTitle.Position = UDim2.new(0, 0, 0, 8)
+			moneyTitle.BackgroundTransparency = 1
+			moneyTitle.Text = "💰 CURRENT BALANCE"
+			moneyTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
+			moneyTitle.Font = Enum.Font.GothamBold
+			moneyTitle.TextSize = 11
+			moneyTitle.Parent = moneyBox
+
+			local moneyVal = Instance.new("TextLabel")
+			moneyVal.Size = UDim2.new(1, -10, 0, 36)
+			moneyVal.Position = UDim2.new(0, 5, 0, 34)
+			moneyVal.BackgroundTransparency = 1
+			moneyVal.Text = getLivePlayerMoney()
+			moneyVal.TextColor3 = Color3.fromRGB(0, 255, 170)
+			moneyVal.Font = Enum.Font.GothamBold
+			moneyVal.TextSize = 15
+			moneyVal.Parent = moneyBox
+
+			-- Status Badge
+			local statusBadge = Instance.new("TextLabel")
+			statusBadge.Size = UDim2.new(1, -40, 0, 26)
+			statusBadge.Position = UDim2.new(0, 20, 0, 205)
+			statusBadge.BackgroundTransparency = 1
+			statusBadge.Text = "🟢 Auto-Farm Running | 3D Rendering: OFF (Low GPU Mode)"
+			statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
+			statusBadge.Font = Enum.Font.GothamMedium
+			statusBadge.TextSize = 12
+			statusBadge.TextXAlignment = Enum.TextXAlignment.Center
+			statusBadge.Parent = card
+
+			-- Footer note
+			local footer = Instance.new("TextLabel")
+			footer.Size = UDim2.new(1, -40, 0, 36)
+			footer.Position = UDim2.new(0, 20, 0, 245)
+			footer.BackgroundTransparency = 1
+			footer.Text = "💡 Tip: Buka menu UI HipHub atau matikan 'Black Screen' untuk kembali ke grafis normal."
+			footer.TextColor3 = Color3.fromRGB(120, 135, 160)
+			footer.Font = Enum.Font.Gotham
+			footer.TextSize = 11
+			footer.TextWrapped = true
+			footer.TextXAlignment = Enum.TextXAlignment.Center
+			footer.Parent = card
+
+			-- Live Updating Loop
+			blackScreenLoop = task.spawn(function()
+				while _G.HipHubConfig.misc.blackScreenEnabled and blackScreenGui do
+					pcall(function()
+						local elapsed = math.floor(tick() - _G.HipHubScriptStartTime)
+						local hrs = math.floor(elapsed / 3600)
+						local mins = math.floor((elapsed % 3600) / 60)
+						local secs = elapsed % 60
+						timeVal.Text = string.format("%02dh %02dm %02ds", hrs, mins, secs)
+						moneyVal.Text = getLivePlayerMoney()
+					end)
+					task.wait(1)
+				end
+			end)
+		else
+			if blackScreenLoop then
+				task.cancel(blackScreenLoop)
+				blackScreenLoop = nil
+			end
+			if blackScreenGui then
+				blackScreenGui:Destroy()
+				blackScreenGui = nil
+			end
+		end
+	end
+
+	UI.AddToggle(tab, "Black Screen (Overnight AFK)", "Disables 3D viewport rendering with a live stats dashboard", _G.HipHubConfig.misc.blackScreenEnabled, function(state)
+		toggleBlackScreen(state)
 	end)
 
 	UI.AddToggle(tab, "Low FPS Mode (15 FPS Cap)", "Limits framerate for smooth multi-instance overnight background farming", _G.HipHubConfig.misc.capFpsEnabled, function(state)
