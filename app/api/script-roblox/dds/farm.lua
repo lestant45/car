@@ -885,12 +885,43 @@ local success, err = pcall(function()
 				end
 
 				local origin = Vector3.new(px, math.max(refY + 60, 80), pz)
-				local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), brp)
+				local solidY = nil
+				local localBrp = RaycastParams.new()
+				local localFilter = table.clone(filter)
+				localBrp.FilterType = Enum.RaycastFilterType.Exclude
 
-				local solidY = hit and hit.Position.Y
-				local isGround = solidY
-					and solidY >= -30 and solidY <= 350
-					and (not hit.Normal or hit.Normal.Y >= 0.12)
+				for attempt = 1, 6 do
+					localBrp.FilterDescendantsInstances = localFilter
+					local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), localBrp)
+					if not hit then break end
+
+					local inst = hit.Instance
+					local mat = inst.Material
+					local nameLower = inst.Name:lower()
+					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
+					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
+					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
+
+					local isRoofOrObstacle = (mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass)
+						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
+						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
+						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
+						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+
+					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
+
+					if isRoofOrObstacle or isBuildingModel then
+						table.insert(localFilter, inst)
+						origin = Vector3.new(px, hit.Position.Y - 0.4, pz)
+					else
+						if hit.Position.Y >= -30 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+							solidY = hit.Position.Y
+						end
+						break
+					end
+				end
+
+				local isGround = solidY ~= nil
 
 				if isGround then
 					refY = solidY
@@ -973,6 +1004,13 @@ local success, err = pcall(function()
 		rayParams.FilterDescendantsInstances = rayFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
+		local nonDrivableMats = {
+			[Enum.Material.ClayRoofTiles] = true,
+			[Enum.Material.WoodPlanks] = true,
+			[Enum.Material.Fabric] = true,
+			[Enum.Material.Glass] = true
+		}
+
 		local function probeGround(probePos, refY)
 			local offsets = {
 				Vector3.zero,
@@ -982,15 +1020,45 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- Pemindaian permukaan daratan: Menembak dari ketinggian aman di atas refY (refY + 45) ke bawah sejauh 110 stud
-			-- Mendeteksi flyover / jembatan / tanjakan tanjakan ke atas (hingga Y = +50) dan turunan lembah ke bawah (hingga Y = -38)
 			local startY = math.max((refY or 0) + 45, 60)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
-				if hit and hit.Position.Y >= -38 and hit.Position.Y <= (startY + 5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
-					return hit.Position.Y + 0.3
+
+				local localFilter = table.clone(rayFilter)
+				local localParams = RaycastParams.new()
+				localParams.FilterType = Enum.RaycastFilterType.Exclude
+
+				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
+				for attempt = 1, 6 do
+					localParams.FilterDescendantsInstances = localFilter
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), localParams)
+					if not hit then break end
+
+					local inst = hit.Instance
+					local mat = inst.Material
+					local nameLower = inst.Name:lower()
+					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
+					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
+					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
+
+					local isRoofOrObstacle = nonDrivableMats[mat]
+						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
+						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
+						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
+						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+
+					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
+
+					if isRoofOrObstacle or isBuildingModel then
+						table.insert(localFilter, inst)
+						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
+					else
+						if hit.Position.Y >= -38 and hit.Position.Y <= (startY + 5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+							return hit.Position.Y + 0.3
+						end
+						break
+					end
 				end
 			end
 
