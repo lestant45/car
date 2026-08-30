@@ -377,11 +377,11 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- 🛣️ JANGAN PERNAH HAPUS JALANAN, FOLDER JL_ (JL_MANAHAN, JL_KLATEN, DLL), ATAU SEMUA ISINYA!
+		-- 🛣️ JANGAN PERNAH HAPUS FOLDER JALAN ATAU AREA MANAHAN (JL_MANAHAN, MANAHAN_TOWN_SQUARE, DLL)!
 		local cur = obj
 		while cur and cur ~= workspace and cur ~= game do
 			local n = cur.Name:upper()
-			if n:sub(1, 3) == "JL_" or n:find("JALAN") or n:find("STREET") or n:find("ROAD") or n:find("ROADSNEW") or n:find("TROTOARNEW") then
+			if n:find("MANAHAN") or n:sub(1, 3) == "JL_" or n:find("JALAN") or n:find("STREET") or n:find("ROAD") or n:find("ROADSNEW") or n:find("TROTOARNEW") then
 				return false
 			end
 			cur = cur.Parent
@@ -1090,7 +1090,12 @@ local success, err = pcall(function()
 
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.CanCollide = false
+						local pname = part.Name:lower()
+						if pname:find("tire") or pname:find("wheel") or pname == "dds_collision" or pname == "primarypart" then
+							part.CanCollide = true
+						else
+							part.CanCollide = false
+						end
 						part.Anchored = false
 					end
 				end
@@ -1124,13 +1129,13 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
+				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang (Native Seat Weld Friendly)
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
 						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
 						hum.Sit = true
-						seat:Sit(hum)
+						pcall(function() seat:Sit(hum) end)
 					end
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
