@@ -57,38 +57,13 @@ local success, err = pcall(function()
 
 	local function isRouteVerificationStuck()
 		local found = false
-		-- 1. Scan PlayerGui
-		pcall(function()
-			local pGui = player:FindFirstChild("PlayerGui")
-			if pGui then
-				for _, g in ipairs(pGui:GetDescendants()) do
-					if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
-						local txt = (g.Text or ""):lower()
-						if txt:find("verifying your trip route")
-							or txt:find("memverifikasi rute")
-							or txt:find("verifikasi rute")
-							or txt:find("verifying your route")
-							or txt:find("verifying trip")
-							or txt:find("verifying route")
-							or txt:find("hold on a moment")
-							or txt:find("please wait a moment")
-							or txt:find("memverifikasi perjalanan")
-							or txt:find("verifikasi perjalanan")
-						then
-							found = true
-							return
-						end
-					end
-				end
-			end
-		end)
-		if found then return true end
 
-		-- 2. Scan CoreGui (RobloxGui SendNotification toast)
+		-- 1. Scan NotificationFrame di CoreGui (Sangat cepat & zero-lag: hanya memeriksa toast notifikasi aktif)
 		pcall(function()
 			local cGui = game:GetService("CoreGui")
-			if cGui then
-				for _, g in ipairs(cGui:GetDescendants()) do
+			local notifFrame = cGui and cGui:FindFirstChild("RobloxGui") and cGui.RobloxGui:FindFirstChild("NotificationFrame")
+			if notifFrame then
+				for _, g in ipairs(notifFrame:GetDescendants()) do
 					if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
 						local txt = (g.Text or ""):lower()
 						if txt:find("verifying your trip route")
@@ -106,7 +81,7 @@ local success, err = pcall(function()
 		end)
 		if found then return true end
 
-		-- 3. Scan Phone RideGO OrdersPage StatusStrip
+		-- 2. Scan StatusStrip di Phone RideGO OrdersPage
 		pcall(function()
 			local pGui = player:FindFirstChild("PlayerGui")
 			local phone = pGui and pGui:FindFirstChild("Phone")
@@ -114,12 +89,35 @@ local success, err = pcall(function()
 			local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
 			local ordersPage = appFrame and appFrame:FindFirstChild("PageContainer") and appFrame.PageContainer:FindFirstChild("OrdersPage")
 			if ordersPage and ordersPage.Visible then
-				local subText = ordersPage:FindFirstChild("StatusStrip", true) and ordersPage.StatusStrip:FindFirstChild("SubText")
+				local statusStrip = ordersPage:FindFirstChild("StatusStrip", true)
+				local subText = statusStrip and statusStrip:FindFirstChild("SubText")
 				if subText and subText.Visible then
 					local txt = (subText.Text or ""):lower()
 					if txt:find("wait a moment") or txt:find("verif") then
 						found = true
 						return
+					end
+				end
+			end
+		end)
+		if found then return true end
+
+		-- 3. Fallback scan ringkas di PlayerGui Notification / Dialog frames
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			if pGui then
+				for _, name in ipairs({ "NotificationGui", "Notification", "DialogGui", "AlertGui" }) do
+					local sg = pGui:FindFirstChild(name)
+					if sg and sg:IsA("ScreenGui") and sg.Enabled then
+						for _, g in ipairs(sg:GetDescendants()) do
+							if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
+								local txt = (g.Text or ""):lower()
+								if txt:find("verifying") or txt:find("memverifikasi") then
+									found = true
+									return
+								end
+							end
+						end
 					end
 				end
 			end
@@ -1114,7 +1112,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 8.0 or isRouteVerificationStuck() then
+			if dist <= 8.0 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
