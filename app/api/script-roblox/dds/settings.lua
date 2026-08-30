@@ -201,23 +201,30 @@ local success, err = pcall(function()
 	_G.HipHubScriptStartTime = _G.HipHubScriptStartTime or tick()
 
 	local function getLivePlayerMoney()
-		-- 1. Scan PlayerGui for visible Rupiah text labels (e.g. "Rp. 317 244 372")
 		local pGui = player:FindFirstChild("PlayerGui")
 		if pGui then
+			-- Scan all text elements (even if phone frame is closed / hidden)
 			for _, g in ipairs(pGui:GetDescendants()) do
-				if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible and g.TextTransparency < 0.5 then
+				if g:IsA("TextLabel") or g:IsA("TextButton") then
 					local txt = g.Text
-					if txt and (txt:find("Rp%.") or txt:find("Rp ") or txt:find("RP") or txt:find("TOTAL %(Rp%)")) then
-						local clean = txt:match("[Rr][Pp]%.?%s*[%d%s%.,]+")
-						if clean and #clean > 3 then
-							return clean
+					if txt and #txt >= 5 then
+						-- Format like "Rp. 357 223 686" or "Rp 357.223.686" or "TOTAL (Rp) 357 223"
+						-- Avoid trip fare like "Tarif Rp 48.000" or distance "0.01 km"
+						local lowerTxt = txt:lower()
+						if not lowerTxt:find("tarif") and not lowerTxt:find("fare") and not lowerTxt:find("km") and not lowerTxt:find("biaya") then
+							if txt:find("Rp%.") or txt:find("Rp ") or txt:find("RP") or txt:find("TOTAL %(Rp%)") then
+								local clean = txt:match("[Rr][Pp]%.?%s*[%d%s%.,]+")
+								if clean and #clean > 4 then
+									return clean
+								end
+							end
 						end
 					end
 				end
 			end
 		end
 
-		-- 2. Fallback: leaderstats / Data folder Values
+		-- Fallback: leaderstats / Data folder Values
 		local stats = player:FindFirstChild("leaderstats") or player:FindFirstChild("Data") or player:FindFirstChild("Stats")
 		if stats then
 			for _, v in ipairs(stats:GetChildren()) do

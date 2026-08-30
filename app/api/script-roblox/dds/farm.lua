@@ -680,26 +680,30 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- 1. Lapis Utama (Under-Ceiling Tracker): Menembak dari refY + 7 ke bawah
-			-- Karena atap genteng berada di Y = 37.79 dan lantai di Y = 0.5, raycast dari Y = 7.5 akan lewat di bawah genteng
+			-- 1. Lapis Utama: Menembak dari refY + 7 ke bawah sejauh 18 stud
+			-- Jalanan daratan valid berada di rentang [refY - 9, refY + 5].
+			-- Jika permukaan drop > 9 stud ke bawah (bibir tebing / dasar laut jurang di Y = -18), tolak sebagai jurang!
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -45, 0), rayParams)
-				if hit and hit.Position.Y >= -30 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -18, 0), rayParams)
+				if hit and hit.Position.Y >= (refY - 9) and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
 			end
 
-			-- 2. Lapis Cadangan (Sky Fallback): Jika motor baru spawn / turun dari tebing curam
-			for _, off in ipairs(offsets) do
-				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, math.max(refY + 30, 50), pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -150, 0), rayParams)
-				if hit and hit.Position.Y >= -30 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-					return hit.Position.Y + 0.3
+			-- 2. Lapis Cadangan: HANYA jika refY belum ada (awal eksekusi script / baru spawn)
+			if not refY or refY < -10 then
+				for _, off in ipairs(offsets) do
+					local pos = probePos + off
+					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -100, 0), rayParams)
+					if hit and hit.Position.Y >= -5 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+						return hit.Position.Y + 0.3
+					end
 				end
 			end
+
 			return nil
 		end
 
