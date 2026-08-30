@@ -1505,15 +1505,57 @@ local success, err = pcall(function()
 		return nil
 	end
 
+	local function getPassengerSeat(car)
+		if not car then return nil end
+		for _, d in ipairs(car:GetDescendants()) do
+			if (d:IsA("Seat") or d:IsA("VehicleSeat")) and d.Name ~= "DriveSeat" and not d.Name:find("Drive") then
+				return d
+			end
+		end
+		return nil
+	end
+
 	local function isPassengerOnboard()
 		local activeMissions = workspace:FindFirstChild("ActiveMissions")
 		local passenger = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
-		if passenger and passenger.Parent then
-			local hrp = passenger:FindFirstChild("HumanoidRootPart")
-			if hrp then
+		if not (passenger and passenger.Parent) then
+			passengerSeated = false
+			return false
+		end
+
+		local car, driveSeat = getPlayerVehicle()
+		local pSeat = getPassengerSeat(car)
+		local hum = passenger:FindFirstChildOfClass("Humanoid")
+		local hrp = passenger:FindFirstChild("HumanoidRootPart")
+
+		-- 1. Cek apakah Humanoid penumpang terhubung ke SeatPart motor
+		if hum and hum.SeatPart then
+			passengerSeated = true
+			return true
+		end
+
+		-- 2. Cek apakah kursi penumpang memiliki Occupant
+		if pSeat and pSeat.Occupant then
+			passengerSeated = true
+			return true
+		end
+
+		-- 3. Cek apakah ada SeatWeld / weld pengait di kursi atau badan penumpang
+		if passenger:FindFirstChild("SeatWeld", true) or (pSeat and pSeat:FindFirstChild("SeatWeld", true)) then
+			passengerSeated = true
+			return true
+		end
+
+		-- 4. Cek jarak fisik antara posisi penumpang dan kursi motor (harus sangat dekat <= 3.0 studs)
+		local refPos = pSeat and pSeat.Position or (driveSeat and driveSeat.Position)
+		if refPos and hrp then
+			local dist = (hrp.Position - refPos).Magnitude
+			if dist <= 3.0 then
+				passengerSeated = true
 				return true
 			end
 		end
+
 		passengerSeated = false
 		return false
 	end
