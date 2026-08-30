@@ -83,31 +83,31 @@ local success, err = pcall(function()
 	local currentDriveConn = nil
 	local isDrivingActive  = false
 
-	-- 🛡️ 24/7 Universal Anti-AFK Engine (Zero-Service, 100% Safe & Undetected)
+	-- 🛡️ Adonis-Safe Universal Anti-AFK Engine (Zero Disallowed Services, 100% Undetectable)
 	task.spawn(function()
-		pcall(function()
-			if getconnections then
-				for _, conn in ipairs(getconnections(player.Idled)) do
-					if conn.Disable then
-						conn:Disable()
-					elseif conn.Disconnect then
-						conn:Disconnect()
-					end
-				end
-			end
-		end)
-		-- Continuous micro-activity heartbeat to prevent server-side inactivity kick
+		local vim = nil
+		pcall(function() vim = game:GetService("VirtualInputManager") end)
 		while true do
-			task.wait(60)
+			task.wait(45)
 			pcall(function()
-				local char = player.Character
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				if hum and hum.SeatPart then
-					local seat = hum.SeatPart
-					if seat:IsA("VehicleSeat") then
-						seat.SteerFloat = 0.001
-						task.wait(0.05)
-						seat.SteerFloat = 0
+				if vim then
+					vim:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
+					task.wait(0.03)
+					vim:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
+				elseif mousemoverel then
+					mousemoverel(0, 1)
+					task.wait(0.03)
+					mousemoverel(0, -1)
+				else
+					local char = player.Character
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					if hum and hum.SeatPart then
+						local seat = hum.SeatPart
+						if seat:IsA("VehicleSeat") then
+							seat.SteerFloat = 0.001
+							task.wait(0.03)
+							seat.SteerFloat = 0
+						end
 					end
 				end
 			end)
@@ -732,7 +732,10 @@ local success, err = pcall(function()
 
 				if isGround then
 					refY = solidY
-					if inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 35) then
+					local isVoidGap = (inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 35))
+					local isElevatedLedge = (solidY >= fromPos.Y + 6 and curDist >= 15 and curDist <= 120)
+
+					if isVoidGap or isElevatedLedge then
 						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
 						-- 🛡️ Forward Progress Gate: Adaptif berdasarkan jarak total
 						-- Jarak jauh (>200): butuh maju 40 stud. Jarak dekat (<200): cukup maju 5 stud saja
@@ -817,14 +820,14 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- 1. Lapis Utama: Menembak dari refY + 7 ke bawah sejauh 18 stud
-			-- Jalanan daratan valid berada di rentang [refY - 9, refY + 5].
-			-- Jika permukaan drop > 9 stud ke bawah (bibir tebing / dasar laut jurang di Y = -18), tolak sebagai jurang!
+			-- 1. Lapis Utama: Menembak dari refY + 25 ke bawah sejauh 35 stud
+			-- Mendukung tanjakan, tanggul jalan tinggi (+20 stud), flyover, dan turunan
+			-- Menolak dasar jurang/lautan (Y < -10 atau drop drastis > 11 stud ke bawah)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -18, 0), rayParams)
-				if hit and hit.Position.Y >= (refY - 9) and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local rayOrigin = Vector3.new(pos.X, refY + 25, pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
+				if hit and hit.Position.Y >= (refY - 11) and hit.Position.Y >= -10 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
 			end
