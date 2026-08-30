@@ -1086,7 +1086,7 @@ local success, err = pcall(function()
 		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
-			if not isDrivingActive then
+			if not isDrivingActive or isResettingTaxi then
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				driveFinished = true
 				return
@@ -1307,9 +1307,32 @@ local success, err = pcall(function()
 				if (nowClock - cliffWaitStartTime) >= 5.0 then
 					cliffWaitStartTime = nil
 					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
+
+					-- 1. Kunci posisi motor di daratan aman terakhir, nol-kan seluruh kecepatan
+					actualMoveDir = Vector3.zero
+					stepDist = 0
+					currentSmoothSpeed = 0
+					pcall(function()
+						for _, part in ipairs(car:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.AssemblyLinearVelocity = Vector3.zero
+								part.AssemblyAngularVelocity = Vector3.zero
+							end
+						end
+						if seat then
+							seat.Throttle = 0
+							seat.ThrottleFloat = 0
+							seat.AssemblyLinearVelocity = Vector3.zero
+							seat.AssemblyAngularVelocity = Vector3.zero
+						end
+					end)
+
+					-- 2. Hentikan task navigasi aktif seketika
 					cancelActiveDrive()
+
+					-- 3. Eksekusi reset status RideGO (CancelOrder, GoOffline -> GoOnline)
 					task.spawn(function()
-						resetTaxiDutyCycle(taxiToken, "Jurang Terlalu Luas")
+						resetTaxiDutyCycle(taxiToken, "Jurang Terlalu Luas / Void Bridge Failed")
 					end)
 					return
 				end
@@ -1552,13 +1575,16 @@ local success, err = pcall(function()
 		end
 
 		-- 4. Drive to Pickup
-		if taxiPickupPos and taxiActive then
+		if taxiPickupPos and taxiActive and not isResettingTaxi then
 			UI.Notify("🏍️ Heading to Pickup", "Driving to passenger...", 2, "warning")
-			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
+			local arrived = driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
+			if not arrived or isResettingTaxi or not taxiActive then
+				return
+			end
 		end
 
 		-- 5. Wait for passenger boarding
-		if taxiPickupPos and taxiActive then
+		if taxiPickupPos and taxiActive and not isResettingTaxi then
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
 			local car, seat = getPlayerVehicle()
@@ -1577,7 +1603,7 @@ local success, err = pcall(function()
 			ensureDriverSeated()
 
 			local waitStartBoard = tick()
-			while not isPassengerOnboard() and taxiActive and (tick() - waitStartBoard < 25) do
+			while not isPassengerOnboard() and taxiActive and not isResettingTaxi and (tick() - waitStartBoard < 25) do
 				local checkHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 				if not (checkHum and checkHum.SeatPart) then
 					mountBike()
@@ -1599,9 +1625,9 @@ local success, err = pcall(function()
 		task.wait(0.3)
 
 		-- 6. Drive to Drop-off
-		if not taxiDropPos and taxiActive then
+		if not taxiDropPos and taxiActive and not isResettingTaxi then
 			local dropWait = tick()
-			while not taxiDropPos and taxiActive and (tick() - dropWait < 5) do
+			while not taxiDropPos and taxiActive and not isResettingTaxi and (tick() - dropWait < 5) do
 				task.wait(0.2)
 			end
 		end
@@ -1609,10 +1635,13 @@ local success, err = pcall(function()
 		local tripStartTime = tick()
 		local tripDistance = (taxiPickupPos and taxiDropPos) and (Vector3.new(taxiDropPos.X, 0, taxiDropPos.Z) - Vector3.new(taxiPickupPos.X, 0, taxiPickupPos.Z)).Magnitude or 1000
 
-		if taxiDropPos and taxiActive then
+		if taxiDropPos and taxiActive and not isResettingTaxi then
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
-			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
+			local arrived = driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
+			if not arrived or isResettingTaxi or not taxiActive then
+				return
+			end
 
 			setTaxiState("DROPPING_OFF")
 			local car, seat = getPlayerVehicle()
@@ -1663,7 +1692,7 @@ local success, err = pcall(function()
 		end
 
 		-- 7. Complete Trip & Acknowledge
-		if taxiActive then
+		if taxiActive and not isResettingTaxi then
 			TaxiEvent:FireServer("AckTripComplete")
 			UI.Notify("🏆 Trip Complete!", "Fare earned. Ready for next order!", 2, "success")
 		end
