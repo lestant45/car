@@ -1005,27 +1005,24 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 7 ke bawah sejauh 38 stud
-			-- Mendeteksi tanah/lembah hingga 30 stud ke bawah (seperti tanah merah di Y = -25 s/d -30)
-			-- Menolak dasar hampa jurang (jika tidak ada tanah dalam jarak 30 stud ke bawah atau Y < -38)
+			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 12 ke bawah sejauh 45 stud
+			-- Mendeteksi tanah/lembah mendatar, menanjak (+10 stud), atau menurun (-30 stud)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
-				if hit and hit.Position.Y >= (refY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
+				local rayOrigin = Vector3.new(pos.X, (refY or 5) + 12, pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -45, 0), rayParams)
+				if hit and hit.Position.Y >= ((refY or 5) - 30) and hit.Position.Y >= -38 and hit.Position.Y <= ((refY or 5) + 10) and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
 			end
 
-			-- 2. Lapis Cadangan: HANYA jika refY belum ada (awal eksekusi script / baru spawn)
-			if not refY or refY < -35 then
-				for _, off in ipairs(offsets) do
-					local pos = probePos + off
-					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
-					if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
-						return hit.Position.Y + 0.3
-					end
+			-- 2. Lapis Cadangan (Ramp / Flyover / Hill Climb Fallback): Menembak dari ketinggian jika lapis 1 terhalang tanjakan
+			for _, off in ipairs(offsets) do
+				local pos = probePos + off
+				local rayOrigin = Vector3.new(pos.X, math.max((refY or 5) + 30, 60), pos.Z)
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -120, 0), rayParams)
+				if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+					return hit.Position.Y + 0.3
 				end
 			end
 
@@ -1279,14 +1276,25 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			-- 🛡️ 50-Stud Continuous Forward Path Safety Gate:
-			-- Memeriksa apakah seluruh 50 stud ke depan (atau sisa jarak ke tujuan) memiliki daratan padat tanpa jurang.
-			-- Jika baru saja melakukan teleport ATAU terdeteksi jurang dalam 50 stud ke depan:
-			-- Motor DILARANG bergerak maju sedikitpun dan WAJIB diam total!
-			local isContinuousSafe = directHitY and isForwardContinuousSafe(carPos, directGoalDir, lastGroundY, 50)
+			local isAllowedToDrive = false
 
-			if isContinuousSafe then
-				postTeleportSafetyGate = false
+			if postTeleportSafetyGate then
+				-- 🛡️ POST-TELEPORT 50-STUD SAFETY GATE:
+				-- Setelah melompati jurang, pastikan 50 stud ke depan (atau sisa jarak ke tujuan) adalah daratan padat sebelum diizinkan melaju!
+				local isSafeAhead = directHitY and isForwardContinuousSafe(carPos, directGoalDir, lastGroundY, 50)
+				if isSafeAhead then
+					postTeleportSafetyGate = false
+					isAllowedToDrive = true
+				end
+			else
+				-- 🛣️ NORMAL ROAD DRIVING:
+				-- Menggunakan deteksi jalan normal probeGround pada probeDist
+				if directHitY then
+					isAllowedToDrive = true
+				end
+			end
+
+			if isAllowedToDrive then
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
