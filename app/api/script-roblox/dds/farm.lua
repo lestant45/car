@@ -1767,7 +1767,7 @@ local success, err = pcall(function()
 				task.wait(0.25)
 				if taxiActive and not isResettingTaxi then
 					pcall(function()
-						-- 0. Watchdog Diam di Satu Koordinat > 8 Detik:
+						-- 0. Watchdog Diam di Satu Koordinat > 12 Detik:
 						local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 						local curPos = root and root.Position
 						if curPos then
@@ -1780,13 +1780,13 @@ local success, err = pcall(function()
 									lastTrackedPos = curPos
 									lastPosMovedTime = tick()
 								else
-									-- Jika tidak berpindah posisi selama > 8 detik
-									if (tick() - lastPosMovedTime >= 8.0) and not isResettingTaxi then
+									-- Jika tidak berpindah posisi selama > 12 detik, reset toggle untuk mengatasi stuck dan mencari order baru
+									if (tick() - lastPosMovedTime >= 12.0) and not isResettingTaxi then
 										lastPosMovedTime = tick()
 										lastTrackedPos = nil
 										task.spawn(function()
 											if restartAutoRideGoToggle then
-												restartAutoRideGoToggle("Stuck di Tempat (8s)")
+												restartAutoRideGoToggle("Stuck di Tempat (12s)")
 											end
 										end)
 										return
