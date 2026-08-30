@@ -1280,11 +1280,13 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 2-Stage Cliff Lookahead: Pengereman menuju tepi jurang
-			-- Stage 1 (300 -> 50 stud sebelum jurang): Kecepatan turun mulus dari slider speed ke 15 km/h
-			-- Stage 2 (50 -> 0 stud sebelum tepi jurang): Kecepatan merayap dari 15 km/h ke 0 km/h tepat di tepi jurang
+			-- 🛑 STRICT VOID SAFETY SCANNER (Zero-Tolerance Anti-Float / Anti-Flying Rule):
+			-- Memindai kesinambungan daratan di depan dari jarak dekat (3 stud) hingga 300 stud.
+			-- Jika jurang berada di depan (jarak solid <= 25 stud) dan tujuan masih jauh di seberang,
+			-- MOTOR DILARANG KERAS BERJALAN/MAJU WALAUPUN HANYA 1 STUD!
 			local solidAheadDist = 300
-			for lookDist = 15, 300, 15 do
+			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300 }
+			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
 				end
@@ -1295,12 +1297,20 @@ local success, err = pcall(function()
 				end
 			end
 
-			if solidAheadDist < 300 and solidAheadDist < dist then
+			-- 🚫 STRICT ANTI-FLOAT CONDITION:
+			-- Jika jurang berada dalam jarak <= 25 stud, atau pulau daratan terlalu sempit untuk melaju:
+			-- Kecepatan WAJIB 0, dilarang bergerak maju 1 stud pun ke arah tepi jurang!
+			local isImmediateVoidAhead = (solidAheadDist <= 25) and (dist > solidAheadDist)
+
+			if isImmediateVoidAhead then
+				targetSpeed = 0
+				currentSmoothSpeed = 0
+			elseif solidAheadDist < 300 and solidAheadDist < dist then
 				local cliffTargetSpeed = speed
-				if solidAheadDist < 50 then
-					cliffTargetSpeed = math.max(0, 15 * (solidAheadDist / 50))
+				if solidAheadDist < 60 then
+					cliffTargetSpeed = math.max(0, 15 * ((solidAheadDist - 25) / 35))
 				else
-					local factor = (solidAheadDist - 50) / 250
+					local factor = (solidAheadDist - 60) / 240
 					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
 				end
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
@@ -1309,35 +1319,35 @@ local success, err = pcall(function()
 			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
 			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
-			local maxDecelRate = 65 * dt
+			local maxDecelRate = 75 * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
 				currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
 			end
 
-			local curSpeed = currentSmoothSpeed
-
+			local curSpeed = isImmediateVoidAhead and 0 or currentSmoothSpeed
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 4)
 
 			local directProbePos = carPos + directGoalDir * probeDist
-			local directHitY = probeGround(directProbePos, lastGroundY)
+			local directHitY = (not isImmediateVoidAhead) and probeGround(directProbePos, lastGroundY) or nil
 
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY then
+			if directHitY and not isImmediateVoidAhead then
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 TEPI JURANG: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
+				-- 🛑 TEPI JURANG / PULAU SEMPIT: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
 				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
+				curSpeed = 0
 				targetElevY = lastGroundY
 
 				local nowClock = os.clock()
@@ -1354,7 +1364,7 @@ local success, err = pcall(function()
 					return
 				end
 
-				if (nowClock - lastBridgeScanTime) >= 0.25 then
+				if (nowClock - lastBridgeScanTime) >= 0.15 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
@@ -1930,7 +1940,7 @@ local success, err = pcall(function()
 				end
 			end)
 
-			UI.Notify("RideGO Auto-Farm ON", "Waiting for orders at current location...", 3, "success")
+			UI.Notify("RideGO Auto-Farm ON", "Strict Anti-Void: Dilarang berjalan di atas jurang!", 3.5, "success")
 		else
 			if taxiOverlayPoller then
 				task.cancel(taxiOverlayPoller)
