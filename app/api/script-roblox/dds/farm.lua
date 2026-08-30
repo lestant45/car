@@ -856,6 +856,13 @@ local success, err = pcall(function()
 		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
 		local filter = { car, player.Character }
 		if safetyPlate then table.insert(filter, safetyPlate) end
+		for _, c in ipairs(workspace:GetChildren()) do
+			if c:IsA("Model") and c ~= car and c ~= player.Character then
+				if c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true) or c:FindFirstChild("DriveSeat", true) or c.Name:lower():find("canter") or c.Name:lower():find("bus") or c.Name:lower():find("truck") then
+					table.insert(filter, c)
+				end
+			end
+		end
 		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -975,6 +982,44 @@ local success, err = pcall(function()
 		rayParams.FilterDescendantsInstances = rayFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
+		local function isObstacleInstance(inst)
+			if not inst then return false end
+			local mdl = inst:FindFirstAncestorOfClass("Model")
+			if mdl and mdl ~= workspace then
+				if mdl:FindFirstChildOfClass("Humanoid") then return true end
+				if mdl:FindFirstChildWhichIsA("VehicleSeat", true) or mdl:FindFirstChildWhichIsA("Seat", true) or mdl:FindFirstChild("DriveSeat", true) then
+					return true
+				end
+				local name = mdl.Name:lower()
+				if name:find("canter") or name:find("bus") or name:find("car") or name:find("truck") or name:find("motor") or name:find("montor") or name:find("vehicle") or name:find("zx25r") or name:find("tree") then
+					return true
+				end
+			end
+			return false
+		end
+
+		local function castThroughObstacles(origin, dir)
+			local curOrigin = origin
+			local remainingDist = dir.Magnitude
+			local castDir = dir.Unit
+			for p = 1, 6 do
+				local hit = workspace:Raycast(curOrigin, castDir * remainingDist, rayParams)
+				if not hit then
+					return nil
+				end
+				if not isObstacleInstance(hit.Instance) then
+					return hit
+				end
+				local distToHit = (hit.Position - curOrigin).Magnitude
+				if distToHit >= remainingDist - 0.5 then
+					return nil
+				end
+				remainingDist = remainingDist - distToHit - 0.3
+				curOrigin = hit.Position + (castDir * 0.3)
+			end
+			return nil
+		end
+
 		local function probeGround(probePos, refY)
 			local offsets = {
 				Vector3.zero,
@@ -985,12 +1030,11 @@ local success, err = pcall(function()
 			}
 
 			-- 1. Lapis Utama (Under-Ceiling & Deep Valley Tracker): Menembak dari refY + 7 ke bawah sejauh 38 stud
-			-- Mendeteksi tanah/lembah hingga 30 stud ke bawah (seperti tanah merah di Y = -25 s/d -30)
-			-- Menolak dasar hampa jurang (jika tidak ada tanah dalam jarak 30 stud ke bawah atau Y < -38)
+			-- Menembus rintangan mobil/bus (MestibisaCanter dll) untuk mendeteksi tanah/aspal sebenarnya di bawahnya
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, refY + 7, pos.Z)
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -38, 0), rayParams)
+				local hit = castThroughObstacles(rayOrigin, Vector3.new(0, -38, 0))
 				if hit and hit.Position.Y >= (refY - 30) and hit.Position.Y >= -38 and hit.Position.Y <= (refY + 5) and (not hit.Normal or hit.Normal.Y >= 0.12) then
 					return hit.Position.Y + 0.3
 				end
@@ -1001,7 +1045,7 @@ local success, err = pcall(function()
 				for _, off in ipairs(offsets) do
 					local pos = probePos + off
 					local rayOrigin = Vector3.new(pos.X, 60, pos.Z)
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), rayParams)
+					local hit = castThroughObstacles(rayOrigin, Vector3.new(0, -110, 0))
 					if hit and hit.Position.Y >= -38 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
 						return hit.Position.Y + 0.3
 					end
@@ -1185,61 +1229,50 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 2-Stage Cliff Lookahead: Pengereman menuju tepi jurang
-			-- Stage 1 (300 -> 50 stud sebelum jurang): Kecepatan turun mulus dari slider speed ke 15 km/h
-			-- Stage 2 (50 -> 0 stud sebelum tepi jurang): Kecepatan merayap dari 15 km/h ke 0 km/h tepat di tepi jurang
-			local solidAheadDist = 300
-			for lookDist = 15, 300, 15 do
-				if lookDist >= dist then
-					break
-				end
+			-- 🛡️ 50-Stud Void/Cliff Safety Gate:
+			-- Cek apakah dalam jarak hingga 50 stud ke depan (atau hingga titik tujuan) ada jurang/ruang hampa.
+			-- DILARANG KERAS BERJALAN MAJU KE ATAS JURANG KOSONG DALAM ALASAN APAPUN!
+			local maxCheckAhead = math.min(dist, 50)
+			local hasCliffAhead = false
+
+			for lookDist = 3, maxCheckAhead, 3 do
 				local testPos = carPos + directGoalDir * lookDist
 				if not probeGround(testPos, lastGroundY) then
-					solidAheadDist = lookDist
+					hasCliffAhead = true
 					break
 				end
 			end
-
-			if solidAheadDist < 300 and solidAheadDist < dist then
-				local cliffTargetSpeed = speed
-				if solidAheadDist < 50 then
-					cliffTargetSpeed = math.max(0, 15 * (solidAheadDist / 50))
-				else
-					local factor = (solidAheadDist - 50) / 250
-					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
+			if not hasCliffAhead and maxCheckAhead > 0 then
+				local endTestPos = carPos + directGoalDir * maxCheckAhead
+				if not probeGround(endTestPos, lastGroundY) then
+					hasCliffAhead = true
 				end
-				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
-			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
-			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
-			local maxAccelRate = 50 * dt
-			local maxDecelRate = 65 * dt
-			if currentSmoothSpeed < targetSpeed then
-				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
-			elseif currentSmoothSpeed > targetSpeed then
-				currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
+			-- 🛑 2-Stage Cliff Lookahead Jarak Jauh (50 -> 300 stud): Pengereman bertahap sebelum mendekati jurang
+			if not hasCliffAhead and dist > 50 then
+				local solidAheadDist = 300
+				for lookDist = 55, 300, 15 do
+					if lookDist >= dist then break end
+					local testPos = carPos + directGoalDir * lookDist
+					if not probeGround(testPos, lastGroundY) then
+						solidAheadDist = lookDist
+						break
+					end
+				end
+				if solidAheadDist < 300 and solidAheadDist < dist then
+					local factor = (solidAheadDist - 50) / 250
+					local cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
+					targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
+				end
 			end
 
-			local curSpeed = currentSmoothSpeed
+			local actualMoveDir = Vector3.zero
+			local targetElevY   = lastGroundY
 
-			local stepDist = curSpeed * dt
-			local probeDist = math.max(stepDist * 1.6, 4)
-
-			local directProbePos = carPos + directGoalDir * probeDist
-			local directHitY = probeGround(directProbePos, lastGroundY)
-
-			local actualMoveDir = directGoalDir
-			local targetElevY = lastGroundY
-
-			if directHitY then
-				cliffWaitStartTime = nil
-				actualMoveDir = directGoalDir
-				navHeading = directGoalDir
-				targetElevY = directHitY
-			else
-				-- 🛑 TEPI JURANG: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
-				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
+			if hasCliffAhead then
+				-- 🛑 TERDETEKSI JURANG DALAM 50 STUD KE DEPAN:
+				-- Motor WAJIB diam total di daratan aman saat ini, nol-kan kecepatan, dan langsung teleport melompati jurang!
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
@@ -1254,12 +1287,13 @@ local success, err = pcall(function()
 					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
 					cancelActiveDrive()
 					task.spawn(function()
-						resetTaxiDutyCycle(taxiToken)
+						resetTaxiDutyCycle(taxiToken, "Jurang Terlalu Luas")
 					end)
 					return
 				end
 
-				if (nowClock - lastBridgeScanTime) >= 0.25 then
+				-- Langsung lakukan scan & lompat melompati jurang
+				if (nowClock - lastBridgeScanTime) >= 0.2 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
@@ -1274,9 +1308,31 @@ local success, err = pcall(function()
 						bridgeHoldUntil = os.clock() + 2.0
 						driveStartTime = os.clock() + 2.0
 						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
-						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
+						return -- Selesaikan frame ini seketika
 					end
 				end
+			else
+				-- JALUR 50 STUD KE DEPAN 100% AMAN (DARATAN SOLID):
+				cliffWaitStartTime = nil
+				actualMoveDir = directGoalDir
+				navHeading = directGoalDir
+
+				-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif)
+				local maxAccelRate = 50 * dt
+				local maxDecelRate = 65 * dt
+				if currentSmoothSpeed < targetSpeed then
+					currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
+				elseif currentSmoothSpeed > targetSpeed then
+					currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
+				end
+
+				local curSpeed = currentSmoothSpeed
+				stepDist = curSpeed * dt
+				local probeDist = math.max(stepDist * 1.6, 4)
+
+				local directProbePos = carPos + directGoalDir * probeDist
+				local directHitY = probeGround(directProbePos, lastGroundY)
+				targetElevY = directHitY or lastGroundY
 			end
 
 			-- Smooth vertical descent/ascent rate
@@ -1327,6 +1383,19 @@ local success, err = pcall(function()
 					for _, part in ipairs(passengerNpc:GetDescendants()) do
 						if part:IsA("BasePart") then
 							part.CanCollide = false
+						end
+					end
+				end
+
+				-- 👻 Ghost Noclip: Tembus semua kendaraan lain (MestibisaCanter, Mobil, Truk, Bus) di workspace
+				for _, c in ipairs(workspace:GetChildren()) do
+					if c:IsA("Model") and c ~= car and c ~= char and c ~= passengerNpc then
+						if c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true) or c:FindFirstChild("DriveSeat", true) or c.Name:lower():find("canter") or c.Name:lower():find("bus") or c.Name:lower():find("truck") then
+							for _, part in ipairs(c:GetDescendants()) do
+								if part:IsA("BasePart") and part.CanCollide then
+									part.CanCollide = false
+								end
+							end
 						end
 					end
 				end
