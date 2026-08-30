@@ -43,6 +43,7 @@ local success, err = pcall(function()
 	local passengerSeated     = false
 	local taxiOverlayPoller   = nil
 	local isResettingTaxi     = false
+	local dropoffStuckTime    = nil
 
 	local changeTeam          = nil
 	local mountBike           = nil
@@ -56,23 +57,74 @@ local success, err = pcall(function()
 
 	local function isRouteVerificationStuck()
 		local found = false
+		-- 1. Scan PlayerGui
 		pcall(function()
 			local pGui = player:FindFirstChild("PlayerGui")
-			if not pGui then return end
-			for _, g in ipairs(pGui:GetDescendants()) do
-				if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
-					local txt = (g.Text or ""):lower()
-					if txt:find("memverifikasi rute") or txt:find("verifying your trip route")
-						or txt:find("verifikasi rute") or txt:find("verifying trip")
-						or txt:find("verifying route") or txt:find("memverifikasi perjalanan")
-						or txt:find("verifikasi perjalanan")
-					then
-						found = true
-						break
+			if pGui then
+				for _, g in ipairs(pGui:GetDescendants()) do
+					if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
+						local txt = (g.Text or ""):lower()
+						if txt:find("verifying your trip route")
+							or txt:find("memverifikasi rute")
+							or txt:find("verifikasi rute")
+							or txt:find("verifying your route")
+							or txt:find("verifying trip")
+							or txt:find("verifying route")
+							or txt:find("hold on a moment")
+							or txt:find("please wait a moment")
+							or txt:find("memverifikasi perjalanan")
+							or txt:find("verifikasi perjalanan")
+						then
+							found = true
+							return
+						end
 					end
 				end
 			end
 		end)
+		if found then return true end
+
+		-- 2. Scan CoreGui (RobloxGui SendNotification toast)
+		pcall(function()
+			local cGui = game:GetService("CoreGui")
+			if cGui then
+				for _, g in ipairs(cGui:GetDescendants()) do
+					if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then
+						local txt = (g.Text or ""):lower()
+						if txt:find("verifying your trip route")
+							or txt:find("memverifikasi rute")
+							or txt:find("hold on a moment")
+							or txt:find("verifying trip")
+							or txt:find("verifying route")
+						then
+							found = true
+							return
+						end
+					end
+				end
+			end
+		end)
+		if found then return true end
+
+		-- 3. Scan Phone RideGO OrdersPage StatusStrip
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			local phone = pGui and pGui:FindFirstChild("Phone")
+			local rideGO = phone and phone:FindFirstChild("RideGO", true)
+			local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
+			local ordersPage = appFrame and appFrame:FindFirstChild("PageContainer") and appFrame.PageContainer:FindFirstChild("OrdersPage")
+			if ordersPage and ordersPage.Visible then
+				local subText = ordersPage:FindFirstChild("StatusStrip", true) and ordersPage.StatusStrip:FindFirstChild("SubText")
+				if subText and subText.Visible then
+					local txt = (subText.Text or ""):lower()
+					if txt:find("wait a moment") or txt:find("verif") then
+						found = true
+						return
+					end
+				end
+			end
+		end)
+
 		return found
 	end
 
@@ -1062,7 +1114,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 3.5 then
+			if dist <= 8.0 or isRouteVerificationStuck() then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -1393,16 +1445,15 @@ local success, err = pcall(function()
 	end
 
 	local function isPassengerOnboard()
-		if passengerSeated then return true end
 		local activeMissions = workspace:FindFirstChild("ActiveMissions")
 		local passenger = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
-		if passenger then
+		if passenger and passenger.Parent then
 			local hrp = passenger:FindFirstChild("HumanoidRootPart")
-			if hrp and hrp:FindFirstChild("RideGO_SeatWeld") then
-				passengerSeated = true
+			if hrp then
 				return true
 			end
 		end
+		passengerSeated = false
 		return false
 	end
 
@@ -1702,9 +1753,32 @@ local success, err = pcall(function()
 						end
 
 						-- 3. Watchdog Verifikasi Rute: Jika teks verifikasi rute muncul saat membawa penumpang / order aktif
-						if (taxiBusy or isPassengerOnboard()) and isRouteVerificationStuck() then
+						if (taxiBusy or isPassengerOnboard() or isDrivingActive) and isRouteVerificationStuck() then
 							task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Verifikasi Rute")
 							return
+						end
+
+						-- 4. Watchdog Stuck di Drop-off: Jika penumpang ada di motor dan sudah diam di titik tujuan > 3 detik
+						if isPassengerOnboard() and not isResettingTaxi then
+							local car, seat = getPlayerVehicle()
+							if car and seat and taxiDropPos then
+								local curSpeed = seat.AssemblyLinearVelocity.Magnitude
+								local distToDrop = (car:GetPivot().Position - taxiDropPos).Magnitude
+								if curSpeed < 3 and distToDrop <= 25 then
+									dropoffStuckTime = dropoffStuckTime or tick()
+									if (tick() - dropoffStuckTime >= 3.0) then
+										dropoffStuckTime = nil
+										task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Stuck di Drop-off")
+										return
+									end
+								else
+									dropoffStuckTime = nil
+								end
+							else
+								dropoffStuckTime = nil
+							end
+						else
+							dropoffStuckTime = nil
 						end
 
 						-- 4. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
