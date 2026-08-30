@@ -633,7 +633,26 @@ local success, err = pcall(function()
 		return false
 	end
 
+	local function cleanupMestibisaCanter()
+		pcall(function()
+			for _, c in ipairs(workspace:GetChildren()) do
+				if c.Name == "MestibisaCanterFE84G" then
+					pcall(function() c:Destroy() end)
+				end
+			end
+			local vehiclesFolder = workspace:FindFirstChild("Vehicles") or workspace:FindFirstChild("Cars")
+			if vehiclesFolder then
+				for _, c in ipairs(vehiclesFolder:GetChildren()) do
+					if c.Name == "MestibisaCanterFE84G" then
+						pcall(function() c:Destroy() end)
+					end
+				end
+			end
+		end)
+	end
+
 	local function destroyAllBuildings()
+		cleanupMestibisaCanter()
 		pcall(function()
 			for _, c in ipairs(workspace:GetChildren()) do
 				if shouldDestroyBuilding(c) then
@@ -657,6 +676,10 @@ local success, err = pcall(function()
 
 	-- Auto-destroy newly streamed buildings KECUALI di area Manahan
 	workspace.DescendantAdded:Connect(function(descendant)
+		if descendant.Name == "MestibisaCanterFE84G" then
+			pcall(function() descendant:Destroy() end)
+			return
+		end
 		if shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
 			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
@@ -1035,6 +1058,32 @@ local success, err = pcall(function()
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
+		local postTeleportSafetyGate = false
+
+		local function isForwardContinuousSafe(fromPos, dir, refY, maxCheckDist)
+			local distToCheck = math.min(maxCheckDist or 50, (destP - fromPos).Magnitude)
+			if distToCheck <= 4 then
+				return true
+			end
+
+			local step = 3.0
+			local curRefY = refY
+			for d = step, distToCheck, step do
+				local testPos = fromPos + dir * d
+				local hitY = probeGround(testPos, curRefY)
+				if not hitY then
+					return false, d
+				end
+				curRefY = hitY
+			end
+
+			local endPos = fromPos + dir * distToCheck
+			if not probeGround(endPos, curRefY) then
+				return false, distToCheck
+			end
+
+			return true
+		end
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -1230,14 +1279,22 @@ local success, err = pcall(function()
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY then
+			-- 🛡️ 50-Stud Continuous Forward Path Safety Gate:
+			-- Memeriksa apakah seluruh 50 stud ke depan (atau sisa jarak ke tujuan) memiliki daratan padat tanpa jurang.
+			-- Jika baru saja melakukan teleport ATAU terdeteksi jurang dalam 50 stud ke depan:
+			-- Motor DILARANG bergerak maju sedikitpun dan WAJIB diam total!
+			local isContinuousSafe = directHitY and isForwardContinuousSafe(carPos, directGoalDir, lastGroundY, 50)
+
+			if isContinuousSafe then
+				postTeleportSafetyGate = false
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 TEPI JURANG: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
-				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
+				-- 🛑 TEPI JURANG / SAFETY GATE AKTIF:
+				-- Motor WAJIB diam total di atas aspal daratan asal (actualMoveDir = Vector3.zero, stepDist = 0, currentSmoothSpeed = 0)!
+				postTeleportSafetyGate = true
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
@@ -1252,7 +1309,7 @@ local success, err = pcall(function()
 					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
 					cancelActiveDrive()
 					task.spawn(function()
-						resetTaxiDutyCycle(taxiToken)
+						resetTaxiDutyCycle(taxiToken, "Jurang Terlalu Luas")
 					end)
 					return
 				end
@@ -1271,7 +1328,8 @@ local success, err = pcall(function()
 						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
 						bridgeHoldUntil = os.clock() + 2.0
 						driveStartTime = os.clock() + 2.0
-						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
+						postTeleportSafetyGate = true -- 🔒 Kunci safety gate setelah teleport agar wajib memeriksa 50 stud lagi saat mendarat!
+						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, memeriksa jalur depan (50 stud)...", 2.0, "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
