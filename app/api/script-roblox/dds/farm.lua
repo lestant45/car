@@ -490,16 +490,54 @@ local success, err = pcall(function()
 	end
 
 	-- 🧹 UNIVERSAL DESTROY ALL BUILDINGS & OBSTACLES (Ground & Roads Only Mode)
+	local function isObstacleName(name)
+		if not name then return false end
+		local n = name:upper()
+		if n:find("BANGUNAN") or n:find("BUILDING") or n:find("RUMAH") or n:find("GEDUNG")
+			or n:find("HOUSE") or n:find("HOTEL") or n:find("HARRIZON") or n:find("POHON")
+			or n:find("TREE") or n:find("LAMPU") or n:find("LAMP") or n:find("PROPS")
+			or n:find("SETTING") or n:find("BENDERA") or n:find("CANOPY") or n:find("TENT")
+			or n:find("JOB") or n:find("POLICE") or n:find("BARISTA") or n:find("PIC")
+			or n:find("EVENT") or n:find("BOARD") or n:find("DONATION") or n:find("SHOP")
+			or n:find("CAFE") or n:find("RESTAURANT") or n:find("KFC") or n:find("MALL")
+			or n:find("TOWN") or n:find("SQUARE") or n:find("MOLDING") or n:find("MEJA")
+			or n:find("KURSI") or n:find("TABLE") or n:find("GATE") or n:find("GARAGE")
+			or n:find("DEALER") or n:find("PAGAR") or n:find("FENCE") or n:find("BARRIER")
+			or n:find("LANTAI") or n:find("WALL") or n:find("DINDING") or n:find("ROOF")
+			or n:find("ATAP") or n:find("TV") or n:find("COMPUTER") or n:find("PENJUAL")
+			or n:find("SATLANTAS") or n == "RS" or n:find("INDOMART") or n:find("PLATINUM")
+			or n:find("GATAU") or n:find("PJL") or n:find("STOPPER") or n:find("MACHINE")
+			or n:find("WARUNG") or n:find("TOKO") or n:find("JOGLO") or n:find("STADION")
+			or n:find("SHIRT") or n:find("MEDKIT") or n:find("BILLBOARD") or n:find("CONE")
+			or n:find("PANGGUNG") or n:find("HELMET") or n:find("SHOWCASE") or n:find("TITIK_KUMPUL")
+			or n:find("FLAG") or n:find("SIGN") or n:find("KANOPY")
+		then
+			return true
+		end
+		return false
+	end
+
 	local function isRoadOrGround(obj)
 		if not obj then return false end
 		if obj:IsA("Terrain") then return true end
 		if obj.Name == "__DdsSafetyPlate" then return true end
 
 		local name = obj.Name:upper()
+		-- JIKA nama atau induknya mengandung unsur rintangan / gedung / pohon, BUKAN JALAN!
+		if isObstacleName(name) then return false end
+
+		local cur = obj.Parent
+		while cur and cur ~= workspace and cur ~= game do
+			if isObstacleName(cur.Name) then
+				return false
+			end
+			cur = cur.Parent
+		end
+
 		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW"
 			or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI")
-			or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN")
-			or name:find("GRASS") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE")
+			or name:find("SUNGAI") or name:find("GROUND") or name:find("TERRAIN")
+			or name:find("GRASS") or name == "FLYOVER" or name:find("JEMBATAN") or name:find("BRIDGE")
 			or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL")
 			or name:find("TROTO") or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT")
 			or name:find("ASPAL")
@@ -551,27 +589,24 @@ local success, err = pcall(function()
 		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
 		if obj.Name == "__DdsSafetyPlate" then return false end
 		if isVehicleOrSeatOrPlayer(obj) then return false end
-		if isRoadOrGround(obj) then return false end
 
 		local name = obj.Name:upper()
 
 		-- Explicit non-road obstacle keywords
-		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
-			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
-			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
-			or name:find("RUMAH") or name:find("PITCH") or name:find("SHIRT") or name:find("MEDKIT")
-			or name:find("BILLBOARD") or name:find("CONE") or name:find("PANGGUNG") or name:find("HELMET")
-			or name:find("SHOWCASE") or name:find("TITIK_KUMPUL") or name:find("FLAG") or name:find("SIGN")
-			or name:find("DEALER") or name:find("GARAGE") or name:find("SATLANTAS") or name == "RS"
-			or name:find("INDOMART") or name:find("PLATINUM") or name:find("GATAU") or name:find("PJL")
-			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
-			or name:find("PROPBANGUNAN") or name:find("GATE") or name:find("KFC") or name:find("RESTAURANT")
-			or name:find("WARUNG") or name:find("TOKO") or name:find("JOGLO") or name:find("STADION")
-			or name:find("MOLDING") or name:find("MEJA") or name:find("KURSI") or name:find("TABLE")
-			or name:find("FENCE") or name:find("LAMP") or name:find("TREE") or name:find("KANOPY")
-		then
+		if isObstacleName(name) then
 			return true
 		end
+
+		-- Check if inside any obstacle folder/model (e.g. BangunanAfterFlyover, harrizon, etc.)
+		local cur = obj.Parent
+		while cur and cur ~= workspace and cur ~= game do
+			if isObstacleName(cur.Name) then
+				return true
+			end
+			cur = cur.Parent
+		end
+
+		if isRoadOrGround(obj) then return false end
 
 		-- Models inside road folders (JL_* / MANAHAN) that are building / prop models
 		if obj:IsA("Model") and obj.Parent and (obj.Parent.Name:sub(1, 3) == "JL_" or obj.Parent.Name:find("MANAHAN")) then
@@ -595,15 +630,9 @@ local success, err = pcall(function()
 				if shouldDestroyBuilding(c) then
 					pcall(function() c:Destroy() end)
 				elseif c:IsA("Folder") or c:IsA("Model") then
-					for _, ch in ipairs(c:GetChildren()) do
+					for _, ch in ipairs(c:GetDescendants()) do
 						if shouldDestroyBuilding(ch) then
 							pcall(function() ch:Destroy() end)
-						elseif ch:IsA("Folder") or ch:IsA("Model") then
-							for _, sub in ipairs(ch:GetChildren()) do
-								if shouldDestroyBuilding(sub) then
-									pcall(function() sub:Destroy() end)
-								end
-							end
 						end
 					end
 				end
