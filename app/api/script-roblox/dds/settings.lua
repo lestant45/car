@@ -201,39 +201,30 @@ local success, err = pcall(function()
 	_G.HipHubScriptStartTime = _G.HipHubScriptStartTime or tick()
 
 	local function getLivePlayerMoney()
-		local pGui = player:FindFirstChild("PlayerGui")
-		if pGui then
-			-- Scan all text elements (even if phone frame is closed / hidden)
-			for _, g in ipairs(pGui:GetDescendants()) do
-				if g:IsA("TextLabel") or g:IsA("TextButton") then
-					local txt = g.Text
-					if txt and #txt >= 5 then
-						-- Format like "Rp. 357 223 686" or "Rp 357.223.686" or "TOTAL (Rp) 357 223"
-						-- Avoid trip fare like "Tarif Rp 48.000" or distance "0.01 km"
-						local lowerTxt = txt:lower()
-						if not lowerTxt:find("tarif") and not lowerTxt:find("fare") and not lowerTxt:find("km") and not lowerTxt:find("biaya") then
-							if txt:find("Rp%.") or txt:find("Rp ") or txt:find("RP") or txt:find("TOTAL %(Rp%)") then
-								local clean = txt:match("[Rr][Pp]%.?%s*[%d%s%.,]+")
-								if clean and #clean > 4 then
-									return clean
-								end
-							end
-						end
-					end
-				end
+		-- Sumber utama: PlayerData.RPValue (ditemukan dari inspeksi MCP langsung)
+		local playerData = player:FindFirstChild("PlayerData")
+		if playerData then
+			local rpValue = playerData:FindFirstChild("RPValue")
+			if rpValue and rpValue:IsA("NumberValue") then
+				local val = math.floor(rpValue.Value)
+				-- Format angka jadi "376.077.835" (format titik Indonesia)
+				local formatted = tostring(val):reverse():gsub("(%d%d%d)", "%1."):reverse():gsub("^%.", "")
+				return "Rp " .. formatted
 			end
 		end
 
-		-- Fallback: leaderstats / Data folder Values
-		local stats = player:FindFirstChild("leaderstats") or player:FindFirstChild("Data") or player:FindFirstChild("Stats")
-		if stats then
-			for _, v in ipairs(stats:GetChildren()) do
-				if v:IsA("ValueBase") then
-					local n = v.Name:lower()
-					if n:find("money") or n:find("cash") or n:find("rp") or n:find("rupiah") or n:find("balance") then
-						local val = tonumber(v.Value) or 0
-						local formatted = tostring(val):reverse():gsub("(%d%d%d)", "%1."):reverse():gsub("^%.", "")
-						return "Rp " .. formatted
+		-- Fallback: leaderstats / Data / Stats
+		for _, folderName in ipairs({"leaderstats", "Data", "Stats"}) do
+			local stats = player:FindFirstChild(folderName)
+			if stats then
+				for _, v in ipairs(stats:GetChildren()) do
+					if v:IsA("NumberValue") or v:IsA("IntValue") then
+						local n = v.Name:lower()
+						if n:find("rp") or n:find("money") or n:find("cash") or n:find("rupiah") or n:find("balance") then
+							local val = math.floor(tonumber(v.Value) or 0)
+							local formatted = tostring(val):reverse():gsub("(%d%d%d)", "%1."):reverse():gsub("^%.", "")
+							return "Rp " .. formatted
+						end
 					end
 				end
 			end
