@@ -1497,7 +1497,9 @@ local success, err = pcall(function()
 		end)
 
 		isDrivingActive = false
-		return (car:GetPivot().Position - destP).Magnitude <= 15
+		local endPos = car:GetPivot().Position
+		local flatEndDist = Vector3.new(endPos.X - destP.X, 0, endPos.Z - destP.Z).Magnitude
+		return flatEndDist <= 35 or (endPos - destP).Magnitude <= 40
 	end
 
 	changeTeam = function(teamName)
@@ -1585,8 +1587,8 @@ local success, err = pcall(function()
 		-- 4. Drive to Pickup
 		if taxiPickupPos and taxiActive and not isResettingTaxi then
 			UI.Notify("🏍️ Heading to Pickup", "Driving to passenger...", 2, "warning")
-			local arrived = driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
-			if not arrived or isResettingTaxi or not taxiActive then
+			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
+			if not taxiActive or isResettingTaxi then
 				return
 			end
 		end
@@ -1646,8 +1648,8 @@ local success, err = pcall(function()
 		if taxiDropPos and taxiActive and not isResettingTaxi then
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
-			local arrived = driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
-			if not arrived or isResettingTaxi or not taxiActive then
+			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
+			if not taxiActive or isResettingTaxi then
 				return
 			end
 
