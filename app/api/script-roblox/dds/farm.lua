@@ -163,117 +163,39 @@ local success, err = pcall(function()
 		return found
 	end
 
-	local function resetTaxiDutyCycle(specificToken, reason)
+	-- 🔄 Unified Toggle Restart Engine (Mematikan toggle UI -> tunggu 1.2s -> nyalakan lagi)
+	restartAutoRideGoToggle = function(reason)
 		if isResettingTaxi then return end
 		isResettingTaxi = true
+		UI.Notify("🔄 Resetting Duty", (reason or "Mereset status RideGO...") .. " (Mencari order baru)", 2.5, "warning")
 
-		local tok = specificToken or taxiToken
-		lastCompletedToken = tok
-		taxiBusy = true
-		taxiToken = nil
-		taxiPickupPos = nil
-		taxiDropPos = nil
-		passengerSeated = false
-		setTaxiState("RESETTING_DUTY")
-
-		-- 1. Hentikan pergerakan motor & netralkan fisika
+		-- 1. Hentikan pergerakan motor seketika
 		if cancelActiveDrive then
 			cancelActiveDrive()
 		end
 
-		local car, seat = getPlayerVehicle()
-		if car then
-			pcall(function()
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.Anchored = false
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-				if seat then
-					seat.Throttle = 0
-					seat.ThrottleFloat = 0
-					seat.AssemblyLinearVelocity = Vector3.zero
-					seat.AssemblyAngularVelocity = Vector3.zero
-				end
-			end)
+		-- 2. Matikan toggle di UI & jalankan shutdown sequence (CancelTrip, CancelOrder, GoOffline, Citizen)
+		if autoRideGoToggle and autoRideGoToggle.Set then
+			autoRideGoToggle.Set(false)
+		elseif toggleAutoRideGO then
+			toggleAutoRideGO(false)
 		end
 
-		-- 2. Bersihkan UI phone / overlay jika ada yang tertinggal
-		pcall(function()
-			local pg = player:FindFirstChild("PlayerGui")
-			local phone = pg and pg:FindFirstChild("Phone")
-			local rideGO = phone and phone:FindFirstChild("RideGO", true)
-			local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
-			if appFrame then
-				local complete = appFrame:FindFirstChild("CompleteOverlay")
-				if complete then complete.Visible = false end
-				local overlay = appFrame:FindFirstChild("OrderOverlay")
-				if overlay then overlay.Visible = false end
-			end
-		end)
+		-- 3. Jeda 1.2 detik agar server memproses dan penumpang benar-benar hilang
+		task.wait(1.2)
 
-		-- 3. Matikan status kerja (CancelOrder & GoOffline) persis seperti mematikan toggle Auto RideGO
-		UI.Notify("🔄 Resetting Duty", (reason or "Mereset status RideGO") .. " (Mematikan status kerja)...", 2.5, "warning")
-		pcall(function()
-			local ev = getTaxiEvent()
-			if ev then
-				if tok then ev:FireServer("CancelOrder", tok) end
-				ev:FireServer("CancelOrder")
-				ev:FireServer("CancelTrip")
-				ev:FireServer("GoOffline")
-			end
-		end)
-
-		-- Jeda aman 1.8 detik agar server memproses status offline dan penumpang ter-despawn
-		task.wait(1.8)
-
-		-- 4. Nyalakan kembali status kerja jika toggle Auto RideGO masih aktif
-		if taxiActive or (Config and Config.autoRideGO) then
-			taxiActive = true
-			if changeTeam then
-				changeTeam("RideGO Driver")
-			end
-			task.wait(0.6)
-
-			pcall(function()
-				local ev = getTaxiEvent()
-				if ev then
-					ev:FireServer("DismissIntro")
-				end
-			end)
-			task.wait(0.3)
-
-			if mountBike then
-				mountBike()
-			elseif ensureDriverSeated then
-				ensureDriverSeated()
-			end
-			task.wait(0.5)
-
-			pcall(function()
-				local ev = getTaxiEvent()
-				if ev then
-					ev:FireServer("GoOnline")
-				end
-			end)
-
-			if startPhoneOverlayPoller then
-				startPhoneOverlayPoller()
-			end
-
-			taxiBusy = false
-			passengerSeated = false
-			setTaxiState("WAITING_FOR_NEXT_ORDER")
-			isResettingTaxi = false
-			UI.Notify("RideGO Online ✅", "Status kerja aktif kembali. Siap menerima order!", 3, "success")
-		else
-			taxiBusy = false
-			passengerSeated = false
-			setTaxiState("IDLE")
-			isResettingTaxi = false
+		-- 4. Nyalakan kembali toggle di UI & mulai mencari orderan baru
+		if autoRideGoToggle and autoRideGoToggle.Set then
+			autoRideGoToggle.Set(true)
+		elseif toggleAutoRideGO then
+			toggleAutoRideGO(true)
 		end
+
+		isResettingTaxi = false
+	end
+
+	local function resetTaxiDutyCycle(specificToken, reason)
+		restartAutoRideGoToggle(reason)
 	end
 
 	------------------------------------------------
@@ -1353,13 +1275,12 @@ local success, err = pcall(function()
 				local nowClock = os.clock()
 				cliffWaitStartTime = cliffWaitStartTime or nowClock
 
-				-- ⏱️ Timeout 5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 5s, batalkan orderan & reset RideGO
-				if (nowClock - cliffWaitStartTime) >= 5.0 then
+				-- ⏱️ Timeout 3.5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 3.5s, otomatis reset toggle UI untuk cari order baru
+				if (nowClock - cliffWaitStartTime) >= 3.5 then
 					cliffWaitStartTime = nil
-					UI.Notify("⚠️ Jurang Terlalu Luas", "Membatalkan order & mereset status RideGO...", 3, "warning")
 					cancelActiveDrive()
 					task.spawn(function()
-						resetTaxiDutyCycle(taxiToken)
+						restartAutoRideGoToggle("Jurang Terlalu Luas")
 					end)
 					return
 				end
@@ -1846,7 +1767,7 @@ local success, err = pcall(function()
 				task.wait(0.25)
 				if taxiActive and not isResettingTaxi then
 					pcall(function()
-						-- 0. Watchdog Diam di Satu Koordinat > 10 Detik:
+						-- 0. Watchdog Diam di Satu Koordinat > 8 Detik:
 						local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 						local curPos = root and root.Position
 						if curPos then
@@ -1859,13 +1780,13 @@ local success, err = pcall(function()
 									lastTrackedPos = curPos
 									lastPosMovedTime = tick()
 								else
-									-- Jika tidak berpindah posisi selama > 10 detik
-									if (tick() - lastPosMovedTime >= 10.0) and not isResettingTaxi then
+									-- Jika tidak berpindah posisi selama > 8 detik
+									if (tick() - lastPosMovedTime >= 8.0) and not isResettingTaxi then
 										lastPosMovedTime = tick()
 										lastTrackedPos = nil
 										task.spawn(function()
 											if restartAutoRideGoToggle then
-												restartAutoRideGoToggle()
+												restartAutoRideGoToggle("Stuck di Tempat (8s)")
 											end
 										end)
 										return
@@ -1947,33 +1868,45 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function toggleAutoRideGO(state)
+	toggleAutoRideGO = function(state)
 		taxiActive         = state
 		taxiBusy           = false
 		taxiToken          = nil
 		lastCompletedToken = nil
 		taxiPickupPos      = nil
 		taxiDropPos        = nil
+		taxiPickupAddr      = ""
+		taxiDropAddr        = ""
 		passengerSeated    = false
 		taxiState          = state and "WAITING_FOR_NEXT_ORDER" or "IDLE"
 		Config.autoRideGO  = state
 
 		if state then
-			changeTeam("RideGO Driver")
-			task.wait(1)
+			if changeTeam then
+				changeTeam("RideGO Driver")
+			end
+			task.wait(0.8)
 
-			if TaxiEvent then
-				TaxiEvent:FireServer("DismissIntro")
-				task.wait(0.3)
+			local ev = getTaxiEvent()
+			if ev then
+				ev:FireServer("DismissIntro")
+				task.wait(0.2)
 			end
 
-			startPhoneOverlayPoller()
+			if startPhoneOverlayPoller then
+				startPhoneOverlayPoller()
+			end
 
 			task.spawn(function()
-				mountBike()
-				task.wait(1)
-				if TaxiEvent then
-					TaxiEvent:FireServer("GoOnline")
+				if mountBike then
+					mountBike()
+				elseif ensureDriverSeated then
+					ensureDriverSeated()
+				end
+				task.wait(0.8)
+				local ev2 = getTaxiEvent()
+				if ev2 then
+					ev2:FireServer("GoOnline")
 				end
 			end)
 
@@ -1983,31 +1916,26 @@ local success, err = pcall(function()
 				task.cancel(taxiOverlayPoller)
 				taxiOverlayPoller = nil
 			end
-			cancelActiveDrive()
-			if TaxiEvent then
-				TaxiEvent:FireServer("GoOffline")
+			if cancelActiveDrive then
+				cancelActiveDrive()
 			end
-			UI.Notify("RideGO Auto-Farm OFF", "Driver offline.", 2, "warning")
-		end
-	end
-
-	-- 🔄 Programmatic Toggle Cycle Reset (Mematikan toggle UI -> tunggu 1s -> nyalakan lagi)
-	restartAutoRideGoToggle = function()
-		if isResettingTaxi then return end
-		isResettingTaxi = true
-		UI.Notify("🔄 Idle Stuck (10s)", "Diam di satu koordinat >10s. Mereset Toggle RideGO...", 2.5, "warning")
-		if autoRideGoToggle and autoRideGoToggle.Set then
-			autoRideGoToggle.Set(false)
-			task.wait(1.0)
-			if autoRideGoToggle.Get and not autoRideGoToggle.Get() then
-				autoRideGoToggle.Set(true)
+			local ev = getTaxiEvent()
+			if ev then
+				ev:FireServer("CancelTrip")
+				ev:FireServer("CancelOrder")
+				ev:FireServer("GoOffline")
 			end
-		else
-			toggleAutoRideGO(false)
-			task.wait(1.0)
-			toggleAutoRideGO(true)
+			if changeTeam then
+				changeTeam("Citizen")
+			end
+			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
+			pcall(function()
+				local activeMissions = workspace:FindFirstChild("ActiveMissions")
+				local pNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+				if pNpc then pNpc:Destroy() end
+			end)
+			UI.Notify("RideGO Auto-Farm OFF", "Driver offline & order reset.", 2, "warning")
 		end
-		isResettingTaxi = false
 	end
 
 	------------------------------------------------
