@@ -568,30 +568,29 @@ local success, err = pcall(function()
 	local function isRoadOrGround(obj)
 		if not obj then return false end
 		if obj:IsA("Terrain") then return true end
+		if obj.Name == "__DdsSafetyPlate" then return true end
+
 		local name = obj.Name:upper()
-		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("RUMAH") or name:find("GEDUNG")
-			or name:find("HOUSE") or name:find("LANTAI") or name:find("SHOP") or name:find("DEALER")
-			or name:find("GARAGE") or name:find("PAGAR") or name:find("RAIL") or name:find("LAMPU")
-			or name:find("POHON") or name:find("PROPS") or name:find("SETTING") or name:find("STOPPER")
-			or name:find("MACHINE") or name:find("MONTOR") or name:find("CAR")
-			or name:find("VEHICLE") or name:find("MISSION") or name:find("QUEST") or name:find("MANCING")
-			or name:find("JOB") or name:find("FLAG") or name:find("SIGN") or name:find("CONE")
-			or name:find("BARRIER") or name:find("PITCH") or name:find("STAGE") or name:find("PANGGUNG")
-			or name:find("TIMER") or name:find("DISPLAY") or name:find("HELMET") or name:find("KFC")
-			or name:find("RESTAURANT") or name:find("GATE") or name:find("MOLDING") or name:find("MEJA")
-		then
-			return false
-		end
 		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW"
 			or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI")
 			or name:find("SUNGAI") or name:find("HILL") or name:find("GROUND") or name:find("TERRAIN")
-			or name:find("GRASS") or name:find("MESH") or name:find("UNION") or name:find("WEIGHT")
-			or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE") or name:find("OVERPASS")
-			or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL") or name:find("TROTO")
-			or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT") or name:find("ASPAL")
+			or name:find("GRASS") or name:find("FLYOVER") or name:find("JEMBATAN") or name:find("BRIDGE")
+			or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL")
+			or name:find("TROTO") or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT")
+			or name:find("ASPAL")
 		then
 			return true
 		end
+
+		if obj:IsA("BasePart") then
+			local mat = obj.Material
+			local sz = obj.Size
+			-- Drivable road / sidewalk slab
+			if (mat == Enum.Material.Asphalt or mat == Enum.Material.Pavement) and (sz.X * sz.Z >= 25) and (sz.Y <= 3.5) then
+				return true
+			end
+		end
+
 		return false
 	end
 
@@ -621,34 +620,17 @@ local success, err = pcall(function()
 
 		return false
 	end
-	local function isInManahanArea(obj)
-		local cur = obj
-		while cur and cur ~= workspace and cur ~= game do
-			local n = cur.Name:upper()
-			if n:find("MANAHAN") then return true end
-			cur = cur.Parent
-		end
-		return false
-	end
 
 	local function shouldDestroyBuilding(obj)
 		if not obj or not obj.Parent then return false end
 		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
+		if obj.Name == "__DdsSafetyPlate" then return false end
 		if isVehicleOrSeatOrPlayer(obj) then return false end
-
-		-- 🏙️ JANGAN HAPUS APAPUN DI AREA MANAHAN atau Folder JL_ dan Jalanan
-		local cur = obj
-		while cur and cur ~= workspace and cur ~= game do
-			local n = cur.Name:upper()
-			if n:find("MANAHAN") or n:sub(1, 3) == "JL_" or n:find("JALAN") or n:find("ROADSNEW") or n:find("TROTOARNEW") then
-				return false
-			end
-			cur = cur.Parent
-		end
-
 		if isRoadOrGround(obj) then return false end
 
 		local name = obj.Name:upper()
+
+		-- Explicit non-road obstacle keywords
 		if name:find("BUILDING") or name:find("BANGUNAN") or name:find("PROPS") or name:find("SETTING")
 			or name:find("HOUSE") or name:find("LANTAI") or name:find("PAGAR") or name:find("RAIL")
 			or name:find("POHON") or name:find("LAMPU") or name:find("BARRIER") or name:find("GEDUNG")
@@ -660,10 +642,25 @@ local success, err = pcall(function()
 			or name:find("CAFE") or name:find("RUKO") or name:find("STOPPER") or name:find("MACHINE")
 			or name:find("PROPBANGUNAN") or name:find("GATE") or name:find("KFC") or name:find("RESTAURANT")
 			or name:find("WARUNG") or name:find("TOKO") or name:find("JOGLO") or name:find("STADION")
-			or name:find("MOLDING") or name:find("MEJA") or name:find("KURSI")
+			or name:find("MOLDING") or name:find("MEJA") or name:find("KURSI") or name:find("TABLE")
+			or name:find("FENCE") or name:find("LAMP") or name:find("TREE") or name:find("KANOPY")
 		then
 			return true
 		end
+
+		-- Models inside road folders (JL_* / MANAHAN) that are building / prop models
+		if obj:IsA("Model") and obj.Parent and (obj.Parent.Name:sub(1, 3) == "JL_" or obj.Parent.Name:find("MANAHAN")) then
+			return true
+		end
+
+		-- Roof and wall parts
+		if obj:IsA("BasePart") then
+			local mat = obj.Material
+			if mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass then
+				return true
+			end
+		end
+
 		return false
 	end
 
@@ -689,7 +686,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Auto-destroy newly streamed buildings KECUALI di area Manahan
+	-- Auto-destroy newly streamed buildings & obstacles across all districts
 	workspace.DescendantAdded:Connect(function(descendant)
 		if shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
@@ -1423,6 +1420,12 @@ local success, err = pcall(function()
 						if part:IsA("BasePart") then
 							part.CanCollide = false
 						end
+					end
+					local h = char:FindFirstChildOfClass("Humanoid")
+					if h then
+						h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+						h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+						h:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 					end
 				end
 
