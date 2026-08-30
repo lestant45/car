@@ -1300,9 +1300,8 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 TEPI JURANG / SAFETY GATE AKTIF:
-				-- Motor WAJIB diam total di atas aspal daratan asal (actualMoveDir = Vector3.zero, stepDist = 0, currentSmoothSpeed = 0)!
-				postTeleportSafetyGate = true
+				-- 🛑 TEPI JURANG:
+				-- Motor diam total di atas aspal daratan asal (actualMoveDir = Vector3.zero, stepDist = 0, currentSmoothSpeed = 0)
 				actualMoveDir = Vector3.zero
 				stepDist = 0
 				currentSmoothSpeed = 0
