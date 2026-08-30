@@ -313,91 +313,6 @@ local success, err = pcall(function()
 		return nil, nil
 	end
 
-	-- 🗑️ Auto-Destroys Obstacle Vehicles (MestibisaCanterFE84G, Buses, Trucks, etc.)
-	local function cleanupObstacleVehicles()
-		local myCar = getPlayerVehicle()
-		local myChar = player.Character
-
-		for _, v in ipairs(workspace:GetChildren()) do
-			if v:IsA("Model") and v ~= myChar and v ~= myCar then
-				local name = v.Name
-				local isObstacle = false
-
-				-- 1. Check specific obstacle models like MestibisaCanterFE84G, Canter, Bus, Truck
-				if name:find("Mestibisa") or name:find("Canter") or name:find("FE84G") or name:find("Bus") or name:find("Truck") then
-					isObstacle = true
-				end
-
-				-- 2. Check other non-player vehicles that might block roads
-				if not isObstacle and (v:FindFirstChild("A-Chassis Tune") or v:FindFirstChild("CarData")) then
-					if not name:find(player.Name) then
-						isObstacle = true
-					end
-				end
-
-				if isObstacle then
-					pcall(function()
-						for _, p in ipairs(v:GetDescendants()) do
-							if p:IsA("BasePart") then
-								p.CanCollide = false
-								p.Anchored = false
-							end
-						end
-						v:Destroy()
-					end)
-				end
-			end
-		end
-	end
-
-	-- Auto-listen to workspace.ChildAdded so any newly spawned MestibisaCanterFE84G or obstacle is instantly removed
-	workspace.ChildAdded:Connect(function(child)
-		if child:IsA("Model") then
-			local name = child.Name
-			if name:find("Mestibisa") or name:find("Canter") or name:find("FE84G") then
-				task.defer(function()
-					pcall(function()
-						for _, p in ipairs(child:GetDescendants()) do
-							if p:IsA("BasePart") then
-								p.CanCollide = false
-							end
-						end
-						child:Destroy()
-					end)
-				end)
-			end
-		end
-	end)
-
-	-- Initial cleanup on script load
-	task.spawn(cleanupObstacleVehicles)
-
-	local function getRaycastExclusions(car)
-		local filter = { car, player.Character }
-		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
-		if existingPlate then table.insert(filter, existingPlate) end
-
-		local activeMissions = workspace:FindFirstChild("ActiveMissions")
-		local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
-		if passengerNpc then table.insert(filter, passengerNpc) end
-
-		for _, pl in ipairs(Players:GetPlayers()) do
-			if pl ~= player and pl.Character then
-				table.insert(filter, pl.Character)
-			end
-		end
-
-		for _, m in ipairs(workspace:GetChildren()) do
-			if m:IsA("Model") and m ~= car and m ~= player.Character then
-				if m.Name:find("Mestibisa") or m.Name:find("Canter") or m.Name:find("Montor") or m.Name:find("Yamaha") or m.Name:find("Car") or m:FindFirstChild("DriveSeat", true) or m:FindFirstChildWhichIsA("VehicleSeat", true) then
-					table.insert(filter, m)
-				end
-			end
-		end
-
-		return filter
-	end
-
 	-- Spawns an invisible collision safety plate underneath destination/vehicle
 	local function ensureSafetyPlate(pos, width)
 		width = width or 80
@@ -938,7 +853,10 @@ local success, err = pcall(function()
 		requestStreamAsync(toPos)
 
 		local brp = RaycastParams.new()
-		brp.FilterDescendantsInstances = getRaycastExclusions(car)
+		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		local filter = { car, player.Character }
+		if safetyPlate then table.insert(filter, safetyPlate) end
+		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
 		-- Scan sampai jarak penuh ke destination (maksimal 3000 stud)
@@ -1030,7 +948,6 @@ local success, err = pcall(function()
 		cancelActiveDrive()
 		isDrivingActive = true
 		neutralizeBikeHazards(car)
-		cleanupObstacleVehicles()
 
 		local plateDestroyedDeferred = false
 		if not destroyPlateAfterStuds or destroyPlateAfterStuds <= 0 then
@@ -1050,8 +967,12 @@ local success, err = pcall(function()
 			return true
 		end
 
+		local rayFilter = { car, player.Character }
+		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if existingPlate then table.insert(rayFilter, existingPlate) end
+
 		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = getRaycastExclusions(car)
+		rayParams.FilterDescendantsInstances = rayFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local function probeGround(probePos, refY)
@@ -1548,7 +1469,6 @@ local success, err = pcall(function()
 
 		setTaxiState("NEW_ORDER_DETECTED")
 		setTaxiState("PICKING_UP")
-		cleanupObstacleVehicles()
 
 		-- 1. Accept Order
 		TaxiEvent:FireServer("AcceptOrder", token)
@@ -1809,8 +1729,6 @@ local success, err = pcall(function()
 						local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
 						local complete = appFrame and appFrame:FindFirstChild("CompleteOverlay")
 						local overlay = appFrame and appFrame:FindFirstChild("OrderOverlay")
-
-						cleanupObstacleVehicles()
 
 						-- 1. Auto-Dismiss Complete Screen agar UI tidak pernah nyangkut di ringkasan trip
 						if complete and complete.Visible then
