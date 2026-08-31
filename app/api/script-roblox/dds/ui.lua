@@ -941,7 +941,12 @@ local success, err = pcall(function()
 		return card
 	end
 
-	local function addTextbox(tab, title, placeholder, callback)
+	local function addTextbox(tab, title, placeholder, defaultText, callback)
+		if type(defaultText) == "function" and callback == nil then
+			callback = defaultText
+			defaultText = ""
+		end
+
 		local card = Instance.new("Frame")
 		card.Name = "TextboxCard_" .. title
 		card.Size = UDim2.new(1, 0, 0, 42)
@@ -972,7 +977,7 @@ local success, err = pcall(function()
 		box.BackgroundTransparency = 0.4
 		box.PlaceholderText = placeholder or "Type here..."
 		box.PlaceholderColor3 = COLORS.textMuted
-		box.Text = ""
+		box.Text = tostring(defaultText or "")
 		box.TextColor3 = COLORS.textWhite
 		box.Font = Enum.Font.GothamMedium
 		box.TextSize = 11

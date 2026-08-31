@@ -228,22 +228,6 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Auto-activate saved settings states on launch
-	task.defer(function()
-		task.wait(0.5)
-		if _G.HipHubConfig.misc.antiAfk then
-			toggleAntiAfk(true)
-		end
-		if _G.HipHubConfig.misc.antiPlayerJoin then
-			toggleAntiPlayerJoin(true)
-		end
-		if _G.HipHubConfig.misc.blackScreenEnabled then
-			toggleBlackScreen(true)
-		end
-		if _G.HipHubConfig.misc.capFpsEnabled and setfpscap then
-			pcall(setfpscap, 15)
-		end
-	end)
 
 	------------------------------------------------
 	-- 🖼️ UI COMPONENTS IN SETTINGS TAB
@@ -631,7 +615,17 @@ local success, err = pcall(function()
 	end
 
 	UI.AddSection(tab, "AFK & Target Farming")
-	UI.AddTextbox(tab, "Target Earn (Juta / M)", "Contoh: 550 (= Rp 550 Juta | 0 = No Limit)", function(text)
+	local initialTargetText = ""
+	if _G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.targetEarn and _G.HipHubConfig.misc.targetEarn > 0 then
+		local tVal = _G.HipHubConfig.misc.targetEarn
+		if tVal >= 1000000 and (tVal % 1000000 == 0) then
+			initialTargetText = tostring(math.floor(tVal / 1000000))
+		else
+			initialTargetText = tostring(tVal)
+		end
+	end
+
+	UI.AddTextbox(tab, "Target Earn (Juta / M)", "Contoh: 550 (= Rp 550 Juta | 0 = No Limit)", initialTargetText, function(text)
 		local raw = tostring(text or ""):gsub("[^%d%.]", "")
 		local num = tonumber(raw) or 0
 		local val = num
@@ -646,7 +640,7 @@ local success, err = pcall(function()
 		UI.Notify("Target Earn Diatur", val > 0 and ("Target: " .. formatRupiah(val)) or "Target: No Limit (∞)", 3, "success")
 	end)
 
-	UI.AddToggle(tab, "Black Screen (Overnight AFK)", "Disables 3D viewport rendering with a live stats dashboard", _G.HipHubConfig.misc.blackScreenEnabled, function(state)
+	local blackScreenToggle = UI.AddToggle(tab, "Black Screen (Overnight AFK)", "Disables 3D viewport rendering with a live stats dashboard", _G.HipHubConfig.misc.blackScreenEnabled, function(state)
 		toggleBlackScreen(state)
 	end)
 
@@ -712,6 +706,28 @@ local success, err = pcall(function()
 
 	UI.AddLabel(tab, "Place ID: 131378148336503 | Drag Drive Simulator", UI.COLORS.textMuted)
 	UI.AddLabel(tab, "HipHub DDS Engine v1.0.0 — Keyless Stealth Edition", UI.COLORS.accentCyan)
+
+	-- 🚀 Auto-activate saved settings states on launch (setelah semua fungsi & UI siap)
+	task.defer(function()
+		task.wait(1.0)
+		if _G.HipHubConfig and _G.HipHubConfig.misc then
+			if _G.HipHubConfig.misc.antiAfk then
+				toggleAntiAfk(true)
+			end
+			if _G.HipHubConfig.misc.antiPlayerJoin then
+				toggleAntiPlayerJoin(true)
+			end
+			if _G.HipHubConfig.misc.blackScreenEnabled then
+				toggleBlackScreen(true)
+				if blackScreenToggle and blackScreenToggle.Set then
+					blackScreenToggle.Set(true)
+				end
+			end
+			if _G.HipHubConfig.misc.capFpsEnabled and setfpscap then
+				pcall(setfpscap, 15)
+			end
+		end
+	end)
 end)
 
 if not success then
