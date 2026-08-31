@@ -1460,37 +1460,6 @@ local success, err = pcall(function()
 			pcall(function()
 				car:PivotTo(currentCF)
 
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.CanCollide = false
-						part.Anchored = false
-					end
-				end
-
-				if char then
-					for _, part in ipairs(char:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-						end
-					end
-					local h = char:FindFirstChildOfClass("Humanoid")
-					if h then
-						h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-						h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-						h:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-					end
-				end
-
-				local activeMissions = workspace:FindFirstChild("ActiveMissions")
-				local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
-				if passengerNpc then
-					for _, part in ipairs(passengerNpc:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-						end
-					end
-				end
-
 				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
@@ -1510,13 +1479,12 @@ local success, err = pcall(function()
 						hum.Sit = true
 						seat:Sit(hum)
 					end
-					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 					root.AssemblyLinearVelocity = velocityVec
 					root.AssemblyAngularVelocity = Vector3.zero
 				end
 
+				local activeMissions = workspace:FindFirstChild("ActiveMissions")
+				local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
 				if passengerNpc then
 					local passHrp = passengerNpc:FindFirstChild("HumanoidRootPart")
 					if passHrp then
@@ -1779,13 +1747,27 @@ local success, err = pcall(function()
 				task.wait(0.4)
 			end
 
+			local function cleanupAndResetTrip(reason)
+				taxiBusy = false
+				taxiToken = nil
+				passengerSeated = false
+				local ev = getTaxiEvent()
+				if ev then
+					ev:FireServer("CancelTrip")
+					ev:FireServer("CancelOrder")
+					task.wait(0.5)
+					ev:FireServer("GoOnline")
+				end
+				setTaxiState("WAITING_FOR_NEXT_ORDER")
+			end
+
 			if isPassengerOnboard() then
 				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
 			else
 				UI.Notify("⚠️ Boarding Timeout", "Penumpang tidak naik. Mereset status kerja...", 2.5, "warning")
-				resetTaxiDutyCycle(token, "Boarding Timeout")
+				cleanupAndResetTrip("Boarding Timeout")
 				return
 			end
 		end
@@ -1833,14 +1815,14 @@ local success, err = pcall(function()
 				-- Deteksi cepat notifikasi "Memverifikasi rute" / "Verifying your trip route"
 				if isRouteVerificationStuck() then
 					UI.Notify("⚠️ Verifikasi Rute Terdeteksi", "Mereset status kerja (Offline -> Online)...", 2.5, "warning")
-					resetTaxiDutyCycle(token, "Verifikasi Rute Terdeteksi")
+					cleanupAndResetTrip("Verifikasi Rute Terdeteksi")
 					return
 				end
 
 				-- Fail-safe disembark timeout: Jika dalam 3.5 detik penumpang tidak turun, otomatis reset duty
 				if (nowT - disembarkWait > 3.5) then
 					UI.Notify("⚠️ Disembark Timeout", "Penumpang tidak turun. Mereset status kerja...", 2.5, "warning")
-					resetTaxiDutyCycle(token, "Disembark Timeout")
+					cleanupAndResetTrip("Disembark Timeout")
 					return
 				end
 
@@ -1849,7 +1831,7 @@ local success, err = pcall(function()
 
 			-- Jika penumpang masih belum turun:
 			if isPassengerOnboard() and taxiActive and not isResettingTaxi then
-				resetTaxiDutyCycle(token, "Passenger Stuck")
+				cleanupAndResetTrip("Passenger Stuck")
 				return
 			end
 
@@ -2128,20 +2110,16 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 4. Matchmaking Keep-Alive Heartbeat (setiap 25s saat menganggur)
-						if not taxiBusy and (tick() - lastKeepAliveTime >= 25) then
+						-- 4. Driver Seat Keep-Alive (memastikan driver tetap di motor tanpa spamming remote)
+						if not taxiBusy and (tick() - lastKeepAliveTime >= 15) then
 							lastKeepAliveTime = tick()
-							ensureRideGoTeam(2)
-							if mountBike then
-								mountBike()
-							elseif ensureDriverSeated then
-								ensureDriverSeated()
-							end
-							local ev = getTaxiEvent()
-							if ev then
-								ev:FireServer("DismissIntro")
-								task.wait(0.2)
-								ev:FireServer("GoOnline")
+							local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+							if not (hum and hum.SeatPart) then
+								if mountBike then
+									mountBike()
+								elseif ensureDriverSeated then
+									ensureDriverSeated()
+								end
 							end
 						end
 
