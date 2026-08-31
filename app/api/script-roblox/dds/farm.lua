@@ -1498,6 +1498,36 @@ local success, err = pcall(function()
 	-- 🚕 2. AUTO RIDEGO TAXI CONTROLLER
 	------------------------------------------------
 
+	local function getLiveMoneyRaw()
+		local playerData = player:FindFirstChild("PlayerData")
+		if playerData then
+			local rpValue = playerData:FindFirstChild("RPValue")
+			if rpValue and rpValue:IsA("NumberValue") then
+				return math.floor(rpValue.Value)
+			end
+		end
+		for _, folderName in ipairs({"leaderstats", "Data", "Stats"}) do
+			local stats = player:FindFirstChild(folderName)
+			if stats then
+				for _, v in ipairs(stats:GetChildren()) do
+					if v:IsA("NumberValue") or v:IsA("IntValue") then
+						local n = v.Name:lower()
+						if n:find("rp") or n:find("money") or n:find("cash") or n:find("rupiah") or n:find("balance") then
+							return math.floor(tonumber(v.Value) or 0)
+						end
+					end
+				end
+			end
+		end
+		return 0
+	end
+
+	local function formatRupiah(val)
+		local n = math.floor(val or 0)
+		local formatted = tostring(n):reverse():gsub("(%d%d%d)", "%1."):reverse():gsub("^%.", "")
+		return "Rp " .. formatted
+	end
+
 	local function parsePosition(val)
 		if typeof(val) == "Vector3" then return val end
 		if typeof(val) == "CFrame" then return val.Position end
@@ -1733,6 +1763,19 @@ local success, err = pcall(function()
 		taxiDropAddr = ""
 		passengerSeated = false
 
+		-- 🎯 Target Earn Check: Jika target uang tercapai, otomatis matikan Auto-Farm
+		local targetEarn = _G.HipHubConfig and _G.HipHubConfig.misc and tonumber(_G.HipHubConfig.misc.targetEarn) or 0
+		if targetEarn > 0 then
+			local curM = getLiveMoneyRaw()
+			if curM >= targetEarn then
+				UI.Notify("🎉 Target Earn Tercapai!", string.format("Total Uang: %s (Target: %s). Auto-Farm selesai!", formatRupiah(curM), formatRupiah(targetEarn)), 5, "success")
+				if autoRideGoToggle and autoRideGoToggle.Set then
+					autoRideGoToggle.Set(false)
+				end
+				return
+			end
+		end
+
 		setTaxiState("WAITING_FOR_NEXT_ORDER")
 	end
 
@@ -1966,6 +2009,17 @@ local success, err = pcall(function()
 									end
 								end
 							end)
+						-- 6. Target Earn Check Periodik
+						local targetEarn = _G.HipHubConfig and _G.HipHubConfig.misc and tonumber(_G.HipHubConfig.misc.targetEarn) or 0
+						if targetEarn > 0 then
+							local curM = getLiveMoneyRaw()
+							if curM >= targetEarn then
+								UI.Notify("🎉 Target Earn Tercapai!", string.format("Total Uang: %s (Target: %s). Auto-Farm selesai!", formatRupiah(curM), formatRupiah(targetEarn)), 5, "success")
+								if autoRideGoToggle and autoRideGoToggle.Set then
+									autoRideGoToggle.Set(false)
+								end
+								return
+							end
 						end
 					end)
 				end
@@ -2051,6 +2105,7 @@ local success, err = pcall(function()
 	autoRideGoToggle = UI.AddToggle(tab, "Auto RideGO Taxi", "Goes online, auto-accepts orders & smoothly navigates to drops", Config.autoRideGO, function(state)
 		toggleAutoRideGO(state)
 	end)
+	_G.HipHubAutoRideGoToggle = autoRideGoToggle
 
 	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 120, math.floor(Config.taxiSpeed or 60), function(val)
 		Config.taxiSpeed = val
