@@ -553,7 +553,13 @@ local success, err = pcall(function()
 
 						local target = tonumber(_G.HipHubConfig.misc.targetEarn) or 0
 						if target > 0 then
-							targetVal.Text = formatRupiah(target)
+							if target >= 1000000 then
+								local mVal = target / 1000000
+								local mFormatted = (mVal % 1 == 0) and string.format("%.0fM", mVal) or string.format("%.1fM", mVal)
+								targetVal.Text = formatRupiah(target) .. " (" .. mFormatted .. ")"
+							else
+								targetVal.Text = formatRupiah(target)
+							end
 							local pct = math.clamp(curMoney / target, 0, 1)
 							progressVal.Text = string.format("%.1f%%", pct * 100)
 							barFill.Size = UDim2.new(pct, 0, 1, 0)
@@ -597,9 +603,16 @@ local success, err = pcall(function()
 	end
 
 	UI.AddSection(tab, "AFK & Target Farming")
-	UI.AddTextbox(tab, "Target Earn (Rp)", "Contoh: 500000000 (0 = No Limit)", function(text)
-		local raw = tostring(text or ""):gsub("[^%d]", "")
-		local val = tonumber(raw) or 0
+	UI.AddTextbox(tab, "Target Earn (Juta / M)", "Contoh: 550 (= Rp 550 Juta | 0 = No Limit)", function(text)
+		local raw = tostring(text or ""):gsub("[^%d%.]", "")
+		local num = tonumber(raw) or 0
+		local val = num
+		-- Jika input angka di bawah 1.000.000 (misal: 550 atau 550.5), otomatis dikalikan 1 Juta (1.000.000)
+		if num > 0 and num < 1000000 then
+			val = math.floor(num * 1000000)
+		else
+			val = math.floor(num)
+		end
 		_G.HipHubConfig.misc.targetEarn = val
 		UI.Notify("Target Earn Diatur", val > 0 and ("Target: " .. formatRupiah(val)) or "Target: No Limit (∞)", 3, "success")
 	end)
