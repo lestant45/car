@@ -408,21 +408,9 @@ local success, err = pcall(function()
 
 	local function neutralizeBikeHazards(car)
 		pcall(function()
-			if car then
-				for _, s in ipairs(car:GetDescendants()) do
-					if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll")) then
-						s.Disabled = true
-					end
-				end
-			end
 			local char = player.Character
 			if char then
 				for _, s in ipairs(char:GetDescendants()) do
-					if s:IsA("Script") or s:IsA("LocalScript") then
-						if s.Name == "RagdollHandler" or s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll") then
-							s.Disabled = true
-						end
-					end
 					if s:IsA("BasePart") then
 						s.CanCollide = false
 					end
@@ -697,15 +685,17 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function destroyAllBuildings()
+	local function disableObstacleCollisions()
 		pcall(function()
 			for _, c in ipairs(workspace:GetChildren()) do
 				if shouldDestroyBuilding(c) then
-					pcall(function() c:Destroy() end)
-				elseif c:IsA("Folder") or c:IsA("Model") then
-					for _, ch in ipairs(c:GetDescendants()) do
-						if shouldDestroyBuilding(ch) then
-							pcall(function() ch:Destroy() end)
+					if c:IsA("BasePart") then
+						c.CanCollide = false
+					elseif c:IsA("Folder") or c:IsA("Model") then
+						for _, ch in ipairs(c:GetDescendants()) do
+							if ch:IsA("BasePart") and shouldDestroyBuilding(ch) then
+								ch.CanCollide = false
+							end
 						end
 					end
 				end
@@ -713,17 +703,16 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Auto-destroy newly streamed buildings & obstacles across all districts
+	-- Auto-disable collisions for newly streamed obstacles without destroying instances (anti-kick)
 	workspace.DescendantAdded:Connect(function(descendant)
-		if shouldDestroyBuilding(descendant) then
-			task.wait(0.05)
-			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
-				pcall(function() descendant:Destroy() end)
-			end
+		if descendant:IsA("BasePart") and shouldDestroyBuilding(descendant) then
+			pcall(function()
+				descendant.CanCollide = false
+			end)
 		end
 	end)
 
-	task.spawn(destroyAllBuildings)
+	task.spawn(disableObstacleCollisions)
 
 
 	local function getGroundExcludeFilter(car)
@@ -1549,15 +1538,31 @@ local success, err = pcall(function()
 
 	changeTeam = function(teamName)
 		pcall(function()
-			local teamChangeRequest = ReplicatedStorage:FindFirstChild("teamChangeRequest")
-			if teamChangeRequest then
-				teamChangeRequest:FireServer(teamName)
-			end
 			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-			if jobEvents and jobEvents:FindFirstChild("TeamChangeRequest") then
-				jobEvents.TeamChangeRequest:FireServer(teamName)
+			local teamChangeRequest = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+			if teamChangeRequest then
+				if teamName == "RideGO Driver" then
+					teamChangeRequest:FireServer("RideGO Driver", 11378976, 1, 0, "MainMenu")
+				elseif teamName == "Civilian" or teamName == "Citizen" then
+					teamChangeRequest:FireServer("Civilian", 0, 0, 0, "MainMenu")
+				else
+					teamChangeRequest:FireServer(teamName, 0, 0, 0, "MainMenu")
+				end
 			end
 		end)
+	end
+
+	local function ensureRideGoTeam(timeoutSec)
+		timeoutSec = timeoutSec or 5
+		local startT = tick()
+		while (tick() - startT < timeoutSec) do
+			if player.Team and player.Team.Name == "RideGO Driver" then
+				return true
+			end
+			changeTeam("RideGO Driver")
+			task.wait(0.6)
+		end
+		return player.Team and player.Team.Name == "RideGO Driver"
 	end
 
 	------------------------------------------------
@@ -1973,21 +1978,29 @@ local success, err = pcall(function()
 										lastTrackedPos = curPos
 										lastPosMovedTime = tick()
 									else
-										-- A. Jika sedang berkendara tapi diam > 12s -> BENAR-BENAR STUCK (misal jurang / nabrak dinding)
-										-- B. Jika sedang menganggur menunggu orderan -> beri waktu longgar 45s agar matchmaking 7-15s masuk mulus
 										local isDriving = (isDrivingActive or taxiState == "DRIVING_TO_DESTINATION")
 										local threshold = isDriving and 12.0 or 45.0
 
 										if (tick() - lastPosMovedTime >= threshold) and not isResettingTaxi then
 											lastPosMovedTime = tick()
 											lastTrackedPos = nil
-											task.spawn(function()
-												if restartAutoRideGoToggle then
-													local reason = isDriving and "Stuck saat Berkendara (12s)" or "Idle Matchmaking Timeout (45s)"
-													restartAutoRideGoToggle(reason)
-												end
-											end)
-											return
+											if isDriving then
+												task.spawn(function()
+													if cancelActiveDrive then cancelActiveDrive() end
+													setTaxiState("WAITING_FOR_NEXT_ORDER")
+												end)
+											else
+												task.spawn(function()
+													ensureRideGoTeam(3)
+													if mountBike then mountBike() end
+													local ev = getTaxiEvent()
+													if ev then
+														ev:FireServer("DismissIntro")
+														task.wait(0.2)
+														ev:FireServer("GoOnline")
+													end
+												end)
+											end
 										end
 									end
 								end
@@ -2000,8 +2013,17 @@ local success, err = pcall(function()
 						local appFrame = rideGO and rideGO:FindFirstChild("AppFrame")
 						local complete = appFrame and appFrame:FindFirstChild("CompleteOverlay")
 						local overlay = appFrame and appFrame:FindFirstChild("OrderOverlay")
+						local intro = appFrame and appFrame:FindFirstChild("IntroOverlay")
 
-						-- 1. Auto-Dismiss Complete Screen agar UI tidak pernah nyangkut di ringkasan trip
+						-- 1. Auto-Dismiss Intro Overlay
+						if intro and intro.Visible then
+							intro.Visible = false
+							if TaxiEvent then
+								TaxiEvent:FireServer("DismissIntro")
+							end
+						end
+
+						-- 2. Auto-Dismiss Complete Screen agar UI tidak pernah nyangkut di ringkasan trip
 						if complete and complete.Visible then
 							complete.Visible = false
 							if TaxiEvent then
@@ -2009,7 +2031,7 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 2. Auto-Accept orderan baru yang masuk
+						-- 3. Auto-Accept orderan baru yang masuk
 						if overlay and overlay.Visible and not taxiBusy then
 							if #_G.HipHubTaxiLog > 0 then
 								local last = _G.HipHubTaxiLog[#_G.HipHubTaxiLog]
@@ -2023,41 +2045,20 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 3. Watchdog Verifikasi Rute: HANYA jika sedang aktif membawa penumpang menuju tujuan
-						if isPassengerOnboard() and (taxiState == "DRIVING_TO_DESTINATION" or taxiState == "DROPPING_OFF") and isRouteVerificationStuck() then
-							task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Verifikasi Rute")
-							return
-						end
-
-						-- 4. Watchdog Stuck di Drop-off: Jika penumpang ada di motor dan sudah diam di titik tujuan > 3 detik
-						if isPassengerOnboard() and not isResettingTaxi then
-							local car, seat = getPlayerVehicle()
-							if car and seat and taxiDropPos then
-								local curSpeed = seat.AssemblyLinearVelocity.Magnitude
-								local distToDrop = (car:GetPivot().Position - taxiDropPos).Magnitude
-								if curSpeed < 3 and distToDrop <= 25 then
-									dropoffStuckTime = dropoffStuckTime or tick()
-									if (tick() - dropoffStuckTime >= 3.0) then
-										dropoffStuckTime = nil
-										task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Stuck di Drop-off")
-										return
-									end
-								else
-									dropoffStuckTime = nil
-								end
-							else
-								dropoffStuckTime = nil
-							end
-						else
-							dropoffStuckTime = nil
-						end
-
-						-- 4. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
-						if not taxiBusy and (tick() - lastKeepAliveTime >= 35) then
+						-- 4. Matchmaking Keep-Alive Heartbeat (setiap 25s saat menganggur)
+						if not taxiBusy and (tick() - lastKeepAliveTime >= 25) then
 							lastKeepAliveTime = tick()
-							ensureDriverSeated()
-							if TaxiEvent then
-								TaxiEvent:FireServer("GoOnline")
+							ensureRideGoTeam(2)
+							if mountBike then
+								mountBike()
+							elseif ensureDriverSeated then
+								ensureDriverSeated()
+							end
+							local ev = getTaxiEvent()
+							if ev then
+								ev:FireServer("DismissIntro")
+								task.wait(0.2)
+								ev:FireServer("GoOnline")
 							end
 						end
 
@@ -2116,35 +2117,42 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			if changeTeam then
-				changeTeam("RideGO Driver")
-			end
-			task.wait(0.8)
-
-			local ev = getTaxiEvent()
-			if ev then
-				ev:FireServer("DismissIntro")
-				task.wait(0.2)
-			end
-
 			if startPhoneOverlayPoller then
 				startPhoneOverlayPoller()
 			end
 
 			task.spawn(function()
+				UI.Notify("RideGO: Inisialisasi...", "Mengubah tim & menaiki motor...", 3, "info")
+
+				-- 1. Pastikan tim RideGO Driver dengan handshake
+				local teamOk = ensureRideGoTeam(6)
+				if not teamOk then
+					UI.Notify("RideGO Team Warning", "Pastikan sudah join grup ADV Gamers Team (ID: 11378976)!", 5, "warning")
+				end
+				task.wait(1.2)
+
+				-- 2. Pastikan motor dinaiki
 				if mountBike then
 					mountBike()
 				elseif ensureDriverSeated then
 					ensureDriverSeated()
 				end
 				task.wait(0.8)
-				local ev2 = getTaxiEvent()
-				if ev2 then
-					ev2:FireServer("GoOnline")
-				end
-			end)
 
-			UI.Notify("RideGO Auto-Farm ON", "Strict Anti-Void: Dilarang berjalan di atas jurang!", 3.5, "success")
+				-- 3. Dismiss Intro agar modal tidak memblokir
+				local ev = getTaxiEvent()
+				if ev then
+					ev:FireServer("DismissIntro")
+					task.wait(0.3)
+				end
+
+				-- 4. Panggil GoOnline
+				if ev then
+					ev:FireServer("GoOnline")
+				end
+
+				UI.Notify("RideGO Auto-Farm ON", "Driver Online & Siap Menerima Order!", 3.5, "success")
+			end)
 		else
 			if taxiOverlayPoller then
 				task.cancel(taxiOverlayPoller)
@@ -2160,7 +2168,7 @@ local success, err = pcall(function()
 				ev:FireServer("GoOffline")
 			end
 			if changeTeam then
-				changeTeam("Citizen")
+				changeTeam("Civilian")
 			end
 			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
 			pcall(function()
