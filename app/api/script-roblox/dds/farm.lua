@@ -2009,6 +2009,8 @@ local success, err = pcall(function()
 									end
 								end
 							end)
+						end
+
 						-- 6. Target Earn Check Periodik
 						local targetEarn = _G.HipHubConfig and _G.HipHubConfig.misc and tonumber(_G.HipHubConfig.misc.targetEarn) or 0
 						if targetEarn > 0 then
