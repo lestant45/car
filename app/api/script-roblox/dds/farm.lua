@@ -16,7 +16,10 @@ local success, err = pcall(function()
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRideGO = false,
 		taxiSpeed = 90,
-		passengerBoardDelay = 3
+		passengerBoardDelay = 3,
+		smartBreak = true,
+		smartBreakWorkMins = 60,
+		smartBreakRestMins = 2
 	}
 
 	------------------------------------------------
@@ -33,19 +36,21 @@ local success, err = pcall(function()
 		return ev
 	end
 
-	local taxiActive          = false
-	local taxiBusy            = false
-	local taxiState           = "IDLE"
-	local taxiToken           = nil
-	local lastCompletedToken  = nil
-	local taxiPickupPos       = nil
-	local taxiDropPos         = nil
-	local passengerSeated     = false
-	local taxiOverlayPoller   = nil
-	local isResettingTaxi     = false
-	local dropoffStuckTime    = nil
-	local taxiPickupAddr      = ""
-	local taxiDropAddr        = ""
+	local taxiActive               = false
+	local taxiBusy                 = false
+	local taxiState                = "IDLE"
+	local taxiToken                = nil
+	local lastCompletedToken       = nil
+	local taxiPickupPos            = nil
+	local taxiDropPos              = nil
+	local passengerSeated          = false
+	local taxiOverlayPoller        = nil
+	local isResettingTaxi          = false
+	local isTakingSmartBreak       = false
+	local lastWorkSessionStartTime = tick()
+	local dropoffStuckTime         = nil
+	local taxiPickupAddr           = ""
+	local taxiDropAddr             = ""
 
 	local autoRideGoToggle        = nil
 	local restartAutoRideGoToggle = nil
@@ -473,11 +478,16 @@ local success, err = pcall(function()
 		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
 		task.wait(0.1)
 
-		-- Loop agresif verifikasi duduk (maksimal 3.0 detik)
+		-- Verifikasi duduk secara mulus
 		local sitStart = os.clock()
-		while not hum.SeatPart and (os.clock() - sitStart < 3.0) do
-			-- 1. Trigger ProximityPrompt pengemudi jika ada
-			if prompt then
+		while not hum.SeatPart and (os.clock() - sitStart < 2.5) do
+			-- 1. Native seat sit call
+			pcall(function()
+				seatPart:Sit(hum)
+			end)
+
+			-- 2. Trigger ProximityPrompt pengemudi jika belum duduk
+			if prompt and not hum.SeatPart then
 				pcall(function()
 					if fireproximityprompt then
 						fireproximityprompt(prompt)
@@ -489,22 +499,8 @@ local success, err = pcall(function()
 				end)
 			end
 
-			-- 2. Trigger native touch event via firetouchinterest
-			pcall(function()
-				if firetouchinterest then
-					firetouchinterest(root, seatPart, 0)
-					task.wait(0.02)
-					firetouchinterest(root, seatPart, 1)
-				end
-			end)
-
-			-- 3. Native seat sit call (tanpa hum.Sit = true agar tidak duduk di udara)
-			pcall(function()
-				seatPart:Sit(hum)
-			end)
-
-			root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
-			task.wait(0.25)
+			root.CFrame = seatPart.CFrame + Vector3.new(0, 0.5, 0)
+			task.wait(0.35)
 		end
 
 		local isSeated = (hum.SeatPart ~= nil)
@@ -685,8 +681,49 @@ local success, err = pcall(function()
 		return false
 	end
 
+	local function enableDdsMaxFpsMode()
+		pcall(function()
+			local RS = game:GetService("ReplicatedStorage")
+			local Lighting = game:GetService("Lighting")
+
+			-- 1. Aktifkan atribut resmi Low-Device DDS (Gedung, Pohon, Efek & Kendaraan Lain Disembunyikan)
+			RS:SetAttribute("HideBuildingButton", true)
+			RS:SetAttribute("HideTreeButton", true)
+			RS:SetAttribute("HideVehicleButton", true)
+			RS:SetAttribute("RainLagButton", true)
+			RS:SetAttribute("ShadowButton", false)
+			RS:SetAttribute("SunraysButton", false)
+			RS:SetAttribute("BloomButton", false)
+			RS:SetAttribute("BlurButton", false)
+
+			Lighting.GlobalShadows = false
+
+			-- 2. Pindahkan folder props gedung & pohon ke cache ReplicatedStorage resmi DDS (0 GPU Draw Calls / Ultra FPS Boost)
+			local cache = RS:FindFirstChild("ClientHiddenObjects_Cache")
+			if not cache then
+				cache = Instance.new("Folder")
+				cache.Name = "ClientHiddenObjects_Cache"
+				cache.Parent = RS
+			end
+
+			local treeFolders = { "SETTING_POHON_FLYOVER", "SETTING_POHON_KOTA", "SETTING_POHON_TOL", "SETTING_POHON_MANAHAN", "SETTING_POHON_SLAMET_RIYADI" }
+			local propFolders = { "PROPS_BANGUNAN", "PROPS_GEDUNG", "PROPS_GUNUNG", "PROPS_HILL", "PROPS_BARRIER", "VEHICLE_DISPLAY_DEALER" }
+
+			for _, name in ipairs(treeFolders) do
+				local f = workspace:FindFirstChild(name)
+				if f then f.Parent = cache end
+			end
+			for _, name in ipairs(propFolders) do
+				local f = workspace:FindFirstChild(name)
+				if f then f.Parent = cache end
+			end
+		end)
+	end
+
 	local function disableObstacleCollisions()
 		pcall(function()
+			enableDdsMaxFpsMode()
+
 			for _, c in ipairs(workspace:GetChildren()) do
 				if shouldDestroyBuilding(c) then
 					if c:IsA("BasePart") then
@@ -1847,6 +1884,52 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- ☕ Smart Break (Anti-Suspend / Human-Like Cooldown):
+		-- Hanya dieksekusi saat penumpang SUDAH TURUN dan order SUDAH SELESAI (AckTripComplete)
+		local smartBreakEnabled = (Config.smartBreak ~= false)
+		local workDurationSec = (tonumber(Config.smartBreakWorkMins) or 60) * 60
+		local breakDurationSec = (tonumber(Config.smartBreakRestMins) or 2) * 60
+
+		if smartBreakEnabled and taxiActive and not isResettingTaxi and (tick() - lastWorkSessionStartTime >= workDurationSec) then
+			isTakingSmartBreak = true
+			setTaxiState("SMART_BREAK")
+
+			-- 1. Graceful GoOffline ke server
+			local ev = getTaxiEvent()
+			if ev then
+				ev:FireServer("GoOffline")
+			end
+
+			local restMinutes = math.floor(breakDurationSec / 60)
+			UI.Notify("☕ Smart Break Dimulai", string.format("Trip selesai! Istirahat %d menit untuk menjaga akun aman dari suspend...", restMinutes), 5, "info")
+
+			-- 2. Countdown loop istirahat
+			local breakEnd = tick() + breakDurationSec
+			while taxiActive and (tick() < breakEnd) do
+				task.wait(1.0)
+			end
+
+			isTakingSmartBreak = false
+			lastWorkSessionStartTime = tick()
+
+			-- 3. Selesai istirahat -> Kembali GoOnline secara sah
+			if taxiActive then
+				UI.Notify("🚀 Istirahat Selesai!", "Driver kembali Online & siap menerima orderan baru!", 3, "success")
+				ensureRideGoTeam(2)
+				if mountBike then
+					mountBike()
+				elseif ensureDriverSeated then
+					ensureDriverSeated()
+				end
+				local ev2 = getTaxiEvent()
+				if ev2 then
+					ev2:FireServer("DismissIntro")
+					task.wait(0.3)
+					ev2:FireServer("GoOnline")
+				end
+			end
+		end
+
 		setTaxiState("WAITING_FOR_NEXT_ORDER")
 	end
 
@@ -1958,7 +2041,7 @@ local success, err = pcall(function()
 
 			while taxiActive do
 				task.wait(0.25)
-				if taxiActive and not isResettingTaxi then
+				if taxiActive and not isResettingTaxi and not isTakingSmartBreak then
 					pcall(function()
 						-- 0. Watchdog Diam & Macet Cerdas:
 						-- Jika sedang dalam proses naik/turun penumpang, segarkan timer agar penumpang tidak terputus saat berjalan naik!
@@ -2098,17 +2181,19 @@ local success, err = pcall(function()
 	end
 
 	toggleAutoRideGO = function(state)
-		taxiActive         = state
-		taxiBusy           = false
-		taxiToken          = nil
-		lastCompletedToken = nil
-		taxiPickupPos      = nil
-		taxiDropPos        = nil
-		taxiPickupAddr      = ""
-		taxiDropAddr        = ""
-		passengerSeated    = false
-		taxiState          = state and "WAITING_FOR_NEXT_ORDER" or "IDLE"
-		Config.autoRideGO  = state
+		taxiActive               = state
+		taxiBusy                 = false
+		taxiToken                = nil
+		lastCompletedToken       = nil
+		taxiPickupPos            = nil
+		taxiDropPos              = nil
+		taxiPickupAddr           = ""
+		taxiDropAddr             = ""
+		passengerSeated          = false
+		isTakingSmartBreak       = false
+		lastWorkSessionStartTime = tick()
+		taxiState                = state and "WAITING_FOR_NEXT_ORDER" or "IDLE"
+		Config.autoRideGO        = state
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.autoRideGO = state
 		end
@@ -2189,7 +2274,7 @@ local success, err = pcall(function()
 	end)
 	_G.HipHubAutoRideGoToggle = autoRideGoToggle
 
-	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 120, math.floor(Config.taxiSpeed or 60), function(val)
+	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 120, math.floor(Config.taxiSpeed or 90), function(val)
 		Config.taxiSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.taxiSpeed = val
@@ -2203,6 +2288,36 @@ local success, err = pcall(function()
 		Config.passengerBoardDelay = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.passengerBoardDelay = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddToggle(tab, "Smart Break (Anti-Suspend)", "Istirahat otomatis beberapa menit setelah jam kerja tanpa membatalkan orderan", Config.smartBreak ~= false, function(state)
+		Config.smartBreak = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.smartBreak = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Work Duration (Mins)", 20, 180, math.floor(Config.smartBreakWorkMins or 60), function(val)
+		Config.smartBreakWorkMins = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.smartBreakWorkMins = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Break Duration (Mins)", 1, 10, math.floor(Config.smartBreakRestMins or 2), function(val)
+		Config.smartBreakRestMins = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.smartBreakRestMins = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
