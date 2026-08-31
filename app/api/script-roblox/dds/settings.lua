@@ -255,6 +255,7 @@ local success, err = pcall(function()
 	-- 🖤 BLACK SCREEN OVERNIGHT DASHBOARD & TARGET EARN
 	------------------------------------------------
 	_G.HipHubScriptStartTime = _G.HipHubScriptStartTime or tick()
+	_G.HipHubScriptStartMoney = _G.HipHubScriptStartMoney or nil
 
 	local function getLivePlayerMoneyRaw()
 		local playerData = player:FindFirstChild("PlayerData")
@@ -294,6 +295,17 @@ local success, err = pcall(function()
 		return formatRupiah(raw)
 	end
 
+	-- Initialize start money if available
+	task.defer(function()
+		task.wait(0.5)
+		if _G.HipHubScriptStartMoney == nil or _G.HipHubScriptStartMoney == 0 then
+			local initM = getLivePlayerMoneyRaw()
+			if initM > 0 then
+				_G.HipHubScriptStartMoney = initM
+			end
+		end
+	end)
+
 	local blackScreenGui = nil
 	local blackScreenLoop = nil
 
@@ -329,10 +341,10 @@ local success, err = pcall(function()
 			bg.BorderSizePixel = 0
 			bg.Parent = sg
 
-			-- Card Container (W: 500, H: 380)
+			-- Card Container (W: 520, H: 370)
 			local card = Instance.new("Frame")
 			card.Name = "Card"
-			card.Size = UDim2.new(0, 500, 0, 380)
+			card.Size = UDim2.new(0, 520, 0, 370)
 			card.AnchorPoint = Vector2.new(0.5, 0.5)
 			card.Position = UDim2.new(0.5, 0, 0.5, 0)
 			card.BackgroundColor3 = Color3.fromRGB(15, 20, 32)
@@ -350,20 +362,20 @@ local success, err = pcall(function()
 
 			-- Title
 			local title = Instance.new("TextLabel")
-			title.Size = UDim2.new(1, -40, 0, 32)
-			title.Position = UDim2.new(0, 20, 0, 14)
+			title.Size = UDim2.new(1, -40, 0, 28)
+			title.Position = UDim2.new(0, 20, 0, 12)
 			title.BackgroundTransparency = 1
 			title.Text = "🏎️ HIPHUB DDS — AFK DASHBOARD"
 			title.TextColor3 = Color3.fromRGB(0, 212, 255)
 			title.Font = Enum.Font.GothamBold
-			title.TextSize = 18
+			title.TextSize = 17
 			title.TextXAlignment = Enum.TextXAlignment.Center
 			title.Parent = card
 
 			-- User info label
 			local userLabel = Instance.new("TextLabel")
-			userLabel.Size = UDim2.new(1, -40, 0, 22)
-			userLabel.Position = UDim2.new(0, 20, 0, 48)
+			userLabel.Size = UDim2.new(1, -40, 0, 20)
+			userLabel.Position = UDim2.new(0, 20, 0, 42)
 			userLabel.BackgroundTransparency = 1
 			userLabel.Text = "👤 User: " .. player.DisplayName .. " (@" .. player.Name .. ")"
 			userLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
@@ -375,15 +387,15 @@ local success, err = pcall(function()
 			-- Divider
 			local div = Instance.new("Frame")
 			div.Size = UDim2.new(1, -40, 0, 1)
-			div.Position = UDim2.new(0, 20, 0, 78)
+			div.Position = UDim2.new(0, 20, 0, 68)
 			div.BackgroundColor3 = Color3.fromRGB(35, 45, 70)
 			div.BorderSizePixel = 0
 			div.Parent = card
 
-			-- Box 1: Runtime Box (Top Left)
+			-- Row 1: Box 1 (Top Left) - Runtime Box
 			local timeBox = Instance.new("Frame")
-			timeBox.Size = UDim2.new(0.48, -15, 0, 68)
-			timeBox.Position = UDim2.new(0, 20, 0, 90)
+			timeBox.Size = UDim2.new(0.5, -28, 0, 58)
+			timeBox.Position = UDim2.new(0, 20, 0, 78)
 			timeBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
 			timeBox.BorderSizePixel = 0
 			timeBox.Parent = card
@@ -392,8 +404,8 @@ local success, err = pcall(function()
 			tbCorner.Parent = timeBox
 
 			local timeTitle = Instance.new("TextLabel")
-			timeTitle.Size = UDim2.new(1, 0, 0, 20)
-			timeTitle.Position = UDim2.new(0, 0, 0, 6)
+			timeTitle.Size = UDim2.new(1, 0, 0, 18)
+			timeTitle.Position = UDim2.new(0, 0, 0, 5)
 			timeTitle.BackgroundTransparency = 1
 			timeTitle.Text = "⏱️ SCRIPT RUNTIME"
 			timeTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
@@ -402,19 +414,19 @@ local success, err = pcall(function()
 			timeTitle.Parent = timeBox
 
 			local timeVal = Instance.new("TextLabel")
-			timeVal.Size = UDim2.new(1, 0, 0, 32)
-			timeVal.Position = UDim2.new(0, 0, 0, 28)
+			timeVal.Size = UDim2.new(1, 0, 0, 28)
+			timeVal.Position = UDim2.new(0, 0, 0, 24)
 			timeVal.BackgroundTransparency = 1
 			timeVal.Text = "00h 00m 00s"
 			timeVal.TextColor3 = Color3.fromRGB(0, 212, 255)
 			timeVal.Font = Enum.Font.GothamBold
-			timeVal.TextSize = 15
+			timeVal.TextSize = 14
 			timeVal.Parent = timeBox
 
-			-- Box 2: Money Box (Top Right)
+			-- Row 1: Box 2 (Top Right) - Balance Box
 			local moneyBox = Instance.new("Frame")
-			moneyBox.Size = UDim2.new(0.48, -15, 0, 68)
-			moneyBox.Position = UDim2.new(0.52, 0, 0, 90)
+			moneyBox.Size = UDim2.new(0.5, -28, 0, 58)
+			moneyBox.Position = UDim2.new(0.5, 8, 0, 78)
 			moneyBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
 			moneyBox.BorderSizePixel = 0
 			moneyBox.Parent = card
@@ -423,8 +435,8 @@ local success, err = pcall(function()
 			mbCorner.Parent = moneyBox
 
 			local moneyTitle = Instance.new("TextLabel")
-			moneyTitle.Size = UDim2.new(1, 0, 0, 20)
-			moneyTitle.Position = UDim2.new(0, 0, 0, 6)
+			moneyTitle.Size = UDim2.new(1, 0, 0, 18)
+			moneyTitle.Position = UDim2.new(0, 0, 0, 5)
 			moneyTitle.BackgroundTransparency = 1
 			moneyTitle.Text = "💰 CURRENT BALANCE"
 			moneyTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
@@ -433,8 +445,8 @@ local success, err = pcall(function()
 			moneyTitle.Parent = moneyBox
 
 			local moneyVal = Instance.new("TextLabel")
-			moneyVal.Size = UDim2.new(1, -10, 0, 32)
-			moneyVal.Position = UDim2.new(0, 5, 0, 28)
+			moneyVal.Size = UDim2.new(1, -10, 0, 28)
+			moneyVal.Position = UDim2.new(0, 5, 0, 24)
 			moneyVal.BackgroundTransparency = 1
 			moneyVal.Text = getLivePlayerMoney()
 			moneyVal.TextColor3 = Color3.fromRGB(0, 255, 170)
@@ -442,10 +454,72 @@ local success, err = pcall(function()
 			moneyVal.TextSize = 14
 			moneyVal.Parent = moneyBox
 
-			-- Box 3: Target Earn Box (Bottom Left)
+			-- Row 2: Box 3 (Mid Left) - Session Earned Box
+			local earnedBox = Instance.new("Frame")
+			earnedBox.Size = UDim2.new(0.5, -28, 0, 58)
+			earnedBox.Position = UDim2.new(0, 20, 0, 144)
+			earnedBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+			earnedBox.BorderSizePixel = 0
+			earnedBox.Parent = card
+			local ebCorner = Instance.new("UICorner")
+			ebCorner.CornerRadius = UDim.new(0, 10)
+			ebCorner.Parent = earnedBox
+
+			local earnedTitle = Instance.new("TextLabel")
+			earnedTitle.Size = UDim2.new(1, 0, 0, 18)
+			earnedTitle.Position = UDim2.new(0, 0, 0, 5)
+			earnedTitle.BackgroundTransparency = 1
+			earnedTitle.Text = "💵 SESSION EARNED"
+			earnedTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
+			earnedTitle.Font = Enum.Font.GothamBold
+			earnedTitle.TextSize = 11
+			earnedTitle.Parent = earnedBox
+
+			local earnedVal = Instance.new("TextLabel")
+			earnedVal.Size = UDim2.new(1, -10, 0, 28)
+			earnedVal.Position = UDim2.new(0, 5, 0, 24)
+			earnedVal.BackgroundTransparency = 1
+			earnedVal.Text = "+Rp 0"
+			earnedVal.TextColor3 = Color3.fromRGB(80, 225, 140)
+			earnedVal.Font = Enum.Font.GothamBold
+			earnedVal.TextSize = 14
+			earnedVal.Parent = earnedBox
+
+			-- Row 2: Box 4 (Mid Right) - Rate Per Hour Box (⚡ RATA-RATA / JAM)
+			local rateBox = Instance.new("Frame")
+			rateBox.Size = UDim2.new(0.5, -28, 0, 58)
+			rateBox.Position = UDim2.new(0.5, 8, 0, 144)
+			rateBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+			rateBox.BorderSizePixel = 0
+			rateBox.Parent = card
+			local rbCorner = Instance.new("UICorner")
+			rbCorner.CornerRadius = UDim.new(0, 10)
+			rbCorner.Parent = rateBox
+
+			local rateTitle = Instance.new("TextLabel")
+			rateTitle.Size = UDim2.new(1, 0, 0, 18)
+			rateTitle.Position = UDim2.new(0, 0, 0, 5)
+			rateTitle.BackgroundTransparency = 1
+			rateTitle.Text = "⚡ RATA-RATA / JAM"
+			rateTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
+			rateTitle.Font = Enum.Font.GothamBold
+			rateTitle.TextSize = 11
+			rateTitle.Parent = rateBox
+
+			local rateVal = Instance.new("TextLabel")
+			rateVal.Size = UDim2.new(1, -10, 0, 28)
+			rateVal.Position = UDim2.new(0, 5, 0, 24)
+			rateVal.BackgroundTransparency = 1
+			rateVal.Text = "Rp 0 / jam"
+			rateVal.TextColor3 = Color3.fromRGB(255, 170, 50)
+			rateVal.Font = Enum.Font.GothamBold
+			rateVal.TextSize = 13
+			rateVal.Parent = rateBox
+
+			-- Row 3: Box 5 (Bottom Left) - Target Earn Box
 			local targetBox = Instance.new("Frame")
-			targetBox.Size = UDim2.new(0.48, -15, 0, 68)
-			targetBox.Position = UDim2.new(0, 20, 0, 168)
+			targetBox.Size = UDim2.new(0.5, -28, 0, 58)
+			targetBox.Position = UDim2.new(0, 20, 0, 210)
 			targetBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
 			targetBox.BorderSizePixel = 0
 			targetBox.Parent = card
@@ -454,8 +528,8 @@ local success, err = pcall(function()
 			tgtCorner.Parent = targetBox
 
 			local targetTitle = Instance.new("TextLabel")
-			targetTitle.Size = UDim2.new(1, 0, 0, 20)
-			targetTitle.Position = UDim2.new(0, 0, 0, 6)
+			targetTitle.Size = UDim2.new(1, 0, 0, 18)
+			targetTitle.Position = UDim2.new(0, 0, 0, 5)
 			targetTitle.BackgroundTransparency = 1
 			targetTitle.Text = "🎯 TARGET EARN"
 			targetTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
@@ -464,20 +538,20 @@ local success, err = pcall(function()
 			targetTitle.Parent = targetBox
 
 			local targetVal = Instance.new("TextLabel")
-			targetVal.Size = UDim2.new(1, -10, 0, 32)
-			targetVal.Position = UDim2.new(0, 5, 0, 28)
+			targetVal.Size = UDim2.new(1, -10, 0, 28)
+			targetVal.Position = UDim2.new(0, 5, 0, 24)
 			targetVal.BackgroundTransparency = 1
 			local curTgt = tonumber(_G.HipHubConfig.misc.targetEarn) or 0
 			targetVal.Text = curTgt > 0 and formatRupiah(curTgt) or "No Limit (∞)"
 			targetVal.TextColor3 = Color3.fromRGB(255, 215, 0)
 			targetVal.Font = Enum.Font.GothamBold
-			targetVal.TextSize = 14
+			targetVal.TextSize = 13
 			targetVal.Parent = targetBox
 
-			-- Box 4: Progress Box (Bottom Right)
+			-- Row 3: Box 6 (Bottom Right) - Progress Box
 			local progressBox = Instance.new("Frame")
-			progressBox.Size = UDim2.new(0.48, -15, 0, 68)
-			progressBox.Position = UDim2.new(0.52, 0, 0, 168)
+			progressBox.Size = UDim2.new(0.5, -28, 0, 58)
+			progressBox.Position = UDim2.new(0.5, 8, 0, 210)
 			progressBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
 			progressBox.BorderSizePixel = 0
 			progressBox.Parent = card
@@ -486,8 +560,8 @@ local success, err = pcall(function()
 			prgCorner.Parent = progressBox
 
 			local progressTitle = Instance.new("TextLabel")
-			progressTitle.Size = UDim2.new(1, 0, 0, 20)
-			progressTitle.Position = UDim2.new(0, 0, 0, 6)
+			progressTitle.Size = UDim2.new(1, 0, 0, 18)
+			progressTitle.Position = UDim2.new(0, 0, 0, 5)
 			progressTitle.BackgroundTransparency = 1
 			progressTitle.Text = "📈 PROGRESS"
 			progressTitle.TextColor3 = Color3.fromRGB(160, 175, 200)
@@ -496,19 +570,19 @@ local success, err = pcall(function()
 			progressTitle.Parent = progressBox
 
 			local progressVal = Instance.new("TextLabel")
-			progressVal.Size = UDim2.new(1, 0, 0, 32)
-			progressVal.Position = UDim2.new(0, 0, 0, 28)
+			progressVal.Size = UDim2.new(1, 0, 0, 28)
+			progressVal.Position = UDim2.new(0, 0, 0, 24)
 			progressVal.BackgroundTransparency = 1
 			progressVal.Text = "Ongoing 🏃"
-			progressVal.TextColor3 = Color3.fromRGB(0, 212, 255)
+			progressVal.TextColor3 = Color3.fromRGB(150, 110, 255)
 			progressVal.Font = Enum.Font.GothamBold
 			progressVal.TextSize = 14
 			progressVal.Parent = progressBox
 
 			-- Progress Bar Track
 			local barTrack = Instance.new("Frame")
-			barTrack.Size = UDim2.new(1, -40, 0, 8)
-			barTrack.Position = UDim2.new(0, 20, 0, 248)
+			barTrack.Size = UDim2.new(1, -40, 0, 7)
+			barTrack.Position = UDim2.new(0, 20, 0, 276)
 			barTrack.BackgroundColor3 = Color3.fromRGB(25, 32, 50)
 			barTrack.BorderSizePixel = 0
 			barTrack.Parent = card
@@ -527,8 +601,8 @@ local success, err = pcall(function()
 
 			-- Status Badge
 			local statusBadge = Instance.new("TextLabel")
-			statusBadge.Size = UDim2.new(1, -40, 0, 24)
-			statusBadge.Position = UDim2.new(0, 20, 0, 268)
+			statusBadge.Size = UDim2.new(1, -40, 0, 22)
+			statusBadge.Position = UDim2.new(0, 20, 0, 290)
 			statusBadge.BackgroundTransparency = 1
 			statusBadge.Text = "🟢 Auto-Farm Active | Anti-AFK: ON"
 			statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
@@ -539,8 +613,8 @@ local success, err = pcall(function()
 
 			-- Footer note
 			local footer = Instance.new("TextLabel")
-			footer.Size = UDim2.new(1, -40, 0, 36)
-			footer.Position = UDim2.new(0, 20, 0, 304)
+			footer.Size = UDim2.new(1, -40, 0, 32)
+			footer.Position = UDim2.new(0, 20, 0, 318)
 			footer.BackgroundTransparency = 1
 			footer.Text = "💡 Tip: Buka menu UI HipHub atau matikan 'Black Screen' untuk kembali ke grafis normal."
 			footer.TextColor3 = Color3.fromRGB(120, 135, 160)
@@ -554,7 +628,8 @@ local success, err = pcall(function()
 			blackScreenLoop = task.spawn(function()
 				while _G.HipHubConfig.misc.blackScreenEnabled and blackScreenGui do
 					pcall(function()
-						local elapsed = math.floor(tick() - _G.HipHubScriptStartTime)
+						local now = tick()
+						local elapsed = math.max(1, math.floor(now - (_G.HipHubScriptStartTime or now)))
 						local hrs = math.floor(elapsed / 3600)
 						local mins = math.floor((elapsed % 3600) / 60)
 						local secs = elapsed % 60
@@ -562,6 +637,34 @@ local success, err = pcall(function()
 
 						local curMoney = getLivePlayerMoneyRaw()
 						moneyVal.Text = formatRupiah(curMoney)
+
+						if (_G.HipHubScriptStartMoney == nil or _G.HipHubScriptStartMoney == 0) and curMoney > 0 then
+							_G.HipHubScriptStartMoney = curMoney
+							_G.HipHubScriptStartTime = now
+						end
+
+						local startMoney = _G.HipHubScriptStartMoney or curMoney
+						local earned = curMoney - startMoney
+
+						if earned >= 0 then
+							earnedVal.Text = "+" .. formatRupiah(earned)
+							earnedVal.TextColor3 = Color3.fromRGB(80, 225, 140)
+						else
+							earnedVal.Text = "-" .. formatRupiah(math.abs(earned))
+							earnedVal.TextColor3 = Color3.fromRGB(255, 90, 90)
+						end
+
+						-- Rata-rata Uang per 1 Jam (Earn Rate / Hr)
+						local ratePerHour = 0
+						if elapsed >= 3 and earned > 0 then
+							ratePerHour = math.floor((earned / elapsed) * 3600)
+						end
+
+						if ratePerHour > 0 then
+							rateVal.Text = formatRupiah(ratePerHour) .. " / jam"
+						else
+							rateVal.Text = "Rp 0 / jam"
+						end
 
 						local target = tonumber(_G.HipHubConfig.misc.targetEarn) or 0
 						if target > 0 then
