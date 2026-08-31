@@ -255,6 +255,46 @@ local success, err = pcall(function()
 		return char and char:FindFirstChild("HumanoidRootPart")
 	end
 
+	local function isUnwantedVehicle(model)
+		if not model then return false end
+		local n = model.Name:lower()
+		-- Jika nama mengandung motor/bike/montor yang jelas, ini bukan unwanted
+		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("mio") or n:find("yamaha") or n:find("beat") or n:find("vario") or n:find("nmax") or n:find("aerox") or n:find("scoopy") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") then
+			return false
+		end
+		-- Kata kunci kendaraan berat / mobil / truk / bus
+		if n:find("canter") or n:find("mestibisa") or n:find("truk") or n:find("truck") or n:find("bus") or n:find("fuso") or n:find("angkot") or n:find("pickup") or n:find("mobil") or n:find("car") or n:find("sedan") or n:find("suv") or n:find("avanza") or n:find("innova") or n:find("pajero") or n:find("fortuner") or n:find("brio") or n:find("civic") then
+			return true
+		end
+		return false
+	end
+
+	local function isMotorcycle(model)
+		if not model or not model:IsA("Model") then return false end
+		if isUnwantedVehicle(model) then return false end
+		local n = model.Name:lower()
+		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("yamaha") or n:find("mio") or n:find("beat") or n:find("vario") or n:find("scoopy") or n:find("nmax") or n:find("aerox") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") or n:find("rx") then
+			return true
+		end
+		if n:find(player.Name:lower()) and not (n:find("canter") or n:find("truck") or n:find("bus") or n:find("mobil") or n:find("car")) then
+			return true
+		end
+		return false
+	end
+
+	local function despawnUnwantedVehicle(model)
+		pcall(function()
+			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
+			if despawnEvent then
+				despawnEvent:FireServer()
+			end
+			if model and model.Parent then
+				model:Destroy()
+			end
+		end)
+	end
+
 	local function getPlayerVehicle()
 		local char = player.Character
 		if not char then return nil, nil end
@@ -263,14 +303,23 @@ local success, err = pcall(function()
 		if humanoid and humanoid.SeatPart then
 			local seat = humanoid.SeatPart
 			local model = seat:FindFirstAncestorOfClass("Model")
-			return model or seat.Parent, seat
+			if model and not isUnwantedVehicle(model) then
+				return model or seat.Parent, seat
+			else
+				-- Duduk di kendaraan yang salah (seperti Canter/Truk/Bus) -> turunkan dan hapus
+				humanoid.Sit = false
+				despawnUnwantedVehicle(model)
+			end
 		end
 
-		-- Search workspace direct children for player's motorcycle
+		-- 1. Cari motor yang sah milik player di workspace
 		for _, c in ipairs(workspace:GetChildren()) do
-			if c:IsA("Model") and c ~= char and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
-				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
+			if c:IsA("Model") and c ~= char and isMotorcycle(c) then
+				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
 				if seat then return c, seat end
+			elseif c:IsA("Model") and c ~= char and isUnwantedVehicle(c) and c.Name:find(player.Name) then
+				-- Jika ada truk/bus milik player yang masih tersisa di workspace -> despawn
+				despawnUnwantedVehicle(c)
 			end
 		end
 
@@ -311,18 +360,24 @@ local success, err = pcall(function()
 		local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 		local remote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
 		if not remote then return end
+		-- Despawn kendaraan truk/mobil terlebih dahulu sebelum spawn motor
+		pcall(function()
+			local despawn = SpawnCarEvt:FindFirstChild("DespawnCar")
+			if despawn then despawn:FireServer() end
+		end)
+		task.wait(0.5)
 		pcall(function() remote:FireServer(TAXI_BIKE_NAME) end)
-		task.wait(2)
+		task.wait(1.5)
 	end
 
 	local function findRidePrompt()
 		local car, seat = getPlayerVehicle()
-		if not car and not seat then
+		if not car or not seat or isUnwantedVehicle(car) then
 			for _, c in ipairs(workspace:GetChildren()) do
-				if c:IsA("Model") and c ~= player.Character and (c.Name:find(player.Name) or c.Name:find("Montor") or c.Name:find("Yamaha") or c.Name:find("Mio") or c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)) then
+				if c:IsA("Model") and c ~= player.Character and isMotorcycle(c) then
 					car = c
-					seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true) or c:FindFirstChildWhichIsA("Seat", true)
-					break
+					seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
+					if seat then break end
 				end
 			end
 		end
@@ -388,7 +443,18 @@ local success, err = pcall(function()
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not root then return false end
-		if hum.SeatPart then return true end
+
+		-- Jika sedang duduk tapi di kendaraan yang salah (seperti Canter/Truk/Bus):
+		if hum.SeatPart then
+			local currentModel = hum.SeatPart:FindFirstAncestorOfClass("Model")
+			if currentModel and isUnwantedVehicle(currentModel) then
+				hum.Sit = false
+				despawnUnwantedVehicle(currentModel)
+				task.wait(0.5)
+			else
+				return true
+			end
+		end
 
 		-- Reset sitting state palsu di udara
 		hum.Sit = false
