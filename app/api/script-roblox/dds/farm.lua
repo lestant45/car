@@ -2042,6 +2042,12 @@ local success, err = pcall(function()
 		passengerSeated    = false
 		taxiState          = state and "WAITING_FOR_NEXT_ORDER" or "IDLE"
 		Config.autoRideGO  = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.autoRideGO = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
 
 		if state then
 			if changeTeam then
@@ -2111,10 +2117,34 @@ local success, err = pcall(function()
 
 	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 120, math.floor(Config.taxiSpeed or 60), function(val)
 		Config.taxiSpeed = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.taxiSpeed = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
 	end)
 
 	UI.AddSlider(tab, "Boarding Pause Delay (s)", 1, 8, math.floor(Config.passengerBoardDelay or 3), function(val)
 		Config.passengerBoardDelay = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.passengerBoardDelay = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	-- 🚀 Auto-resume Auto RideGO jika aktif pada config tersimpan
+	task.defer(function()
+		task.wait(1.5)
+		if _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO then
+			if autoRideGoToggle and autoRideGoToggle.Set then
+				autoRideGoToggle.Set(true)
+			else
+				toggleAutoRideGO(true)
+			end
+		end
 	end)
 end)
 

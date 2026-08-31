@@ -27,6 +27,12 @@ local success, err = pcall(function()
 
 	local function setupAntiFall(state)
 		Config.antiFall = state
+		if _G.HipHubConfig and _G.HipHubConfig.vehicle then
+			_G.HipHubConfig.vehicle.antiFall = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
 		if antiFallConn then
 			antiFallConn:Disconnect()
 			antiFallConn = nil
@@ -98,6 +104,12 @@ local success, err = pcall(function()
 	local function toggleVehicleFly(state)
 		vehicleFlyActive = state
 		Config.vehicleFly = state
+		if _G.HipHubConfig and _G.HipHubConfig.vehicle then
+			_G.HipHubConfig.vehicle.vehicleFly = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
 
 		if vehicleFlyConn then
 			vehicleFlyConn:Disconnect()

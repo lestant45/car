@@ -63,9 +63,9 @@ local success, err = pcall(function()
 	_G.HipHubConfig = _G.HipHubConfig or DEFAULT_CONFIG
 
 	------------------------------------------------
-	-- 💾 CONFIG PERSISTENCE
+	-- 💾 CONFIG PERSISTENCE (AUTO-SAVE & AUTO-LOAD)
 	------------------------------------------------
-	local function saveConfig()
+	local function saveConfig(silent)
 		if not writefile then return end
 		pcall(function()
 			if not isfolder("HipHub") then
@@ -73,11 +73,14 @@ local success, err = pcall(function()
 			end
 			local encoded = HttpService:JSONEncode(_G.HipHubConfig)
 			writefile(CONFIG_PATH, encoded)
-			UI.Notify("Config Saved", "Your settings have been saved successfully.", 2, "success")
+			if not silent then
+				UI.Notify("Config Saved", "Your settings have been saved successfully.", 2, "success")
+			end
 		end)
 	end
+	_G.HipHubSaveConfig = saveConfig
 
-	local function loadConfig()
+	local function loadConfig(silent)
 		if not readfile then return end
 		pcall(function()
 			if isfile(CONFIG_PATH) then
@@ -93,11 +96,17 @@ local success, err = pcall(function()
 							_G.HipHubConfig[cat] = sub
 						end
 					end
-					UI.Notify("Config Loaded", "Loaded settings from file.", 2, "success")
+					if not silent then
+						UI.Notify("Config Loaded", "Loaded settings from file.", 2, "success")
+					end
 				end
 			end
 		end)
 	end
+	_G.HipHubLoadConfig = loadConfig
+
+	-- 🚀 Auto-load config immediately on script startup
+	loadConfig(true)
 
 	------------------------------------------------
 	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
@@ -106,6 +115,7 @@ local success, err = pcall(function()
 	local antiAfkConn = nil
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
+		saveConfig(true)
 		if antiAfkConn then
 			antiAfkConn:Disconnect()
 			antiAfkConn = nil
@@ -132,8 +142,6 @@ local success, err = pcall(function()
 			end)
 		end
 	end
-
-	toggleAntiAfk(_G.HipHubConfig.misc.antiAfk)
 
 	------------------------------------------------
 	-- 🕶️ STEALTH LOG & ERROR SHIELDING
@@ -192,6 +200,7 @@ local success, err = pcall(function()
 	local antiPlayerConn = nil
 	local function toggleAntiPlayerJoin(state)
 		_G.HipHubConfig.misc.antiPlayerJoin = state
+		saveConfig(true)
 		if antiPlayerConn then
 			antiPlayerConn:Disconnect()
 			antiPlayerConn = nil
@@ -219,6 +228,23 @@ local success, err = pcall(function()
 		end
 	end
 
+	-- Auto-activate saved settings states on launch
+	task.defer(function()
+		task.wait(0.5)
+		if _G.HipHubConfig.misc.antiAfk then
+			toggleAntiAfk(true)
+		end
+		if _G.HipHubConfig.misc.antiPlayerJoin then
+			toggleAntiPlayerJoin(true)
+		end
+		if _G.HipHubConfig.misc.blackScreenEnabled then
+			toggleBlackScreen(true)
+		end
+		if _G.HipHubConfig.misc.capFpsEnabled and setfpscap then
+			pcall(setfpscap, 15)
+		end
+	end)
+
 	------------------------------------------------
 	-- 🖼️ UI COMPONENTS IN SETTINGS TAB
 	------------------------------------------------
@@ -233,10 +259,12 @@ local success, err = pcall(function()
 
 	UI.AddToggle(tab, "Stealth Mode / Log Shield", "Silences script logs & executor errors to prevent Adonis detection", _G.HipHubConfig.misc.stealthMode, function(state)
 		_G.HipHubConfig.misc.stealthMode = state
+		saveConfig(true)
 	end)
 
 	UI.AddToggle(tab, "Auto Rejoin on Kick / Disconnect", "Automatically reconnects you if the server drops or resets", _G.HipHubConfig.misc.autoRejoin, function(state)
 		_G.HipHubConfig.misc.autoRejoin = state
+		saveConfig(true)
 	end)
 
 	------------------------------------------------
@@ -614,6 +642,7 @@ local success, err = pcall(function()
 			val = math.floor(num)
 		end
 		_G.HipHubConfig.misc.targetEarn = val
+		saveConfig(true)
 		UI.Notify("Target Earn Diatur", val > 0 and ("Target: " .. formatRupiah(val)) or "Target: No Limit (∞)", 3, "success")
 	end)
 
@@ -623,6 +652,7 @@ local success, err = pcall(function()
 
 	UI.AddToggle(tab, "Low FPS Mode (15 FPS Cap)", "Limits framerate for smooth multi-instance overnight background farming", _G.HipHubConfig.misc.capFpsEnabled, function(state)
 		_G.HipHubConfig.misc.capFpsEnabled = state
+		saveConfig(true)
 		if setfpscap then
 			pcall(setfpscap, state and 15 or 60)
 		end
