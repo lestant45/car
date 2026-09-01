@@ -15,7 +15,7 @@ local success, err = pcall(function()
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRideGO = false,
-		taxiSpeed = 55,
+		taxiSpeed = 90,
 		passengerBoardDelay = 3
 	}
 
@@ -415,7 +415,7 @@ local success, err = pcall(function()
 						s.CanCollide = false
 					end
 				end
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local hum = char:FindFirstChildOfClass("Humanoid")
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
@@ -466,6 +466,8 @@ local success, err = pcall(function()
 		if car then
 			neutralizeBikeHazards(car)
 		end
+
+		pcall(function() seatPart.Disabled = false end)
 
 		-- Pindahkan posisi player tepat menempel di atas kursi motor
 		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
@@ -684,8 +686,32 @@ local success, err = pcall(function()
 	end
 
 	local function destroyAllBuildings()
-		-- EXP-5: Map destruction disabled to prevent Adonis client integrity violation (Client download quit)
+		pcall(function()
+			for _, c in ipairs(workspace:GetChildren()) do
+				if shouldDestroyBuilding(c) then
+					pcall(function() c:Destroy() end)
+				elseif c:IsA("Folder") or c:IsA("Model") then
+					for _, ch in ipairs(c:GetDescendants()) do
+						if shouldDestroyBuilding(ch) then
+							pcall(function() ch:Destroy() end)
+						end
+					end
+				end
+			end
+		end)
 	end
+
+	-- Auto-destroy newly streamed buildings & obstacles across all districts
+	workspace.DescendantAdded:Connect(function(descendant)
+		if shouldDestroyBuilding(descendant) then
+			task.wait(0.05)
+			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
+				pcall(function() descendant:Destroy() end)
+			end
+		end
+	end)
+
+	task.spawn(destroyAllBuildings)
 
 
 	local function getGroundExcludeFilter(car)
@@ -859,9 +885,117 @@ local success, err = pcall(function()
 		return landPos
 	end
 
-	-- 🌉 Void Bridge Engine: Disabled for EXP-3 (Zero Teleport Jumps)
+	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (hanya sudut maju ke arah tujuan),
+	-- lalu teleport vehicle ke ground seberang dengan safety plate.
 	local function attemptVoidBridge(car, fromPos, toPos)
-		-- EXP-3: Disabled void jumps to isolate CFrame leap anomalies
+		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
+		local totalDistToDest = flatDiff.Magnitude
+		if totalDistToDest < 25 then return nil end
+		local baseDir = flatDiff.Unit
+
+		-- Pre-stream daratan tujuan di seberang
+		requestStreamAsync(toPos)
+
+		local brp = RaycastParams.new()
+		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		local filter = { car, player.Character }
+		if safetyPlate then table.insert(filter, safetyPlate) end
+		brp.FilterDescendantsInstances = filter
+		brp.FilterType = Enum.RaycastFilterType.Exclude
+
+		-- Scan sampai jarak penuh ke destination (maksimal 3000 stud)
+		local maxScan = math.min(totalDistToDest * 1.05, 3000)
+		local stepSize = 35
+
+		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
+		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
+		local scanAngles = { 0, 10, -10, 20, -20, 30, -30 }
+
+		for _, ang in ipairs(scanAngles) do
+			local scanRot = CFrame.Angles(0, math.rad(ang), 0)
+			local flatDir = (scanRot * Vector3.new(baseDir.X, 0, baseDir.Z)).Unit
+
+			local refY = fromPos.Y
+			local inVoid = false
+			local voidEnteredAt = nil
+
+			for i = 1, math.ceil(maxScan / stepSize) do
+				local curDist = i * stepSize
+				local px = fromPos.X + flatDir.X * curDist
+				local pz = fromPos.Z + flatDir.Z * curDist
+				local testPos = Vector3.new(px, 0, pz)
+
+				-- Request stream chunk setiap 100 stud pemindaian jurang
+				if inVoid and curDist % 100 == 0 then
+					requestStreamAsync(testPos)
+				end
+
+				local scanStartY = isSasanaKridaTrip() and math.max(refY + 7, 10) or math.max(refY + 60, 80)
+				local origin = Vector3.new(px, scanStartY, pz)
+				local solidY = nil
+				local localBrp = RaycastParams.new()
+				local localFilter = table.clone(filter)
+				localBrp.FilterType = Enum.RaycastFilterType.Exclude
+
+				for attempt = 1, 6 do
+					localBrp.FilterDescendantsInstances = localFilter
+					local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), localBrp)
+					if not hit then break end
+
+					local inst = hit.Instance
+					local mat = inst.Material
+					local nameLower = inst.Name:lower()
+					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
+					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
+					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
+
+					local isRoofOrObstacle = (mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass)
+						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
+						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
+						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
+						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+
+					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
+
+					if isRoofOrObstacle or isBuildingModel then
+						table.insert(localFilter, inst)
+						origin = Vector3.new(px, hit.Position.Y - 0.4, pz)
+					else
+						if hit.Position.Y >= -30 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
+							solidY = hit.Position.Y
+						end
+						break
+					end
+				end
+
+				local isGround = solidY ~= nil
+
+				if isGround then
+					refY = solidY
+					local isVoidGap = (inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 35))
+					local isElevatedLedge = (solidY >= fromPos.Y + 6 and curDist >= 15 and curDist <= 120)
+
+					if isVoidGap or isElevatedLedge then
+						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
+						-- 🛡️ Forward Progress Gate: Adaptif berdasarkan jarak total
+						-- Jarak jauh (>200): butuh maju 40 stud. Jarak dekat (<200): cukup maju 5 stud saja
+						local minProgress = totalDistToDest > 200 and 40 or 5
+						if landDistToDest < totalDistToDest - minProgress then
+							local landPos = Vector3.new(px, solidY + 0.5, pz)
+							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir)
+							return landed, jumpDist
+						end
+					end
+				else
+					if not inVoid then
+						inVoid = true
+						voidEnteredAt = curDist
+					end
+				end
+			end
+		end
+
 		return nil
 	end
 
@@ -935,8 +1069,13 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- Raycast HANYA ditembak dari ketinggian jalan (refY + 6.0 stud) agar TIDAK PERNAH mendeteksi atap gedung tinggi
-			local startY = math.min((refY or 5) + 6.0, 42)
+			-- Khusus jika titik pickup / drop-off adalah Sasana Krida Building Manahan, tembak dari refY + 7 saja agar tidak mendarat di atap gedung
+			local startY
+			if isSasanaKridaTrip() then
+				startY = (refY or 0) + 7
+			else
+				startY = math.max((refY or 0) + 45, 60)
+			end
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
@@ -948,7 +1087,7 @@ local success, err = pcall(function()
 				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
 				for attempt = 1, 6 do
 					localParams.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -60, 0), localParams)
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), localParams)
 					if not hit then break end
 
 					local inst = hit.Instance
@@ -958,13 +1097,11 @@ local success, err = pcall(function()
 					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
 					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
 
-					local isElevatedRoof = (not isFlyover) and (hit.Position.Y > (refY or 5) + 4.5)
 					local isRoofOrObstacle = nonDrivableMats[mat]
-						or isElevatedRoof
 						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
 						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
 						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
-						or (not isFlyover and inst.Position.Y >= 6 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
 
 					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
 
@@ -972,7 +1109,7 @@ local success, err = pcall(function()
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
-						if hit.Position.Y >= -38 and hit.Position.Y <= ((refY or 5) + 4.5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+						if hit.Position.Y >= -38 and hit.Position.Y <= (startY + 5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
 							return hit.Position.Y + 0.3
 						end
 						break
@@ -983,35 +1120,13 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		local steppedConn = nil
-		pcall(function()
-			steppedConn = RunService.Stepped:Connect(function()
-				if char then
-					for _, part in ipairs(char:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-						end
-					end
-					local h = char:FindFirstChildOfClass("Humanoid")
-					if h and seat then
-						if not h.Sit or h.SeatPart ~= seat then
-							h.Sit = true
-							local root = char:FindFirstChild("HumanoidRootPart")
-							if root then
-								root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-							end
-						end
-					end
-				end
-				if car then
-					for _, part in ipairs(car:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-						end
-					end
-				end
-			end)
-		end)
+		-- Selective Noclip on vehicle parts
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				part.Anchored = false
+			end
+		end
 
 		local totalDist = (startP - destP).Magnitude
 		local driveFinished = false
@@ -1034,7 +1149,6 @@ local success, err = pcall(function()
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
-				if steppedConn then pcall(function() steppedConn:Disconnect() end) end
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				driveFinished = true
 				return
@@ -1115,43 +1229,56 @@ local success, err = pcall(function()
 				return
 			end
 
-			-- Stuck Recovery: Penetrasi Cepat jika tertahan bangunan / trotoar (> 1.2s)
+			-- Stuck Recovery
 			local nowClock = os.clock()
-			if dist < stuckLastDist - 1.5 then
+			if dist < stuckLastDist - 2.5 then
 				stuckLastDist = dist
 				stuckLastTime = nowClock
-			elseif (nowClock - stuckLastTime) >= 1.2 then
-				stuckLastTime = nowClock
-				stuckLastDist = dist
+			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 then
+				stuckNudgeCount = stuckNudgeCount + 1
+				stuckLastTime   = nowClock
+				stuckLastDist   = dist
 
 				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
-				local nudgeDist = math.min(15, math.max(6, dist - 4))
-				local nudgePos2D = Vector3.new(
-					carPos.X + nudgeDir.X * nudgeDist,
-					lastGroundY,
-					carPos.Z + nudgeDir.Z * nudgeDist
-				)
+				local nudgeDist = math.min(30, dist - 4)
+				if nudgeDist > 0 then
+					local nudgePos2D = Vector3.new(
+						carPos.X + nudgeDir.X * nudgeDist,
+						0,
+						carPos.Z + nudgeDir.Z * nudgeDist
+					)
+					local nudgeRp = RaycastParams.new()
+					nudgeRp.FilterDescendantsInstances = buildingFilter
+					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
+					local nudgeHit = workspace:Raycast(
+						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
+						Vector3.new(0, -150, 0),
+						nudgeRp
+					)
+					if nudgeHit and nudgeHit.Position.Y >= -30 and nudgeHit.Position.Y <= 300 then
+						local nudgeY = nudgeHit.Position.Y + 0.3
+						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
 
-				pcall(function()
-					local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
-					car:PivotTo(CFrame.new(nudgePos2D) * CFrame.Angles(0, yaw, 0))
-					for _, part in ipairs(car:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-							part.AssemblyLinearVelocity = Vector3.zero
-							part.AssemblyAngularVelocity = Vector3.zero
-						end
-					end
-					if char then
-						for _, part in ipairs(char:GetDescendants()) do
-							if part:IsA("BasePart") then
-								part.CanCollide = false
+						pcall(function()
+							ensureSafetyPlate(nudgeLand, 40)
+							local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
+							car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
+							for _, part in ipairs(car:GetDescendants()) do
+								if part:IsA("BasePart") then
+									part.AssemblyLinearVelocity  = Vector3.zero
+									part.AssemblyAngularVelocity = Vector3.zero
+								end
 							end
-						end
-					end
-				end)
+							lastGroundY = nudgeY
+						end)
 
-				return -- Selesaikan frame ini agar posisi bypass langsung aktif
+						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
+						return -- Selesaikan frame ini agar posisi bypass tidak ter-override
+					else
+						edgeFollowSign = -edgeFollowSign
+						stuckLastTime = nowClock
+					end
+				end
 			end
 
 			-- 🏎️ 2-Stage Smooth Deceleration:
@@ -1167,15 +1294,44 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus):
-			local targetSpeed = speed
-			if dist < 50 then
-				targetSpeed = math.max(0, 15 * (dist / 50))
-			elseif dist < 300 then
-				local factor = (dist - 50) / 250
-				targetSpeed = 15 + math.max(0, speed - 15) * factor
+			-- 🛑 STRICT VOID SAFETY SCANNER (Zero-Tolerance Anti-Float / Anti-Flying Rule):
+			-- Memindai kesinambungan daratan di depan dari jarak dekat (3 stud) hingga 300 stud.
+			-- Jika jurang berada di depan (jarak solid <= 25 stud) dan tujuan masih jauh di seberang,
+			-- MOTOR DILARANG KERAS BERJALAN/MAJU WALAUPUN HANYA 1 STUD!
+			local solidAheadDist = 300
+			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300 }
+			for _, lookDist in ipairs(checkSteps) do
+				if lookDist >= dist then
+					break
+				end
+				local testPos = carPos + directGoalDir * lookDist
+				if not probeGround(testPos, lastGroundY) then
+					solidAheadDist = lookDist
+					break
+				end
 			end
 
+			-- 🚫 STRICT ANTI-FLOAT CONDITION:
+			-- Jika jurang berada dalam jarak <= 25 stud, atau pulau daratan terlalu sempit untuk melaju:
+			-- Kecepatan WAJIB 0, dilarang bergerak maju 1 stud pun ke arah tepi jurang!
+			local isImmediateVoidAhead = (solidAheadDist <= 25) and (dist > solidAheadDist)
+
+			if isImmediateVoidAhead then
+				targetSpeed = 0
+				currentSmoothSpeed = 0
+			elseif solidAheadDist < 300 and solidAheadDist < dist then
+				local cliffTargetSpeed = speed
+				if solidAheadDist < 60 then
+					cliffTargetSpeed = math.max(0, 15 * ((solidAheadDist - 25) / 35))
+				else
+					local factor = (solidAheadDist - 60) / 240
+					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
+				end
+				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
+			end
+
+			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
+			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
 			local maxDecelRate = 75 * dt
 			if currentSmoothSpeed < targetSpeed then
@@ -1184,68 +1340,71 @@ local success, err = pcall(function()
 				currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
 			end
 
-			local curSpeed = currentSmoothSpeed
+			local curSpeed = isImmediateVoidAhead and 0 or currentSmoothSpeed
 			local stepDist = curSpeed * dt
-			-- 🛡️ Safe Forward Margin: Pindai 16 stud ke depan agar berhenti jauh sebelum bibir tebing
-			local probeDist = math.max(stepDist * 2.5, 16.0)
+			local probeDist = math.max(stepDist * 1.6, 4)
 
 			local directProbePos = carPos + directGoalDir * probeDist
-			local directHitY = probeGround(directProbePos, lastGroundY)
+			local directHitY = (not isImmediateVoidAhead) and probeGround(directProbePos, lastGroundY) or nil
 
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY then
-				-- 🛣️ Berada di atas aspal/daratan padat yang aman
+			if directHitY and not isImmediateVoidAhead then
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 Deteksi Tepi Jurang: Cek HANYA sudut maju ke arah tujuan (±15°, ±30°)
-				-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±60°, ±90°) agar tidak merayap di bibir tebing!
-				local foundRoad = false
-				local roadSearchAngles = { 15, -15, 30, -30 }
-				for _, rAng in ipairs(roadSearchAngles) do
-					local rotCF = CFrame.Angles(0, math.rad(rAng), 0)
-					local testDir = (rotCF * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
-					local testProbePos = carPos + testDir * probeDist
-					local testHitY = probeGround(testProbePos, lastGroundY)
-					if testHitY then
-						actualMoveDir = testDir
-						targetElevY = testHitY
-						navHeading = testDir
-						foundRoad = true
-						cliffWaitStartTime = nil
-						break
-					end
+				-- 🛑 TEPI JURANG / PULAU SEMPIT: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
+				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
+				actualMoveDir = Vector3.zero
+				stepDist = 0
+				currentSmoothSpeed = 0
+				curSpeed = 0
+				targetElevY = lastGroundY
+
+				local nowClock = os.clock()
+				cliffWaitStartTime = cliffWaitStartTime or nowClock
+
+				-- ⏱️ Timeout 3.5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 3.5s, otomatis reset toggle UI untuk cari order baru
+				if (nowClock - cliffWaitStartTime) >= 3.5 then
+					cliffWaitStartTime = nil
+					cancelActiveDrive()
+					task.spawn(function()
+						restartAutoRideGoToggle("Jurang Terlalu Luas")
+					end)
+					return
 				end
 
-				if not foundRoad then
-					-- ⛔ BERHENTI KOKOH DI ASPAL (16 STUD DARI BIBIR TEBING)
-					actualMoveDir = Vector3.zero
-					stepDist = 0
-					currentSmoothSpeed = 0
-					curSpeed = 0
-					targetElevY = lastGroundY
-
-					local nowClock = os.clock()
-					cliffWaitStartTime = cliffWaitStartTime or nowClock
-
-					-- Setelah 1.5s di tepi jurang, batalkan order pulau seberang & cari order di daratan ini
-					if (nowClock - cliffWaitStartTime) >= 1.5 then
+				if (nowClock - lastBridgeScanTime) >= 0.15 then
+					lastBridgeScanTime = nowClock
+					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP)
+					if bridgeLanding then
 						cliffWaitStartTime = nil
-						cancelActiveDrive()
-						task.spawn(function()
-							restartAutoRideGoToggle("Tujuan di Seberang Jurang (Unreachable)")
-						end)
-						return
+						lastGroundY = bridgeLanding.Y
+						targetElevY = bridgeLanding.Y
+						stuckLastTime = nowClock
+						stuckLastDist = (destP - bridgeLanding).Magnitude
+						local newDir = (destP - bridgeLanding).Unit
+						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
+						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
+
+						-- ⏱️ Kalkulasi Hold Waktu Berdasarkan Jarak Lompatan:
+						-- 1 detik per 100 stud + 0.5s (contoh: 600 stud -> 6.5 detik)
+						local actualDist = jumpDist or (Vector3.new(bridgeLanding.X, 0, bridgeLanding.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
+						local holdDuration = math.max(1.5, (actualDist / 100.0) * 1.0 + 0.5)
+						bridgeHoldUntil = os.clock() + holdDuration
+						driveStartTime = os.clock() + holdDuration
+
+						UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(actualDist), holdDuration), math.min(holdDuration, 5), "success")
+						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
 			end
 
-			-- Smooth vertical descent/ascent rate (Perubahan elevasi halus jalan raya)
-			local maxVertStep = math.max(12 * dt, 0.4)
+			-- Smooth vertical descent/ascent rate
+			local maxVertStep = math.max(50 * dt, 2.5)
 			local chosenY = lastGroundY
 			if chosenY > targetElevY then
 				chosenY = math.max(targetElevY, chosenY - maxVertStep)
@@ -1292,6 +1451,16 @@ local success, err = pcall(function()
 					end
 				end
 
+				local activeMissions = workspace:FindFirstChild("ActiveMissions")
+				local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+				if passengerNpc then
+					for _, part in ipairs(passengerNpc:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
+					end
+				end
+
 				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
@@ -1303,7 +1472,7 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi
+				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
@@ -1316,6 +1485,14 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 					root.AssemblyLinearVelocity = velocityVec
 					root.AssemblyAngularVelocity = Vector3.zero
+				end
+
+				if passengerNpc then
+					local passHrp = passengerNpc:FindFirstChild("HumanoidRootPart")
+					if passHrp then
+						passHrp.AssemblyLinearVelocity = velocityVec
+						passHrp.AssemblyAngularVelocity = Vector3.zero
+					end
 				end
 			end)
 		end)
@@ -1636,7 +1813,39 @@ local success, err = pcall(function()
 		-- 7. Complete Trip & Acknowledge
 		if taxiActive then
 			TaxiEvent:FireServer("AckTripComplete")
-			UI.Notify("🏆 Trip Complete!", "Fare earned. Ready for next order!", 2, "success")
+			_G.HipHubCompletedTrips = (_G.HipHubCompletedTrips or 0) + 1
+			local totalDone = _G.HipHubCompletedTrips
+			UI.Notify("🏆 Trip Complete!", string.format("Order #%d selesai. Siap mencari order baru!", totalDone), 3, "success")
+
+			-- ☕ Cooldown Istirahat 2 Menit setiap 10 orderan (10, 20, 30, dst.)
+			if totalDone > 0 and (totalDone % 10 == 0) then
+				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 2 menit...", totalDone), 5, "warning")
+				lastCompletedToken = token
+				taxiBusy = false
+				taxiToken = nil
+				taxiPickupPos = nil
+				taxiDropPos = nil
+				taxiPickupAddr = ""
+				taxiDropAddr = ""
+				passengerSeated = false
+
+				if autoRideGoToggle and autoRideGoToggle.Set then
+					autoRideGoToggle.Set(false)
+				elseif toggleAutoRideGO then
+					toggleAutoRideGO(false)
+				end
+
+				task.spawn(function()
+					task.wait(120) -- 2 menit
+					UI.Notify("🚀 Melanjutkan Farm", string.format("Istirahat 2 menit selesai (Total %d order). Auto-farm aktif kembali!", totalDone), 3, "success")
+					if autoRideGoToggle and autoRideGoToggle.Set then
+						autoRideGoToggle.Set(true)
+					elseif toggleAutoRideGO then
+						toggleAutoRideGO(true)
+					end
+				end)
+				return
+			end
 		end
 
 		lastCompletedToken = token
@@ -1671,9 +1880,6 @@ local success, err = pcall(function()
 		TaxiEvent.OnClientEvent:Connect(function(...)
 			local raw = { ... }
 			table.insert(_G.HipHubTaxiLog, { t = tick(), args = raw })
-			if #_G.HipHubTaxiLog > 25 then
-				table.remove(_G.HipHubTaxiLog, 1)
-			end
 
 			if not taxiActive then return end
 
@@ -1980,6 +2186,9 @@ local success, err = pcall(function()
 				ev:FireServer("CancelTrip")
 				ev:FireServer("CancelOrder")
 				ev:FireServer("GoOffline")
+			end
+			if changeTeam then
+				changeTeam("Citizen")
 			end
 			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
 			pcall(function()

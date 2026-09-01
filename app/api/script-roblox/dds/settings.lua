@@ -111,12 +111,11 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
 	------------------------------------------------
+	-- Adonis-Safe Camera Oscillation (Resets idle timer naturally without disallowed services or physics changes)
 	local antiAfkConn = nil
-
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
 		saveConfig(true)
-
 		if antiAfkConn then
 			antiAfkConn:Disconnect()
 			antiAfkConn = nil
@@ -128,6 +127,7 @@ local success, err = pcall(function()
 				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
+						-- Safe Camera Oscillation (Works seamlessly on PC & Redfinger)
 						local cam = workspace.CurrentCamera
 						if cam then
 							local cf = cam.CFrame
@@ -141,11 +141,6 @@ local success, err = pcall(function()
 				end
 			end)
 		end
-	end
-
-	-- Bootstrap Anti-AFK listener immediately
-	if _G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.antiAfk ~= false then
-		toggleAntiAfk(true)
 	end
 
 	------------------------------------------------
