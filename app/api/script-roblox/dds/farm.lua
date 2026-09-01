@@ -935,13 +935,8 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- Khusus jika titik pickup / drop-off adalah Sasana Krida Building Manahan, tembak dari refY + 7 saja agar tidak mendarat di atap gedung
-			local startY
-			if isSasanaKridaTrip() then
-				startY = (refY or 0) + 7
-			else
-				startY = math.max((refY or 0) + 45, 60)
-			end
+			-- Raycast HANYA ditembak dari ketinggian jalan (refY + 6.0 stud) agar TIDAK PERNAH mendeteksi atap gedung tinggi
+			local startY = math.min((refY or 5) + 6.0, 42)
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
@@ -953,7 +948,7 @@ local success, err = pcall(function()
 				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
 				for attempt = 1, 6 do
 					localParams.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), localParams)
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -60, 0), localParams)
 					if not hit then break end
 
 					local inst = hit.Instance
@@ -963,11 +958,13 @@ local success, err = pcall(function()
 					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
 					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
 
+					local isElevatedRoof = (not isFlyover) and (hit.Position.Y > (refY or 5) + 4.5)
 					local isRoofOrObstacle = nonDrivableMats[mat]
+						or isElevatedRoof
 						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
 						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
 						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
-						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+						or (not isFlyover and inst.Position.Y >= 6 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
 
 					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
 
@@ -975,7 +972,7 @@ local success, err = pcall(function()
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
-						if hit.Position.Y >= -38 and hit.Position.Y <= (startY + 5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+						if hit.Position.Y >= -38 and hit.Position.Y <= ((refY or 5) + 4.5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
 							return hit.Position.Y + 0.3
 						end
 						break
@@ -993,6 +990,16 @@ local success, err = pcall(function()
 					for _, part in ipairs(char:GetDescendants()) do
 						if part:IsA("BasePart") then
 							part.CanCollide = false
+						end
+					end
+					local h = char:FindFirstChildOfClass("Humanoid")
+					if h and seat then
+						if not h.Sit or h.SeatPart ~= seat then
+							h.Sit = true
+							local root = char:FindFirstChild("HumanoidRootPart")
+							if root then
+								root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
+							end
 						end
 					end
 				end
@@ -1235,8 +1242,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Smooth vertical descent/ascent rate
-			local maxVertStep = math.max(50 * dt, 2.5)
+			-- Smooth vertical descent/ascent rate (Perubahan elevasi halus jalan raya)
+			local maxVertStep = math.max(12 * dt, 0.4)
 			local chosenY = lastGroundY
 			if chosenY > targetElevY then
 				chosenY = math.max(targetElevY, chosenY - maxVertStep)
