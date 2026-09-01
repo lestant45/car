@@ -216,9 +216,12 @@ function Diagnostic.RecordDisabledCall(scriptName, oldVal, newVal)
 end
 
 ----------------------------------------------------------------------
--- 2. PASSIVE HEARTBEAT & WORKLOAD MONITOR
+-- 2. PASSIVE HEARTBEAT, DRIVE & VOID-JUMP TELEMETRY
 ----------------------------------------------------------------------
 local lastHb = os.clock()
+local lastObservedPos = nil
+local lastPosSampleTime = os.clock()
+
 local hbConnection = RunService.Heartbeat:Connect(function()
 	local now = os.clock()
 	local dt = now - lastHb
@@ -228,6 +231,41 @@ local hbConnection = RunService.Heartbeat:Connect(function()
 	if dtMs > Diagnostic.worstFrameTimeMs then
 		Diagnostic.worstFrameTimeMs = dtMs
 	end
+
+	-- Passive Autonomous Tracking of Void Jumps & Vehicle Motion
+	pcall(function()
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hrp then
+			local curPos = hrp.Position
+			if lastObservedPos and (now - lastPosSampleTime <= 0.2) then
+				local dPosFlat = (Vector3.new(curPos.X, 0, curPos.Z) - Vector3.new(lastObservedPos.X, 0, lastObservedPos.Z)).Magnitude
+				-- If position moved > 30 studs in a single Heartbeat frame (<0.1s), that's an instantaneous Void Jump
+				if dPosFlat >= 30 then
+					Diagnostic.totalVoidJumps = Diagnostic.totalVoidJumps + 1
+					Diagnostic.totalVoidJumpDistance = Diagnostic.totalVoidJumpDistance + dPosFlat
+					logEvent("PHYSICS", "VOID_JUMP_DETECTED", string.format("Instant Delta: %.1f studs (Total VJumps: %d)", dPosFlat, Diagnostic.totalVoidJumps), {
+						distance = math.floor(dPosFlat),
+						totalJumps = Diagnostic.totalVoidJumps
+					})
+				end
+			end
+			lastObservedPos = curPos
+			lastPosSampleTime = now
+
+			-- Active Drive Controller Detection
+			if hum and hum.SeatPart then
+				local seat = hum.SeatPart
+				local spd = seat.AssemblyLinearVelocity.Magnitude
+				Diagnostic.activeDriveControllers = (spd > 1.5) and 1 or 0
+				Diagnostic.activeMovementControllers = (spd > 1.5) and 1 or 0
+			else
+				Diagnostic.activeDriveControllers = 0
+				Diagnostic.activeMovementControllers = 0
+			end
+		end
+	end)
 end)
 
 ----------------------------------------------------------------------
@@ -238,7 +276,7 @@ local descConn = workspace.DescendantAdded:Connect(function(desc)
 end)
 
 ----------------------------------------------------------------------
--- 4. PASSIVE REMOTE EVENT TELEMETRY
+-- 4. PASSIVE REMOTE EVENT & AUTONOMOUS TRIP TELEMETRY
 ----------------------------------------------------------------------
 task.spawn(function()
 	local taxiAssets = ReplicatedStorage:WaitForChild("TaxiAssets", 10)
@@ -257,6 +295,22 @@ task.spawn(function()
 				meta.passenger = args[2].PassengerName or args[2].Name
 			elseif args[2] then
 				meta.payload = tostring(args[2])
+			end
+
+			-- Autonomous Trip & Reset Detection from Server Events
+			if evType == "OrderOffer" then
+				Diagnostic.totalTripsStarted = Diagnostic.totalTripsStarted + 1
+				Diagnostic.activeTripWorkers = 1
+				Diagnostic.currentTripToken = tostring(meta.token or "N/A")
+				Diagnostic.currentTripState = "TRIP_ACTIVE"
+			elseif evType == "OrderCompleted" or evType == "TripComplete" then
+				Diagnostic.totalTripsCompleted = Diagnostic.totalTripsCompleted + 1
+				Diagnostic.activeTripWorkers = 0
+				Diagnostic.currentTripState = "WAITING"
+			elseif evType == "OrderCancelled" or evType == "OrderExpired" or evType == "OrderDeclined" or evType == "DutyEnded" then
+				Diagnostic.totalResets = Diagnostic.totalResets + 1
+				Diagnostic.activeTripWorkers = 0
+				Diagnostic.currentTripState = "RESET_OR_IDLE"
 			end
 			
 			logEvent("REMOTE_IN", evType, "Server -> Client TaxiEvent", meta)
