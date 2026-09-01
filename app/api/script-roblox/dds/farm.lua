@@ -1189,16 +1189,50 @@ local success, err = pcall(function()
 
 			if directHitY then
 				-- 🛣️ Berada di atas aspal/daratan padat
+				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🌉 Melintasi Jurang / Selat Antar-Pulau (Linear Smooth Gliding 55 studs/s)
-				-- Bergerak mulus dan konstan melintasi udara tanpa lonjakan teleportasi
-				actualMoveDir = directGoalDir
-				navHeading = directGoalDir
-				targetElevY = math.max(lastGroundY, 5)
-				ensureSafetyPlate(carPos, 50)
+				-- 🛑 Deteksi Tepi Jurang: Cari kelokan jalan yang masih memiliki aspal daratan
+				local foundRoad = false
+				local roadSearchAngles = { 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90, 110, -110 }
+				for _, rAng in ipairs(roadSearchAngles) do
+					local rotCF = CFrame.Angles(0, math.rad(rAng), 0)
+					local testDir = (rotCF * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+					local testProbePos = carPos + testDir * probeDist
+					local testHitY = probeGround(testProbePos, lastGroundY)
+					if testHitY then
+						actualMoveDir = testDir
+						targetElevY = testHitY
+						navHeading = testDir
+						foundRoad = true
+						cliffWaitStartTime = nil
+						break
+					end
+				end
+
+				if not foundRoad then
+					-- ⛔ DILARANG KERAS MELANGKAH KE RUANG HAMPA (Mencegah kick Anti-Fly / Void Detection)
+					actualMoveDir = Vector3.zero
+					stepDist = 0
+					currentSmoothSpeed = 0
+					curSpeed = 0
+					targetElevY = lastGroundY
+
+					local nowClock = os.clock()
+					cliffWaitStartTime = cliffWaitStartTime or nowClock
+
+					-- Setelah 2.5s di tepi jurang, batalkan order pulau seberang & cari order di daratan ini
+					if (nowClock - cliffWaitStartTime) >= 2.5 then
+						cliffWaitStartTime = nil
+						cancelActiveDrive()
+						task.spawn(function()
+							restartAutoRideGoToggle("Tujuan di Seberang Jurang (Unreachable)")
+						end)
+						return
+					end
+				end
 			end
 
 			-- Smooth vertical descent/ascent rate
