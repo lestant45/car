@@ -1186,7 +1186,8 @@ local success, err = pcall(function()
 
 			local curSpeed = currentSmoothSpeed
 			local stepDist = curSpeed * dt
-			local probeDist = math.max(stepDist * 1.6, 4)
+			-- 🛡️ Safe Forward Margin: Pindai 16 stud ke depan agar berhenti jauh sebelum bibir tebing
+			local probeDist = math.max(stepDist * 2.5, 16.0)
 
 			local directProbePos = carPos + directGoalDir * probeDist
 			local directHitY = probeGround(directProbePos, lastGroundY)
@@ -1195,15 +1196,16 @@ local success, err = pcall(function()
 			local targetElevY = lastGroundY
 
 			if directHitY then
-				-- 🛣️ Berada di atas aspal/daratan padat
+				-- 🛣️ Berada di atas aspal/daratan padat yang aman
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 Deteksi Tepi Jurang: Cari kelokan jalan yang masih memiliki aspal daratan
+				-- 🛑 Deteksi Tepi Jurang: Cek HANYA sudut maju ke arah tujuan (±15°, ±30°)
+				-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±60°, ±90°) agar tidak merayap di bibir tebing!
 				local foundRoad = false
-				local roadSearchAngles = { 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90, 110, -110 }
+				local roadSearchAngles = { 15, -15, 30, -30 }
 				for _, rAng in ipairs(roadSearchAngles) do
 					local rotCF = CFrame.Angles(0, math.rad(rAng), 0)
 					local testDir = (rotCF * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
@@ -1220,7 +1222,7 @@ local success, err = pcall(function()
 				end
 
 				if not foundRoad then
-					-- ⛔ DILARANG KERAS MELANGKAH KE RUANG HAMPA (Mencegah kick Anti-Fly / Void Detection)
+					-- ⛔ BERHENTI KOKOH DI ASPAL (16 STUD DARI BIBIR TEBING)
 					actualMoveDir = Vector3.zero
 					stepDist = 0
 					currentSmoothSpeed = 0
@@ -1230,8 +1232,8 @@ local success, err = pcall(function()
 					local nowClock = os.clock()
 					cliffWaitStartTime = cliffWaitStartTime or nowClock
 
-					-- Setelah 2.5s di tepi jurang, batalkan order pulau seberang & cari order di daratan ini
-					if (nowClock - cliffWaitStartTime) >= 2.5 then
+					-- Setelah 1.5s di tepi jurang, batalkan order pulau seberang & cari order di daratan ini
+					if (nowClock - cliffWaitStartTime) >= 1.5 then
 						cliffWaitStartTime = nil
 						cancelActiveDrive()
 						task.spawn(function()
