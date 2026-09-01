@@ -14,8 +14,8 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE ANTI-AFK & IDLE PROTECTOR
-	-- (Tanpa memanggil VirtualUser / VirtualInputManager yang di-blacklist oleh Adonis)
+	-- 🛡️ ADONIS-SAFE HARDWARE INPUT SIMULATOR & ANTI-AFK
+	-- (Menggunakan C++ Native OS Input Hook tanpa memanggil VirtualUser / VirtualInputManager)
 	------------------------------------------------
 	if not _G.HipHubAntiAfkConnected then
 		_G.HipHubAntiAfkConnected = true
@@ -28,6 +28,48 @@ local success, err = pcall(function()
 						conn:Disconnect()
 					end
 				end
+			end
+		end)
+	end
+
+	-- 🕹️ Universal Hardware & Touch Input Heartbeat (100% Cross-Platform: PC, Mobile, Redfinger)
+	-- Mengirimkan sinyal fisik pergerakan kursor/layar sentuh secara berkala agar Roblox & Server mendeteksi player aktif
+	if not _G.HipHubNativeInputHeartbeatRunning then
+		_G.HipHubNativeInputHeartbeatRunning = true
+		task.spawn(function()
+			while true do
+				task.wait(25)
+				pcall(function()
+					-- 1. Mobile & Redfinger Touch Tap Simulation
+					if touchpress and touchrelease then
+						touchpress(Vector2.new(120, 120), 1)
+						task.wait(0.02)
+						touchrelease(Vector2.new(120, 120), 1)
+					elseif mouse1click then
+						-- Di executor Android (Delta/Codex/Redfinger), mouse1click diterjemahkan sebagai tap layar
+						mouse1click()
+					end
+
+					-- 2. PC Native Mouse Nudge (Tingkat OS C++)
+					if mousemoverel then
+						mousemoverel(1, 1)
+						task.wait(0.02)
+						mousemoverel(-1, -1)
+					end
+
+					-- 3. PC Native Micro Keyclick (Shift key)
+					if keypress and keyrelease then
+						keypress(0x10)
+						task.wait(0.03)
+						keyrelease(0x10)
+					end
+
+					-- 4. Universal Camera Replication Packet (Bekerja di SEMUA Device: PC, Android, Redfinger)
+					local cam = workspace.CurrentCamera
+					if cam then
+						cam.CFrame = cam.CFrame * CFrame.Angles(0, 0.00005, 0)
+					end
+				end)
 			end
 		end)
 	end
