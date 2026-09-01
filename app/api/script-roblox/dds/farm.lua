@@ -1894,10 +1894,20 @@ local success, err = pcall(function()
 			end
 			UI.Notify("📍 Heading to Drop-off", isAnomalyTrip and "Mengantar Anomali ke tujuan..." or "Delivering passenger to destination...", 2, "warning")
 
-			-- 🛡️ Pre-Arrival Pacing Guard:
-			-- Jangan masuk ke radius trigger penurunan penumpang (<= 25 stud) sebelum waktu tempuh sah server tercapai!
+			-- 🛡️ Smart Adaptive Pre-Arrival Pacing Guard:
+			-- Menyesuaikan kecepatan safe secara dinamis sesuai jarak order dan limit motor (Mio ~90 km/h)
 			if tripStartTime and tripDistance and tripDistance > 150 then
-				local safeSpeed = isAnomalyTrip and 75.0 or 85.0
+				local safeSpeed = 92.0 -- Base safe speed Mio (~83 km/h)
+				if isAnomalyTrip then
+					safeSpeed = 75.0 -- Mode proteksi ekstra ketat untuk Anomaly (+Rp 25M)
+				elseif tripDistance <= 2000 then
+					safeSpeed = 95.0 -- Jarak dekat: Akselerasi cepat (~85.5 km/h)
+				elseif tripDistance <= 4000 then
+					safeSpeed = 92.0 -- Jarak menengah: (~82.8 km/h)
+				else
+					safeSpeed = 88.0 -- Jarak jauh: Stabil (~79.2 km/h)
+				end
+
 				local minSafeTime = tripDistance / safeSpeed
 				local elapsed = tick() - tripStartTime
 
@@ -1927,11 +1937,11 @@ local success, err = pcall(function()
 								seat.Throttle = 0
 								seat.ThrottleFloat = 0
 							end
-							UI.Notify("⏱️ Pacing Server Aktif", string.format("Menyelaraskan waktu tiba sah: %.1fs...", remainingWait), math.min(remainingWait, 3), "warning")
+							UI.Notify("⏱️ Smart Pacing Aktif", string.format("Waktu tiba sah: %.1fs tersisa...", remainingWait), math.min(remainingWait, 3), "warning")
 							local pacingStart = tick()
 							while (tick() - pacingStart < remainingWait) and taxiActive and not isResettingTaxi do
 								local rem = math.max(0, math.floor((remainingWait - (tick() - pacingStart)) * 10) / 10)
-								updateBotActivity(string.format("⏱️ Pacing Waktu Sah Server (%.1fs)...", rem), Color3.fromRGB(255, 180, 50))
+								updateBotActivity(string.format("⏱️ Smart Pacing (%.1fs tersisa)...", rem), Color3.fromRGB(255, 180, 50))
 								task.wait(0.2)
 							end
 						end
@@ -2001,7 +2011,17 @@ local success, err = pcall(function()
 			-- Server DDS mencatat: Kecepatan Rata-rata = tripDistance / (tick() - tripStartTime)
 			-- Jika waktu tempuh terlalu cepat, kita beri jeda pacing agar server memvalidasi trip 100% sah/legit
 			if tripStartTime and tripDistance and tripDistance > 150 then
-				local safeMaxSpeed = isAnomalyTrip and 75.0 or 85.0
+				local safeMaxSpeed = 92.0
+				if isAnomalyTrip then
+					safeMaxSpeed = 75.0
+				elseif tripDistance <= 2000 then
+					safeMaxSpeed = 95.0
+				elseif tripDistance <= 4000 then
+					safeMaxSpeed = 92.0
+				else
+					safeMaxSpeed = 88.0
+				end
+
 				local minSafeTripTime = tripDistance / safeMaxSpeed
 				local elapsed = tick() - tripStartTime
 				if elapsed < minSafeTripTime then
