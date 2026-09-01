@@ -1513,15 +1513,51 @@ local success, err = pcall(function()
 		return (car:GetPivot().Position - destP).Magnitude <= 15
 	end
 
+	local function resolveTeamName(targetName)
+		if not targetName then return nil end
+		local Teams = game:GetService("Teams")
+		if Teams then
+			-- 1. Exact match
+			local exact = Teams:FindFirstChild(targetName)
+			if exact then return exact.Name end
+
+			-- 2. Case-insensitive / partial search
+			local targetLower = targetName:lower()
+			for _, t in ipairs(Teams:GetTeams()) do
+				local tLower = t.Name:lower()
+				if tLower == targetLower or tLower:find(targetLower) then
+					return t.Name
+				end
+			end
+
+			-- 3. Pencarian tim default non-job (Warga / Pengendara / Civilian / dsb)
+			if targetLower:find("citizen") or targetLower:find("civil") or targetLower:find("warga") then
+				for _, t in ipairs(Teams:GetTeams()) do
+					local tLower = t.Name:lower()
+					if tLower:find("warga") or tLower:find("pengendara") or tLower:find("civil") or tLower:find("masyarakat") or tLower:find("player") or tLower:find("default") then
+						return t.Name
+					end
+				end
+			end
+		end
+		return nil
+	end
+
 	changeTeam = function(teamName)
 		pcall(function()
+			local actualTeamName = resolveTeamName(teamName)
+			if not actualTeamName then
+				-- Jika nama team tidak ada di game, jangan tembak remote agar tidak memicu error "Team not found"
+				return
+			end
+
 			local teamChangeRequest = ReplicatedStorage:FindFirstChild("teamChangeRequest")
 			if teamChangeRequest then
-				teamChangeRequest:FireServer(teamName)
+				teamChangeRequest:FireServer(actualTeamName)
 			end
 			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
 			if jobEvents and jobEvents:FindFirstChild("TeamChangeRequest") then
-				jobEvents.TeamChangeRequest:FireServer(teamName)
+				jobEvents.TeamChangeRequest:FireServer(actualTeamName)
 			end
 		end)
 	end
@@ -2158,7 +2194,7 @@ local success, err = pcall(function()
 				ev:FireServer("GoOffline")
 			end
 			if changeTeam then
-				changeTeam("Citizen")
+				changeTeam("Warga")
 			end
 			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
 			pcall(function()
