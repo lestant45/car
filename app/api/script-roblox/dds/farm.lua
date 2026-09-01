@@ -117,8 +117,28 @@ local success, err = pcall(function()
 	local cancelActiveDrive   = nil
 	local startPhoneOverlayPoller = nil
 
-	local function setTaxiState(newState)
+	local function updateBotActivity(statusText, customColor)
+		_G.HipHubBotActivityStatus = statusText or "🟢 Menunggu Orderan Masuk..."
+		_G.HipHubBotActivityColor  = customColor or Color3.fromRGB(0, 255, 170)
+	end
+
+	local function setTaxiState(newState, customText, customColor)
 		taxiState = newState
+		if customText then
+			updateBotActivity(customText, customColor)
+		elseif newState == "WAITING_FOR_NEXT_ORDER" then
+			updateBotActivity("🟢 Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
+		elseif newState == "PICKING_UP" then
+			updateBotActivity("🛵 Sedang Menjemput Penumpang...", Color3.fromRGB(0, 212, 255))
+		elseif newState == "DRIVING_TO_DESTINATION" then
+			updateBotActivity("📍 Mengantar Penumpang ke Tujuan...", Color3.fromRGB(0, 212, 255))
+		elseif newState == "PACING" then
+			updateBotActivity("⏱️ Pacing Waktu Sah Server...", Color3.fromRGB(255, 180, 50))
+		elseif newState == "DROPPING_OFF" then
+			updateBotActivity("🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
+		elseif newState == "IDLE" then
+			updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+		end
 	end
 
 	local function isSasanaKridaTrip()
@@ -1727,7 +1747,10 @@ local success, err = pcall(function()
 
 		local isAnomalyTrip = (isAnomaly == true)
 		if isAnomalyTrip then
+			updateBotActivity("👻 Mengantar Anomali (+Rp 25M)...", Color3.fromRGB(255, 100, 100))
 			UI.Notify("👻 ANOMALY ORDER AKTIF", "Mode Proteksi Anomali Aktif (+Rp 25M)...", 4, "warning")
+		else
+			updateBotActivity("🛵 Menjemput Penumpang (" .. tostring(name or "Passenger") .. ")...", Color3.fromRGB(0, 212, 255))
 		end
 
 		setTaxiState("NEW_ORDER_DETECTED")
@@ -1768,6 +1791,7 @@ local success, err = pcall(function()
 
 		-- 5. Wait for passenger boarding
 		if taxiPickupPos and taxiActive then
+			updateBotActivity("🚶 Menunggu Penumpang Naik Motor...", Color3.fromRGB(255, 200, 50))
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
 			local car, seat = getPlayerVehicle()
@@ -1821,7 +1845,11 @@ local success, err = pcall(function()
 		end
 
 		if taxiDropPos and taxiActive then
-			setTaxiState("DRIVING_TO_DESTINATION")
+			if isAnomalyTrip then
+				setTaxiState("DRIVING_TO_DESTINATION", "👻 Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
+			else
+				setTaxiState("DRIVING_TO_DESTINATION", "📍 Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
+			end
 			UI.Notify("📍 Heading to Drop-off", isAnomalyTrip and "Mengantar Anomali ke tujuan..." or "Delivering passenger to destination...", 2, "warning")
 
 			-- 🛡️ Pre-Arrival Pacing Guard:
@@ -1858,8 +1886,18 @@ local success, err = pcall(function()
 								seat.ThrottleFloat = 0
 							end
 							UI.Notify("⏱️ Pacing Server Aktif", string.format("Menyelaraskan waktu tiba sah: %.1fs...", remainingWait), math.min(remainingWait, 3), "warning")
-							task.wait(remainingWait)
+							local pacingStart = tick()
+							while (tick() - pacingStart < remainingWait) and taxiActive and not isResettingTaxi do
+								local rem = math.max(0, math.floor((remainingWait - (tick() - pacingStart)) * 10) / 10)
+								updateBotActivity(string.format("⏱️ Pacing Waktu Sah Server (%.1fs)...", rem), Color3.fromRGB(255, 180, 50))
+								task.wait(0.2)
+							end
 						end
+					end
+					if isAnomalyTrip then
+						setTaxiState("DRIVING_TO_DESTINATION", "👻 Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
+					else
+						setTaxiState("DRIVING_TO_DESTINATION", "📍 Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
 					end
 				end
 			end
@@ -1867,7 +1905,7 @@ local success, err = pcall(function()
 			-- Masuk ke titik tujuan utama (radius <= 25 studs) pada waktu yang sudah 100% sah di server!
 			driveVehicleTo(taxiDropPos, tripSpeed, 50)
 
-			setTaxiState("DROPPING_OFF")
+			setTaxiState("DROPPING_OFF", "🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
 			local car, seat = getPlayerVehicle()
 			if car then
 				for _, part in ipairs(car:GetDescendants()) do
@@ -1939,9 +1977,9 @@ local success, err = pcall(function()
 			local totalDone = _G.HipHubCompletedTrips
 			UI.Notify("🏆 Trip Complete!", string.format("Order #%d selesai. Siap mencari order baru!", totalDone), 3, "success")
 
-			-- ☕ Cooldown Istirahat 2 Menit setiap kelipatan 7 orderan (7, 14, 21, 28, dst.)
-			if totalDone > 0 and (totalDone % 7 == 0) then
-				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 2 menit...", totalDone), 5, "warning")
+			-- ☕ Cooldown Istirahat 1 Menit setiap kelipatan 10 orderan (10, 20, 30, 40, dst.)
+			if totalDone > 0 and (totalDone % 10 == 0) then
+				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 1 menit...", totalDone), 5, "warning")
 				lastCompletedToken = token
 				taxiBusy = false
 				taxiToken = nil
@@ -1958,8 +1996,13 @@ local success, err = pcall(function()
 				end
 
 				task.spawn(function()
-					task.wait(120) -- 2 menit
-					UI.Notify("🚀 Melanjutkan Farm", string.format("Istirahat 2 menit selesai (Total %d order). Auto-farm aktif kembali!", totalDone), 3, "success")
+					local restStart = tick()
+					while (tick() - restStart < 60) do
+						local remSec = 60 - math.floor(tick() - restStart)
+						updateBotActivity(string.format("☕ Cooldown Istirahat (%ds tersisa)...", remSec), Color3.fromRGB(255, 170, 50))
+						task.wait(1)
+					end
+					UI.Notify("🚀 Melanjutkan Farm", string.format("Istirahat 1 menit selesai (Total %d order). Auto-farm aktif kembali!", totalDone), 3, "success")
 					if autoRideGoToggle and autoRideGoToggle.Set then
 						autoRideGoToggle.Set(true)
 					elseif toggleAutoRideGO then

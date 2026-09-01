@@ -679,13 +679,17 @@ local success, err = pcall(function()
 							progressVal.Text = string.format("%.1f%%", pct * 100)
 							barFill.Size = UDim2.new(pct, 0, 1, 0)
 
-							if curMoney >= target then
+							if curMoney >= target and target > 0 then
 								statusBadge.Text = "🎉 TARGET EARN TERCAPAI (" .. formatRupiah(target) .. ")! Selesai."
 								statusBadge.TextColor3 = Color3.fromRGB(255, 215, 0)
 								barFill.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
 								if _G.HipHubAutoRideGoToggle and _G.HipHubAutoRideGoToggle.Set and _G.HipHubAutoRideGoToggle.Get and _G.HipHubAutoRideGoToggle.Get() then
 									_G.HipHubAutoRideGoToggle.Set(false)
 								end
+							elseif _G.HipHubBotActivityStatus then
+								statusBadge.Text = _G.HipHubBotActivityStatus
+								statusBadge.TextColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 255, 170)
+								barFill.BackgroundColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 212, 255)
 							else
 								local antiPText = _G.HipHubConfig.misc.antiPlayerJoin and "Anti-Player: ON 🚪" or "Anti-Player: OFF"
 								statusBadge.Text = "🟢 Auto-Farm Active | Anti-AFK: ON | " .. antiPText
@@ -697,9 +701,16 @@ local success, err = pcall(function()
 							progressVal.Text = "Ongoing 🏃"
 							barFill.Size = UDim2.new(1, 0, 1, 0)
 							barFill.BackgroundColor3 = Color3.fromRGB(0, 212, 255)
-							local antiPText = _G.HipHubConfig.misc.antiPlayerJoin and "Anti-Player: ON 🚪" or "Anti-Player: OFF"
-							statusBadge.Text = "🟢 Auto-Farm Active | Anti-AFK: ON | " .. antiPText
-							statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
+
+							if _G.HipHubBotActivityStatus then
+								statusBadge.Text = _G.HipHubBotActivityStatus
+								statusBadge.TextColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 255, 170)
+								barFill.BackgroundColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 212, 255)
+							else
+								local antiPText = _G.HipHubConfig.misc.antiPlayerJoin and "Anti-Player: ON 🚪" or "Anti-Player: OFF"
+								statusBadge.Text = "🟢 Auto-Farm Active | Anti-AFK: ON | " .. antiPText
+								statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
+							end
 						end
 					end)
 					task.wait(1)
