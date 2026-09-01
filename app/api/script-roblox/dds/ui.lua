@@ -14,8 +14,9 @@ while not player do
 end
 
 local success, err = pcall(function()
-	-- Pre-loader optimization check
+	-- Pre-loader optimization check (Ensure 3D rendering is active)
 	pcall(function()
+		pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(true) end)
 		local HttpService = game:GetService("HttpService")
 		local file = "HipHub/dds_config.json"
 		if isfile and not isfile(file) then
@@ -25,9 +26,6 @@ local success, err = pcall(function()
 			local configData = HttpService:JSONDecode(readfile(file))
 			if configData and configData.misc then
 				local misc = configData.misc
-				if misc.blackScreenEnabled == true then
-					pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
-				end
 				if misc.capFpsEnabled == true then
 					if setfpscap then pcall(setfpscap, 15) end
 				end

@@ -315,11 +315,19 @@ local success, err = pcall(function()
 		end
 	end)
 
+	-- Ensure 3D rendering is active
+	pcall(function()
+		RunService:Set3dRenderingEnabled(true)
+	end)
+
 	local blackScreenGui = nil
 	local blackScreenLoop = nil
 
 	local function toggleBlackScreen(state)
 		_G.HipHubConfig.misc.blackScreenEnabled = state
+		pcall(function()
+			RunService:Set3dRenderingEnabled(true)
+		end)
 
 		if state then
 			if blackScreenGui then
@@ -722,6 +730,9 @@ local success, err = pcall(function()
 				end
 			end)
 		else
+			pcall(function()
+				RunService:Set3dRenderingEnabled(true)
+			end)
 			if blackScreenLoop then
 				task.cancel(blackScreenLoop)
 				blackScreenLoop = nil
