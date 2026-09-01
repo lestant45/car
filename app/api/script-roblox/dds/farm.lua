@@ -14,20 +14,52 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE NATIVE INPUT & IDLE PROTECTOR
-	-- (100% Pure, Tanpa memodifikasi metamethod / hook namecall dan tanpa VirtualUser)
+	-- 🛡️ ADONIS-SAFE ENGINE IDLE PROTECTOR & ANTI-AFK
 	------------------------------------------------
+	if not _G.HipHubServiceMasked then
+		_G.HipHubServiceMasked = true
+		pcall(function()
+			if hookfunction and checkcaller then
+				local oldFindService
+				oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
+					local sName = tostring(serviceName or "")
+					if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
+						if not checkcaller() then
+							return nil
+						end
+					end
+					return oldFindService(self, serviceName, ...)
+				end))
+			end
+		end)
+	end
+
+	local function resetEngineIdleTimer()
+		pcall(function()
+			local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
+			if vu then
+				vu:CaptureController()
+				vu:ClickButton2(Vector2.zero)
+			end
+		end)
+	end
+
 	if not _G.HipHubAntiAfkConnected then
 		_G.HipHubAntiAfkConnected = true
 		pcall(function()
-			if getconnections then
-				for _, conn in ipairs(getconnections(player.Idled)) do
-					if conn.Disable then
-						conn:Disable()
-					elseif conn.Disconnect then
-						conn:Disconnect()
-					end
-				end
+			player.Idled:Connect(function()
+				resetEngineIdleTimer()
+			end)
+		end)
+	end
+
+	-- Periodic C++ Engine Inactivity Timer Reset (Setiap 30 Detik)
+	if not _G.HipHubEngineIdleResetRunning then
+		_G.HipHubEngineIdleResetRunning = true
+		task.spawn(function()
+			while true do
+				task.wait(30)
+				resetEngineIdleTimer()
 			end
 		end)
 	end

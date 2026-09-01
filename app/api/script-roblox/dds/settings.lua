@@ -122,18 +122,32 @@ local success, err = pcall(function()
 		end
 
 		if state then
+			if not _G.HipHubServiceMasked then
+				_G.HipHubServiceMasked = true
+				pcall(function()
+					if hookfunction and checkcaller then
+						local oldFindService
+						oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
+							local sName = tostring(serviceName or "")
+							if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
+								if not checkcaller() then return nil end
+							end
+							return oldFindService(self, serviceName, ...)
+						end))
+					end
+				end)
+			end
+
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
 				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
-						-- 1. Native Mouse & Keystroke Nudge (Tingkat OS C++)
-						if mousemoverel then
-							mousemoverel(1, 1)
-							task.wait(0.02)
-							mousemoverel(-1, -1)
-						elseif mouse1click then
-							mouse1click()
+						-- 1. Engine C++ Inactivity Reset (100% Anti-20 Min Kick)
+						local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
+						if vu then
+							vu:CaptureController()
+							vu:ClickButton2(Vector2.zero)
 						end
 
 						-- 2. Safe Camera Oscillation
