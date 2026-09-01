@@ -1133,6 +1133,8 @@ local success, err = pcall(function()
 			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama holdDuration
 			if now < bridgeHoldUntil then
 				lastTick = now
+				stuckLastTime = now
+				currentSmoothSpeed = 0
 				pcall(function()
 					if bridgeLandCF then
 						car:PivotTo(bridgeLandCF)
@@ -1352,7 +1354,6 @@ local success, err = pcall(function()
 						cliffWaitStartTime = nil
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
-						stuckLastTime = nowClock
 						stuckLastDist = (destP - bridgeLanding).Magnitude
 						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
@@ -1361,11 +1362,14 @@ local success, err = pcall(function()
 						-- ⏱️ Kalkulasi Hold Waktu Berdasarkan Jarak Lompatan:
 						-- 1 detik per 100 stud + 0.5s (contoh: 600 stud -> 6.5 detik)
 						local actualDist = jumpDist or (Vector3.new(bridgeLanding.X, 0, bridgeLanding.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
-						local holdDuration = math.max(1.5, (actualDist / 100.0) * 1.0 + 0.5)
+						local holdDuration = math.max(2.0, (actualDist / 100.0) * 1.0 + 0.5)
 						bridgeHoldUntil = os.clock() + holdDuration
 						driveStartTime = os.clock() + holdDuration
+						stuckLastTime = os.clock() + holdDuration
+						stuckLastDist = (destP - bridgeLanding).Magnitude
+						currentSmoothSpeed = 0
 
-						UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(actualDist), holdDuration), math.min(holdDuration, 5), "success")
+						UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(actualDist), holdDuration), math.min(holdDuration, 6), "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
