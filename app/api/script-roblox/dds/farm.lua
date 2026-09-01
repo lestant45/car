@@ -13,6 +13,49 @@ local success, err = pcall(function()
 	local TweenService = game:GetService("TweenService")
 	local player = Players.LocalPlayer
 
+	------------------------------------------------
+	-- 🛡️ HARDWARE INPUT SIMULATOR & ANTI-AFK ENGINE
+	-- Mencegah Kick Error 267 ("Disconnected: Connection Times Out.")
+	------------------------------------------------
+	local VirtualUser = nil
+	pcall(function()
+		VirtualUser = game:GetService("VirtualUser")
+	end)
+
+	-- 1. Anti-Roblox 20-Minute Idle Kick Disconnect
+	if not _G.HipHubAntiAfkConnected then
+		_G.HipHubAntiAfkConnected = true
+		pcall(function()
+			player.Idled:Connect(function()
+				if VirtualUser then
+					VirtualUser:CaptureController()
+					VirtualUser:ClickButton2(Vector2.zero)
+				end
+			end)
+		end)
+	end
+
+	-- 2. Continuous Active Hardware Input Heartbeat (Mencegah Server Watchdog Kick 267)
+	-- Mengirimkan sinyal interaksi controller mikro setiap 30 detik agar server mencatat player aktif secara fisik
+	if not _G.HipHubInputHeartbeatRunning then
+		_G.HipHubInputHeartbeatRunning = true
+		task.spawn(function()
+			while true do
+				task.wait(30)
+				pcall(function()
+					if VirtualUser then
+						VirtualUser:CaptureController()
+						local cam = workspace.CurrentCamera
+						local cf = cam and cam.CFrame or CFrame.new()
+						VirtualUser:Button2Down(Vector2.new(100, 100), cf)
+						task.wait(0.05)
+						VirtualUser:Button2Up(Vector2.new(100, 100), cf)
+					end
+				end)
+			end
+		end)
+	end
+
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRideGO = false,
 		taxiSpeed = 90,
@@ -1802,6 +1845,7 @@ local success, err = pcall(function()
 
 		-- 7. Complete Trip & Acknowledge
 		if taxiActive then
+			task.wait(0.8) -- Jeda sinkronisasi server sebelum menyelesaikan trip
 			TaxiEvent:FireServer("AckTripComplete")
 			_G.HipHubCompletedTrips = (_G.HipHubCompletedTrips or 0) + 1
 			local totalDone = _G.HipHubCompletedTrips
