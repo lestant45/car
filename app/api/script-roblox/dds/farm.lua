@@ -14,76 +14,60 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE STEALTH SERVICE MASKING & 20-MIN IDLE BYPASS
+	-- 🛡️ ADONIS-SAFE NATIVE INPUT & IDLE PROTECTOR
+	-- (100% Pure, Tanpa memodifikasi metamethod / hook namecall dan tanpa VirtualUser)
 	------------------------------------------------
-	if not _G.HipHubServiceMasked then
-		_G.HipHubServiceMasked = true
-		pcall(function()
-			if hookfunction and checkcaller then
-				local oldFindService
-				oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
-					local sName = tostring(serviceName or "")
-					if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
-						if not checkcaller() then
-							return nil
-						end
-					end
-					return oldFindService(self, serviceName, ...)
-				end))
-			end
-
-			if hookmetamethod and checkcaller then
-				local oldNamecall
-				oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-					local method = getnamecallmethod()
-					if method == "FindService" or method == "findService" then
-						local arg1 = tostring((...) or "")
-						if arg1 == "VirtualUser" or arg1 == "VirtualInputManager" or arg1 == "UGCValidationService" then
-							if not checkcaller() then
-								return nil
-							end
-						end
-					end
-					return oldNamecall(self, ...)
-				end))
-			end
-		end)
-	end
-
-	local getVU = function()
-		local vu = nil
-		pcall(function()
-			vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
-		end)
-		return vu
-	end
-
-	-- 1. Anti-Roblox 20-Minute Engine Idle Kick
 	if not _G.HipHubAntiAfkConnected then
 		_G.HipHubAntiAfkConnected = true
 		pcall(function()
-			player.Idled:Connect(function()
-				local vu = getVU()
-				if vu then
-					vu:CaptureController()
-					vu:ClickButton2(Vector2.zero)
+			if getconnections then
+				for _, conn in ipairs(getconnections(player.Idled)) do
+					if conn.Disable then
+						conn:Disable()
+					elseif conn.Disconnect then
+						conn:Disconnect()
+					end
 				end
-			end)
+			end
 		end)
 	end
 
-	-- 2. Periodic C++ Engine Inactivity Timer Reset (Setiap 45 Detik)
-	-- Secara aktif mereset m_timeSinceLastInput di internal C++ Roblox engine sehingga TIDAK PERNAH mencapai 20 menit
-	if not _G.HipHubEngineIdleResetRunning then
-		_G.HipHubEngineIdleResetRunning = true
+	-- 🕹️ Universal Hardware & Touch Input Heartbeat (100% Cross-Platform: PC, Mobile, Redfinger)
+	-- Mengirimkan sinyal fisik pergerakan kursor/layar sentuh secara berkala agar Roblox & Server mendeteksi player aktif
+	if not _G.HipHubNativeInputHeartbeatRunning then
+		_G.HipHubNativeInputHeartbeatRunning = true
 		task.spawn(function()
 			while true do
-				task.wait(45)
+				task.wait(20)
 				pcall(function()
-					local vu = getVU()
-					if vu then
-						vu:CaptureController()
-						vu:ClickButton2(Vector2.zero)
+					-- 1. Mobile & Redfinger Touch Tap Simulation
+					if touchpress and touchrelease then
+						touchpress(Vector2.new(120, 120), 1)
+						task.wait(0.02)
+						touchrelease(Vector2.new(120, 120), 1)
+					elseif mouse1click then
+						-- Di executor Android (Delta/Codex/Redfinger), mouse1click diterjemahkan sebagai tap layar
+						mouse1click()
+					end
+
+					-- 2. PC Native Mouse Nudge (Tingkat OS C++)
+					if mousemoverel then
+						mousemoverel(1, 1)
+						task.wait(0.02)
+						mousemoverel(-1, -1)
+					end
+
+					-- 3. PC Native Micro Keyclick (Shift key)
+					if keypress and keyrelease then
+						keypress(0x10)
+						task.wait(0.03)
+						keyrelease(0x10)
+					end
+
+					-- 4. Universal Camera Replication Packet
+					local cam = workspace.CurrentCamera
+					if cam then
+						cam.CFrame = cam.CFrame * CFrame.Angles(0, 0.0001, 0)
 					end
 				end)
 			end
