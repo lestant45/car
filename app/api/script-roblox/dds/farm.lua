@@ -1839,14 +1839,19 @@ local success, err = pcall(function()
 					driveVehicleTo(perimeterPos, tripSpeed, 50)
 
 					-- Tahan di luar lingkaran tujuan sampai waktu tempuh sah tercapai
+					setTaxiState("PACING")
 					local nowElapsed = tick() - tripStartTime
 					if nowElapsed < minSafeTime then
 						local remainingWait = minSafeTime - nowElapsed
 						if remainingWait > 0.1 then
 							UI.Notify("⏱️ Pacing Server Aktif", string.format("Menyelaraskan waktu tiba sah: %.1fs...", remainingWait), math.min(remainingWait, 3), "warning")
-							task.wait(remainingWait)
+							local pacingStart = tick()
+							while (tick() - pacingStart < remainingWait) and taxiActive and not isResettingTaxi do
+								task.wait(0.2)
+							end
 						end
 					end
+					setTaxiState("DRIVING_TO_DESTINATION")
 				end
 			end
 
@@ -2092,8 +2097,8 @@ local success, err = pcall(function()
 				if taxiActive and not isResettingTaxi then
 					pcall(function()
 						-- 0. Watchdog Diam & Macet Cerdas:
-						-- Jika sedang dalam proses naik/turun penumpang, segarkan timer agar penumpang tidak terputus saat berjalan naik!
-						if taxiState == "PICKING_UP" or taxiState == "DROPPING_OFF" or taxiState == "NEW_ORDER_DETECTED" then
+						-- Jika sedang dalam proses naik/turun penumpang atau pacing waktu sah, segarkan timer!
+						if taxiState == "PICKING_UP" or taxiState == "DROPPING_OFF" or taxiState == "NEW_ORDER_DETECTED" or taxiState == "PACING" then
 							lastPosMovedTime = tick()
 							lastTrackedPos = nil
 						else
