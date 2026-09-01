@@ -109,25 +109,44 @@ local success, err = pcall(function()
 	loadConfig(true)
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
+	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE (IDLED VIRTUALUSER)
 	------------------------------------------------
-	-- Adonis-Safe Camera Oscillation (Resets idle timer naturally without disallowed services or physics changes)
 	local antiAfkConn = nil
+	local idledConn = nil
+
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
 		saveConfig(true)
+
 		if antiAfkConn then
 			antiAfkConn:Disconnect()
 			antiAfkConn = nil
 		end
+		if idledConn then
+			idledConn:Disconnect()
+			idledConn = nil
+		end
 
 		if state then
+			-- 1. True Engine Idle Reset via player.Idled + VirtualUser (100% Undetectable, No Disallowed Service)
+			pcall(function()
+				idledConn = player.Idled:Connect(function()
+					pcall(function()
+						local vu = game:GetService("VirtualUser")
+						if vu then
+							vu:CaptureController()
+							vu:ClickButton2(Vector2.new(0, 0))
+						end
+					end)
+				end)
+			end)
+
+			-- 2. Periodic Camera keepalive fallback
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
-				if tick() - lastTick > 25 then
+				if tick() - lastTick > 30 then
 					lastTick = tick()
 					pcall(function()
-						-- Safe Camera Oscillation (Works seamlessly on PC & Redfinger)
 						local cam = workspace.CurrentCamera
 						if cam then
 							local cf = cam.CFrame
@@ -141,6 +160,11 @@ local success, err = pcall(function()
 				end
 			end)
 		end
+	end
+
+	-- Bootstrap Anti-AFK listener immediately
+	if _G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.antiAfk ~= false then
+		toggleAntiAfk(true)
 	end
 
 	------------------------------------------------
