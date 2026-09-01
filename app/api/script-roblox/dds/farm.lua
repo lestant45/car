@@ -408,9 +408,21 @@ local success, err = pcall(function()
 
 	local function neutralizeBikeHazards(car)
 		pcall(function()
+			if car then
+				for _, s in ipairs(car:GetDescendants()) do
+					if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll")) then
+						s.Disabled = true
+					end
+				end
+			end
 			local char = player.Character
 			if char then
 				for _, s in ipairs(char:GetDescendants()) do
+					if s:IsA("Script") or s:IsA("LocalScript") then
+						if s.Name == "RagdollHandler" or s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll") then
+							s.Disabled = true
+						end
+					end
 					if s:IsA("BasePart") then
 						s.CanCollide = false
 					end
@@ -645,7 +657,7 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function shouldHideBuilding(obj)
+	local function shouldDestroyBuilding(obj)
 		if not obj or not obj.Parent then return false end
 		if obj:IsA("Terrain") or obj:IsA("Camera") then return false end
 		if obj.Name == "__DdsSafetyPlate" then return false end
@@ -685,37 +697,15 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function hideBuilding(obj)
-		if not obj then return end
-		pcall(function()
-			if obj:IsA("BasePart") then
-				obj.Transparency = 1
-				obj.CanCollide = false
-				obj.CastShadow = false
-			elseif obj:IsA("Decal") or obj:IsA("Texture") then
-				obj.Transparency = 1
-			elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Light") then
-				obj.Enabled = false
-			elseif obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") then
-				obj.Enabled = false
-			end
-			if obj:IsA("Model") or obj:IsA("Folder") then
-				for _, ch in ipairs(obj:GetChildren()) do
-					hideBuilding(ch)
-				end
-			end
-		end)
-	end
-
-	local function hideAllBuildings()
+	local function destroyAllBuildings()
 		pcall(function()
 			for _, c in ipairs(workspace:GetChildren()) do
-				if shouldHideBuilding(c) then
-					hideBuilding(c)
+				if shouldDestroyBuilding(c) then
+					pcall(function() c:Destroy() end)
 				elseif c:IsA("Folder") or c:IsA("Model") then
-					for _, ch in ipairs(c:GetChildren()) do
-						if shouldHideBuilding(ch) then
-							hideBuilding(ch)
+					for _, ch in ipairs(c:GetDescendants()) do
+						if shouldDestroyBuilding(ch) then
+							pcall(function() ch:Destroy() end)
 						end
 					end
 				end
@@ -723,17 +713,17 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Auto-hide newly streamed buildings & obstacles across all districts (Zero hierarchy destruction)
+	-- Auto-destroy newly streamed buildings & obstacles across all districts
 	workspace.DescendantAdded:Connect(function(descendant)
-		if shouldHideBuilding(descendant) then
+		if shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
-			if descendant and descendant.Parent and shouldHideBuilding(descendant) then
-				hideBuilding(descendant)
+			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
+				pcall(function() descendant:Destroy() end)
 			end
 		end
 	end)
 
-	task.spawn(hideAllBuildings)
+	task.spawn(destroyAllBuildings)
 
 
 	local function getGroundExcludeFilter(car)
@@ -2172,17 +2162,11 @@ local success, err = pcall(function()
 			if changeTeam then
 				changeTeam("Citizen")
 			end
-			-- Nonaktifkan tabrakan model NPC penumpang agar tidak mengganggu motor
+			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
 			pcall(function()
 				local activeMissions = workspace:FindFirstChild("ActiveMissions")
 				local pNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
-				if pNpc then
-					for _, p in ipairs(pNpc:GetDescendants()) do
-						if p:IsA("BasePart") then
-							p.CanCollide = false
-						end
-					end
-				end
+				if pNpc then pNpc:Destroy() end
 			end)
 			UI.Notify("RideGO Auto-Farm OFF", "Driver offline & order reset.", 2, "warning")
 		end
