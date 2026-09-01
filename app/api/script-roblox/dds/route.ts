@@ -256,6 +256,8 @@ func()
     const farmPath = path.join(scriptDir, "farm.lua");
     const mainPath = path.join(scriptDir, "main.lua");
 
+    const diagPath = path.join(scriptDir, "RideGODiagnostic.lua");
+
     if (!fs.existsSync(uiPath)) {
       const errScript = getErrorGuiLua(
         "Execute error: failed to load script resources. Please try again later!",
@@ -271,6 +273,7 @@ func()
 
     const userRole = "free";
     let luaScript = `_G.hiphub_key = "KEYLESS"\n_G.hiphub_role = "${userRole}"\n_G.hiphub_url = "${baseUrl}"\nif getgenv then getgenv().hiphub_key = "KEYLESS" end\nif getgenv then getgenv().hiphub_role = "${userRole}" end\nif getgenv then getgenv().hiphub_url = "${baseUrl}" end\n`;
+    if (fs.existsSync(diagPath)) luaScript += fs.readFileSync(diagPath, "utf8") + "\n";
     luaScript += fs.readFileSync(uiPath, "utf8");
 
     if (fs.existsSync(settingsPath)) luaScript += "\n" + fs.readFileSync(settingsPath, "utf8");
