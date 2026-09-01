@@ -800,13 +800,10 @@ local success, err = pcall(function()
 		local targetRot = CFrame.Angles(0, targetYaw, 0)
 		local targetCF  = CFrame.new(landPos) * targetRot
 
-		-- 2. Freeze physics (Anchored = true) to prevent weld snap / separation forces
-		pcall(function()
-			if prim then prim.Anchored = true end
-			if seat then seat.Anchored = true end
-			if root then root.Anchored = true end
-			if passRoot then passRoot.Anchored = true end
-		end)
+		-- 2. Pastikan pengemudi terpasang di kursi sebelum teleport
+		if hum and seat and hum.SeatPart ~= seat then
+			pcall(function() seat:Sit(hum) end)
+		end
 
 		-- 3. Zero all velocities on car, driver, and passenger
 		for _, part in ipairs(car:GetDescendants()) do
@@ -824,65 +821,40 @@ local success, err = pcall(function()
 			passRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		-- 4. Pindahkan motor & penumpang ke daratan seberang
+		-- 4. Atomic Leap: Pindahkan motor & penumpang ke daratan seberang
+		-- Karena driver & passenger terhubung ke kursi, mereka akan ikut berpindah secara seamless tanpa lepas
 		car:PivotTo(targetCF)
 		local pSeat = getPassengerSeat(car)
 		if passRoot and (pSeat or seat) then
 			passRoot.CFrame = (pSeat and pSeat.CFrame or seat.CFrame) + Vector3.new(0, 0.3, 0)
+			local passHum = passengerNpc and passengerNpc:FindFirstChildOfClass("Humanoid")
+			if passHum and pSeat then
+				pcall(function() pSeat:Sit(passHum) end)
+			end
 		end
 
-		task.wait(0.1)
-
-		-- 5. Unanchor motor dan part terlebih dahulu
-		pcall(function()
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.AssemblyLinearVelocity  = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
-			end
-			if root then
-				root.Anchored = false
-				root.AssemblyLinearVelocity = Vector3.zero
-				root.AssemblyAngularVelocity = Vector3.zero
-			end
-			if passRoot then
-				passRoot.Anchored = false
-				passRoot.AssemblyLinearVelocity = Vector3.zero
-				passRoot.AssemblyAngularVelocity = Vector3.zero
-			end
-		end)
-
-		-- 6. 🛵 RE-MOUNT MOTOR RESMI (Duduk langsung di VehicleSeat, tidak melayang di udara)
+		-- 5. Pastikan driver tetap duduk di kursi setelah mendarat
 		if hum and seat then
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-			mountBike()
-		end
-
-		if passengerNpc and pSeat then
-			local passHum = passengerNpc:FindFirstChildOfClass("Humanoid")
-			if passHum then
-				pcall(function() pSeat:Sit(passHum) end)
+			if hum.SeatPart ~= seat then
+				pcall(function() seat:Sit(hum) end)
 			end
 		end
 
-		-- 7. Nol-kan kembali seluruh kecepatan
-		pcall(function()
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity  = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
+		-- 6. Nol-kan kembali seluruh kecepatan di posisi baru
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.AssemblyLinearVelocity  = Vector3.zero
+				part.AssemblyAngularVelocity = Vector3.zero
 			end
-			if seat then
-				seat.AssemblyLinearVelocity = Vector3.zero
-				seat.AssemblyAngularVelocity = Vector3.zero
-			end
-		end)
+		end
+		if seat then
+			seat.AssemblyLinearVelocity = Vector3.zero
+			seat.AssemblyAngularVelocity = Vector3.zero
+		end
 
 		return landPos
 	end
@@ -1161,10 +1133,6 @@ local success, err = pcall(function()
 			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama holdDuration
 			if now < bridgeHoldUntil then
 				lastTick = now
-				-- Pastikan driver benar-benar duduk di kursi pengemudi motor (tidak melayang)
-				if hum and (not hum.SeatPart or hum.SeatPart ~= seat) then
-					mountBike()
-				end
 				pcall(function()
 					if bridgeLandCF then
 						car:PivotTo(bridgeLandCF)
@@ -1180,6 +1148,9 @@ local success, err = pcall(function()
 						seat.ThrottleFloat = 0
 						seat.AssemblyLinearVelocity = Vector3.zero
 						seat.AssemblyAngularVelocity = Vector3.zero
+						if hum and hum.SeatPart ~= seat then
+							seat:Sit(hum)
+						end
 					end
 				end)
 				return
@@ -1193,7 +1164,7 @@ local success, err = pcall(function()
 
 			-- 🔒 Enforced Frame-Level Seat Lock: pastikan pengemudi tidak terlempar dari motor saat melaju
 			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
-				mountBike()
+				pcall(function() seat:Sit(hum) end)
 			end
 
 			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas di bawah Y < -45 (ruang hampa luar map)
