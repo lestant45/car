@@ -2015,9 +2015,6 @@ local success, err = pcall(function()
 				ev:FireServer("CancelOrder")
 				ev:FireServer("GoOffline")
 			end
-			if changeTeam then
-				changeTeam("Citizen")
-			end
 			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
 			pcall(function()
 				local activeMissions = workspace:FindFirstChild("ActiveMissions")
