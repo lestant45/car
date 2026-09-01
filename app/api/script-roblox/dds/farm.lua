@@ -2360,8 +2360,8 @@ local success, err = pcall(function()
 			local totalDone = _G.HipHubCompletedTrips
 			UI.Notify("🏆 Trip Complete!", string.format("Order #%d selesai. Siap mencari order baru!", totalDone), 3, "success")
 
-			-- ☕ Cooldown Istirahat 2 Menit setiap kelipatan 7 orderan (7, 14, 21, 28, dst.)
-			if totalDone > 0 and (totalDone % 7 == 0) then
+			-- ☕ Cooldown Istirahat 2 Menit setiap kelipatan 10 orderan (10, 20, 30, 40, dst.)
+			if totalDone > 0 and (totalDone % 10 == 0) then
 				updateBotActivity("☕ Cooldown Istirahat 2 Menit (Order #" .. totalDone .. ")...", Color3.fromRGB(255, 170, 50))
 				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 2 menit...", totalDone), 5, "warning")
 				lastCompletedToken = token
