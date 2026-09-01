@@ -1160,44 +1160,15 @@ local success, err = pcall(function()
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 STRICT VOID SAFETY SCANNER (Zero-Tolerance Anti-Float / Anti-Flying Rule):
-			-- Memindai kesinambungan daratan di depan dari jarak dekat (3 stud) hingga 300 stud.
-			-- Jika jurang berada di depan (jarak solid <= 25 stud) dan tujuan masih jauh di seberang,
-			-- MOTOR DILARANG KERAS BERJALAN/MAJU WALAUPUN HANYA 1 STUD!
-			local solidAheadDist = 300
-			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300 }
-			for _, lookDist in ipairs(checkSteps) do
-				if lookDist >= dist then
-					break
-				end
-				local testPos = carPos + directGoalDir * lookDist
-				if not probeGround(testPos, lastGroundY) then
-					solidAheadDist = lookDist
-					break
-				end
+			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus):
+			local targetSpeed = speed
+			if dist < 50 then
+				targetSpeed = math.max(0, 15 * (dist / 50))
+			elseif dist < 300 then
+				local factor = (dist - 50) / 250
+				targetSpeed = 15 + math.max(0, speed - 15) * factor
 			end
 
-			-- 🚫 STRICT ANTI-FLOAT CONDITION:
-			-- Jika jurang berada dalam jarak <= 25 stud, atau pulau daratan terlalu sempit untuk melaju:
-			-- Kecepatan WAJIB 0, dilarang bergerak maju 1 stud pun ke arah tepi jurang!
-			local isImmediateVoidAhead = (solidAheadDist <= 25) and (dist > solidAheadDist)
-
-			if isImmediateVoidAhead then
-				targetSpeed = 0
-				currentSmoothSpeed = 0
-			elseif solidAheadDist < 300 and solidAheadDist < dist then
-				local cliffTargetSpeed = speed
-				if solidAheadDist < 60 then
-					cliffTargetSpeed = math.max(0, 15 * ((solidAheadDist - 25) / 35))
-				else
-					local factor = (solidAheadDist - 60) / 240
-					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
-				end
-				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
-			end
-
-			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
-			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
 			local maxAccelRate = 50 * dt
 			local maxDecelRate = 75 * dt
 			if currentSmoothSpeed < targetSpeed then
@@ -1206,59 +1177,28 @@ local success, err = pcall(function()
 				currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
 			end
 
-			local curSpeed = isImmediateVoidAhead and 0 or currentSmoothSpeed
+			local curSpeed = currentSmoothSpeed
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 4)
 
 			local directProbePos = carPos + directGoalDir * probeDist
-			local directHitY = (not isImmediateVoidAhead) and probeGround(directProbePos, lastGroundY) or nil
+			local directHitY = probeGround(directProbePos, lastGroundY)
 
 			local actualMoveDir = directGoalDir
 			local targetElevY = lastGroundY
 
-			if directHitY and not isImmediateVoidAhead then
-				cliffWaitStartTime = nil
+			if directHitY then
+				-- 🛣️ Berada di atas aspal/daratan padat
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛣️ Smooth Road Curve / Detour Scanner: cari sudut jalan yang memiliki daratan aspal
-				local foundDetour = false
-				local detourAngles = { 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90 }
-				for _, dAng in ipairs(detourAngles) do
-					local rotCF = CFrame.Angles(0, math.rad(dAng), 0)
-					local testDir = (rotCF * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
-					local testProbePos = carPos + testDir * probeDist
-					local testHitY = probeGround(testProbePos, lastGroundY)
-					if testHitY then
-						actualMoveDir = testDir
-						targetElevY = testHitY
-						navHeading = testDir
-						foundDetour = true
-						cliffWaitStartTime = nil
-						break
-					end
-				end
-
-				if not foundDetour then
-					actualMoveDir = Vector3.zero
-					stepDist = 0
-					currentSmoothSpeed = 0
-					curSpeed = 0
-					targetElevY = lastGroundY
-
-					local nowClock = os.clock()
-					cliffWaitStartTime = cliffWaitStartTime or nowClock
-
-					if (nowClock - cliffWaitStartTime) >= 7.0 then
-						cliffWaitStartTime = nil
-						cancelActiveDrive()
-						task.spawn(function()
-							restartAutoRideGoToggle("Jurang / Buntu")
-						end)
-						return
-					end
-				end
+				-- 🌉 Melintasi Jurang / Selat Antar-Pulau (Linear Smooth Gliding 55 studs/s)
+				-- Bergerak mulus dan konstan melintasi udara tanpa lonjakan teleportasi
+				actualMoveDir = directGoalDir
+				navHeading = directGoalDir
+				targetElevY = math.max(lastGroundY, 5)
+				ensureSafetyPlate(carPos, 50)
 			end
 
 			-- Smooth vertical descent/ascent rate
