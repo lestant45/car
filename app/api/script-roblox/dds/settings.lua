@@ -122,12 +122,49 @@ local success, err = pcall(function()
 		end
 
 		if state then
+			-- Stealth Masking untuk VirtualUser
+			if not _G.HipHubServiceMasked then
+				_G.HipHubServiceMasked = true
+				pcall(function()
+					if hookfunction and checkcaller then
+						local oldFindService
+						oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
+							local sName = tostring(serviceName or "")
+							if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
+								if not checkcaller() then return nil end
+							end
+							return oldFindService(self, serviceName, ...)
+						end))
+					end
+					if hookmetamethod and checkcaller then
+						local oldNamecall
+						oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+							local method = getnamecallmethod()
+							if method == "FindService" or method == "findService" then
+								local arg1 = tostring((...) or "")
+								if arg1 == "VirtualUser" or arg1 == "VirtualInputManager" or arg1 == "UGCValidationService" then
+									if not checkcaller() then return nil end
+								end
+							end
+							return oldNamecall(self, ...)
+						end))
+					end
+				end)
+			end
+
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
 				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
-						-- Safe Camera Oscillation (Works seamlessly on PC & Redfinger)
+						-- 1. Engine C++ Inactivity Reset (100% Anti-20 Min Kick)
+						local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
+						if vu then
+							vu:CaptureController()
+							vu:ClickButton2(Vector2.zero)
+						end
+
+						-- 2. Safe Camera Oscillation
 						local cam = workspace.CurrentCamera
 						if cam then
 							local cf = cam.CFrame

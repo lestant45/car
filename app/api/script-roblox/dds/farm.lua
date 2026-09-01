@@ -14,20 +14,78 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE HARDWARE INPUT SIMULATOR & ANTI-AFK
-	-- (Menggunakan C++ Native OS Input Hook tanpa memanggil VirtualUser / VirtualInputManager)
+	-- 🛡️ ADONIS-SAFE STEALTH SERVICE MASKING & 20-MIN IDLE BYPASS
 	------------------------------------------------
+	if not _G.HipHubServiceMasked then
+		_G.HipHubServiceMasked = true
+		pcall(function()
+			if hookfunction and checkcaller then
+				local oldFindService
+				oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
+					local sName = tostring(serviceName or "")
+					if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
+						if not checkcaller() then
+							return nil
+						end
+					end
+					return oldFindService(self, serviceName, ...)
+				end))
+			end
+
+			if hookmetamethod and checkcaller then
+				local oldNamecall
+				oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+					local method = getnamecallmethod()
+					if method == "FindService" or method == "findService" then
+						local arg1 = tostring((...) or "")
+						if arg1 == "VirtualUser" or arg1 == "VirtualInputManager" or arg1 == "UGCValidationService" then
+							if not checkcaller() then
+								return nil
+							end
+						end
+					end
+					return oldNamecall(self, ...)
+				end))
+			end
+		end)
+	end
+
+	local getVU = function()
+		local vu = nil
+		pcall(function()
+			vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
+		end)
+		return vu
+	end
+
+	-- 1. Anti-Roblox 20-Minute Engine Idle Kick
 	if not _G.HipHubAntiAfkConnected then
 		_G.HipHubAntiAfkConnected = true
 		pcall(function()
-			if getconnections then
-				for _, conn in ipairs(getconnections(player.Idled)) do
-					if conn.Disable then
-						conn:Disable()
-					elseif conn.Disconnect then
-						conn:Disconnect()
-					end
+			player.Idled:Connect(function()
+				local vu = getVU()
+				if vu then
+					vu:CaptureController()
+					vu:ClickButton2(Vector2.zero)
 				end
+			end)
+		end)
+	end
+
+	-- 2. Periodic C++ Engine Inactivity Timer Reset (Setiap 45 Detik)
+	-- Secara aktif mereset m_timeSinceLastInput di internal C++ Roblox engine sehingga TIDAK PERNAH mencapai 20 menit
+	if not _G.HipHubEngineIdleResetRunning then
+		_G.HipHubEngineIdleResetRunning = true
+		task.spawn(function()
+			while true do
+				task.wait(45)
+				pcall(function()
+					local vu = getVU()
+					if vu then
+						vu:CaptureController()
+						vu:ClickButton2(Vector2.zero)
+					end
+				end)
 			end
 		end)
 	end
