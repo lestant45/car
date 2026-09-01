@@ -1710,7 +1710,7 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function executeTripAsync(token, name, initialPickup, initialDrop, initialPickupAddr, initialDropAddr)
+	local function executeTripAsync(token, name, initialPickup, initialDrop, initialPickupAddr, initialDropAddr, isAnomaly)
 		if taxiBusy then return end
 		if not token or token == lastCompletedToken then return end
 
@@ -1721,6 +1721,11 @@ local success, err = pcall(function()
 		taxiDropPos   = parsePosition(initialDrop)
 		taxiPickupAddr = tostring(initialPickupAddr or "")
 		taxiDropAddr   = tostring(initialDropAddr or "")
+
+		local isAnomalyTrip = (isAnomaly == true)
+		if isAnomalyTrip then
+			UI.Notify("👻 ANOMALY ORDER AKTIF", "Mode Proteksi Anomali Aktif (+Rp 25M)...", 4, "warning")
+		end
 
 		setTaxiState("NEW_ORDER_DETECTED")
 		setTaxiState("PICKING_UP")
@@ -1750,10 +1755,12 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- 4. Drive to Pickup
+		-- 4. Drive to Pickup (Kecepatan aman untuk Anomaly agar verifikasi server valid)
+		local tripSpeed = isAnomalyTrip and math.min(tonumber(Config.taxiSpeed) or 90, 85) or (tonumber(Config.taxiSpeed) or 90)
+
 		if taxiPickupPos and taxiActive then
 			UI.Notify("🏍️ Heading to Pickup", "Driving to passenger...", 2, "warning")
-			driveVehicleTo(taxiPickupPos, Config.taxiSpeed)
+			driveVehicleTo(taxiPickupPos, tripSpeed)
 		end
 
 		-- 5. Wait for passenger boarding
@@ -1785,7 +1792,7 @@ local success, err = pcall(function()
 			end
 
 			if isPassengerOnboard() then
-				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
+				local settleDelay = isAnomalyTrip and math.max(tonumber(Config.passengerBoardDelay) or 3, 3.5) or (tonumber(Config.passengerBoardDelay) or 3)
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
 			else
@@ -1805,13 +1812,10 @@ local success, err = pcall(function()
 			end
 		end
 
-		local tripStartTime = tick()
-		local tripDistance = (taxiPickupPos and taxiDropPos) and (Vector3.new(taxiDropPos.X, 0, taxiDropPos.Z) - Vector3.new(taxiPickupPos.X, 0, taxiPickupPos.Z)).Magnitude or 1000
-
 		if taxiDropPos and taxiActive then
 			setTaxiState("DRIVING_TO_DESTINATION")
-			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
-			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
+			UI.Notify("📍 Heading to Drop-off", isAnomalyTrip and "Mengantar Anomali ke tujuan..." or "Delivering passenger to destination...", 2, "warning")
+			driveVehicleTo(taxiDropPos, tripSpeed, 50)
 
 			setTaxiState("DROPPING_OFF")
 			local car, seat = getPlayerVehicle()
@@ -1842,8 +1846,8 @@ local success, err = pcall(function()
 					return
 				end
 
-				-- Fail-safe disembark timeout: Jika dalam 3.5 detik penumpang tidak turun, otomatis reset duty
-				if (nowT - disembarkWait > 3.5) then
+				-- Fail-safe disembark timeout: Jika dalam 4.5 detik penumpang tidak turun, otomatis reset duty
+				if (nowT - disembarkWait > 4.5) then
 					UI.Notify("⚠️ Disembark Timeout", "Penumpang tidak turun. Mereset status kerja...", 2.5, "warning")
 					resetTaxiDutyCycle(token, "Disembark Timeout")
 					return
@@ -1863,7 +1867,8 @@ local success, err = pcall(function()
 
 		-- 7. Complete Trip & Acknowledge
 		if taxiActive then
-			task.wait(0.8) -- Jeda sinkronisasi server sebelum menyelesaikan trip
+			local syncDelay = isAnomalyTrip and 2.0 or 0.8 -- Ekstra jeda sinkronisasi untuk Anomali (+Rp 25M)
+			task.wait(syncDelay)
 			TaxiEvent:FireServer("AckTripComplete")
 			_G.HipHubCompletedTrips = (_G.HipHubCompletedTrips or 0) + 1
 			local totalDone = _G.HipHubCompletedTrips
@@ -1962,7 +1967,7 @@ local success, err = pcall(function()
 					UI.Notify("🛵 New Order!", name .. " — Rp " .. tostring(fare), 3, "success")
 				end
 
-				task.spawn(executeTripAsync, token, name, pickPos, dropP, pickAddr, dropAddr)
+				task.spawn(executeTripAsync, token, name, pickPos, dropP, pickAddr, dropAddr, isAnom)
 
 			elseif eventType == "OrderAccepted" then
 				if payload then
@@ -2097,7 +2102,7 @@ local success, err = pcall(function()
 								if args[1] == "OrderOffer" and type(args[2]) == "table" and args[2].Token then
 									if args[2].Token ~= lastCompletedToken then
 										overlay.Visible = false
-										task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName, args[2].PickupPos, args[2].DropPos)
+										task.spawn(executeTripAsync, args[2].Token, args[2].PassengerName, args[2].PickupPos, args[2].DropPos, args[2].PickupAddr, args[2].DropAddr, args[2].IsAnomaly)
 									end
 								end
 							end
