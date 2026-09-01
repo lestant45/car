@@ -116,9 +116,27 @@ local success, err = pcall(function()
 	local ensureDriverSeated  = nil
 	local cancelActiveDrive   = nil
 	local startPhoneOverlayPoller = nil
+	local updateBotActivity   = nil
 
-	local function setTaxiState(newState)
+	local function setTaxiState(newState, customText, customColor)
 		taxiState = newState
+		if updateBotActivity then
+			if customText then
+				updateBotActivity(customText, customColor)
+			elseif newState == "WAITING_FOR_NEXT_ORDER" then
+				updateBotActivity("🟢 Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
+			elseif newState == "PICKING_UP" then
+				updateBotActivity("🛵 Sedang Menjemput Penumpang...", Color3.fromRGB(0, 212, 255))
+			elseif newState == "DRIVING_TO_DESTINATION" then
+				updateBotActivity("📍 Mengantar Penumpang ke Tujuan...", Color3.fromRGB(0, 212, 255))
+			elseif newState == "PACING" then
+				updateBotActivity("⏱️ Pacing Waktu Sah Server...", Color3.fromRGB(255, 180, 50))
+			elseif newState == "DROPPING_OFF" then
+				updateBotActivity("🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
+			elseif newState == "IDLE" then
+				updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+			end
+		end
 	end
 
 	local function isSasanaKridaTrip()
@@ -1641,6 +1659,405 @@ local success, err = pcall(function()
 		return "Rp " .. formatted
 	end
 
+	------------------------------------------------
+	-- 📊 DRAGGABLE LIVE STATS & BOT ACTIVITY OVERLAY HUD
+	------------------------------------------------
+	_G.HipHubBotActivityStatus = _G.HipHubBotActivityStatus or "🟢 Menunggu Orderan Masuk..."
+	_G.HipHubBotActivityColor  = _G.HipHubBotActivityColor or Color3.fromRGB(0, 255, 170)
+
+	local floatingHudGui = nil
+	local floatingHudLoop = nil
+	local floatingHudActivityLabel = nil
+
+	updateBotActivity = function(statusText, customColor)
+		_G.HipHubBotActivityStatus = statusText or "🟢 Menunggu Orderan..."
+		_G.HipHubBotActivityColor  = customColor or Color3.fromRGB(0, 255, 170)
+		if floatingHudActivityLabel and floatingHudActivityLabel.Parent then
+			pcall(function()
+				floatingHudActivityLabel.Text = "🤖 STATUS: " .. _G.HipHubBotActivityStatus
+				floatingHudActivityLabel.TextColor3 = _G.HipHubBotActivityColor
+			end)
+		end
+	end
+
+	local function destroyFloatingStatsHUD()
+		if floatingHudLoop then
+			pcall(function() task.cancel(floatingHudLoop) end)
+			floatingHudLoop = nil
+		end
+		if floatingHudGui then
+			pcall(function() floatingHudGui:Destroy() end)
+			floatingHudGui = nil
+		end
+		_G.HipHubFloatingStatsGui = nil
+	end
+
+	local function createFloatingStatsHUD()
+		destroyFloatingStatsHUD()
+
+		local pGui = player:FindFirstChild("PlayerGui")
+		if not pGui then return end
+
+		local isBlackScreen = _G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.blackScreenEnabled
+
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "HipHub_FloatingStatsHUD"
+		sg.ResetOnSpawn = false
+		sg.DisplayOrder = 99990
+		sg.Enabled = not isBlackScreen
+		sg.Parent = pGui
+		floatingHudGui = sg
+		_G.HipHubFloatingStatsGui = sg
+
+		-- Floating Card Container (Width: 460, Height: 300)
+		local card = Instance.new("Frame")
+		card.Name = "FloatingCard"
+		card.Size = UDim2.new(0, 460, 0, 300)
+		card.Position = UDim2.new(0.04, 0, 0.15, 0)
+		card.BackgroundColor3 = Color3.fromRGB(15, 20, 32)
+		card.BorderSizePixel = 0
+		card.Active = true
+		card.Parent = sg
+
+		local cardCorner = Instance.new("UICorner")
+		cardCorner.CornerRadius = UDim.new(0, 14)
+		cardCorner.Parent = card
+
+		local cardStroke = Instance.new("UIStroke")
+		cardStroke.Color = Color3.fromRGB(0, 212, 255)
+		cardStroke.Thickness = 1.5
+		cardStroke.Parent = card
+
+		-- Dragging Logic (Universal: PC Mouse + Mobile Touch & Redfinger)
+		local dragging = false
+		local dragInput = nil
+		local dragStart = nil
+		local startPos = nil
+
+		card.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				dragStart = input.Position
+				startPos = card.Position
+
+				input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						dragging = false
+					end
+				end)
+			end
+		end)
+
+		card.InputChanged:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+				dragInput = input
+			end
+		end)
+
+		UserInputService.InputChanged:Connect(function(input)
+			if input == dragInput and dragging and startPos and dragStart then
+				local delta = input.Position - dragStart
+				card.Position = UDim2.new(
+					startPos.X.Scale,
+					startPos.X.Offset + delta.X,
+					startPos.Y.Scale,
+					startPos.Y.Offset + delta.Y
+				)
+			end
+		end)
+
+		-- Top Header: Title & Drag Hint
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(1, -30, 0, 20)
+		title.Position = UDim2.new(0, 15, 0, 10)
+		title.BackgroundTransparency = 1
+		title.Text = "🏎️ HIPHUB DDS — LIVE STATS ≡"
+		title.TextColor3 = Color3.fromRGB(0, 212, 255)
+		title.Font = Enum.Font.GothamBold
+		title.TextSize = 14
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = card
+
+		-- User info label
+		local userLabel = Instance.new("TextLabel")
+		userLabel.Size = UDim2.new(1, -30, 0, 16)
+		userLabel.Position = UDim2.new(0, 15, 0, 30)
+		userLabel.BackgroundTransparency = 1
+		userLabel.Text = "👤 User: " .. player.DisplayName .. " (@" .. player.Name .. ")"
+		userLabel.TextColor3 = Color3.fromRGB(180, 195, 220)
+		userLabel.Font = Enum.Font.GothamMedium
+		userLabel.TextSize = 11
+		userLabel.TextXAlignment = Enum.TextXAlignment.Left
+		userLabel.Parent = card
+
+		-- Live Bot Activity Status Box
+		local statusBox = Instance.new("Frame")
+		statusBox.Size = UDim2.new(1, -30, 0, 28)
+		statusBox.Position = UDim2.new(0, 15, 0, 50)
+		statusBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+		statusBox.BorderSizePixel = 0
+		statusBox.Parent = card
+		local sbCorner = Instance.new("UICorner")
+		sbCorner.CornerRadius = UDim.new(0, 8)
+		sbCorner.Parent = statusBox
+
+		local sbStroke = Instance.new("UIStroke")
+		sbStroke.Color = Color3.fromRGB(35, 45, 70)
+		sbStroke.Thickness = 1
+		sbStroke.Parent = statusBox
+
+		local statusLabel = Instance.new("TextLabel")
+		statusLabel.Size = UDim2.new(1, -16, 1, 0)
+		statusLabel.Position = UDim2.new(0, 8, 0, 0)
+		statusLabel.BackgroundTransparency = 1
+		statusLabel.Text = "🤖 STATUS: " .. (_G.HipHubBotActivityStatus or "🟢 Menunggu Orderan...")
+		statusLabel.TextColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 255, 170)
+		statusLabel.Font = Enum.Font.GothamBold
+		statusLabel.TextSize = 11
+		statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+		statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		statusLabel.Parent = statusBox
+		floatingHudActivityLabel = statusLabel
+
+		-- 2x2 Grid Boxes (Height: 46 each)
+		-- Row 1: Box 1 (Runtime)
+		local timeBox = Instance.new("Frame")
+		timeBox.Size = UDim2.new(0.5, -20, 0, 46)
+		timeBox.Position = UDim2.new(0, 15, 0, 85)
+		timeBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+		timeBox.BorderSizePixel = 0
+		timeBox.Parent = card
+		local tbCorner = Instance.new("UICorner")
+		tbCorner.CornerRadius = UDim.new(0, 8)
+		tbCorner.Parent = timeBox
+		local timeTitle = Instance.new("TextLabel")
+		timeTitle.Size = UDim2.new(1, 0, 0, 15)
+		timeTitle.Position = UDim2.new(0, 0, 0, 3)
+		timeTitle.BackgroundTransparency = 1
+		timeTitle.Text = "⏱️ SCRIPT RUNTIME"
+		timeTitle.TextColor3 = Color3.fromRGB(150, 165, 190)
+		timeTitle.Font = Enum.Font.GothamBold
+		timeTitle.TextSize = 10
+		timeTitle.Parent = timeBox
+		local timeVal = Instance.new("TextLabel")
+		timeVal.Size = UDim2.new(1, 0, 0, 22)
+		timeVal.Position = UDim2.new(0, 0, 0, 19)
+		timeVal.BackgroundTransparency = 1
+		timeVal.Text = "00h 00m 00s"
+		timeVal.TextColor3 = Color3.fromRGB(0, 212, 255)
+		timeVal.Font = Enum.Font.GothamBold
+		timeVal.TextSize = 12
+		timeVal.Parent = timeBox
+
+		-- Row 1: Box 2 (Balance)
+		local moneyBox = Instance.new("Frame")
+		moneyBox.Size = UDim2.new(0.5, -20, 0, 46)
+		moneyBox.Position = UDim2.new(0.5, 5, 0, 85)
+		moneyBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+		moneyBox.BorderSizePixel = 0
+		moneyBox.Parent = card
+		local mbCorner = Instance.new("UICorner")
+		mbCorner.CornerRadius = UDim.new(0, 8)
+		mbCorner.Parent = moneyBox
+		local moneyTitle = Instance.new("TextLabel")
+		moneyTitle.Size = UDim2.new(1, 0, 0, 15)
+		moneyTitle.Position = UDim2.new(0, 0, 0, 3)
+		moneyTitle.BackgroundTransparency = 1
+		moneyTitle.Text = "💰 CURRENT BALANCE"
+		moneyTitle.TextColor3 = Color3.fromRGB(150, 165, 190)
+		moneyTitle.Font = Enum.Font.GothamBold
+		moneyTitle.TextSize = 10
+		moneyTitle.Parent = moneyBox
+		local moneyVal = Instance.new("TextLabel")
+		moneyVal.Size = UDim2.new(1, -8, 0, 22)
+		moneyVal.Position = UDim2.new(0, 4, 0, 19)
+		moneyVal.BackgroundTransparency = 1
+		moneyVal.Text = formatRupiah(getLiveMoneyRaw())
+		moneyVal.TextColor3 = Color3.fromRGB(0, 255, 170)
+		moneyVal.Font = Enum.Font.GothamBold
+		moneyVal.TextSize = 12
+		moneyVal.Parent = moneyBox
+
+		-- Row 2: Box 3 (Session Earned)
+		local earnedBox = Instance.new("Frame")
+		earnedBox.Size = UDim2.new(0.5, -20, 0, 46)
+		earnedBox.Position = UDim2.new(0, 15, 0, 137)
+		earnedBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+		earnedBox.BorderSizePixel = 0
+		earnedBox.Parent = card
+		local ebCorner = Instance.new("UICorner")
+		ebCorner.CornerRadius = UDim.new(0, 8)
+		ebCorner.Parent = earnedBox
+		local earnedTitle = Instance.new("TextLabel")
+		earnedTitle.Size = UDim2.new(1, 0, 0, 15)
+		earnedTitle.Position = UDim2.new(0, 0, 0, 3)
+		earnedTitle.BackgroundTransparency = 1
+		earnedTitle.Text = "💵 SESSION EARNED"
+		earnedTitle.TextColor3 = Color3.fromRGB(150, 165, 190)
+		earnedTitle.Font = Enum.Font.GothamBold
+		earnedTitle.TextSize = 10
+		earnedTitle.Parent = earnedBox
+		local earnedVal = Instance.new("TextLabel")
+		earnedVal.Size = UDim2.new(1, -8, 0, 22)
+		earnedVal.Position = UDim2.new(0, 4, 0, 19)
+		earnedVal.BackgroundTransparency = 1
+		earnedVal.Text = "+Rp 0"
+		earnedVal.TextColor3 = Color3.fromRGB(80, 225, 140)
+		earnedVal.Font = Enum.Font.GothamBold
+		earnedVal.TextSize = 12
+		earnedVal.Parent = earnedBox
+
+		-- Row 2: Box 4 (Rate Per Hour)
+		local rateBox = Instance.new("Frame")
+		rateBox.Size = UDim2.new(0.5, -20, 0, 46)
+		rateBox.Position = UDim2.new(0.5, 5, 0, 137)
+		rateBox.BackgroundColor3 = Color3.fromRGB(22, 28, 46)
+		rateBox.BorderSizePixel = 0
+		rateBox.Parent = card
+		local rbCorner = Instance.new("UICorner")
+		rbCorner.CornerRadius = UDim.new(0, 8)
+		rbCorner.Parent = rateBox
+		local rateTitle = Instance.new("TextLabel")
+		rateTitle.Size = UDim2.new(1, 0, 0, 15)
+		rateTitle.Position = UDim2.new(0, 0, 0, 3)
+		rateTitle.BackgroundTransparency = 1
+		rateTitle.Text = "⚡ RATA-RATA / JAM"
+		rateTitle.TextColor3 = Color3.fromRGB(150, 165, 190)
+		rateTitle.Font = Enum.Font.GothamBold
+		rateTitle.TextSize = 10
+		rateTitle.Parent = rateBox
+		local rateVal = Instance.new("TextLabel")
+		rateVal.Size = UDim2.new(1, -8, 0, 22)
+		rateVal.Position = UDim2.new(0, 4, 0, 19)
+		rateVal.BackgroundTransparency = 1
+		rateVal.Text = "Rp 0 / jam"
+		rateVal.TextColor3 = Color3.fromRGB(255, 170, 50)
+		rateVal.Font = Enum.Font.GothamBold
+		rateVal.TextSize = 12
+		rateVal.Parent = rateBox
+
+		-- Row 3: Target & Progress Bar Track
+		local targetInfo = Instance.new("TextLabel")
+		targetInfo.Size = UDim2.new(0.55, 0, 0, 15)
+		targetInfo.Position = UDim2.new(0, 15, 0, 190)
+		targetInfo.BackgroundTransparency = 1
+		targetInfo.Text = "🎯 Target: No Limit (∞)"
+		targetInfo.TextColor3 = Color3.fromRGB(255, 215, 0)
+		targetInfo.Font = Enum.Font.GothamBold
+		targetInfo.TextSize = 10
+		targetInfo.TextXAlignment = Enum.TextXAlignment.Left
+		targetInfo.Parent = card
+
+		local orderInfo = Instance.new("TextLabel")
+		orderInfo.Size = UDim2.new(0.45, -30, 0, 15)
+		orderInfo.Position = UDim2.new(0.55, 15, 0, 190)
+		orderInfo.BackgroundTransparency = 1
+		orderInfo.Text = "🏆 Order #0"
+		orderInfo.TextColor3 = Color3.fromRGB(150, 110, 255)
+		orderInfo.Font = Enum.Font.GothamBold
+		orderInfo.TextSize = 10
+		orderInfo.TextXAlignment = Enum.TextXAlignment.Right
+		orderInfo.Parent = card
+
+		local barTrack = Instance.new("Frame")
+		barTrack.Size = UDim2.new(1, -30, 0, 6)
+		barTrack.Position = UDim2.new(0, 15, 0, 208)
+		barTrack.BackgroundColor3 = Color3.fromRGB(25, 32, 50)
+		barTrack.BorderSizePixel = 0
+		barTrack.Parent = card
+		local barTrackCorner = Instance.new("UICorner")
+		barTrackCorner.CornerRadius = UDim.new(1, 0)
+		barTrackCorner.Parent = barTrack
+
+		local barFill = Instance.new("Frame")
+		barFill.Size = UDim2.new(1, 0, 1, 0)
+		barFill.BackgroundColor3 = Color3.fromRGB(0, 212, 255)
+		barFill.BorderSizePixel = 0
+		barFill.Parent = barTrack
+		local barFillCorner = Instance.new("UICorner")
+		barFillCorner.CornerRadius = UDim.new(1, 0)
+		barFillCorner.Parent = barFill
+
+		-- Footer drag hint
+		local footer = Instance.new("TextLabel")
+		footer.Size = UDim2.new(1, -30, 0, 18)
+		footer.Position = UDim2.new(0, 15, 0, 220)
+		footer.BackgroundTransparency = 1
+		footer.Text = "💡 Tahan & geser untuk memindahkan posisi overlay"
+		footer.TextColor3 = Color3.fromRGB(120, 135, 160)
+		footer.Font = Enum.Font.Gotham
+		footer.TextSize = 10
+		footer.TextXAlignment = Enum.TextXAlignment.Center
+		footer.Parent = card
+
+		-- Live Refresh Loop
+		floatingHudLoop = task.spawn(function()
+			while taxiActive and floatingHudGui do
+				pcall(function()
+					local now = tick()
+					local startT = _G.HipHubScriptStartTime or now
+					local elapsed = math.max(1, math.floor(now - startT))
+					local hrs = math.floor(elapsed / 3600)
+					local mins = math.floor((elapsed % 3600) / 60)
+					local secs = elapsed % 60
+					timeVal.Text = string.format("%02dh %02dm %02ds", hrs, mins, secs)
+
+					local curMoney = getLiveMoneyRaw()
+					moneyVal.Text = formatRupiah(curMoney)
+
+					if (_G.HipHubScriptStartMoney == nil or _G.HipHubScriptStartMoney == 0) and curMoney > 0 then
+						_G.HipHubScriptStartMoney = curMoney
+						_G.HipHubScriptStartTime = now
+					end
+
+					local startMoney = _G.HipHubScriptStartMoney or curMoney
+					local earned = curMoney - startMoney
+					if earned >= 0 then
+						earnedVal.Text = "+" .. formatRupiah(earned)
+						earnedVal.TextColor3 = Color3.fromRGB(80, 225, 140)
+					else
+						earnedVal.Text = "-" .. formatRupiah(math.abs(earned))
+						earnedVal.TextColor3 = Color3.fromRGB(255, 90, 90)
+					end
+
+					local ratePerHour = 0
+					if elapsed > 10 and earned > 0 then
+						ratePerHour = math.floor((earned / elapsed) * 3600)
+					end
+					rateVal.Text = ratePerHour > 0 and (formatRupiah(ratePerHour) .. " / jam") or "Rp 0 / jam"
+
+					local totalDone = _G.HipHubCompletedTrips or 0
+					local target = _G.HipHubConfig and _G.HipHubConfig.misc and tonumber(_G.HipHubConfig.misc.targetEarn) or 0
+					if target > 0 then
+						local mVal = target >= 1000000 and string.format("%.0fM", target / 1000000) or ""
+						targetInfo.Text = "🎯 Target: " .. formatRupiah(target) .. (mVal ~= "" and (" (" .. mVal .. ")") or "")
+						local pct = math.clamp(curMoney / target, 0, 1)
+						orderInfo.Text = string.format("📈 %.1f%% | 🏆 %d Order", pct * 100, totalDone)
+						barFill.Size = UDim2.new(pct, 0, 1, 0)
+					else
+						targetInfo.Text = "🎯 Target: No Limit (∞)"
+						orderInfo.Text = string.format("🏆 %d Order Selesai", totalDone)
+						barFill.Size = UDim2.new(1, 0, 1, 0)
+					end
+
+					if statusLabel and _G.HipHubBotActivityStatus then
+						statusLabel.Text = "🤖 STATUS: " .. _G.HipHubBotActivityStatus
+						statusLabel.TextColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 255, 170)
+					end
+				end)
+				task.wait(0.5)
+			end
+		end)
+	end
+
+	_G.HipHubUpdateFloatingHudVisibility = function(visible)
+		if floatingHudGui then
+			pcall(function()
+				floatingHudGui.Enabled = (visible == true) and taxiActive
+			end)
+		end
+	end
+
 	local function parsePosition(val)
 		if typeof(val) == "Vector3" then return val end
 		if typeof(val) == "CFrame" then return val.Position end
@@ -1727,7 +2144,10 @@ local success, err = pcall(function()
 
 		local isAnomalyTrip = (isAnomaly == true)
 		if isAnomalyTrip then
+			updateBotActivity("👻 Mengantar Anomali (+Rp 25M)...", Color3.fromRGB(255, 100, 100))
 			UI.Notify("👻 ANOMALY ORDER AKTIF", "Mode Proteksi Anomali Aktif (+Rp 25M)...", 4, "warning")
+		else
+			updateBotActivity("🛵 Menjemput Penumpang (" .. tostring(name or "Passenger") .. ")...", Color3.fromRGB(0, 212, 255))
 		end
 
 		setTaxiState("NEW_ORDER_DETECTED")
@@ -1768,6 +2188,7 @@ local success, err = pcall(function()
 
 		-- 5. Wait for passenger boarding
 		if taxiPickupPos and taxiActive then
+			updateBotActivity("🚶 Menunggu Penumpang Naik Motor...", Color3.fromRGB(255, 200, 50))
 			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
 
 			local car, seat = getPlayerVehicle()
@@ -1822,6 +2243,11 @@ local success, err = pcall(function()
 
 		if taxiDropPos and taxiActive then
 			setTaxiState("DRIVING_TO_DESTINATION")
+			if isAnomalyTrip then
+				updateBotActivity("👻 Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
+			else
+				updateBotActivity("📍 Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
+			end
 			UI.Notify("📍 Heading to Drop-off", isAnomalyTrip and "Mengantar Anomali ke tujuan..." or "Delivering passenger to destination...", 2, "warning")
 
 			-- 🛡️ Pre-Arrival Pacing Guard:
@@ -1844,9 +2270,12 @@ local success, err = pcall(function()
 					if nowElapsed < minSafeTime then
 						local remainingWait = minSafeTime - nowElapsed
 						if remainingWait > 0.1 then
+							updateBotActivity(string.format("⏱️ Pacing Waktu Sah Server (%.1fs)...", remainingWait), Color3.fromRGB(255, 180, 50))
 							UI.Notify("⏱️ Pacing Server Aktif", string.format("Menyelaraskan waktu tiba sah: %.1fs...", remainingWait), math.min(remainingWait, 3), "warning")
 							local pacingStart = tick()
 							while (tick() - pacingStart < remainingWait) and taxiActive and not isResettingTaxi do
+								local rem = math.max(0, math.floor((remainingWait - (tick() - pacingStart)) * 10) / 10)
+								updateBotActivity(string.format("⏱️ Pacing Waktu Sah Server (%.1fs)...", rem), Color3.fromRGB(255, 180, 50))
 								task.wait(0.2)
 							end
 						end
@@ -1859,6 +2288,7 @@ local success, err = pcall(function()
 			driveVehicleTo(taxiDropPos, tripSpeed, 50)
 
 			setTaxiState("DROPPING_OFF")
+			updateBotActivity("🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
 			local car, seat = getPlayerVehicle()
 			if car then
 				for _, part in ipairs(car:GetDescendants()) do
@@ -1932,6 +2362,7 @@ local success, err = pcall(function()
 
 			-- ☕ Cooldown Istirahat 2 Menit setiap kelipatan 7 orderan (7, 14, 21, 28, dst.)
 			if totalDone > 0 and (totalDone % 7 == 0) then
+				updateBotActivity("☕ Cooldown Istirahat 2 Menit (Order #" .. totalDone .. ")...", Color3.fromRGB(255, 170, 50))
 				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 2 menit...", totalDone), 5, "warning")
 				lastCompletedToken = token
 				taxiBusy = false
@@ -1949,7 +2380,12 @@ local success, err = pcall(function()
 				end
 
 				task.spawn(function()
-					task.wait(120) -- 2 menit
+					local restStart = tick()
+					while (tick() - restStart < 120) do
+						local remSec = 120 - math.floor(tick() - restStart)
+						updateBotActivity(string.format("☕ Cooldown Istirahat (%ds tersisa)...", remSec), Color3.fromRGB(255, 170, 50))
+						task.wait(1)
+					end
 					UI.Notify("🚀 Melanjutkan Farm", string.format("Istirahat 2 menit selesai (Total %d order). Auto-farm aktif kembali!", totalDone), 3, "success")
 					if autoRideGoToggle and autoRideGoToggle.Set then
 						autoRideGoToggle.Set(true)
@@ -2257,6 +2693,9 @@ local success, err = pcall(function()
 		end
 
 		if state then
+			createFloatingStatsHUD()
+			updateBotActivity("🟢 Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
+
 			if changeTeam then
 				changeTeam("RideGO Driver")
 			end
@@ -2285,8 +2724,9 @@ local success, err = pcall(function()
 				end
 			end)
 
-			UI.Notify("RideGO Auto-Farm ON", "Strict Anti-Void: Dilarang berjalan di atas jurang!", 3.5, "success")
+			UI.Notify("RideGO Auto-Farm ON", "Draggable Live Stats HUD aktif!", 3.5, "success")
 		else
+			destroyFloatingStatsHUD()
 			if taxiOverlayPoller then
 				task.cancel(taxiOverlayPoller)
 				taxiOverlayPoller = nil

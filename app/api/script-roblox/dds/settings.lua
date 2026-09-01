@@ -316,6 +316,13 @@ local success, err = pcall(function()
 			RunService:Set3dRenderingEnabled(not state)
 		end)
 
+		-- Sinkronisasi Floating HUD: Sembunyikan jika Blackscreen aktif, munculkan kembali jika nonaktif
+		if _G.HipHubUpdateFloatingHudVisibility then
+			pcall(function()
+				_G.HipHubUpdateFloatingHudVisibility(not state)
+			end)
+		end
+
 		if state then
 			if blackScreenGui then
 				blackScreenGui:Destroy()
