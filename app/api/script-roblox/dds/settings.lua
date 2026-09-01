@@ -109,10 +109,9 @@ local success, err = pcall(function()
 	loadConfig(true)
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE (IDLED VIRTUALUSER)
+	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
 	------------------------------------------------
 	local antiAfkConn = nil
-	local idledConn = nil
 
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
@@ -122,48 +121,11 @@ local success, err = pcall(function()
 			antiAfkConn:Disconnect()
 			antiAfkConn = nil
 		end
-		if idledConn then
-			idledConn:Disconnect()
-			idledConn = nil
-		end
 
 		if state then
-			-- 1. True Engine Idle Reset via player.Idled + VirtualUser (Universal Roblox Anti-AFK Standard)
-			pcall(function()
-				local vu = game:GetService("VirtualUser")
-				if vu then
-					idledConn = player.Idled:Connect(function()
-						pcall(function()
-							vu:CaptureController()
-							local cam = workspace.CurrentCamera
-							local cf = cam and cam.CFrame or CFrame.new()
-							vu:Button2Down(Vector2.new(0, 0), cf)
-							task.wait(0.2)
-							vu:Button2Up(Vector2.new(0, 0), cf)
-						end)
-					end)
-
-					-- Proactive 3-Minute Virtual Keep-Alive (Prevents idle timer from reaching 20 mins entirely)
-					task.spawn(function()
-						while _G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.antiAfk do
-							task.wait(180)
-							pcall(function()
-								vu:CaptureController()
-								local cam = workspace.CurrentCamera
-								local cf = cam and cam.CFrame or CFrame.new()
-								vu:Button2Down(Vector2.new(0, 0), cf)
-								task.wait(0.05)
-								vu:Button2Up(Vector2.new(0, 0), cf)
-							end)
-						end
-					end)
-				end
-			end)
-
-			-- 2. Periodic Camera keepalive fallback
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
-				if tick() - lastTick > 30 then
+				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
 						local cam = workspace.CurrentCamera
