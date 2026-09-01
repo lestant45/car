@@ -15,7 +15,7 @@ local success, err = pcall(function()
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRideGO = false,
-		taxiSpeed = 90,
+		taxiSpeed = 55,
 		passengerBoardDelay = 3
 	}
 
@@ -1222,43 +1222,41 @@ local success, err = pcall(function()
 				navHeading = directGoalDir
 				targetElevY = directHitY
 			else
-				-- 🛑 TEPI JURANG / PULAU SEMPIT: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
-				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
-				actualMoveDir = Vector3.zero
-				stepDist = 0
-				currentSmoothSpeed = 0
-				curSpeed = 0
-				targetElevY = lastGroundY
-
-				local nowClock = os.clock()
-				cliffWaitStartTime = cliffWaitStartTime or nowClock
-
-				-- ⏱️ Timeout 3.5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 3.5s, otomatis reset toggle UI untuk cari order baru
-				if (nowClock - cliffWaitStartTime) >= 3.5 then
-					cliffWaitStartTime = nil
-					cancelActiveDrive()
-					task.spawn(function()
-						restartAutoRideGoToggle("Jurang Terlalu Luas")
-					end)
-					return
+				-- 🛣️ Smooth Road Curve / Detour Scanner: cari sudut jalan yang memiliki daratan aspal
+				local foundDetour = false
+				local detourAngles = { 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90 }
+				for _, dAng in ipairs(detourAngles) do
+					local rotCF = CFrame.Angles(0, math.rad(dAng), 0)
+					local testDir = (rotCF * Vector3.new(directGoalDir.X, 0, directGoalDir.Z)).Unit
+					local testProbePos = carPos + testDir * probeDist
+					local testHitY = probeGround(testProbePos, lastGroundY)
+					if testHitY then
+						actualMoveDir = testDir
+						targetElevY = testHitY
+						navHeading = testDir
+						foundDetour = true
+						cliffWaitStartTime = nil
+						break
+					end
 				end
 
-				if (nowClock - lastBridgeScanTime) >= 0.15 then
-					lastBridgeScanTime = nowClock
-					local bridgeLanding = attemptVoidBridge(car, carPos, destP)
-					if bridgeLanding then
+				if not foundDetour then
+					actualMoveDir = Vector3.zero
+					stepDist = 0
+					currentSmoothSpeed = 0
+					curSpeed = 0
+					targetElevY = lastGroundY
+
+					local nowClock = os.clock()
+					cliffWaitStartTime = cliffWaitStartTime or nowClock
+
+					if (nowClock - cliffWaitStartTime) >= 7.0 then
 						cliffWaitStartTime = nil
-						lastGroundY = bridgeLanding.Y
-						targetElevY = bridgeLanding.Y
-						stuckLastTime = nowClock
-						stuckLastDist = (destP - bridgeLanding).Magnitude
-						local newDir = (destP - bridgeLanding).Unit
-						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
-						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
-						bridgeHoldUntil = os.clock() + 2.0
-						driveStartTime = os.clock() + 2.0
-						UI.Notify("🌉 Melompati Jurang", "Mendarat di daratan seberang, menstabilkan posisi (2.0s)...", 2.0, "success")
-						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
+						cancelActiveDrive()
+						task.spawn(function()
+							restartAutoRideGoToggle("Jurang / Buntu")
+						end)
+						return
 					end
 				end
 			end
@@ -1311,16 +1309,6 @@ local success, err = pcall(function()
 					end
 				end
 
-				local activeMissions = workspace:FindFirstChild("ActiveMissions")
-				local passengerNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
-				if passengerNpc then
-					for _, part in ipairs(passengerNpc:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.CanCollide = false
-						end
-					end
-				end
-
 				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
@@ -1332,7 +1320,7 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
+				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.Sit or hum.SeatPart ~= seat then
@@ -1345,14 +1333,6 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 					root.AssemblyLinearVelocity = velocityVec
 					root.AssemblyAngularVelocity = Vector3.zero
-				end
-
-				if passengerNpc then
-					local passHrp = passengerNpc:FindFirstChild("HumanoidRootPart")
-					if passHrp then
-						passHrp.AssemblyLinearVelocity = velocityVec
-						passHrp.AssemblyAngularVelocity = Vector3.zero
-					end
 				end
 			end)
 		end)
@@ -1708,6 +1688,9 @@ local success, err = pcall(function()
 		TaxiEvent.OnClientEvent:Connect(function(...)
 			local raw = { ... }
 			table.insert(_G.HipHubTaxiLog, { t = tick(), args = raw })
+			if #_G.HipHubTaxiLog > 25 then
+				table.remove(_G.HipHubTaxiLog, 1)
+			end
 
 			if not taxiActive then return end
 
