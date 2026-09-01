@@ -128,17 +128,36 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			-- 1. True Engine Idle Reset via player.Idled + VirtualUser (100% Undetectable, No Disallowed Service)
+			-- 1. True Engine Idle Reset via player.Idled + VirtualUser (Universal Roblox Anti-AFK Standard)
 			pcall(function()
-				idledConn = player.Idled:Connect(function()
-					pcall(function()
-						local vu = game:GetService("VirtualUser")
-						if vu then
+				local vu = game:GetService("VirtualUser")
+				if vu then
+					idledConn = player.Idled:Connect(function()
+						pcall(function()
 							vu:CaptureController()
-							vu:ClickButton2(Vector2.new(0, 0))
+							local cam = workspace.CurrentCamera
+							local cf = cam and cam.CFrame or CFrame.new()
+							vu:Button2Down(Vector2.new(0, 0), cf)
+							task.wait(0.2)
+							vu:Button2Up(Vector2.new(0, 0), cf)
+						end)
+					end)
+
+					-- Proactive 3-Minute Virtual Keep-Alive (Prevents idle timer from reaching 20 mins entirely)
+					task.spawn(function()
+						while _G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.antiAfk do
+							task.wait(180)
+							pcall(function()
+								vu:CaptureController()
+								local cam = workspace.CurrentCamera
+								local cf = cam and cam.CFrame or CFrame.new()
+								vu:Button2Down(Vector2.new(0, 0), cf)
+								task.wait(0.05)
+								vu:Button2Up(Vector2.new(0, 0), cf)
+							end)
 						end
 					end)
-				end)
+				end
 			end)
 
 			-- 2. Periodic Camera keepalive fallback
