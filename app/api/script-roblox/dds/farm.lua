@@ -986,13 +986,25 @@ local success, err = pcall(function()
 			return nil
 		end
 
-		-- Selective Noclip on vehicle parts
-		for _, part in ipairs(car:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.CanCollide = false
-				part.Anchored = false
-			end
-		end
+		local steppedConn = nil
+		pcall(function()
+			steppedConn = RunService.Stepped:Connect(function()
+				if char then
+					for _, part in ipairs(char:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
+					end
+				end
+				if car then
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+						end
+					end
+				end
+			end)
+		end)
 
 		local totalDist = (startP - destP).Magnitude
 		local driveFinished = false
@@ -1015,6 +1027,7 @@ local success, err = pcall(function()
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
+				if steppedConn then pcall(function() steppedConn:Disconnect() end) end
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				driveFinished = true
 				return
@@ -1095,56 +1108,43 @@ local success, err = pcall(function()
 				return
 			end
 
-			-- Stuck Recovery
+			-- Stuck Recovery: Penetrasi Cepat jika tertahan bangunan / trotoar (> 1.2s)
 			local nowClock = os.clock()
-			if dist < stuckLastDist - 2.5 then
+			if dist < stuckLastDist - 1.5 then
 				stuckLastDist = dist
 				stuckLastTime = nowClock
-			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 then
-				stuckNudgeCount = stuckNudgeCount + 1
-				stuckLastTime   = nowClock
-				stuckLastDist   = dist
+			elseif (nowClock - stuckLastTime) >= 1.2 then
+				stuckLastTime = nowClock
+				stuckLastDist = dist
 
 				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
-				local nudgeDist = math.min(30, dist - 4)
-				if nudgeDist > 0 then
-					local nudgePos2D = Vector3.new(
-						carPos.X + nudgeDir.X * nudgeDist,
-						0,
-						carPos.Z + nudgeDir.Z * nudgeDist
-					)
-					local nudgeRp = RaycastParams.new()
-					nudgeRp.FilterDescendantsInstances = buildingFilter
-					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
-					local nudgeHit = workspace:Raycast(
-						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
-						Vector3.new(0, -150, 0),
-						nudgeRp
-					)
-					if nudgeHit and nudgeHit.Position.Y >= -30 and nudgeHit.Position.Y <= 300 then
-						local nudgeY = nudgeHit.Position.Y + 0.3
-						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
+				local nudgeDist = math.min(15, math.max(6, dist - 4))
+				local nudgePos2D = Vector3.new(
+					carPos.X + nudgeDir.X * nudgeDist,
+					lastGroundY,
+					carPos.Z + nudgeDir.Z * nudgeDist
+				)
 
-						pcall(function()
-							ensureSafetyPlate(nudgeLand, 40)
-							local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
-							car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
-							for _, part in ipairs(car:GetDescendants()) do
-								if part:IsA("BasePart") then
-									part.AssemblyLinearVelocity  = Vector3.zero
-									part.AssemblyAngularVelocity = Vector3.zero
-								end
-							end
-							lastGroundY = nudgeY
-						end)
-
-						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
-						return -- Selesaikan frame ini agar posisi bypass tidak ter-override
-					else
-						edgeFollowSign = -edgeFollowSign
-						stuckLastTime = nowClock
+				pcall(function()
+					local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
+					car:PivotTo(CFrame.new(nudgePos2D) * CFrame.Angles(0, yaw, 0))
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.CanCollide = false
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
 					end
-				end
+					if char then
+						for _, part in ipairs(char:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.CanCollide = false
+							end
+						end
+					end
+				end)
+
+				return -- Selesaikan frame ini agar posisi bypass langsung aktif
 			end
 
 			-- 🏎️ 2-Stage Smooth Deceleration:
