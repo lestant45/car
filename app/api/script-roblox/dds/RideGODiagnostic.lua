@@ -380,4 +380,3 @@ task.spawn(function()
 end)
 
 logEvent("SYSTEM", "INITIALIZED", "RideGODiagnostic passive telemetry active and running")
-return Diagnostic
