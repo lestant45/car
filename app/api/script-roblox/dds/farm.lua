@@ -65,6 +65,49 @@ local success, err = pcall(function()
 		taxiState = newState
 	end
 
+	local function cleanupAndResetTrip(reason)
+		if isResettingTaxi then return end
+		isResettingTaxi = true
+		taxiBusy = false
+		taxiToken = nil
+		passengerSeated = false
+		isDrivingActive = false
+		if cancelActiveDrive then
+			cancelActiveDrive()
+		end
+
+		UI.Notify("🔄 Reset Duty Cycle", reason or "Mereset status trip...", 2.5, "warning")
+
+		local ev = getTaxiEvent()
+		if ev then
+			ev:FireServer("CancelTrip")
+			ev:FireServer("CancelOrder")
+			task.wait(0.4)
+			ev:FireServer("DismissIntro")
+			task.wait(0.2)
+			ev:FireServer("GoOnline")
+		end
+
+		-- Bersihkan sisa model NPC penumpang jika ada
+		pcall(function()
+			local activeMissions = workspace:FindFirstChild("ActiveMissions")
+			local pNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
+			if pNpc then pNpc:Destroy() end
+		end)
+
+		-- Remount / Re-seat motor agar kondisi motor dan posisi player pulih 100%
+		task.spawn(function()
+			task.wait(0.5)
+			if mountBike then
+				mountBike()
+			elseif ensureDriverSeated then
+				ensureDriverSeated()
+			end
+			isResettingTaxi = false
+			setTaxiState("WAITING_FOR_NEXT_ORDER")
+		end)
+	end
+
 	local function isSasanaKridaTrip()
 		local pAddr = tostring(taxiPickupAddr or ""):lower()
 		local dAddr = tostring(taxiDropAddr or ""):lower()
@@ -1170,7 +1213,7 @@ local success, err = pcall(function()
 		local lastGroundY = startP.Y
 
 		local stuckLastDist   = totalDist
-		local stuckLastTime   = os.clock()
+				local stuckLastTime   = os.clock()
 		local stuckNudgeCount = 0
 
 		local navHeading = nil
@@ -1183,6 +1226,23 @@ local success, err = pcall(function()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
 
+		-- Disable collision on vehicle & character parts once before driving
+		pcall(function()
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+					part.Anchored = false
+				end
+			end
+			if char then
+				for _, part in ipairs(char:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+					end
+				end
+			end
+		end)
+
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
 				if currentDriveConn then currentDriveConn:Disconnect() end
@@ -1191,6 +1251,13 @@ local success, err = pcall(function()
 			end
 
 			local now = os.clock()
+
+			-- Max Drive Duration Safety Timeout
+			if (now - driveStartTime) >= 45.0 then
+				driveFinished = true
+				if currentDriveConn then currentDriveConn:Disconnect() end
+				return
+			end
 
 			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama 2.0 detik
 			if now < bridgeHoldUntil then
@@ -1318,25 +1385,24 @@ local success, err = pcall(function()
 			end
 
 			-- 🏎️ 2-Stage Smooth Deceleration:
-			-- Stage 1 (300 -> 50 stud): Kecepatan turun mulus dari slider speed ke 15 km/h
-			-- Stage 2 (50 -> 0 stud): Kecepatan merayap presisi dari 15 km/h ke 0 km/h tepat di tujuan
+			-- Radius 1 (180 stud): perlambatan transisi lembut
+			-- Radius 2 (60 stud): perlambatan presisi hingga 15 stud/s agar rem sangat mulus
 			local targetSpeed = speed
-			if dist < 50 then
-				targetSpeed = math.max(0, 15 * (dist / 50))
-			elseif dist < 300 then
-				local factor = (dist - 50) / 250
-				targetSpeed = 15 + math.max(0, speed - 15) * factor
+			if dist < 60 then
+				local factor = math.clamp(dist / 60, 0, 1)
+				targetSpeed = 15 + (speed - 15) * (factor * factor)
+			elseif dist < 180 then
+				local factor = (dist - 60) / 120
+				targetSpeed = speed * (0.5 + 0.5 * factor)
 			end
 
-			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
+			local directGoalDir = flatDelta.Unit
 
-			-- 🛑 STRICT VOID SAFETY SCANNER (Zero-Tolerance Anti-Float / Anti-Flying Rule):
-			-- Memindai kesinambungan daratan di depan dari jarak dekat (3 stud) hingga 300 stud.
-			-- Jika jurang berada di depan (jarak solid <= 25 stud) dan tujuan masih jauh di seberang,
-			-- MOTOR DILARANG KERAS BERJALAN/MAJU WALAUPUN HANYA 1 STUD!
-			local solidAheadDist = 300
-			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300 }
-			for _, lookDist in ipairs(checkSteps) do
+			-- 🔍 Multi-Tier Dynamic Ground Probing:
+			-- Pindai daratan di depan motor hingga jarak sejauh stepDist atau hingga 300 stud
+			local solidAheadDist = dist
+			local scanMax = math.min(dist, 300)
+			for lookDist = 5, scanMax, 15 do
 				if lookDist >= dist then
 					break
 				end
@@ -1403,7 +1469,7 @@ local success, err = pcall(function()
 				local nowClock = os.clock()
 				cliffWaitStartTime = cliffWaitStartTime or nowClock
 
-				-- ⏱️ Timeout 3.5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 3.5s, otomatis reset toggle UI untuk cari order baru
+				-- ⏱️ Timeout 3.5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 3.5s, otomatis reset duty untuk cari order baru
 				if (nowClock - cliffWaitStartTime) >= 3.5 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
@@ -1747,20 +1813,6 @@ local success, err = pcall(function()
 				task.wait(0.4)
 			end
 
-			local function cleanupAndResetTrip(reason)
-				taxiBusy = false
-				taxiToken = nil
-				passengerSeated = false
-				local ev = getTaxiEvent()
-				if ev then
-					ev:FireServer("CancelTrip")
-					ev:FireServer("CancelOrder")
-					task.wait(0.5)
-					ev:FireServer("GoOnline")
-				end
-				setTaxiState("WAITING_FOR_NEXT_ORDER")
-			end
-
 			if isPassengerOnboard() then
 				local settleDelay = tonumber(Config.passengerBoardDelay) or 3
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
@@ -1788,7 +1840,11 @@ local success, err = pcall(function()
 		if taxiDropPos and taxiActive then
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", "Delivering passenger to destination...", 2, "warning")
-			driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
+			local reached = driveVehicleTo(taxiDropPos, Config.taxiSpeed, 50)
+			if not reached then
+				cleanupAndResetTrip("Gagal Mencapai Lokasi Penurunan")
+				return
+			end
 
 			setTaxiState("DROPPING_OFF")
 			local car, seat = getPlayerVehicle()
@@ -2025,48 +2081,36 @@ local success, err = pcall(function()
 				task.wait(0.25)
 				if taxiActive and not isResettingTaxi and not isTakingSmartBreak then
 					pcall(function()
-						-- 0. Watchdog Diam & Macet Cerdas:
-						-- Jika sedang dalam proses naik/turun penumpang, segarkan timer agar penumpang tidak terputus saat berjalan naik!
-						if taxiState == "PICKING_UP" or taxiState == "DROPPING_OFF" or taxiState == "NEW_ORDER_DETECTED" then
-							lastPosMovedTime = tick()
-							lastTrackedPos = nil
-						else
-							local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-							local curPos = root and root.Position
-							if curPos then
-								if not lastTrackedPos then
+						-- 0. Universal Position Watchdog (Mencegah Terjebak/Stuck di Semua State)
+						local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+						local curPos = root and root.Position
+						if curPos then
+							if not lastTrackedPos then
+								lastTrackedPos = curPos
+								lastPosMovedTime = tick()
+							else
+								local dPos = (curPos - lastTrackedPos).Magnitude
+								if dPos > 3.5 then
 									lastTrackedPos = curPos
 									lastPosMovedTime = tick()
 								else
-									local dPos = (curPos - lastTrackedPos).Magnitude
-									if dPos > 3.5 then
-										lastTrackedPos = curPos
-										lastPosMovedTime = tick()
+									local maxStuckDuration = 35.0
+									if isDrivingActive or taxiState == "DRIVING_TO_DESTINATION" then
+										maxStuckDuration = 12.0
+									elseif taxiState == "PICKING_UP" or taxiState == "DROPPING_OFF" then
+										maxStuckDuration = 18.0
+									elseif taxiState == "NEW_ORDER_DETECTED" then
+										maxStuckDuration = 8.0
 									else
-										local isDriving = (isDrivingActive or taxiState == "DRIVING_TO_DESTINATION")
-										local threshold = isDriving and 12.0 or 45.0
+										maxStuckDuration = 35.0
+									end
 
-										if (tick() - lastPosMovedTime >= threshold) and not isResettingTaxi then
-											lastPosMovedTime = tick()
-											lastTrackedPos = nil
-											if isDriving then
-												task.spawn(function()
-													if cancelActiveDrive then cancelActiveDrive() end
-													setTaxiState("WAITING_FOR_NEXT_ORDER")
-												end)
-											else
-												task.spawn(function()
-													ensureRideGoTeam(3)
-													if mountBike then mountBike() end
-													local ev = getTaxiEvent()
-													if ev then
-														ev:FireServer("DismissIntro")
-														task.wait(0.2)
-														ev:FireServer("GoOnline")
-													end
-												end)
-											end
-										end
+									if (tick() - lastPosMovedTime >= maxStuckDuration) and not isResettingTaxi then
+										lastPosMovedTime = tick()
+										lastTrackedPos = nil
+										task.spawn(function()
+											cleanupAndResetTrip("Watchdog Stuck Timeout (" .. tostring(taxiState) .. ")")
+										end)
 									end
 								end
 							end
