@@ -1360,16 +1360,16 @@ local success, err = pcall(function()
 						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
 
 						-- ⏱️ Kalkulasi Hold Waktu Berdasarkan Jarak Lompatan:
-						-- 1 detik per 100 stud + 0.5s (contoh: 600 stud -> 6.5 detik)
+						-- 0.5 detik per 100 stud + 0.5s (contoh: 600 stud -> 3.5 detik, 300 stud -> 2.0 detik)
 						local actualDist = jumpDist or (Vector3.new(bridgeLanding.X, 0, bridgeLanding.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
-						local holdDuration = math.max(2.0, (actualDist / 100.0) * 1.0 + 0.5)
+						local holdDuration = math.max(1.0, (actualDist / 100.0) * 0.5 + 0.5)
 						bridgeHoldUntil = os.clock() + holdDuration
 						driveStartTime = os.clock() + holdDuration
 						stuckLastTime = os.clock() + holdDuration
 						stuckLastDist = (destP - bridgeLanding).Magnitude
 						currentSmoothSpeed = 0
 
-						UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(actualDist), holdDuration), math.min(holdDuration, 6), "success")
+						UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(actualDist), holdDuration), math.min(holdDuration, 5), "success")
 						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
 					end
 				end
@@ -1823,8 +1823,8 @@ local success, err = pcall(function()
 			local totalDone = _G.HipHubCompletedTrips
 			UI.Notify("🏆 Trip Complete!", string.format("Order #%d selesai. Siap mencari order baru!", totalDone), 3, "success")
 
-			-- ☕ Cooldown Istirahat 2 Menit setiap 10 orderan (10, 20, 30, dst.)
-			if totalDone > 0 and (totalDone % 10 == 0) then
+			-- ☕ Cooldown Istirahat 2 Menit setiap kelipatan 7 orderan (7, 14, 21, 28, dst.)
+			if totalDone > 0 and (totalDone % 7 == 0) then
 				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 2 menit...", totalDone), 5, "warning")
 				lastCompletedToken = token
 				taxiBusy = false
