@@ -408,21 +408,9 @@ local success, err = pcall(function()
 
 	local function neutralizeBikeHazards(car)
 		pcall(function()
-			if car then
-				for _, s in ipairs(car:GetDescendants()) do
-					if s:IsA("LocalScript") and (s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll")) then
-						s.Disabled = true
-					end
-				end
-			end
 			local char = player.Character
 			if char then
 				for _, s in ipairs(char:GetDescendants()) do
-					if s:IsA("Script") or s:IsA("LocalScript") then
-						if s.Name == "RagdollHandler" or s.Name:find("Fall") or s.Name:find("Crash") or s.Name:find("Accident") or s.Name:find("Ragdoll") then
-							s.Disabled = true
-						end
-					end
 					if s:IsA("BasePart") then
 						s.CanCollide = false
 					end
@@ -478,8 +466,6 @@ local success, err = pcall(function()
 		if car then
 			neutralizeBikeHazards(car)
 		end
-
-		pcall(function() seatPart.Disabled = false end)
 
 		-- Pindahkan posisi player tepat menempel di atas kursi motor
 		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
