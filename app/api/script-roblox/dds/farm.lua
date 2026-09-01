@@ -1722,6 +1722,9 @@ local success, err = pcall(function()
 		taxiPickupAddr = tostring(initialPickupAddr or "")
 		taxiDropAddr   = tostring(initialDropAddr or "")
 
+		local tripStartTime = nil
+		local tripDistance  = 0
+
 		local isAnomalyTrip = (isAnomaly == true)
 		if isAnomalyTrip then
 			UI.Notify("👻 ANOMALY ORDER AKTIF", "Mode Proteksi Anomali Aktif (+Rp 25M)...", 4, "warning")
@@ -1792,6 +1795,11 @@ local success, err = pcall(function()
 			end
 
 			if isPassengerOnboard() then
+				tripStartTime = tick()
+				if taxiPickupPos and taxiDropPos then
+					tripDistance = (Vector3.new(taxiDropPos.X, 0, taxiDropPos.Z) - Vector3.new(taxiPickupPos.X, 0, taxiPickupPos.Z)).Magnitude
+				end
+
 				local settleDelay = isAnomalyTrip and math.max(tonumber(Config.passengerBoardDelay) or 3, 3.5) or (tonumber(Config.passengerBoardDelay) or 3)
 				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
@@ -1815,6 +1823,34 @@ local success, err = pcall(function()
 		if taxiDropPos and taxiActive then
 			setTaxiState("DRIVING_TO_DESTINATION")
 			UI.Notify("📍 Heading to Drop-off", isAnomalyTrip and "Mengantar Anomali ke tujuan..." or "Delivering passenger to destination...", 2, "warning")
+
+			-- 🛡️ Pre-Arrival Pacing Guard:
+			-- Jangan masuk ke radius trigger penurunan penumpang (<= 25 stud) sebelum waktu tempuh sah server tercapai!
+			if tripStartTime and tripDistance and tripDistance > 150 then
+				local safeSpeed = isAnomalyTrip and 75.0 or 85.0
+				local minSafeTime = tripDistance / safeSpeed
+				local elapsed = tick() - tripStartTime
+
+				if elapsed < minSafeTime then
+					-- Berkendara hingga mendekati titik tujuan (jarak ~35 studs di luar zona trigger)
+					local dirToDest = (taxiDropPos - (taxiPickupPos or taxiDropPos)).Unit
+					if dirToDest.Magnitude < 0.1 then dirToDest = Vector3.new(0, 0, 1) end
+					local perimeterPos = taxiDropPos - (dirToDest * 35.0)
+					driveVehicleTo(perimeterPos, tripSpeed, 50)
+
+					-- Tahan di luar lingkaran tujuan sampai waktu tempuh sah tercapai
+					local nowElapsed = tick() - tripStartTime
+					if nowElapsed < minSafeTime then
+						local remainingWait = minSafeTime - nowElapsed
+						if remainingWait > 0.1 then
+							UI.Notify("⏱️ Pacing Server Aktif", string.format("Menyelaraskan waktu tiba sah: %.1fs...", remainingWait), math.min(remainingWait, 3), "warning")
+							task.wait(remainingWait)
+						end
+					end
+				end
+			end
+
+			-- Masuk ke titik tujuan utama (radius <= 25 studs) pada waktu yang sudah 100% sah di server!
 			driveVehicleTo(taxiDropPos, tripSpeed, 50)
 
 			setTaxiState("DROPPING_OFF")
@@ -1865,8 +1901,23 @@ local success, err = pcall(function()
 			task.wait(0.5)
 		end
 
-		-- 7. Complete Trip & Acknowledge
+		-- 7. Complete Trip & Acknowledge (Dengan Pacing Kecepatan Rata-Rata Aman Server untuk SEMUA Order)
 		if taxiActive then
+			-- 🛡️ Server Average Velocity Pacing (Maksimal ~85 stud/s)
+			-- Server DDS mencatat: Kecepatan Rata-rata = tripDistance / (tick() - tripStartTime)
+			-- Jika waktu tempuh terlalu cepat, kita beri jeda pacing agar server memvalidasi trip 100% sah/legit
+			if tripStartTime and tripDistance and tripDistance > 150 then
+				local safeMaxSpeed = isAnomalyTrip and 75.0 or 85.0
+				local minSafeTripTime = tripDistance / safeMaxSpeed
+				local elapsed = tick() - tripStartTime
+				if elapsed < minSafeTripTime then
+					local pacingWait = minSafeTripTime - elapsed
+					if pacingWait > 0.1 then
+						task.wait(pacingWait)
+					end
+				end
+			end
+
 			local syncDelay = isAnomalyTrip and 2.0 or 0.8 -- Ekstra jeda sinkronisasi untuk Anomali (+Rp 25M)
 			task.wait(syncDelay)
 			TaxiEvent:FireServer("AckTripComplete")
