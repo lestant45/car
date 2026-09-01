@@ -824,27 +824,16 @@ local success, err = pcall(function()
 			passRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		-- 4. Synchronized Atomic Leap (Teleport motorcycle, driver, and passenger together)
+		-- 4. Pindahkan motor & penumpang ke daratan seberang
 		car:PivotTo(targetCF)
-		if root and seat then
-			root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-		end
-		if passRoot and seat then
-			passRoot.CFrame = seat.CFrame + Vector3.new(0, 0.5, -1.2)
+		local pSeat = getPassengerSeat(car)
+		if passRoot and (pSeat or seat) then
+			passRoot.CFrame = (pSeat and pSeat.CFrame or seat.CFrame) + Vector3.new(0, 0.3, 0)
 		end
 
 		task.wait(0.1)
 
-		-- 5. Re-establish driver seat connection firmly & disable ragdoll/falling damage
-		if root and seat and hum then
-			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-			hum.Sit = true
-			pcall(function() seat:Sit(hum) end)
-		end
-
-		-- 6. Unanchor cleanly on top of safety plate
+		-- 5. Unanchor motor dan part terlebih dahulu
 		pcall(function()
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -865,10 +854,23 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- Double-check driver seat connection
-		ensureDriverSeated()
+		-- 6. 🛵 RE-MOUNT MOTOR RESMI (Duduk langsung di VehicleSeat, tidak melayang di udara)
+		if hum and seat then
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			mountBike()
+		end
 
-		-- Nol-kan kembali seluruh kecepatan agar mulai melaju dari 0 km/h secara mulus
+		if passengerNpc and pSeat then
+			local passHum = passengerNpc:FindFirstChildOfClass("Humanoid")
+			if passHum then
+				pcall(function() pSeat:Sit(passHum) end)
+			end
+		end
+
+		-- 7. Nol-kan kembali seluruh kecepatan
 		pcall(function()
 			for _, part in ipairs(car:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -1156,10 +1158,13 @@ local success, err = pcall(function()
 
 			local now = os.clock()
 
-			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama 2.0 detik
+			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama holdDuration
 			if now < bridgeHoldUntil then
 				lastTick = now
-				ensureDriverSeated()
+				-- Pastikan driver benar-benar duduk di kursi pengemudi motor (tidak melayang)
+				if hum and (not hum.SeatPart or hum.SeatPart ~= seat) then
+					mountBike()
+				end
 				pcall(function()
 					if bridgeLandCF then
 						car:PivotTo(bridgeLandCF)
@@ -1176,12 +1181,6 @@ local success, err = pcall(function()
 						seat.AssemblyLinearVelocity = Vector3.zero
 						seat.AssemblyAngularVelocity = Vector3.zero
 					end
-					local root = char and char:FindFirstChild("HumanoidRootPart")
-					if root and seat then
-						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-						root.AssemblyLinearVelocity = Vector3.zero
-						root.AssemblyAngularVelocity = Vector3.zero
-					end
 				end)
 				return
 			end
@@ -1192,12 +1191,9 @@ local success, err = pcall(function()
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
 
-			-- 🔒 Enforced Frame-Level Seat Lock: pastikan pengemudi tidak pernah terlempar dari motor saat melaju
+			-- 🔒 Enforced Frame-Level Seat Lock: pastikan pengemudi tidak terlempar dari motor saat melaju
 			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
-				hum.Sit = true
-				pcall(function() seat:Sit(hum) end)
+				mountBike()
 			end
 
 			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas di bawah Y < -45 (ruang hampa luar map)
@@ -1206,8 +1202,9 @@ local success, err = pcall(function()
 				ensureSafetyPlate(rescuePos, 80)
 				car:PivotTo(CFrame.new(rescuePos))
 				lastGroundY = rescuePos.Y
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root and seat then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
+				if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
+					mountBike()
+				end
 			end
 
 			local delta = destP - carPos
@@ -1475,10 +1472,8 @@ local success, err = pcall(function()
 				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
-					if not hum.Sit or hum.SeatPart ~= seat then
-						root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0)
-						hum.Sit = true
-						seat:Sit(hum)
+					if not hum.SeatPart or hum.SeatPart ~= seat then
+						mountBike()
 					end
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
