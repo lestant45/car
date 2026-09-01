@@ -684,32 +684,8 @@ local success, err = pcall(function()
 	end
 
 	local function destroyAllBuildings()
-		pcall(function()
-			for _, c in ipairs(workspace:GetChildren()) do
-				if shouldDestroyBuilding(c) then
-					pcall(function() c:Destroy() end)
-				elseif c:IsA("Folder") or c:IsA("Model") then
-					for _, ch in ipairs(c:GetDescendants()) do
-						if shouldDestroyBuilding(ch) then
-							pcall(function() ch:Destroy() end)
-						end
-					end
-				end
-			end
-		end)
+		-- EXP-5: Map destruction disabled to prevent Adonis client integrity violation (Client download quit)
 	end
-
-	-- Auto-destroy newly streamed buildings & obstacles across all districts
-	workspace.DescendantAdded:Connect(function(descendant)
-		if shouldDestroyBuilding(descendant) then
-			task.wait(0.05)
-			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
-				pcall(function() descendant:Destroy() end)
-			end
-		end
-	end)
-
-	task.spawn(destroyAllBuildings)
 
 
 	local function getGroundExcludeFilter(car)
