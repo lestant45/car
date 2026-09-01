@@ -781,10 +781,10 @@ local success, err = pcall(function()
 	end
 
 	-- 🛡️ Synchronized Atomic Pivot & Physics Stabilization Leap
-	local function teleportVehicleAcrossVoid(car, landPos, baseDir)
-		-- 1. Pre-stream daratan seberang & bentangkan Safety Plate kokoh (60x60)
+	local function teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+		-- 1. Pre-stream daratan seberang & bentangkan Safety Plate kokoh (80x80)
 		requestStreamAsync(landPos)
-		ensureSafetyPlate(landPos, 60)
+		ensureSafetyPlate(landPos, 80)
 
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
@@ -844,7 +844,33 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 6. Nol-kan kembali seluruh kecepatan di posisi baru
+		-- 6. ⏱️ DIRECT SYNCHRONOUS LANDING HOLD (Menahan posisi 100% diam sesuai durasi kalkulasi jarak)
+		local distVal = tonumber(jumpDist) or 0
+		local holdDuration = math.max(1.0, (distVal / 100.0) * 0.5 + 0.5)
+		UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(distVal), holdDuration), math.min(holdDuration, 5), "success")
+
+		local holdEnd = os.clock() + holdDuration
+		while os.clock() < holdEnd and isDrivingActive do
+			car:PivotTo(targetCF)
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity  = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+			if seat then
+				seat.Throttle = 0
+				seat.ThrottleFloat = 0
+				seat.AssemblyLinearVelocity = Vector3.zero
+				seat.AssemblyAngularVelocity = Vector3.zero
+				if hum and hum.SeatPart ~= seat then
+					pcall(function() seat:Sit(hum) end)
+				end
+			end
+			task.wait(0.05)
+		end
+
+		-- 7. Nol-kan kembali seluruh kecepatan di posisi baru
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
 				part.AssemblyLinearVelocity  = Vector3.zero
@@ -957,7 +983,7 @@ local success, err = pcall(function()
 						if landDistToDest < totalDistToDest - minProgress then
 							local landPos = Vector3.new(px, solidY + 0.5, pz)
 							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir)
+							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
 							return landed, jumpDist
 						end
 					end
@@ -1115,8 +1141,6 @@ local success, err = pcall(function()
 		local edgeFollowSign = 1
 		local curHeadingAngle = math.atan2(((destP - startP).Unit).X, ((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
-		local bridgeHoldUntil = 0
-		local bridgeLandCF = nil
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
@@ -1129,35 +1153,6 @@ local success, err = pcall(function()
 			end
 
 			local now = os.clock()
-
-			-- 🛑 Void Bridge Landing Hold: Tahan posisi kokoh di atas aspal seberang selama holdDuration
-			if now < bridgeHoldUntil then
-				lastTick = now
-				stuckLastTime = now
-				currentSmoothSpeed = 0
-				pcall(function()
-					if bridgeLandCF then
-						car:PivotTo(bridgeLandCF)
-					end
-					for _, part in ipairs(car:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.AssemblyLinearVelocity = Vector3.zero
-							part.AssemblyAngularVelocity = Vector3.zero
-						end
-					end
-					if seat then
-						seat.Throttle = 0
-						seat.ThrottleFloat = 0
-						seat.AssemblyLinearVelocity = Vector3.zero
-						seat.AssemblyAngularVelocity = Vector3.zero
-						if hum and hum.SeatPart ~= seat then
-							seat:Sit(hum)
-						end
-					end
-				end)
-				return
-			end
-
 			local dt = math.clamp(now - lastTick, 0.001, 0.1)
 			lastTick = now
 
@@ -1357,20 +1352,9 @@ local success, err = pcall(function()
 						stuckLastDist = (destP - bridgeLanding).Magnitude
 						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
-						bridgeLandCF = CFrame.new(bridgeLanding) * CFrame.Angles(0, curHeadingAngle, 0)
-
-						-- ⏱️ Kalkulasi Hold Waktu Berdasarkan Jarak Lompatan:
-						-- 0.5 detik per 100 stud + 0.5s (contoh: 600 stud -> 3.5 detik, 300 stud -> 2.0 detik)
-						local actualDist = jumpDist or (Vector3.new(bridgeLanding.X, 0, bridgeLanding.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
-						local holdDuration = math.max(1.0, (actualDist / 100.0) * 0.5 + 0.5)
-						bridgeHoldUntil = os.clock() + holdDuration
-						driveStartTime = os.clock() + holdDuration
-						stuckLastTime = os.clock() + holdDuration
-						stuckLastDist = (destP - bridgeLanding).Magnitude
+						stuckLastTime = os.clock()
 						currentSmoothSpeed = 0
-
-						UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(actualDist), holdDuration), math.min(holdDuration, 5), "success")
-						return -- 🛑 KRUSIAL: Selesaikan frame ini seketika agar posisi mendarat di seberang tidak ter-override kembali ke tepi tebing!
+						return -- 🛑 Selesaikan frame ini setelah mendarat dan hold selesai!
 					end
 				end
 			end
