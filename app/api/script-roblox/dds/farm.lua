@@ -1318,16 +1318,9 @@ local success, err = pcall(function()
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
 
-			-- 🔒 Enforced Frame-Level Seat Lock & Damage Protection:
-			if hum and seat then
-				hum.Sit = true
-				if not hum.SeatPart or hum.SeatPart ~= seat then
-					pcall(function() seat:Sit(hum) end)
-				end
-				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+			-- 🔒 Enforced Frame-Level Seat Lock: pastikan pengemudi tidak terlempar dari motor saat melaju
+			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
+				pcall(function() seat:Sit(hum) end)
 			end
 
 			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas di bawah Y < -45 (ruang hampa luar map)
@@ -1412,24 +1405,31 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ S-Curve Progressive Aerodynamic Deceleration (Zero-G Ultra-Smooth di Kecepatan 250-300 stud/s):
-			-- Jarak pengereman mulai dari 550-650 studs dengan kurva sangat empuk
-			local brakeZoneDist = math.max(550, speed * 2.2)
+			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (Mulai dari 800 Studs):
+			-- Stage 1 (800 -> 50 stud): Kecepatan turun mulus dari speed (300 stud/s) ke 28 stud/s (~25 km/h)
+			-- Stage 2 (50 -> 10 stud): Kecepatan merayap pelan dari 28 stud/s ke 4.0 stud/s
+			-- Stage 3 (< 10 stud): Meluncur lembut ke 0 stud/s dan berhenti tepat di titik tujuan (dist <= 3.5)
 			local targetSpeed = speed
 
-			if dist < brakeZoneDist then
-				local ratio = math.clamp(dist / brakeZoneDist, 0, 1)
-				-- Smoothstep S-Curve: Transisi eksponensial mulus dari 300 stud/s ke merayap tanpa inersia kejut
-				local sFactor = ratio * ratio * (3 - 2 * ratio)
-				targetSpeed = math.max(3.0, speed * sFactor)
+			if dist < 10 then
+				local ratio = math.clamp(dist / 10, 0, 1)
+				targetSpeed = math.max(0, 4.0 * ratio)
+			elseif dist < 50 then
+				local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
+				targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
+			elseif dist < 800 then
+				local factor = math.clamp((dist - 50) / 750, 0, 1)
+				-- Smoothstep S-Curve: Transisi eksponensial sangat empuk tanpa sentakan inersia
+				local sFactor = factor * factor * (3 - 2 * factor)
+				targetSpeed = 28.0 + (speed - 28.0) * sFactor
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛑 STRICT VOID SAFETY SCANNER:
-			-- Memindai kesinambungan daratan di depan hingga jarak 600 studs untuk kecepatan 300 stud/s
-			local solidAheadDist = 600
-			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 380, 450, 520, 600 }
+			-- Memindai kesinambungan daratan di depan hingga jarak 800 studs untuk kecepatan 300 stud/s
+			local solidAheadDist = 800
+			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800 }
 			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
@@ -1442,23 +1442,30 @@ local success, err = pcall(function()
 			end
 
 			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
-			-- Menurunkan kecepatan secara bertahap dan halus sebelum mencapai bibir jurang
-			local cliffBrakeZone = math.max(180, speed * 1.0)
-			local isImmediateVoidAhead = (solidAheadDist <= 12) and (dist > solidAheadDist)
+			-- Mengikuti kurva yang sama agar pengereman tepi jurang 100% empuk
+			local isImmediateVoidAhead = (solidAheadDist <= 10) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
-			elseif solidAheadDist < cliffBrakeZone and solidAheadDist < dist then
-				local cliffRatio = math.clamp((solidAheadDist - 12) / (cliffBrakeZone - 12), 0, 1)
-				local cliffFactor = cliffRatio * cliffRatio
-				local cliffTargetSpeed = math.max(2.5, speed * cliffFactor)
+			elseif solidAheadDist < 600 and solidAheadDist < dist then
+				local cliffTargetSpeed = speed
+				if solidAheadDist < 10 then
+					cliffTargetSpeed = 0
+				elseif solidAheadDist < 50 then
+					local creepRatio = math.clamp((solidAheadDist - 10) / 40, 0, 1)
+					cliffTargetSpeed = 4.0 + (28.0 - 4.0) * creepRatio
+				else
+					local factor = math.clamp((solidAheadDist - 50) / 550, 0, 1)
+					local sFactor = factor * factor * (3 - 2 * factor)
+					cliffTargetSpeed = 28.0 + (speed - 28.0) * sFactor
+				end
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
-			-- 🛡️ Slew-Rate Limiter (Zero-G Inersia Anti-Terlempar):
-			-- Dibatasi secara presisi agar tidak menghasilkan impuls physics yang memutus SeatWeld
-			local maxAccelRate = math.max(40, speed * 0.3) * dt
-			local maxDecelRate = math.max(45, speed * 0.35) * dt
+			-- 🛡️ Slew-Rate Limiter (Zero-Damage Smooth Acceleration & Deceleration):
+			-- Membatasi delta perubahan kecepatan agar tidak menghasilkan gaya g-force yang merusak SeatWeld / melukai darah player!
+			local maxAccelRate = math.max(45, speed * 0.4) * dt
+			local maxDecelRate = math.max(50, speed * 0.45) * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
@@ -1561,11 +1568,9 @@ local success, err = pcall(function()
 					end
 					local h = char:FindFirstChildOfClass("Humanoid")
 					if h then
-						h.Sit = true
 						h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 						h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 						h:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-						h:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
 					end
 				end
 
@@ -1579,35 +1584,34 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- 🛡️ Kinematic Zero-Velocity Synchronization:
-				-- Mencegah solver physics Roblox menghitung delta inersia yang merusak SeatWeld & melukai darah player
+				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
 					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
 					seat.ThrottleFloat = actualMoveDir.Magnitude > 0 and 1 or 0
-					seat.AssemblyLinearVelocity = Vector3.zero
-					seat.AssemblyAngularVelocity = Vector3.zero
+					seat.AssemblyLinearVelocity = velocityVec
 				end
 				local prim = car.PrimaryPart or seat
 				if prim then
-					prim.AssemblyLinearVelocity = Vector3.zero
-					prim.AssemblyAngularVelocity = Vector3.zero
+					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- 🔒 Proteksi Tubuh Pengemudi & Penumpang (Anti-Unseat & Anti-Damage)
+				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.SeatPart or hum.SeatPart ~= seat then
-						hum.Sit = true
-						pcall(function() seat:Sit(hum) end)
+						mountBike()
 					end
-					root.AssemblyLinearVelocity = Vector3.zero
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+					root.AssemblyLinearVelocity = velocityVec
 					root.AssemblyAngularVelocity = Vector3.zero
 				end
 
 				if passengerNpc then
 					local passHrp = passengerNpc:FindFirstChild("HumanoidRootPart")
 					if passHrp then
-						passHrp.AssemblyLinearVelocity = Vector3.zero
+						passHrp.AssemblyLinearVelocity = velocityVec
 						passHrp.AssemblyAngularVelocity = Vector3.zero
 					end
 				end
