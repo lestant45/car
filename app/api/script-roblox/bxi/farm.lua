@@ -236,11 +236,11 @@ local success, err = pcall(function()
 
 		local targetCFrame = nil
 		if typeof(targetDestination) == "Instance" and targetDestination:IsA("BasePart") then
-			targetCFrame = targetDestination.CFrame + Vector3.new(0, 3, 0)
+			targetCFrame = targetDestination.CFrame + Vector3.new(0, 1.0, 0)
 		elseif typeof(targetDestination) == "CFrame" then
-			targetCFrame = targetDestination + Vector3.new(0, 3, 0)
+			targetCFrame = targetDestination + Vector3.new(0, 1.0, 0)
 		elseif typeof(targetDestination) == "Vector3" then
-			targetCFrame = CFrame.new(targetDestination + Vector3.new(0, 3, 0))
+			targetCFrame = CFrame.new(targetDestination + Vector3.new(0, 1.0, 0))
 		else
 			isDrivingActive = false
 			return false
@@ -445,6 +445,25 @@ local success, err = pcall(function()
 			startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
 		end)
 
+		-- If server reports already in a job, auto-cancel lingering job and restart!
+		if type(startRes) == "string" and (startRes:find("already") or startRes:find("Job")) then
+			setFarmState(FARM_STATE.STARTING_JOB, "Resetting Lingering Job")
+			pcall(function()
+				local bj = player.PlayerGui:FindFirstChild("BusJobGUI")
+				local cancelBtn = bj and bj:FindFirstChild("CancelJobButton", true)
+				if cancelBtn then
+					for _, conn in ipairs(getconnections(cancelBtn.MouseButton1Click)) do
+						conn:Fire()
+					end
+				end
+				Remotes.CancelBusJob:FireServer()
+			end)
+			task.wait(2)
+			pcall(function()
+				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
+			end)
+		end
+
 		if type(startRes) == "table" and startRes.success then
 			currentJobActive = true
 			currentCheckpointIndex = startRes.checkpointIndex or 1
@@ -455,6 +474,7 @@ local success, err = pcall(function()
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
 			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName)
 		else
+			setFarmState(FARM_STATE.STARTING_JOB, "Start Failed: " .. tostring(startRes))
 			task.wait(3)
 			return
 		end
@@ -468,6 +488,10 @@ local success, err = pcall(function()
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
 					driveToDestination(cpPart, Config.targetSpeed or 140)
+					lastDrivenTarget = nextCheckpointPartName
+				elseif startRes and startRes.nextCheckpointPosition then
+					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
+					driveToDestination(startRes.nextCheckpointPosition, Config.targetSpeed or 140)
 					lastDrivenTarget = nextCheckpointPartName
 				end
 			end
