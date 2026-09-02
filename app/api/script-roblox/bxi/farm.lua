@@ -173,14 +173,18 @@ local success, err = pcall(function()
 			end
 			if hum.SeatPart ~= seat then
 				root.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
-				task.wait(0.2)
+				task.wait(0.3)
 				local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt", true) or bus:FindFirstChildWhichIsA("ProximityPrompt", true)
 				if prompt and fireproximityprompt then
 					fireproximityprompt(prompt)
 				else
 					pcall(function() seat:Sit(hum) end)
 				end
-				task.wait(0.3)
+				-- Wait until truly seated (up to 2s)
+				local t0 = tick()
+				while hum.SeatPart == nil and (tick() - t0) < 2.0 do
+					task.wait(0.1)
+				end
 			end
 		end
 
@@ -353,6 +357,14 @@ local success, err = pcall(function()
 			return false
 		end
 
+		-- Verify player is TRULY seated before proceeding
+		local char = player.Character or player.CharacterAdded:Wait()
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not (hum and hum.SeatPart) then
+			setFarmState(FARM_STATE.IDLE, "Could Not Confirm Seated")
+			return false
+		end
+
 		setFarmState(FARM_STATE.STARTING_JOB, "Driving Bus to Terminal Counter")
 
 		-- 2. Find nearest Terminal Trigger / White Box
@@ -360,7 +372,6 @@ local success, err = pcall(function()
 		local currentTrigger = nil
 		local terminalId = "Baranangsiang"
 
-		local char = player.Character or player.CharacterAdded:Wait()
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local pPos = seat and seat.Position or (root and root.Position or Vector3.zero)
 
@@ -382,7 +393,7 @@ local success, err = pcall(function()
 
 		local targetCounterCF = currentTrigger and (currentTrigger.CFrame + Vector3.new(0, 2, 0)) or CFrame.new(22784.34, 291.51, -39580.60)
 		
-		-- Move the BUS (with player inside) to the Terminal Trigger
+		-- Move the BUS (with player seated inside) to the Terminal Trigger
 		pcall(function()
 			bus.PrimaryPart = seat
 			bus:PivotTo(targetCounterCF)
@@ -417,8 +428,15 @@ local success, err = pcall(function()
 		UI.Notify("Route Selected", string.format("%s\nReward: %s", bestRouteName, formatRp(maxReward > 0 and maxReward or 150000000)), 4, "gold")
 
 		-- 4. Start Selected Bus Job on Server & Detect Assigned Gate
+		-- NOTE: second arg is nil — server detects terminal from bus position
 		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
-		local res = Remotes.StartBusJob:InvokeServer(bestRouteId, terminalId)
+		local res = Remotes.StartBusJob:InvokeServer(bestRouteId, nil)
+
+		-- Fallback: retry with terminalId string if nil fails
+		if type(res) == "string" or (type(res) == "table" and not res.success) then
+			task.wait(0.3)
+			res = Remotes.StartBusJob:InvokeServer(bestRouteId, terminalId)
+		end
 
 		if type(res) == "table" and res.success and res.nextCheckpointPartName then
 			local cpIndex = res.checkpointIndex or 1
@@ -437,6 +455,7 @@ local success, err = pcall(function()
 			return true
 		end
 
+		UI.Notify("Start Job Failed", type(res) == "string" and res or "Unknown error", 4, "red")
 		return false
 	end
 
