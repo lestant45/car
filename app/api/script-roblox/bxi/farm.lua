@@ -344,83 +344,99 @@ local success, err = pcall(function()
 	-- 🏁 AUTOMATIC BUS JOB RUNNER
 	------------------------------------------------
 	local function startBusJob()
-		setFarmState(FARM_STATE.PREPARING_BUS, "Ensuring Bus & Seat")
+		setFarmState(FARM_STATE.STARTING_JOB, "Going to Terminal Counter")
 
-		-- 1. Must ensure bus is spawned and player is seated BEFORE invoking job remotes!
-		local bus, seat = ensureBusAndSeat()
-		if not (bus and seat) then
-			setFarmState(FARM_STATE.IDLE, "Failed to Mount Bus")
-			return false
+		local char = player.Character or player.CharacterAdded:Wait()
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+		-- 1. Unseat if currently seated and move to Terminal Counter
+		if hum and hum.SeatPart then
+			hum.Sit = false
+			task.wait(0.2)
 		end
 
-		setFarmState(FARM_STATE.STARTING_JOB, "Detecting Terminal")
-
-		-- 2. Detect Terminal ID
 		local triggers = CollectionService:GetTagged("BusJobTrigger")
-		local terminalId = nil
+		local currentTrigger = nil
+		local terminalId = "Baranangsiang"
 
-		for _, trigger in ipairs(triggers) do
-			local id = trigger:GetAttribute("TerminalId")
-			if id then
-				terminalId = id
-				break
+		if #triggers > 0 then
+			local minDist = 999999
+			local pPos = root and root.Position or Vector3.zero
+			for _, tr in ipairs(triggers) do
+				local d = (tr.Position - pPos).Magnitude
+				if d < minDist then
+					minDist = d
+					currentTrigger = tr
+					terminalId = tr:GetAttribute("TerminalId") or "Baranangsiang"
+				end
 			end
 		end
 
-		if not terminalId then
-			terminalId = "Baranangsiang"
+		if not currentTrigger and workspace:FindFirstChild("BusJobTriggers") then
+			currentTrigger = workspace.BusJobTriggers:FindFirstChild(terminalId)
 		end
-		currentTerminalId = terminalId
 
-		-- 3. Clear any stale job state on server
-		pcall(function()
-			Remotes.CancelBusJob:FireServer()
-		end)
-		task.wait(0.5)
+		local targetCounterCF = currentTrigger and (currentTrigger.CFrame + Vector3.new(0, 3, 0)) or CFrame.new(22784.34, 291.51, -39580.60)
+		if root then
+			root.CFrame = targetCounterCF
+			task.wait(0.5)
+		end
 
-		-- 4. Query Available Routes
-		setFarmState(FARM_STATE.STARTING_JOB, "Querying Routes for " .. terminalId)
+		-- 2. Clear stale jobs and query routes for highest reward
+		setFarmState(FARM_STATE.STARTING_JOB, "Selecting Highest Paying Job")
+		pcall(function() Remotes.CancelBusJob:FireServer() end)
+		task.wait(0.4)
+
 		local routes = nil
 		pcall(function()
 			routes = Remotes.GetAvailableBusRoutes:InvokeServer(terminalId)
 		end)
 
-		local bestRouteId = "Baranangsiang_ke_Rambutan"
+		local bestRouteId = "Baranangsiang_ke_Cirebon4"
 		local maxReward = -1
+		local bestRouteName = "Highest Payout Route"
 
 		if type(routes) == "table" then
 			for id, info in pairs(routes) do
 				if type(info) == "table" and info.Reward and info.Reward > maxReward then
 					maxReward = info.Reward
 					bestRouteId = id
+					bestRouteName = info.DisplayName or id
 				end
 			end
 		end
 
 		currentRouteId = bestRouteId
-		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
+		UI.Notify("Route Selected", string.format("%s\nReward: %s", bestRouteName, formatRp(maxReward > 0 and maxReward or 150000000)), 4, "gold")
 
-		-- 5. Start Bus Job on Server
+		-- 3. Spawn & Seat in Bus
+		setFarmState(FARM_STATE.PREPARING_BUS, "Spawning & Mounting Bus")
+		local bus, seat = ensureBusAndSeat()
+		if not (bus and seat) then
+			setFarmState(FARM_STATE.IDLE, "Failed to Mount Bus")
+			return false
+		end
+
+		-- 4. Start Selected Bus Job on Server & Detect Assigned Gate
+		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
 		local res = Remotes.StartBusJob:InvokeServer(bestRouteId, terminalId)
+
 		if type(res) == "table" and res.success and res.nextCheckpointPartName then
 			local cpIndex = res.checkpointIndex or 1
-			local cpTotal = res.totalCheckpoints or 4
+			local cpTotal = res.totalCheckpoints or 9
 			currentCheckpointText = string.format("%d / %d", cpIndex, cpTotal)
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
-			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, res.nextDestinationName or "Loading Passengers (Gate)")
+			
+			local gateName = res.nextDestinationName or "Loading Gate"
+			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Navigating to " .. gateName)
 
-			local part = getTargetPart(res.nextCheckpointPartName, "Checkpoints")
-			if part then
-				moveToTarget(part, Config.targetSpeed or 160)
+			-- 5. Detect Gate Checkpoint and Drive into it to load passengers
+			local gatePart = getTargetPart(res.nextCheckpointPartName, "Checkpoints")
+			if gatePart then
+				moveToTarget(gatePart, Config.targetSpeed or 160)
 			end
 			return true
-		elseif type(res) == "string" and res:find("already in a job") then
-			-- Resume existing job checkpoint
-			pcall(function()
-				Remotes.CancelBusJob:FireServer()
-				task.wait(1.0)
-				startBusJob()
-			end)
 		end
 
 		return false
