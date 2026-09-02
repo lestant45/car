@@ -26,7 +26,7 @@ local success, err = pcall(function()
 		},
 		farm = {
 			autoBusJob = false,
-			selectedRoute = "Baranangsiang_ke_Cirebon4",
+			selectedRoute = "Baranangsiang_ke_Rambutan",
 			targetSpeed = 140,
 			autoNextJob = true,
 			autoClaimQuests = true,

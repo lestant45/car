@@ -40,7 +40,7 @@ local success, err = pcall(function()
 
 	local currentFarmState = FARM_STATE.IDLE
 	local isFarmRunning = false
-	local currentRouteId = Config.selectedRoute or "Baranangsiang_ke_Cirebon4"
+	local currentRouteId = Config.selectedRoute or "Baranangsiang_ke_Rambutan"
 	local currentTerminalId = "Baranangsiang"
 
 	-- Live Stats
@@ -163,16 +163,8 @@ local success, err = pcall(function()
 			if hum.SeatPart ~= seat then
 				hrp.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
 				task.wait(0.2)
-				pcall(function() seat:Sit(hum) end)
-				task.wait(0.2)
-
-				if hum.SeatPart ~= seat then
-					local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt", true) or bus:FindFirstChildWhichIsA("ProximityPrompt", true)
-					if prompt and fireproximityprompt then
-						pcall(function() fireproximityprompt(prompt) end)
-						task.wait(0.5)
-					end
-				end
+				seat:Sit(hum)
+				task.wait(0.3)
 			end
 		end
 
@@ -221,9 +213,10 @@ local success, err = pcall(function()
 		return fallbackY
 	end
 
-	-- Move to target destination or part using Smooth 3D CFrame Lerp Glide (From reference script)
-	local function driveToDestination(targetDestination, targetCruiseSpeed)
+	-- Drive from current location to target destination using AssemblyLinearVelocity
+	local function driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
 		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 140)
+		arrivalThreshold = arrivalThreshold or 25
 
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
@@ -233,94 +226,190 @@ local success, err = pcall(function()
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
 		isDrivingActive = true
+		local driveFinished = false
 
-		local targetCFrame = nil
-		if typeof(targetDestination) == "Instance" and targetDestination:IsA("BasePart") then
-			targetCFrame = targetDestination.CFrame + Vector3.new(0, 1.0, 0)
-		elseif typeof(targetDestination) == "CFrame" then
-			targetCFrame = targetDestination + Vector3.new(0, 1.0, 0)
-		elseif typeof(targetDestination) == "Vector3" then
-			targetCFrame = CFrame.new(targetDestination + Vector3.new(0, 1.0, 0))
-		else
-			isDrivingActive = false
-			return false
-		end
+		local startSeatPos = seat.Position
+		local totalFlatDist = (Vector3.new(destPos.X - startSeatPos.X, 0, destPos.Z - startSeatPos.Z)).Magnitude
+		local startSeatY = startSeatPos.Y
+		local targetFinalSeatY = destPos.Y + BUS_SEAT_GROUND_OFFSET
 
-		local rootPart = bus.PrimaryPart or seat
-		local startCFrame = bus:GetPivot()
-		local distance = (targetCFrame.Position - startCFrame.Position).Magnitude
-		local duration = math.max(distance / targetCruiseSpeed, 0.1)
+		local look = seat.CFrame.LookVector
+		local curHeadingAngle = math.atan2(look.X, look.Z)
 
-		local originalCollisions = {}
-		for _, part in ipairs(bus:GetDescendants()) do
-			if part:IsA("BasePart") then
-				originalCollisions[part] = part.CanCollide
-			end
-		end
-
-		rootPart.Anchored = true
+		local currentSmoothSpeed = 0
+		local lastSeatY = startSeatY
+		local lastStuckCheckTime = os.clock()
+		local lastStuckCheckPos = seat.Position
 
 		-- Pre-load destination safety plate & streaming
-		ensureSafetyPlate(targetCFrame.Position, 50)
-		requestStreamAsync(targetCFrame.Position)
+		ensureSafetyPlate(destPos, 50)
+		requestStreamAsync(destPos)
 
-		local noclipConnection = RunService.Stepped:Connect(function()
-			for part in pairs(originalCollisions) do
-				if part and part.Parent then
-					part.CanCollide = false
-					part.AssemblyLinearVelocity = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
+		if currentDriveConn then
+			currentDriveConn:Disconnect()
+			currentDriveConn = nil
+		end
+
+		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
+			if not isDrivingActive or not isFarmRunning then
+				driveFinished = true
+				return
 			end
-			if char then
-				for _, part in ipairs(char:GetDescendants()) do
+
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if not (curBus and curSeat) then
+				driveFinished = true
+				return
+			end
+
+			local seatPos = curSeat.Position
+			local destVector = Vector3.new(destPos.X - seatPos.X, 0, destPos.Z - seatPos.Z)
+			local flatDist = destVector.Magnitude
+
+			-- Check Arrival: both horizontal proximity & vertical alignment
+			local vertDist = math.abs(seatPos.Y - targetFinalSeatY)
+			if flatDist <= arrivalThreshold and vertDist <= 25 then
+				driveFinished = true
+				return
+			end
+
+			-- Speed Ramping (Smooth Acceleration & Deceleration near target)
+			local maxSpeed = targetCruiseSpeed
+			local decelDist = math.max(maxSpeed * 0.8, 80)
+			if flatDist < decelDist then
+				maxSpeed = math.max(35, (flatDist / decelDist) * targetCruiseSpeed)
+			end
+
+			if currentSmoothSpeed < maxSpeed then
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
+			elseif currentSmoothSpeed > maxSpeed then
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
+			end
+
+			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
+
+			-- 🛣️ 3D TRAJECTORY ELEVATION & ROAD TRACKING:
+			-- Calculate expected height based on progress toward destination:
+			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
+			local expectedTrajectoryY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
+
+			-- Probe local road underneath:
+			local localGroundY = probeGround(seatPos, expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
+			local aheadGroundY = probeGround(seatPos + (moveDir * 20), expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
+
+			local desiredSeatY = expectedTrajectoryY
+			-- If near destination (< 300 studs), smoothly converge into checkpoint zone height:
+			if flatDist < 300 then
+				local destBlend = math.clamp((300 - flatDist) / 300, 0, 1)
+				desiredSeatY = (expectedTrajectoryY * (1 - destBlend)) + (targetFinalSeatY * destBlend)
+			elseif localGroundY and math.abs(localGroundY - (expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)) < 35 then
+				-- Follow local road surface:
+				desiredSeatY = math.max(localGroundY, aheadGroundY) + BUS_SEAT_GROUND_OFFSET
+			end
+
+			-- Adaptive vertical interpolation
+			local maxVertStep = math.max(65 * dt, 2.5)
+			if lastSeatY < desiredSeatY then
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+			elseif lastSeatY > desiredSeatY then
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
+			end
+
+			-- Smooth Angular Steering
+			if moveDir.Magnitude > 0.05 then
+				local targetAngle = math.atan2(moveDir.X, moveDir.Z)
+				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
+			end
+
+			local stepDist = currentSmoothSpeed * dt
+			local newX = seatPos.X + (moveDir.X * stepDist)
+			local newZ = seatPos.Z + (moveDir.Z * stepDist)
+			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
+
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
+
+			pcall(function()
+				curBus:PivotTo(targetSeatCF)
+
+				-- Collision handling
+				for _, part in ipairs(curBus:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
+						part.Anchored = false
 					end
 				end
+
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+				end
+
+				local velocityVec = moveDir * currentSmoothSpeed
+				curSeat.Throttle = 1
+				curSeat.AssemblyLinearVelocity = velocityVec
+				curSeat.AssemblyAngularVelocity = Vector3.zero
+
+				if hrp then
+					hrp.AssemblyLinearVelocity = velocityVec
+					hrp.AssemblyAngularVelocity = Vector3.zero
+				end
+			end)
+
+			-- Anti-Stuck Detection (Check every 1.5s)
+			local now = os.clock()
+			if (now - lastStuckCheckTime) >= 1.5 then
+				local movedDist = (seatPos - lastStuckCheckPos).Magnitude
+				if movedDist < 6 and flatDist > arrivalThreshold then
+					lastSeatY = desiredSeatY
+					curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY, seatPos.Z + moveDir.Z * 8) * currentRot)
+				end
+				lastStuckCheckTime = now
+				lastStuckCheckPos = seatPos
 			end
 		end)
 
-		local elapsed = 0
-		while elapsed < duration do
-			if not isFarmRunning then break end
-			local dt = RunService.Heartbeat:Wait()
-			elapsed = elapsed + dt
-			local alpha = math.min(elapsed / duration, 1)
-			bus:PivotTo(startCFrame:Lerp(targetCFrame, alpha))
+		while not driveFinished and isDrivingActive and isFarmRunning do
+			task.wait(0.05)
 		end
 
-		bus:PivotTo(targetCFrame)
-		noclipConnection:Disconnect()
-
-		-- Restore collision on wheels ONLY and keep body non-colliding with platform architecture
-		for part, _ in pairs(originalCollisions) do
-			if part and part.Parent then
-				local name = part.Name:lower()
-				if name:find("wheel") or name:find("tire") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
-					part.CanCollide = true
-				else
-					part.CanCollide = false
-				end
-				part.AssemblyLinearVelocity = Vector3.zero
-				part.AssemblyAngularVelocity = Vector3.zero
-			end
+		if currentDriveConn then
+			currentDriveConn:Disconnect()
+			currentDriveConn = nil
 		end
 
-		if char then
-			for _, part in ipairs(char:GetDescendants()) do
-				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-					part.CanCollide = true
+		-- Natural stop at destination: restore collision & place safety plate under road
+		pcall(function()
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if curBus then
+				for _, part in ipairs(curBus:GetDescendants()) do
+					if part:IsA("BasePart") then
+						local name = part.Name:lower()
+						if name:find("wheel") or name:find("tire") or name == "fl" or name == "fr" or name == "rl" or name == "rr" or name == "driveseat" then
+							part.CanCollide = true
+						else
+							part.CanCollide = false
+						end
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
 				end
 			end
-		end
-
-		bus:PivotTo(targetCFrame)
-
-		-- KEEP ANCHORED while waiting at the checkpoint so physics can NEVER fling the bus!
-		rootPart.Anchored = true
-		rootPart.AssemblyLinearVelocity = Vector3.zero
-		rootPart.AssemblyAngularVelocity = Vector3.zero
+			if curSeat then
+				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyAngularVelocity = Vector3.zero
+				curSeat.Throttle = 0
+			end
+			if hrp then
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				hrp.AssemblyAngularVelocity = Vector3.zero
+			end
+			ensureSafetyPlate(Vector3.new(destPos.X, lastSeatY - BUS_SEAT_GROUND_OFFSET - 0.5, destPos.Z), 50)
+		end)
 
 		isDrivingActive = false
 		return true
@@ -411,58 +500,15 @@ local success, err = pcall(function()
 		local seatPos = seat.Position
 		if (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude > 60 then
 			setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
-			driveToDestination(terminalTriggerPos, Config.targetSpeed or 140)
+			driveToDestination(terminalTriggerPos, Config.targetSpeed or 140, 30)
 		end
 
-		-- 3. Auto-detect route with highest payout (max money reward)
-		setFarmState(FARM_STATE.STARTING_JOB, "Selecting Highest Paying Route")
-		pcall(function()
-			local routes = Remotes.GetAvailableBusRoutes:InvokeServer(currentTerminalId)
-			if type(routes) == "table" then
-				local bestRouteId = nil
-				local maxReward = -1
-				for id, info in pairs(routes) do
-					if type(info) == "table" and info.Reward and info.Reward > maxReward then
-						maxReward = info.Reward
-						bestRouteId = id
-					end
-				end
-				if bestRouteId then
-					currentRouteId = bestRouteId
-					Config.selectedRoute = bestRouteId
-				end
-			end
-		end)
-
-		-- Fallback to highest paying route in game if query was nil
-		if not currentRouteId or currentRouteId == "Baranangsiang_ke_Rambutan" then
-			currentRouteId = "Baranangsiang_ke_Cirebon4"
-		end
-
-		setFarmState(FARM_STATE.STARTING_JOB, "Starting Job: " .. tostring(currentRouteId))
+		-- 3. Start Bus Job
+		setFarmState(FARM_STATE.STARTING_JOB, "Invoking StartBusJob")
 		local startRes = nil
 		pcall(function()
 			startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
 		end)
-
-		-- If server reports already in a job, auto-cancel lingering job and restart!
-		if type(startRes) == "string" and (startRes:find("already") or startRes:find("Job")) then
-			setFarmState(FARM_STATE.STARTING_JOB, "Resetting Lingering Job")
-			pcall(function()
-				local bj = player.PlayerGui:FindFirstChild("BusJobGUI")
-				local cancelBtn = bj and bj:FindFirstChild("CancelJobButton", true)
-				if cancelBtn then
-					for _, conn in ipairs(getconnections(cancelBtn.MouseButton1Click)) do
-						conn:Fire()
-					end
-				end
-				Remotes.CancelBusJob:FireServer()
-			end)
-			task.wait(2)
-			pcall(function()
-				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
-			end)
-		end
 
 		if type(startRes) == "table" and startRes.success then
 			currentJobActive = true
@@ -474,25 +520,18 @@ local success, err = pcall(function()
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
 			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName)
 		else
-			setFarmState(FARM_STATE.STARTING_JOB, "Start Failed: " .. tostring(startRes))
 			task.wait(3)
 			return
 		end
 
 		-- 4. Route Navigation Loop (Checkpoint to Checkpoint)
-		local lastDrivenTarget = nil
 		while currentJobActive and isFarmRunning do
 			-- A. Driving to next checkpoint
-			if nextCheckpointPartName and nextCheckpointPartName ~= lastDrivenTarget then
+			if nextCheckpointPartName then
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(cpPart, Config.targetSpeed or 140)
-					lastDrivenTarget = nextCheckpointPartName
-				elseif startRes and startRes.nextCheckpointPosition then
-					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(startRes.nextCheckpointPosition, Config.targetSpeed or 140)
-					lastDrivenTarget = nextCheckpointPartName
+					driveToDestination(Vector3.new(cpPart.Position.X, 0, cpPart.Position.Z), Config.targetSpeed or 140, 20)
 				end
 			end
 
@@ -502,9 +541,7 @@ local success, err = pcall(function()
 				local waitTimeout = os.clock()
 				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 25 do
 					local b, s = ensureBusAndSeat()
-					if b and s then
-						local r = b.PrimaryPart or s
-						r.Anchored = true
+					if s then
 						s.AssemblyLinearVelocity = Vector3.zero
 						s.AssemblyAngularVelocity = Vector3.zero
 						s.Throttle = 0
@@ -514,20 +551,19 @@ local success, err = pcall(function()
 			end
 
 			-- C. Driving to Final Destination
-			if endTriggerPartName and currentJobActive and endTriggerPartName ~= lastDrivenTarget then
+			if endTriggerPartName and not currentJobActive then
+				break
+			elseif endTriggerPartName and currentJobActive then
 				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
 				if endTrigger and endTrigger:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-					driveToDestination(endTrigger, Config.targetSpeed or 140)
-					lastDrivenTarget = endTriggerPartName
+					driveToDestination(Vector3.new(endTrigger.Position.X, 0, endTrigger.Position.Z), Config.targetSpeed or 140, 15)
 				end
 				task.wait(2)
 				break
-			elseif endTriggerPartName and not currentJobActive then
-				break
 			end
 
-			task.wait(0.2)
+			task.wait(0.5)
 		end
 
 		task.wait(2)
@@ -679,12 +715,12 @@ local success, err = pcall(function()
 	end)
 
 	local AVAILABLE_ROUTES = {
+		"Baranangsiang_ke_Rambutan",
 		"Baranangsiang_ke_Cirebon4",
 		"Baranangsiang_ke_Cirebon3",
-		"Baranangsiang_ke_Cirebon2",
-		"Baranangsiang_ke_Cirebon1",
 		"Baranangsiang_ke_Cirebon",
-		"Baranangsiang_ke_Rambutan"
+		"Baranangsiang_ke_Cirebon1",
+		"Baranangsiang_ke_Cirebon2"
 	}
 
 	UI.AddDropdown(tab, "Target Route", AVAILABLE_ROUTES, currentRouteId, function(chosen)
