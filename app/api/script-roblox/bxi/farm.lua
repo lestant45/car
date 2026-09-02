@@ -344,8 +344,18 @@ local success, err = pcall(function()
 	-- 🏁 AUTOMATIC BUS JOB RUNNER
 	------------------------------------------------
 	local function startBusJob()
+		setFarmState(FARM_STATE.PREPARING_BUS, "Ensuring Bus & Seat")
+
+		-- 1. Must ensure bus is spawned and player is seated BEFORE invoking job remotes!
+		local bus, seat = ensureBusAndSeat()
+		if not (bus and seat) then
+			setFarmState(FARM_STATE.IDLE, "Failed to Mount Bus")
+			return false
+		end
+
 		setFarmState(FARM_STATE.STARTING_JOB, "Detecting Terminal")
 
+		-- 2. Detect Terminal ID
 		local triggers = CollectionService:GetTagged("BusJobTrigger")
 		local terminalId = nil
 
@@ -362,44 +372,55 @@ local success, err = pcall(function()
 		end
 		currentTerminalId = terminalId
 
-		setFarmState(FARM_STATE.STARTING_JOB, "Querying Routes for " .. terminalId)
-		local routes = Remotes.GetAvailableBusRoutes:InvokeServer(terminalId)
-		if type(routes) ~= "table" then
-			task.wait(2)
-			return false
-		end
+		-- 3. Clear any stale job state on server
+		pcall(function()
+			Remotes.CancelBusJob:FireServer()
+		end)
+		task.wait(0.5)
 
-		local bestRouteId = nil
+		-- 4. Query Available Routes
+		setFarmState(FARM_STATE.STARTING_JOB, "Querying Routes for " .. terminalId)
+		local routes = nil
+		pcall(function()
+			routes = Remotes.GetAvailableBusRoutes:InvokeServer(terminalId)
+		end)
+
+		local bestRouteId = "Baranangsiang_ke_Rambutan"
 		local maxReward = -1
 
-		for id, info in pairs(routes) do
-			if type(info) == "table" and info.Reward and info.Reward > maxReward then
-				maxReward = info.Reward
-				bestRouteId = id
+		if type(routes) == "table" then
+			for id, info in pairs(routes) do
+				if type(info) == "table" and info.Reward and info.Reward > maxReward then
+					maxReward = info.Reward
+					bestRouteId = id
+				end
 			end
 		end
 
-		if not bestRouteId then
-			bestRouteId = "Baranangsiang_ke_Rambutan"
-		end
 		currentRouteId = bestRouteId
-
-		ensureBusAndSeat()
 		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
 
+		-- 5. Start Bus Job on Server
 		local res = Remotes.StartBusJob:InvokeServer(bestRouteId, terminalId)
 		if type(res) == "table" and res.success and res.nextCheckpointPartName then
 			local cpIndex = res.checkpointIndex or 1
 			local cpTotal = res.totalCheckpoints or 4
 			currentCheckpointText = string.format("%d / %d", cpIndex, cpTotal)
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
-			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, res.nextDestinationName or "Checkpoint 1")
+			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, res.nextDestinationName or "Loading Passengers (Gate)")
 
 			local part = getTargetPart(res.nextCheckpointPartName, "Checkpoints")
 			if part then
 				moveToTarget(part, Config.targetSpeed or 160)
 			end
 			return true
+		elseif type(res) == "string" and res:find("already in a job") then
+			-- Resume existing job checkpoint
+			pcall(function()
+				Remotes.CancelBusJob:FireServer()
+				task.wait(1.0)
+				startBusJob()
+			end)
 		end
 
 		return false
