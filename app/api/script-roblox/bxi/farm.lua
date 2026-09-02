@@ -108,87 +108,59 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🚌 BUS SPAWN & MOUNT HELPERS
+	-- 🚌 BUS SPAWN & MOUNT HELPERS (from reference)
 	------------------------------------------------
 	local selectedBusModel = "Jetbus_3_RM _SHD"
 
-	local function getMyBus()
+	local function prepareVehicle()
+		Remotes.SpawnCar:FireServer(selectedBusModel)
+		task.wait(2)
+
 		local spawnedFolder = workspace:FindFirstChild("SpawnedVehicles")
-		if not spawnedFolder then return nil end
+		if spawnedFolder then
+			local bus = nil
 
-		local char = player.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local currentSeat = hum and hum.SeatPart
-		if currentSeat then
 			for _, veh in ipairs(spawnedFolder:GetChildren()) do
-				if currentSeat:IsDescendantOf(veh) then
-					return veh
+				local ownerAttr = veh:GetAttribute("Owner")
+				local ownerVal = veh:FindFirstChild("Owner")
+				if (ownerAttr and tostring(ownerAttr) == player.Name) or (ownerVal and tostring(ownerVal.Value) == player.Name) or veh.Name:find(player.Name) then
+					bus = veh
+					break
+				end
+			end
+
+			if not bus then
+				local vehicles = spawnedFolder:GetChildren()
+				bus = vehicles[#vehicles]
+			end
+
+			if bus then
+				local seat = bus:FindFirstChild("DriveSeat", true)
+				if seat then
+					local char = player.Character or player.CharacterAdded:Wait()
+					local root = char:FindFirstChild("HumanoidRootPart")
+					if root then
+						root.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
+					end
+					task.wait(0.3)
+					local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt", true) or bus:FindFirstChildWhichIsA("ProximityPrompt", true)
+					if prompt and fireproximityprompt then
+						fireproximityprompt(prompt)
+					else
+						local hum = char:FindFirstChildOfClass("Humanoid")
+						if hum then pcall(function() seat:Sit(hum) end) end
+					end
+					-- Wait until truly seated
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					if hum then
+						local t0 = tick()
+						while hum.SeatPart == nil and (tick() - t0) < 2.0 do
+							task.wait(0.1)
+						end
+					end
 				end
 			end
 		end
-
-		for _, veh in ipairs(spawnedFolder:GetChildren()) do
-			local ownerAttr = veh:GetAttribute("Owner") or veh:GetAttribute("OwnerName")
-			local ownerVal = veh:FindFirstChild("Owner")
-			if (ownerAttr and tostring(ownerAttr) == player.Name) or (ownerVal and tostring(ownerVal.Value) == player.Name) or veh.Name:find(player.Name) then
-				return veh
-			end
-		end
-
-		local vehicles = spawnedFolder:GetChildren()
-		return vehicles[#vehicles]
-	end
-
-	local function getDriverSeat(bus)
-		bus = bus or getMyBus()
-		if not bus then return nil end
-		local seat = bus:FindFirstChild("DriveSeat", true) or bus:FindFirstChildWhichIsA("VehicleSeat", true)
-		if seat and bus.PrimaryPart ~= seat then
-			pcall(function() bus.PrimaryPart = seat end)
-		end
-		return seat
-	end
-
-	local function ensureBusAndSeat()
-		local bus = getMyBus()
-		if not bus then
-			setFarmState(FARM_STATE.PREPARING_BUS, "Spawning Bus")
-			if Remotes:FindFirstChild("SpawnCar") then
-				Remotes.SpawnCar:FireServer(selectedBusModel)
-				task.wait(2.0)
-			end
-			bus = getMyBus()
-		end
-
-		if not bus then return nil, nil end
-
-		local seat = getDriverSeat(bus)
-		local char = player.Character or player.CharacterAdded:Wait()
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-
-		if seat and hum and root then
-			if bus.PrimaryPart ~= seat then
-				pcall(function() bus.PrimaryPart = seat end)
-			end
-			if hum.SeatPart ~= seat then
-				root.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
-				task.wait(0.3)
-				local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt", true) or bus:FindFirstChildWhichIsA("ProximityPrompt", true)
-				if prompt and fireproximityprompt then
-					fireproximityprompt(prompt)
-				else
-					pcall(function() seat:Sit(hum) end)
-				end
-				-- Wait until truly seated (up to 2s)
-				local t0 = tick()
-				while hum.SeatPart == nil and (tick() - t0) < 2.0 do
-					task.wait(0.1)
-				end
-			end
-		end
-
-		return bus, seat
 	end
 
 	local function getTargetPart(name, folderName)
@@ -203,7 +175,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🚀 HYBRID 3D TRAJECTORY + VELOCITY ENGINE
+	-- 🚀 MOVE ENGINE (from reference — lerp + noclip)
 	------------------------------------------------
 	local isDrivingActive = false
 	local currentTargetPart = nil
@@ -212,24 +184,23 @@ local success, err = pcall(function()
 		if not targetPart then return false end
 		currentTargetPart = targetPart
 
-		local bus, seat = ensureBusAndSeat()
-		if not (bus and seat) then return false end
-
 		local char = player.Character or player.CharacterAdded:Wait()
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local targetModel = char
 
-		local speed = customSpeed or (Config.targetSpeed or 160)
-		local speedStudsPerSec = math.max(speed * 0.95, 80)
+		if hum and hum.SeatPart then
+			local veh = hum.SeatPart:FindFirstAncestorOfClass("Model")
+			if veh then targetModel = veh end
+		end
 
-		local targetModel = bus
-		local rootPart = bus.PrimaryPart or seat
+		local rootPart = targetModel.PrimaryPart or targetModel:FindFirstChildWhichIsA("BasePart")
 		if not rootPart then return false end
 
+		local speed = customSpeed or Config.targetSpeed or 160
 		local startCFrame = targetModel:GetPivot()
-		local targetCFrame = targetPart.CFrame + Vector3.new(0, 2.2, 0)
+		local targetCFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
 		local distance = (targetCFrame.Position - startCFrame.Position).Magnitude
-		local duration = math.max(distance / speedStudsPerSec, 0.1)
+		local duration = math.max(distance / speed, 0.1)
 
 		ensureSafetyPlate(targetPart.Position, 50)
 		requestStreamAsync(targetPart.Position)
@@ -241,6 +212,7 @@ local success, err = pcall(function()
 			end
 		end
 
+		local wasAnchored = rootPart.Anchored
 		rootPart.Anchored = true
 		isDrivingActive = true
 
@@ -252,17 +224,10 @@ local success, err = pcall(function()
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
-			if char then
-				for _, part in ipairs(char:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.CanCollide = false
-					end
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
 				end
-			end
-			if hum then
-				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 			end
 		end)
 
@@ -271,34 +236,13 @@ local success, err = pcall(function()
 			local dt = RunService.Heartbeat:Wait()
 			elapsed = elapsed + dt
 			local alpha = math.min(elapsed / duration, 1)
-
-			local curPos = startCFrame.Position:Lerp(targetCFrame.Position, alpha)
-			local moveVector = (targetCFrame.Position - startCFrame.Position)
-			local flatMove = Vector3.new(moveVector.X, 0, moveVector.Z)
-			local rotAngle = flatMove.Magnitude > 0.05 and math.atan2(flatMove.X, flatMove.Z) or 0
-			local currentRot = CFrame.Angles(0, rotAngle, 0)
-
-			local currentCF = CFrame.new(curPos) * currentRot
-			pcall(function()
-				targetModel:PivotTo(currentCF)
-
-				-- Real-time AssemblyLinearVelocity Momentum Sync
-				local velocityVec = flatMove.Magnitude > 0.05 and (flatMove.Unit * speedStudsPerSec) or Vector3.zero
-				seat.Throttle = 1
-				seat.AssemblyLinearVelocity = velocityVec
-				seat.AssemblyAngularVelocity = Vector3.zero
-
-				if hrp then
-					hrp.AssemblyLinearVelocity = velocityVec
-					hrp.AssemblyAngularVelocity = Vector3.zero
-				end
-			end)
+			targetModel:PivotTo(startCFrame:Lerp(targetCFrame, alpha))
 		end
 
-		pcall(function() targetModel:PivotTo(targetCFrame) end)
+		targetModel:PivotTo(targetCFrame)
 		noclipConnection:Disconnect()
 
-		-- Restore Collisions
+		-- Restore collisions
 		for part, canCollide in pairs(originalCollisions) do
 			if part and part.Parent then
 				part.CanCollide = canCollide
@@ -306,148 +250,91 @@ local success, err = pcall(function()
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
 		end
-
-		if char then
-			for _, part in ipairs(char:GetDescendants()) do
-				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-					part.CanCollide = true
-				end
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+				part.CanCollide = true
 			end
 		end
 
-		if seat then
-			seat.AssemblyLinearVelocity = Vector3.zero
-			seat.AssemblyAngularVelocity = Vector3.zero
-			seat.Throttle = 0
+		task.wait(0.8)
+
+		-- Re-snap if not in zone yet
+		if not isWaitingInZone then
+			pcall(function() targetModel:PivotTo(targetPart.CFrame + Vector3.new(0, 3, 0)) end)
+			task.wait(0.2)
 		end
 
-		if hrp then
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end
-
-		-- Trigger touch and hold stable position
+		-- Fire touch to register zone entry
+		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if firetouchinterest and hrp and targetPart then
 			pcall(function() firetouchinterest(hrp, targetPart, 0) end)
 		end
 
-		task.wait(0.6)
-
-		if not isWaitingInZone and isFarmRunning then
-			pcall(function() targetModel:PivotTo(targetCFrame) end)
-			task.wait(0.2)
-		end
-
-		-- Keep rootPart anchored while waiting at checkpoint to prevent sliding out
 		rootPart.Anchored = true
 		isDrivingActive = false
 		return true
 	end
 
 	------------------------------------------------
-	-- 🏁 AUTOMATIC BUS JOB RUNNER
+	-- 🏁 START JOB (from reference)
 	------------------------------------------------
 	local function startBusJob()
-		setFarmState(FARM_STATE.PREPARING_BUS, "Spawning & Mounting Bus")
+		setFarmState(FARM_STATE.PREPARING_BUS, "Spawning Bus")
+		prepareVehicle()
+		if not isFarmRunning then return false end
+		task.wait(1)
+		if not isFarmRunning then return false end
 
-		-- 1. Mount bus FIRST so player is safely inside driver seat
-		local bus, seat = ensureBusAndSeat()
-		if not (bus and seat) then
-			setFarmState(FARM_STATE.IDLE, "Failed to Mount Bus")
-			return false
-		end
+		setFarmState(FARM_STATE.STARTING_JOB, "Detecting Terminal")
 
-		-- Verify player is TRULY seated before proceeding
-		local char = player.Character or player.CharacterAdded:Wait()
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if not (hum and hum.SeatPart) then
-			setFarmState(FARM_STATE.IDLE, "Could Not Confirm Seated")
-			return false
-		end
-
-		setFarmState(FARM_STATE.STARTING_JOB, "Driving Bus to Terminal Counter")
-
-		-- 2. Find nearest Terminal Trigger / White Box
+		-- Get terminalId from BusJobTrigger tags (exactly like reference)
 		local triggers = CollectionService:GetTagged("BusJobTrigger")
-		local currentTrigger = nil
-		local terminalId = "Baranangsiang"
-
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local pPos = seat and seat.Position or (root and root.Position or Vector3.zero)
-
-		if #triggers > 0 then
-			local minDist = 999999
-			for _, tr in ipairs(triggers) do
-				local d = (tr.Position - pPos).Magnitude
-				if d < minDist then
-					minDist = d
-					currentTrigger = tr
-					terminalId = tr:GetAttribute("TerminalId") or "Baranangsiang"
-				end
+		local terminalId = nil
+		for _, trigger in ipairs(triggers) do
+			local id = trigger:GetAttribute("TerminalId")
+			if id then
+				terminalId = id
+				break
 			end
 		end
-
-		if not currentTrigger and workspace:FindFirstChild("BusJobTriggers") then
-			currentTrigger = workspace.BusJobTriggers:FindFirstChild(terminalId)
+		if not terminalId then
+			UI.Notify("Start Job Failed", "No BusJobTrigger found in scene", 4, "red")
+			return false
 		end
 
-		local targetCounterCF = currentTrigger and (currentTrigger.CFrame + Vector3.new(0, 2, 0)) or CFrame.new(22784.34, 291.51, -39580.60)
-		
-		-- Move the BUS (with player seated inside) to the Terminal Trigger
-		pcall(function()
-			bus.PrimaryPart = seat
-			bus:PivotTo(targetCounterCF)
-		end)
-		task.wait(0.5)
+		-- Query routes & pick highest reward
+		local routes = Remotes.GetAvailableBusRoutes:InvokeServer(terminalId)
+		if type(routes) ~= "table" then
+			UI.Notify("Start Job Failed", "Could not get routes", 4, "red")
+			return false
+		end
 
-		-- 3. Clear stale jobs and query routes for highest reward
-		setFarmState(FARM_STATE.STARTING_JOB, "Selecting Highest Paying Job")
-		pcall(function() Remotes.CancelBusJob:FireServer() end)
-		task.wait(0.4)
-
-		local routes = nil
-		pcall(function()
-			routes = Remotes.GetAvailableBusRoutes:InvokeServer(terminalId)
-		end)
-
-		local bestRouteId = "Baranangsiang_ke_Cirebon4"
+		local bestRouteId = nil
 		local maxReward = -1
-		local bestRouteName = "Highest Payout Route"
-
-		if type(routes) == "table" then
-			for id, info in pairs(routes) do
-				if type(info) == "table" and info.Reward and info.Reward > maxReward then
-					maxReward = info.Reward
-					bestRouteId = id
-					bestRouteName = info.DisplayName or id
-				end
+		local bestRouteName = ""
+		for id, info in pairs(routes) do
+			if type(info) == "table" and info.Reward and info.Reward > maxReward then
+				maxReward = info.Reward
+				bestRouteId = id
+				bestRouteName = info.DisplayName or id
 			end
 		end
+		if not bestRouteId then return false end
 
 		currentRouteId = bestRouteId
-		UI.Notify("Route Selected", string.format("%s\nReward: %s", bestRouteName, formatRp(maxReward > 0 and maxReward or 150000000)), 4, "gold")
+		UI.Notify("Route Selected", string.format("%s\nReward: %s", bestRouteName, formatRp(maxReward)), 4, "gold")
 
-		-- 4. Start Selected Bus Job on Server & Detect Assigned Gate
-		-- NOTE: second arg is nil — server detects terminal from bus position
-		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
-		local res = Remotes.StartBusJob:InvokeServer(bestRouteId, nil)
-
-		-- Fallback: retry with terminalId string if nil fails
-		if type(res) == "string" or (type(res) == "table" and not res.success) then
-			task.wait(0.3)
-			res = Remotes.StartBusJob:InvokeServer(bestRouteId, terminalId)
-		end
-
+		-- Start job exactly like reference: (routeId, terminalId)
+		local res = Remotes.StartBusJob:InvokeServer(bestRouteId, terminalId)
 		if type(res) == "table" and res.success and res.nextCheckpointPartName then
 			local cpIndex = res.checkpointIndex or 1
 			local cpTotal = res.totalCheckpoints or 9
 			currentCheckpointText = string.format("%d / %d", cpIndex, cpTotal)
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
-			
+
 			local gateName = res.nextDestinationName or "Loading Gate"
 			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Navigating to " .. gateName)
 
-			-- 5. Detect Gate Checkpoint and Drive into it to load passengers
 			local gatePart = getTargetPart(res.nextCheckpointPartName, "Checkpoints")
 			if gatePart then
 				moveToTarget(gatePart, Config.targetSpeed or 160)
@@ -455,7 +342,7 @@ local success, err = pcall(function()
 			return true
 		end
 
-		UI.Notify("Start Job Failed", type(res) == "string" and res or "Unknown error", 4, "red")
+		UI.Notify("Start Job Failed", type(res) == "string" and res or "Server rejected job", 4, "red")
 		return false
 	end
 
