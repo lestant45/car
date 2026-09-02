@@ -344,25 +344,28 @@ local success, err = pcall(function()
 	-- 🏁 AUTOMATIC BUS JOB RUNNER
 	------------------------------------------------
 	local function startBusJob()
-		setFarmState(FARM_STATE.STARTING_JOB, "Going to Terminal Counter")
+		setFarmState(FARM_STATE.PREPARING_BUS, "Spawning & Mounting Bus")
 
-		local char = player.Character or player.CharacterAdded:Wait()
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-
-		-- 1. Unseat if currently seated and move to Terminal Counter
-		if hum and hum.SeatPart then
-			hum.Sit = false
-			task.wait(0.2)
+		-- 1. Mount bus FIRST so player is safely inside driver seat
+		local bus, seat = ensureBusAndSeat()
+		if not (bus and seat) then
+			setFarmState(FARM_STATE.IDLE, "Failed to Mount Bus")
+			return false
 		end
 
+		setFarmState(FARM_STATE.STARTING_JOB, "Driving Bus to Terminal Counter")
+
+		-- 2. Find nearest Terminal Trigger / White Box
 		local triggers = CollectionService:GetTagged("BusJobTrigger")
 		local currentTrigger = nil
 		local terminalId = "Baranangsiang"
 
+		local char = player.Character or player.CharacterAdded:Wait()
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local pPos = seat and seat.Position or (root and root.Position or Vector3.zero)
+
 		if #triggers > 0 then
 			local minDist = 999999
-			local pPos = root and root.Position or Vector3.zero
 			for _, tr in ipairs(triggers) do
 				local d = (tr.Position - pPos).Magnitude
 				if d < minDist then
@@ -377,13 +380,16 @@ local success, err = pcall(function()
 			currentTrigger = workspace.BusJobTriggers:FindFirstChild(terminalId)
 		end
 
-		local targetCounterCF = currentTrigger and (currentTrigger.CFrame + Vector3.new(0, 3, 0)) or CFrame.new(22784.34, 291.51, -39580.60)
-		if root then
-			root.CFrame = targetCounterCF
-			task.wait(0.5)
-		end
+		local targetCounterCF = currentTrigger and (currentTrigger.CFrame + Vector3.new(0, 2, 0)) or CFrame.new(22784.34, 291.51, -39580.60)
+		
+		-- Move the BUS (with player inside) to the Terminal Trigger
+		pcall(function()
+			bus.PrimaryPart = seat
+			bus:PivotTo(targetCounterCF)
+		end)
+		task.wait(0.5)
 
-		-- 2. Clear stale jobs and query routes for highest reward
+		-- 3. Clear stale jobs and query routes for highest reward
 		setFarmState(FARM_STATE.STARTING_JOB, "Selecting Highest Paying Job")
 		pcall(function() Remotes.CancelBusJob:FireServer() end)
 		task.wait(0.4)
@@ -409,14 +415,6 @@ local success, err = pcall(function()
 
 		currentRouteId = bestRouteId
 		UI.Notify("Route Selected", string.format("%s\nReward: %s", bestRouteName, formatRp(maxReward > 0 and maxReward or 150000000)), 4, "gold")
-
-		-- 3. Spawn & Seat in Bus
-		setFarmState(FARM_STATE.PREPARING_BUS, "Spawning & Mounting Bus")
-		local bus, seat = ensureBusAndSeat()
-		if not (bus and seat) then
-			setFarmState(FARM_STATE.IDLE, "Failed to Mount Bus")
-			return false
-		end
 
 		-- 4. Start Selected Bus Job on Server & Detect Assigned Gate
 		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
