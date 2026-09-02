@@ -151,8 +151,12 @@ local success, err = pcall(function()
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRideGO = false,
 		taxiSpeed = 90,
-		passengerBoardDelay = 3
+		passengerBoardDelay = 3,
+		tripPacing = true,
+		autoRejoinOrders = 30
 	}
+	if Config.tripPacing == nil then Config.tripPacing = true end
+	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -1928,7 +1932,8 @@ local success, err = pcall(function()
 
 			-- 🛡️ Smart Adaptive Pre-Arrival Pacing Guard:
 			-- Menyesuaikan kecepatan safe secara dinamis sesuai jarak order dan limit motor (Mio ~90 km/h)
-			if tripStartTime and tripDistance and tripDistance > 150 then
+			-- Hanya aktif jika fitur Trip Pacing dinyalakan
+			if Config.tripPacing and tripStartTime and tripDistance and tripDistance > 150 then
 				local safeSpeed = 92.0 -- Base safe speed Mio (~83 km/h)
 				if isAnomalyTrip then
 					safeSpeed = 75.0 -- Mode proteksi ekstra ketat untuk Anomaly (+Rp 25M)
@@ -2039,10 +2044,8 @@ local success, err = pcall(function()
 
 		-- 7. Complete Trip & Acknowledge (Dengan Pacing Kecepatan Rata-Rata Aman Server untuk SEMUA Order)
 		if taxiActive then
-			-- 🛡️ Server Average Velocity Pacing (Maksimal ~85 stud/s)
-			-- Server DDS mencatat: Kecepatan Rata-rata = tripDistance / (tick() - tripStartTime)
-			-- Jika waktu tempuh terlalu cepat, kita beri jeda pacing agar server memvalidasi trip 100% sah/legit
-			if tripStartTime and tripDistance and tripDistance > 150 then
+			-- 🛡️ Server Average Velocity Pacing (Hanya jika Smart Pacing ON)
+			if Config.tripPacing and tripStartTime and tripDistance and tripDistance > 150 then
 				local safeMaxSpeed = 92.0
 				if isAnomalyTrip then
 					safeMaxSpeed = 75.0
@@ -2071,8 +2074,42 @@ local success, err = pcall(function()
 			local totalDone = _G.HipHubCompletedTrips
 			UI.Notify("🏆 Trip Complete!", string.format("Order #%d selesai. Siap mencari order baru!", totalDone), 3, "success")
 
-			-- ☕ Cooldown Istirahat 1 Menit setiap kelipatan 10 orderan (10, 20, 30, 40, dst.)
-			if totalDone > 0 and (totalDone % 10 == 0) then
+			-- 🔄 Scheduled Auto-Rejoin Cycle (Reset Strike & Session Memory di Server)
+			local autoRejoinCount = tonumber(Config.autoRejoinOrders) or 30
+			if autoRejoinCount > 0 and totalDone > 0 and (totalDone % autoRejoinCount == 0) then
+				UI.Notify("🔄 Auto-Rejoin Siklus", string.format("Order #%d selesai! Mematikan status kerja (Offline)...", totalDone), 4, "success")
+				updateBotActivity(string.format("🔄 Offline & Rejoining (Order #%d)...", totalDone), Color3.fromRGB(0, 212, 255))
+
+				lastCompletedToken = token
+				taxiBusy = false
+				taxiToken = nil
+				taxiPickupPos = nil
+				taxiDropPos = nil
+				taxiPickupAddr = ""
+				taxiDropAddr = ""
+				passengerSeated = false
+
+				-- 🛡️ Pastikan status kerja RideGO benar-benar GoOffline & Team Warga sebelum Rejoin
+				pcall(function()
+					local ev = getTaxiEvent()
+					if ev then
+						ev:FireServer("GoOffline")
+					end
+					if changeTeam then
+						changeTeam("Warga")
+					end
+				end)
+
+				task.wait(1.5)
+				pcall(function()
+					local TeleportService = game:GetService("TeleportService")
+					TeleportService:Teleport(game.PlaceId, player)
+				end)
+				return
+			end
+
+			-- ☕ Cooldown Istirahat 1 Menit setiap kelipatan 10 orderan (Hanya jika pacing aktif & tidak pas saat rejoin)
+			if Config.tripPacing and totalDone > 0 and (totalDone % 10 == 0) then
 				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 1 menit...", totalDone), 5, "warning")
 				lastCompletedToken = token
 				taxiBusy = false
@@ -2469,10 +2506,30 @@ local success, err = pcall(function()
 	end)
 	_G.HipHubAutoRideGoToggle = autoRideGoToggle
 
-	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 120, math.floor(Config.taxiSpeed or 60), function(val)
+	UI.AddToggle(tab, "Smart Trip Pacing (Anti-Kick)", "Menahan waktu tiba pas di server agar tidak terdeteksi. Matikan jika ingin Mode Turbo (Gas Pol).", Config.tripPacing, function(state)
+		Config.tripPacing = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.tripPacing = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 300, math.floor(Config.taxiSpeed or 90), function(val)
 		Config.taxiSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.taxiSpeed = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Auto Rejoin Per Orders", 0, 60, math.floor(Config.autoRejoinOrders or 30), function(val)
+		Config.autoRejoinOrders = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.autoRejoinOrders = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
