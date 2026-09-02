@@ -163,8 +163,16 @@ local success, err = pcall(function()
 			if hum.SeatPart ~= seat then
 				hrp.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
 				task.wait(0.2)
-				seat:Sit(hum)
-				task.wait(0.3)
+				pcall(function() seat:Sit(hum) end)
+				task.wait(0.2)
+
+				if hum.SeatPart ~= seat then
+					local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt", true) or bus:FindFirstChildWhichIsA("ProximityPrompt", true)
+					if prompt and fireproximityprompt then
+						pcall(function() fireproximityprompt(prompt) end)
+						task.wait(0.5)
+					end
+				end
 			end
 		end
 
@@ -250,7 +258,6 @@ local success, err = pcall(function()
 			end
 		end
 
-		local wasAnchored = rootPart.Anchored
 		rootPart.Anchored = true
 
 		-- Pre-load destination safety plate & streaming
@@ -286,10 +293,15 @@ local success, err = pcall(function()
 		bus:PivotTo(targetCFrame)
 		noclipConnection:Disconnect()
 
-		-- Restore collision on wheels and reset momentum
-		for part, canCollide in pairs(originalCollisions) do
+		-- Restore collision on wheels ONLY and keep body non-colliding with platform architecture
+		for part, _ in pairs(originalCollisions) do
 			if part and part.Parent then
-				part.CanCollide = canCollide
+				local name = part.Name:lower()
+				if name:find("wheel") or name:find("tire") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+					part.CanCollide = true
+				else
+					part.CanCollide = false
+				end
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -303,14 +315,13 @@ local success, err = pcall(function()
 			end
 		end
 
-		task.wait(0.5)
+		bus:PivotTo(targetCFrame)
 
-		if not waitingForCheckpointCountdown then
-			bus:PivotTo(targetCFrame)
-			task.wait(0.2)
-		end
+		-- KEEP ANCHORED while waiting at the checkpoint so physics can NEVER fling the bus!
+		rootPart.Anchored = true
+		rootPart.AssemblyLinearVelocity = Vector3.zero
+		rootPart.AssemblyAngularVelocity = Vector3.zero
 
-		rootPart.Anchored = wasAnchored
 		isDrivingActive = false
 		return true
 	end
@@ -449,13 +460,15 @@ local success, err = pcall(function()
 		end
 
 		-- 4. Route Navigation Loop (Checkpoint to Checkpoint)
+		local lastDrivenTarget = nil
 		while currentJobActive and isFarmRunning do
 			-- A. Driving to next checkpoint
-			if nextCheckpointPartName then
+			if nextCheckpointPartName and nextCheckpointPartName ~= lastDrivenTarget then
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
 					driveToDestination(cpPart, Config.targetSpeed or 140)
+					lastDrivenTarget = nextCheckpointPartName
 				end
 			end
 
@@ -465,7 +478,9 @@ local success, err = pcall(function()
 				local waitTimeout = os.clock()
 				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 25 do
 					local b, s = ensureBusAndSeat()
-					if s then
+					if b and s then
+						local r = b.PrimaryPart or s
+						r.Anchored = true
 						s.AssemblyLinearVelocity = Vector3.zero
 						s.AssemblyAngularVelocity = Vector3.zero
 						s.Throttle = 0
@@ -475,19 +490,20 @@ local success, err = pcall(function()
 			end
 
 			-- C. Driving to Final Destination
-			if endTriggerPartName and not currentJobActive then
-				break
-			elseif endTriggerPartName and currentJobActive then
+			if endTriggerPartName and currentJobActive and endTriggerPartName ~= lastDrivenTarget then
 				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
 				if endTrigger and endTrigger:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
 					driveToDestination(endTrigger, Config.targetSpeed or 140)
+					lastDrivenTarget = endTriggerPartName
 				end
 				task.wait(2)
 				break
+			elseif endTriggerPartName and not currentJobActive then
+				break
 			end
 
-			task.wait(0.5)
+			task.wait(0.2)
 		end
 
 		task.wait(2)
