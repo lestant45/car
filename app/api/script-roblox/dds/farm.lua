@@ -1347,7 +1347,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 8.0 then
+			if dist <= 3.5 then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -1405,23 +1405,22 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ 2-Stage Smooth Deceleration:
-			-- Stage 1 (300 -> 50 stud): Kecepatan turun mulus dari slider speed ke 15 km/h
-			-- Stage 2 (50 -> 0 stud): Kecepatan merayap presisi dari 15 km/h ke 0 km/h tepat di tujuan
+			-- 🏎️ S-Curve Progressive Aerodynamic Deceleration (Halus di Kecepatan 200-300 stud/s):
+			-- Jarak pengereman dinamis proporsional terhadap kecepatan (misal ~360 stud pada speed 200)
+			local brakeZoneDist = math.max(140, speed * 1.8)
 			local targetSpeed = speed
-			if dist < 50 then
-				targetSpeed = math.max(0, 15 * (dist / 50))
-			elseif dist < 300 then
-				local factor = (dist - 50) / 250
-				targetSpeed = 15 + math.max(0, speed - 15) * factor
+
+			if dist < brakeZoneDist then
+				local ratio = math.clamp(dist / brakeZoneDist, 0, 1)
+				-- Smoothstep S-Curve: Transisi eksponensial mulus dari gas pol ke merayap
+				local sFactor = ratio * ratio * (3 - 2 * ratio)
+				targetSpeed = math.max(2.5, speed * sFactor)
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
-			-- 🛑 STRICT VOID SAFETY SCANNER (Zero-Tolerance Anti-Float / Anti-Flying Rule):
-			-- Memindai kesinambungan daratan di depan dari jarak dekat (3 stud) hingga 300 stud.
-			-- Jika jurang berada di depan (jarak solid <= 25 stud) dan tujuan masih jauh di seberang,
-			-- MOTOR DILARANG KERAS BERJALAN/MAJU WALAUPUN HANYA 1 STUD!
+			-- 🛑 STRICT VOID SAFETY SCANNER:
+			-- Memindai kesinambungan daratan di depan dari jarak dekat hingga batas pengereman
 			local solidAheadDist = 300
 			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300 }
 			for _, lookDist in ipairs(checkSteps) do
@@ -1435,29 +1434,24 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🚫 STRICT ANTI-FLOAT CONDITION:
-			-- Jika jurang berada dalam jarak <= 25 stud, atau pulau daratan terlalu sempit untuk melaju:
-			-- Kecepatan WAJIB 0, dilarang bergerak maju 1 stud pun ke arah tepi jurang!
-			local isImmediateVoidAhead = (solidAheadDist <= 25) and (dist > solidAheadDist)
+			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
+			-- Menurunkan kecepatan secara bertahap dan halus sebelum mencapai bibir jurang
+			local cliffBrakeZone = math.max(70, speed * 0.8)
+			local isImmediateVoidAhead = (solidAheadDist <= 10) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
-				currentSmoothSpeed = 0
-			elseif solidAheadDist < 300 and solidAheadDist < dist then
-				local cliffTargetSpeed = speed
-				if solidAheadDist < 60 then
-					cliffTargetSpeed = math.max(0, 15 * ((solidAheadDist - 25) / 35))
-				else
-					local factor = (solidAheadDist - 60) / 240
-					cliffTargetSpeed = 15 + math.max(0, speed - 15) * factor
-				end
+			elseif solidAheadDist < cliffBrakeZone and solidAheadDist < dist then
+				local cliffRatio = math.clamp((solidAheadDist - 10) / (cliffBrakeZone - 10), 0, 1)
+				local cliffFactor = cliffRatio * cliffRatio
+				local cliffTargetSpeed = math.max(2.0, speed * cliffFactor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
-			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Adaptif):
-			-- Mencegah sentakan inersia tajam yang dapat memutus weld pengemudi!
-			local maxAccelRate = 50 * dt
-			local maxDecelRate = 75 * dt
+			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Responsif):
+			-- Mencegah sentakan inersia tajam pada kecepatan tinggi (200-300 stud/s)
+			local maxAccelRate = math.max(60, speed * 0.7) * dt
+			local maxDecelRate = math.max(150, speed * 2.0) * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
