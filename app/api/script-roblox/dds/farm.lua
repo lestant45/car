@@ -1405,16 +1405,20 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ S-Curve Progressive Aerodynamic Deceleration (Halus di Kecepatan 200-300 stud/s):
-			-- Jarak pengereman dinamis proporsional terhadap kecepatan (misal ~360 stud pada speed 200)
-			local brakeZoneDist = math.max(140, speed * 1.8)
+			-- 🏎️ Aggressive High-Speed Glide & Late Precision Creep (Merayap mulai 20-25 studs):
+			-- Jarak pengereman dinamis: ~160 stud pada speed 200, mempertahankan kecepatan tinggi lebih lama
+			local brakeZoneDist = math.max(80, speed * 0.8)
 			local targetSpeed = speed
 
-			if dist < brakeZoneDist then
-				local ratio = math.clamp(dist / brakeZoneDist, 0, 1)
-				-- Smoothstep S-Curve: Transisi eksponensial mulus dari gas pol ke merayap
-				local sFactor = ratio * ratio * (3 - 2 * ratio)
-				targetSpeed = math.max(2.5, speed * sFactor)
+			if dist < 25 then
+				-- Zona Merayap Pelan (25 -> 0 stud): Kecepatan 14 stud/s turun presisi ke 3 stud/s
+				local creepRatio = math.clamp(dist / 25, 0, 1)
+				targetSpeed = math.max(3.0, 14 * creepRatio)
+			elseif dist < brakeZoneDist then
+				-- Zona Deselerasi Cepat (160 -> 25 stud): Kecepatan turun dari 200 ke 14 stud/s tepat saat menyentuh 25 stud
+				local factor = math.clamp((dist - 25) / (brakeZoneDist - 25), 0, 1)
+				local sFactor = factor * factor * (3 - 2 * factor)
+				targetSpeed = 14 + (speed - 14) * sFactor
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
@@ -1434,17 +1438,20 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
-			-- Menurunkan kecepatan secara bertahap dan halus sebelum mencapai bibir jurang
-			local cliffBrakeZone = math.max(70, speed * 0.8)
-			local isImmediateVoidAhead = (solidAheadDist <= 10) and (dist > solidAheadDist)
+			-- 🛑 Pengereman Menjelang Tepi Jurang (Merayap mulai ~20 stud sebelum bibir jurang):
+			local cliffBrakeZone = math.max(60, speed * 0.6)
+			local isImmediateVoidAhead = (solidAheadDist <= 8) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
+			elseif solidAheadDist < 25 and solidAheadDist < dist then
+				local creepRatio = math.clamp((solidAheadDist - 8) / 17, 0, 1)
+				local cliffCreepSpeed = math.max(2.5, 12 * creepRatio)
+				targetSpeed = math.min(targetSpeed, cliffCreepSpeed)
 			elseif solidAheadDist < cliffBrakeZone and solidAheadDist < dist then
-				local cliffRatio = math.clamp((solidAheadDist - 10) / (cliffBrakeZone - 10), 0, 1)
-				local cliffFactor = cliffRatio * cliffRatio
-				local cliffTargetSpeed = math.max(2.0, speed * cliffFactor)
+				local factor = math.clamp((solidAheadDist - 25) / (cliffBrakeZone - 25), 0, 1)
+				local sFactor = factor * factor * (3 - 2 * factor)
+				local cliffTargetSpeed = 12 + (speed - 12) * sFactor
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
