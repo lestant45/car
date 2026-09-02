@@ -1427,9 +1427,9 @@ local success, err = pcall(function()
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛑 STRICT VOID SAFETY SCANNER:
-			-- Memindai kesinambungan daratan di depan hingga jarak 800 studs untuk kecepatan 300 stud/s
-			local solidAheadDist = 800
-			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800 }
+			-- Memindai kesinambungan daratan di depan hingga jarak 1000 studs untuk kecepatan 300 stud/s
+			local solidAheadDist = 1000
+			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000 }
 			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
@@ -1441,21 +1441,24 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
-			-- Mengikuti kurva yang sama agar pengereman tepi jurang 100% empuk
-			local isImmediateVoidAhead = (solidAheadDist <= 10) and (dist > solidAheadDist)
+			-- 🛑 Pengereman Halus Menjelang Tepi Jurang (Mulai dari 800-1000 Studs):
+			-- Menghentikan motor secara bertahap sehingga saat tiba di bibir jurang kecepatan sudah 0 km/h
+			local isImmediateVoidAhead = (solidAheadDist <= 8) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
-			elseif solidAheadDist < 600 and solidAheadDist < dist then
+			elseif solidAheadDist < 800 and solidAheadDist < dist then
 				local cliffTargetSpeed = speed
-				if solidAheadDist < 10 then
+				if solidAheadDist <= 8 then
 					cliffTargetSpeed = 0
-				elseif solidAheadDist < 50 then
-					local creepRatio = math.clamp((solidAheadDist - 10) / 40, 0, 1)
-					cliffTargetSpeed = 4.0 + (28.0 - 4.0) * creepRatio
+				elseif solidAheadDist < 40 then
+					local r = math.clamp((solidAheadDist - 8) / 32, 0, 1)
+					cliffTargetSpeed = 2.0 + (10.0 - 2.0) * r
+				elseif solidAheadDist < 180 then
+					local r = math.clamp((solidAheadDist - 40) / 140, 0, 1)
+					cliffTargetSpeed = 10.0 + (28.0 - 10.0) * r
 				else
-					local factor = math.clamp((solidAheadDist - 50) / 550, 0, 1)
+					local factor = math.clamp((solidAheadDist - 180) / 620, 0, 1)
 					local sFactor = factor * factor * (3 - 2 * factor)
 					cliffTargetSpeed = 28.0 + (speed - 28.0) * sFactor
 				end
@@ -1465,14 +1468,14 @@ local success, err = pcall(function()
 			-- 🛡️ Slew-Rate Limiter (Zero-Damage Smooth Acceleration & Deceleration):
 			-- Membatasi delta perubahan kecepatan agar tidak menghasilkan gaya g-force yang merusak SeatWeld / melukai darah player!
 			local maxAccelRate = math.max(45, speed * 0.4) * dt
-			local maxDecelRate = math.max(50, speed * 0.45) * dt
+			local maxDecelRate = math.max(65, speed * 0.55) * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
 				currentSmoothSpeed = math.max(targetSpeed, currentSmoothSpeed - maxDecelRate)
 			end
 
-			local curSpeed = isImmediateVoidAhead and 0 or currentSmoothSpeed
+			local curSpeed = currentSmoothSpeed
 			local stepDist = curSpeed * dt
 			local probeDist = math.max(stepDist * 1.6, 4)
 
@@ -1492,8 +1495,8 @@ local success, err = pcall(function()
 				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
 				actualMoveDir = Vector3.zero
 				stepDist = 0
-				currentSmoothSpeed = 0
-				curSpeed = 0
+				currentSmoothSpeed = math.max(0, currentSmoothSpeed - 90 * dt)
+				curSpeed = currentSmoothSpeed
 				targetElevY = lastGroundY
 
 				local nowClock = os.clock()
@@ -1526,40 +1529,26 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Smooth vertical descent/ascent rate
-			local maxVertStep = math.max(50 * dt, 2.5)
-			local chosenY = lastGroundY
-			if chosenY > targetElevY then
-				chosenY = math.max(targetElevY, chosenY - maxVertStep)
-			elseif chosenY < targetElevY then
-				chosenY = math.min(targetElevY, chosenY + maxVertStep)
+			local newElevY = math.clamp(targetElevY, -20, 200)
+			if math.abs(newElevY - lastGroundY) > 8 then
+				newElevY = lastGroundY + math.clamp(newElevY - lastGroundY, -8, 8)
 			end
-			lastGroundY = chosenY
+			lastGroundY = newElevY
 
-			local newX = carPos.X + actualMoveDir.X * stepDist
-			local newZ = carPos.Z + actualMoveDir.Z * stepDist
-			local newPos = Vector3.new(newX, chosenY, newZ)
-
-			-- Smooth Angular Steering
-			if actualMoveDir.Magnitude > 0.05 then
-				local targetAngle = math.atan2(actualMoveDir.X, actualMoveDir.Z)
-				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -12 * dt, 12 * dt)
-			end
-
-			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
-			local currentCF  = CFrame.new(newPos) * currentRot
+			local moveDelta = (actualMoveDir.Magnitude > 0.01) and (actualMoveDir.Unit * stepDist) or Vector3.zero
+			local newPos = Vector3.new(carPos.X + moveDelta.X, newElevY, carPos.Z + moveDelta.Z)
 
 			pcall(function()
-				car:PivotTo(currentCF)
-
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.CanCollide = false
-						part.Anchored = false
-					end
+				if actualMoveDir.Magnitude > 0.01 then
+					local targetAngle = math.atan2(actualMoveDir.X, actualMoveDir.Z)
+					local diff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+					local maxTurn = 6.0 * dt
+					curHeadingAngle = curHeadingAngle + math.clamp(diff, -maxTurn, maxTurn)
 				end
 
+				car:PivotTo(CFrame.new(newPos) * CFrame.Angles(0, curHeadingAngle, 0))
+
+				local char = player.Character
 				if char then
 					for _, part in ipairs(char:GetDescendants()) do
 						if part:IsA("BasePart") then
@@ -1586,8 +1575,8 @@ local success, err = pcall(function()
 
 				local velocityVec = actualMoveDir * curSpeed
 				if seat:IsA("VehicleSeat") then
-					seat.Throttle = actualMoveDir.Magnitude > 0 and 1 or 0
-					seat.ThrottleFloat = actualMoveDir.Magnitude > 0 and 1 or 0
+					seat.Throttle = curSpeed > 1 and 1 or 0
+					seat.ThrottleFloat = curSpeed > 1 and 1 or 0
 					seat.AssemblyLinearVelocity = velocityVec
 				end
 				local prim = car.PrimaryPart or seat
@@ -1595,7 +1584,7 @@ local success, err = pcall(function()
 					prim.AssemblyLinearVelocity = velocityVec
 				end
 
-				-- 🔒 Sinkronisasi Momentum Tubuh Pengemudi & Penumpang
+				-- 🔒 Sinkronisasi Tubuh Pengemudi & Penumpang (Tanpa Paksaan Velocity Konflik)
 				local root = char and char:FindFirstChild("HumanoidRootPart")
 				if root and seat and hum then
 					if not hum.SeatPart or hum.SeatPart ~= seat then
@@ -1604,8 +1593,6 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-					root.AssemblyLinearVelocity = velocityVec
-					root.AssemblyAngularVelocity = Vector3.zero
 				end
 
 				if passengerNpc then
