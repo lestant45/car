@@ -1405,28 +1405,24 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ Aggressive High-Speed Glide & Late Precision Creep (Merayap mulai 20-25 studs):
-			-- Jarak pengereman dinamis: ~160 stud pada speed 200, mempertahankan kecepatan tinggi lebih lama
-			local brakeZoneDist = math.max(80, speed * 0.8)
+			-- 🏎️ S-Curve Progressive Aerodynamic Deceleration (Halus Ekstra di Kecepatan 250-300 stud/s):
+			-- Jarak pengereman mulai dari 500 studs (dinamis mengikuti kecepatan tinggi)
+			local brakeZoneDist = math.max(500, speed * 2.0)
 			local targetSpeed = speed
 
-			if dist < 25 then
-				-- Zona Merayap Pelan (25 -> 0 stud): Kecepatan 14 stud/s turun presisi ke 3 stud/s
-				local creepRatio = math.clamp(dist / 25, 0, 1)
-				targetSpeed = math.max(3.0, 14 * creepRatio)
-			elseif dist < brakeZoneDist then
-				-- Zona Deselerasi Cepat (160 -> 25 stud): Kecepatan turun dari 200 ke 14 stud/s tepat saat menyentuh 25 stud
-				local factor = math.clamp((dist - 25) / (brakeZoneDist - 25), 0, 1)
-				local sFactor = factor * factor * (3 - 2 * factor)
-				targetSpeed = 14 + (speed - 14) * sFactor
+			if dist < brakeZoneDist then
+				local ratio = math.clamp(dist / brakeZoneDist, 0, 1)
+				-- Smoothstep S-Curve: Transisi eksponensial mulus dari gas pol (300 stud/s) ke merayap
+				local sFactor = ratio * ratio * (3 - 2 * ratio)
+				targetSpeed = math.max(2.5, speed * sFactor)
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛑 STRICT VOID SAFETY SCANNER:
-			-- Memindai kesinambungan daratan di depan dari jarak dekat hingga batas pengereman
-			local solidAheadDist = 300
-			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300 }
+			-- Memindai kesinambungan daratan di depan hingga jarak 550 studs untuk kecepatan 300 stud/s
+			local solidAheadDist = 550
+			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 380, 450, 500, 550 }
 			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
@@ -1438,27 +1434,24 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🛑 Pengereman Menjelang Tepi Jurang (Merayap mulai ~20 stud sebelum bibir jurang):
-			local cliffBrakeZone = math.max(60, speed * 0.6)
-			local isImmediateVoidAhead = (solidAheadDist <= 8) and (dist > solidAheadDist)
+			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
+			-- Menurunkan kecepatan secara bertahap dan halus sebelum mencapai bibir jurang
+			local cliffBrakeZone = math.max(160, speed * 0.9)
+			local isImmediateVoidAhead = (solidAheadDist <= 10) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
-			elseif solidAheadDist < 25 and solidAheadDist < dist then
-				local creepRatio = math.clamp((solidAheadDist - 8) / 17, 0, 1)
-				local cliffCreepSpeed = math.max(2.5, 12 * creepRatio)
-				targetSpeed = math.min(targetSpeed, cliffCreepSpeed)
 			elseif solidAheadDist < cliffBrakeZone and solidAheadDist < dist then
-				local factor = math.clamp((solidAheadDist - 25) / (cliffBrakeZone - 25), 0, 1)
-				local sFactor = factor * factor * (3 - 2 * factor)
-				local cliffTargetSpeed = 12 + (speed - 12) * sFactor
+				local cliffRatio = math.clamp((solidAheadDist - 10) / (cliffBrakeZone - 10), 0, 1)
+				local cliffFactor = cliffRatio * cliffRatio
+				local cliffTargetSpeed = math.max(2.0, speed * cliffFactor)
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
 
 			-- 🛡️ Slew-Rate Limiter (Akselerasi & Deselerasi Halus Responsif):
-			-- Mencegah sentakan inersia tajam pada kecepatan tinggi (200-300 stud/s)
-			local maxAccelRate = math.max(60, speed * 0.7) * dt
-			local maxDecelRate = math.max(150, speed * 2.0) * dt
+			-- Mencegah sentakan inersia tajam pada kecepatan tinggi (250-300 stud/s)
+			local maxAccelRate = math.max(70, speed * 0.8) * dt
+			local maxDecelRate = math.max(160, speed * 2.2) * dt
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
