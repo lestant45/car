@@ -202,18 +202,20 @@ local success, err = pcall(function()
 	-- 🚀 HYBRID 3D TRAJECTORY + VELOCITY ENGINE
 	------------------------------------------------
 	local isDrivingActive = false
+	local currentTargetPart = nil
 
 	local function moveToTarget(targetPart, customSpeed)
 		if not targetPart then return false end
+		currentTargetPart = targetPart
+
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
 
-		local char = player.Character
+		local char = player.Character or player.CharacterAdded:Wait()
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
 		local speed = customSpeed or (Config.targetSpeed or 160)
-		-- Convert km/h to studs/second (1 km/h ≈ 0.99 studs/s in Roblox physics scale)
 		local speedStudsPerSec = math.max(speed * 0.95, 80)
 
 		local targetModel = bus
@@ -221,7 +223,7 @@ local success, err = pcall(function()
 		if not rootPart then return false end
 
 		local startCFrame = targetModel:GetPivot()
-		local targetCFrame = targetPart.CFrame + Vector3.new(0, 3.2, 0)
+		local targetCFrame = targetPart.CFrame + Vector3.new(0, 2.2, 0)
 		local distance = (targetCFrame.Position - startCFrame.Position).Magnitude
 		local duration = math.max(distance / speedStudsPerSec, 0.1)
 
@@ -235,14 +237,15 @@ local success, err = pcall(function()
 			end
 		end
 
-		local wasAnchored = rootPart.Anchored
-		rootPart.Anchored = false
+		rootPart.Anchored = true
 		isDrivingActive = true
 
 		local noclipConnection = RunService.Stepped:Connect(function()
 			for part in pairs(originalCollisions) do
 				if part and part.Parent then
 					part.CanCollide = false
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
 			if char then
@@ -265,7 +268,6 @@ local success, err = pcall(function()
 			elapsed = elapsed + dt
 			local alpha = math.min(elapsed / duration, 1)
 
-			-- Smooth Interpolation along direct 3D trajectory
 			local curPos = startCFrame.Position:Lerp(targetCFrame.Position, alpha)
 			local moveVector = (targetCFrame.Position - startCFrame.Position)
 			local flatMove = Vector3.new(moveVector.X, 0, moveVector.Z)
@@ -292,17 +294,20 @@ local success, err = pcall(function()
 		pcall(function() targetModel:PivotTo(targetCFrame) end)
 		noclipConnection:Disconnect()
 
-		-- Restore Collisions & Stabilize Physics
+		-- Restore Collisions
 		for part, canCollide in pairs(originalCollisions) do
 			if part and part.Parent then
-				local name = part.Name:lower()
-				if name:find("wheel") or name:find("tire") or name == "fl" or name == "fr" or name == "rl" or name == "rr" or name == "driveseat" then
-					part.CanCollide = true
-				else
-					part.CanCollide = canCollide
-				end
+				part.CanCollide = canCollide
 				part.AssemblyLinearVelocity = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+					part.CanCollide = true
+				end
 			end
 		end
 
@@ -317,15 +322,20 @@ local success, err = pcall(function()
 			hrp.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		task.wait(0.5)
+		-- Trigger touch and hold stable position
+		if firetouchinterest and hrp and targetPart then
+			pcall(function() firetouchinterest(hrp, targetPart, 0) end)
+		end
 
-		-- Re-verify final positioning inside trigger zone
+		task.wait(0.6)
+
 		if not isWaitingInZone and isFarmRunning then
-			pcall(function() targetModel:PivotTo(targetPart.CFrame + Vector3.new(0, 3.2, 0)) end)
+			pcall(function() targetModel:PivotTo(targetCFrame) end)
 			task.wait(0.2)
 		end
 
-		rootPart.Anchored = wasAnchored
+		-- Keep rootPart anchored while waiting at checkpoint to prevent sliding out
+		rootPart.Anchored = true
 		isDrivingActive = false
 		return true
 	end
@@ -336,7 +346,6 @@ local success, err = pcall(function()
 	local function startBusJob()
 		setFarmState(FARM_STATE.STARTING_JOB, "Detecting Terminal")
 
-		-- 1. Detect Terminal Tag or Fallback
 		local triggers = CollectionService:GetTagged("BusJobTrigger")
 		local terminalId = nil
 
@@ -353,7 +362,6 @@ local success, err = pcall(function()
 		end
 		currentTerminalId = terminalId
 
-		-- 2. Fetch Available Routes & Pick Highest Payout
 		setFarmState(FARM_STATE.STARTING_JOB, "Querying Routes for " .. terminalId)
 		local routes = Remotes.GetAvailableBusRoutes:InvokeServer(terminalId)
 		if type(routes) ~= "table" then
@@ -376,7 +384,6 @@ local success, err = pcall(function()
 		end
 		currentRouteId = bestRouteId
 
-		-- 3. Ensure Vehicle & Start Job
 		ensureBusAndSeat()
 		setFarmState(FARM_STATE.STARTING_JOB, "Starting " .. tostring(bestRouteId))
 
@@ -404,6 +411,11 @@ local success, err = pcall(function()
 
 		if action == "StartCheckpointWait" then
 			isWaitingInZone = true
+			local bus, seat = ensureBusAndSeat()
+			if bus and (bus.PrimaryPart or seat) then
+				local rp = bus.PrimaryPart or seat
+				rp.Anchored = true
+			end
 			if type(data) == "table" then
 				local cpIdx = data.checkpointIndex or 1
 				local cpTot = data.totalCheckpoints or 4
@@ -411,6 +423,33 @@ local success, err = pcall(function()
 				if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
 				setFarmState(FARM_STATE.WAITING_PASSENGERS, string.format("Loading (%ds)", data.waitTime or 15))
 			end
+			return
+		end
+
+		if action == "CheckpointZoneExit" then
+			-- If server says we exited zone while waiting, re-center immediately
+			if isWaitingInZone and currentTargetPart then
+				task.spawn(function()
+					pcall(function()
+						local bus, seat = ensureBusAndSeat()
+						if bus then
+							bus:PivotTo(currentTargetPart.CFrame + Vector3.new(0, 2.2, 0))
+							local rp = bus.PrimaryPart or seat
+							if rp then rp.Anchored = true end
+						end
+						local char = player.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						if firetouchinterest and hrp and currentTargetPart then
+							firetouchinterest(hrp, currentTargetPart, 0)
+						end
+					end)
+				end)
+			end
+			return
+		end
+
+		if action == "CheckpointZoneEnter" then
+			isWaitingInZone = true
 			return
 		end
 
@@ -469,7 +508,6 @@ local success, err = pcall(function()
 				setFarmState(isFinal and FARM_STATE.DRIVING_FINAL or FARM_STATE.DRIVING_CHECKPOINT, data.nextDestinationName or targetName)
 
 				if isFinal then
-					-- Grace period to let server sync finish stop
 					task.wait(1.0)
 				end
 
