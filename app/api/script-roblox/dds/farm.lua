@@ -1940,18 +1940,23 @@ local success, err = pcall(function()
 
 			-- 🛡️ Smart Adaptive Pre-Arrival Pacing Guard:
 			-- Menyesuaikan kecepatan safe secara dinamis sesuai jarak order dan limit motor (Mio ~90 km/h)
-			-- Hanya aktif jika fitur Trip Pacing dinyalakan
+			-- Ditambah Random Human Jitter (74 - 86 km/h) agar variasi statistik di database terlihat 100% organik
 			if Config.tripPacing and tripStartTime and tripDistance and tripDistance > 150 then
-				local safeSpeed = 92.0 -- Base safe speed Mio (~83 km/h)
+				local baseSafeSpeed = 89.0 -- Base safe speed Mio (~80 km/h)
 				if isAnomalyTrip then
-					safeSpeed = 75.0 -- Mode proteksi ekstra ketat untuk Anomaly (+Rp 25M)
+					baseSafeSpeed = 75.0 -- Mode ekstra proteksi untuk Anomali (+Rp 25M)
 				elseif tripDistance <= 2000 then
-					safeSpeed = 95.0 -- Jarak dekat: Akselerasi cepat (~85.5 km/h)
+					baseSafeSpeed = 92.0 -- Jarak dekat (~83 km/h)
 				elseif tripDistance <= 4000 then
-					safeSpeed = 92.0 -- Jarak menengah: (~82.8 km/h)
+					baseSafeSpeed = 89.0 -- Jarak menengah (~80 km/h)
 				else
-					safeSpeed = 88.0 -- Jarak jauh: Stabil (~79.2 km/h)
+					baseSafeSpeed = 86.0 -- Jarak jauh (~77 km/h)
 				end
+
+				-- 🎲 Acak variasi kecepatan per-order (-6 s/d +5 stud/s) -> Range: 75 s/d 95 stud/s (74 - 86 km/h)
+				local randomJitter = math.random(-60, 50) / 10.0
+				local safeSpeed = math.clamp(baseSafeSpeed + randomJitter, 75.0, 95.0)
+				_G.HipHubCurrentTripSafeSpeed = safeSpeed
 
 				local minSafeTime = tripDistance / safeSpeed
 				local elapsed = tick() - tripStartTime
@@ -2054,17 +2059,7 @@ local success, err = pcall(function()
 		if taxiActive then
 			-- 🛡️ Server Average Velocity Pacing (Hanya jika Smart Pacing ON)
 			if Config.tripPacing and tripStartTime and tripDistance and tripDistance > 150 then
-				local safeMaxSpeed = 92.0
-				if isAnomalyTrip then
-					safeMaxSpeed = 75.0
-				elseif tripDistance <= 2000 then
-					safeMaxSpeed = 95.0
-				elseif tripDistance <= 4000 then
-					safeMaxSpeed = 92.0
-				else
-					safeMaxSpeed = 88.0
-				end
-
+				local safeMaxSpeed = _G.HipHubCurrentTripSafeSpeed or 88.0
 				local minSafeTripTime = tripDistance / safeMaxSpeed
 				local elapsed = tick() - tripStartTime
 				if elapsed < minSafeTripTime then
@@ -2075,8 +2070,9 @@ local success, err = pcall(function()
 				end
 			end
 
-			local syncDelay = isAnomalyTrip and 2.0 or 0.8 -- Ekstra jeda sinkronisasi untuk Anomali (+Rp 25M)
-			task.wait(syncDelay)
+			-- Jeda natural bervariasi sebelum menyelesaikan trip (0.8s s/d 1.8s)
+			local randomHumanDelay = (isAnomalyTrip and 2.0 or 0.8) + (math.random(0, 10) / 10.0)
+			task.wait(randomHumanDelay)
 			TaxiEvent:FireServer("AckTripComplete")
 			_G.HipHubCompletedTrips = (_G.HipHubCompletedTrips or 0) + 1
 			local totalDone = _G.HipHubCompletedTrips
