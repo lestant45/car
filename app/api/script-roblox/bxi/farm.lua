@@ -202,9 +202,9 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		local startY = (fallbackY or pos.Y) + 8
+		local startY = (fallbackY or pos.Y) + 12
 		local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-		local rayDir = Vector3.new(0, -35, 0)
+		local rayDir = Vector3.new(0, -120, 0)
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
 		if hit then
@@ -216,7 +216,7 @@ local success, err = pcall(function()
 	-- Drive from current location to target destination using AssemblyLinearVelocity
 	local function driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
 		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 140)
-		arrivalThreshold = arrivalThreshold or 25
+		arrivalThreshold = arrivalThreshold or 6
 
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
@@ -244,8 +244,9 @@ local success, err = pcall(function()
 		local destGroundY = probeGround(destPos, startSeatY - BUS_SEAT_GROUND_OFFSET)
 		local targetFinalSeatY = (destGroundY or (destPos.Y > -400 and destPos.Y or startSeatY)) + BUS_SEAT_GROUND_OFFSET
 
+		-- Initial heading angle (Facing Forward in Roblox -Z world orientation)
 		local look = seat.CFrame.LookVector
-		local curHeadingAngle = math.atan2(look.X, look.Z)
+		local curHeadingAngle = math.atan2(-look.X, -look.Z)
 
 		local currentSmoothSpeed = 0
 		local lastSeatY = startSeatY
@@ -281,24 +282,24 @@ local success, err = pcall(function()
 			local destVector = Vector3.new(destPos.X - seatPos.X, 0, destPos.Z - seatPos.Z)
 			local flatDist = destVector.Magnitude
 
-			-- Check Arrival: both horizontal proximity & vertical alignment
+			-- Check Arrival: tight horizontal proximity & on ground level
 			local vertDist = math.abs(seatPos.Y - targetFinalSeatY)
-			if flatDist <= arrivalThreshold and vertDist <= 25 then
+			if flatDist <= arrivalThreshold and vertDist <= 8 then
 				driveFinished = true
 				return
 			end
 
 			-- Speed Ramping (Smooth Acceleration & Deceleration near target)
 			local maxSpeed = targetCruiseSpeed
-			local decelDist = math.max(maxSpeed * 0.8, 80)
+			local decelDist = math.max(maxSpeed * 0.8, 70)
 			if flatDist < decelDist then
-				maxSpeed = math.max(35, (flatDist / decelDist) * targetCruiseSpeed)
+				maxSpeed = math.max(25, (flatDist / decelDist) * targetCruiseSpeed)
 			end
 
 			if currentSmoothSpeed < maxSpeed then
-				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (70 * dt))
 			elseif currentSmoothSpeed > maxSpeed then
-				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (90 * dt))
 			end
 
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
@@ -311,29 +312,29 @@ local success, err = pcall(function()
 			local localGroundY = probeGround(seatPos, expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
 			local aheadGroundY = probeGround(seatPos + (moveDir * 20), expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
 
+			local bestGround = (localGroundY and localGroundY > -400) and localGroundY or ((aheadGroundY and aheadGroundY > -400) and aheadGroundY or nil)
 			local desiredSeatY = expectedTrajectoryY
-			local bestGround = math.max(localGroundY or -1000, aheadGroundY or -1000)
-			if bestGround > -400 and math.abs(bestGround - (lastSeatY - BUS_SEAT_GROUND_OFFSET)) < 30 then
-				-- Prioritize actual road surface underneath bus:
+			if bestGround then
 				desiredSeatY = bestGround + BUS_SEAT_GROUND_OFFSET
 			elseif flatDist < 300 then
 				local destBlend = math.clamp((300 - flatDist) / 300, 0, 1)
 				desiredSeatY = (expectedTrajectoryY * (1 - destBlend)) + (targetFinalSeatY * destBlend)
 			end
 
-			-- Adaptive vertical interpolation
-			local maxVertStep = math.max(65 * dt, 2.5)
+			-- Fast & responsive vertical adaptation (Snap quickly to road, eliminate slow floating descent)
 			if lastSeatY < desiredSeatY then
-				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+				local maxVertStepUp = math.max(70 * dt, 3.0)
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStepUp)
 			elseif lastSeatY > desiredSeatY then
-				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
+				local maxVertStepDown = math.max(160 * dt, 8.0)
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStepDown)
 			end
 
-			-- Smooth Angular Steering
+			-- Smooth Angular Steering (Always Face Forward)
 			if moveDir.Magnitude > 0.05 then
-				local targetAngle = math.atan2(moveDir.X, moveDir.Z)
+				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -12 * dt, 12 * dt)
 			end
 
 			local stepDist = currentSmoothSpeed * dt
@@ -394,7 +395,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore exact original collisions, anchor seat & place safety plate directly under vehicle
+		-- Natural stop at destination: center bus dead-center in checkpoint zone, restore exact original collisions, anchor seat & place safety plate
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -409,11 +410,17 @@ local success, err = pcall(function()
 					end
 				end
 			end
-			if curSeat then
+			if curSeat and curBus then
 				curSeat.AssemblyLinearVelocity = Vector3.zero
 				curSeat.AssemblyAngularVelocity = Vector3.zero
 				curSeat.Throttle = 0
 				curSeat.Anchored = true
+
+				-- Pin bus dead-center into the destination checkpoint zone at road height
+				local finalGround = probeGround(destPos, destPos.Y - BUS_SEAT_GROUND_OFFSET) or (destPos.Y - BUS_SEAT_GROUND_OFFSET)
+				local finalSeatPos = Vector3.new(destPos.X, finalGround + BUS_SEAT_GROUND_OFFSET, destPos.Z)
+				local finalRot = CFrame.Angles(0, curHeadingAngle, 0)
+				curBus:PivotTo(CFrame.new(finalSeatPos) * finalRot)
 			end
 			if hrp then
 				hrp.AssemblyLinearVelocity = Vector3.zero
@@ -573,7 +580,7 @@ local success, err = pcall(function()
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 20)
+					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 6)
 				end
 			end
 
@@ -600,7 +607,7 @@ local success, err = pcall(function()
 				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
 				if endTrigger and endTrigger:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-					driveToDestination(endTrigger.Position, Config.targetSpeed or 140, 15)
+					driveToDestination(endTrigger.Position, Config.targetSpeed or 140, 8)
 				end
 				task.wait(2)
 				break
