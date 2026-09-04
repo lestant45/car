@@ -213,7 +213,7 @@ local success, err = pcall(function()
 		return fallbackY
 	end
 
-	-- Drive from current location to target destination using AssemblyLinearVelocity
+	-- Drive from current location to target destination using PivotTo (fully kinematic, no physics conflicts)
 	local function driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
 		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 140)
 		arrivalThreshold = arrivalThreshold or 6
@@ -224,6 +224,20 @@ local success, err = pcall(function()
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+		-- CRITICAL: Unanchor ALL bus parts before driving (fixes stuck-after-checkpoint)
+		-- Then immediately anchor them all for pure kinematic PivotTo mode (fixes vibration)
+		pcall(function()
+			for _, part in ipairs(bus:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+					part.CanCollide = false
+					part.Anchored = true -- Kinematic mode: PivotTo drives position, not physics
+				end
+			end
+			seat.Throttle = 0
+		end)
 
 		isDrivingActive = true
 		local driveFinished = false
@@ -252,9 +266,6 @@ local success, err = pcall(function()
 		local lastSeatY = startSeatY
 		local lastStuckCheckTime = os.clock()
 		local lastStuckCheckPos = seat.Position
-
-		-- Unanchor seat so movement can begin smoothly
-		seat.Anchored = false
 
 		-- Pre-load destination safety plate & streaming
 		ensureSafetyPlate(Vector3.new(destPos.X, destGroundY or (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET), destPos.Z), 100)
@@ -321,7 +332,7 @@ local success, err = pcall(function()
 				desiredSeatY = (expectedTrajectoryY * (1 - destBlend)) + (targetFinalSeatY * destBlend)
 			end
 
-			-- Fast & responsive vertical adaptation (Snap quickly to road, eliminate slow floating descent)
+			-- Fast & responsive vertical adaptation
 			if lastSeatY < desiredSeatY then
 				local maxVertStepUp = math.max(70 * dt, 3.0)
 				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStepUp)
@@ -346,15 +357,16 @@ local success, err = pcall(function()
 			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
 
 			pcall(function()
-				curBus:PivotTo(targetSeatCF)
-
-				-- Collision handling
+				-- KINEMATIC MODE: Anchor all parts first to prevent physics engine fighting PivotTo
+				-- This is the key fix for vibration — physics cannot fight a move if bus is anchored
 				for _, part in ipairs(curBus:GetDescendants()) do
 					if part:IsA("BasePart") then
+						part.Anchored = true
 						part.CanCollide = false
-						part.Anchored = false
 					end
 				end
+
+				curBus:PivotTo(targetSeatCF)
 
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -362,13 +374,16 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 				end
 
-				local velocityVec = moveDir * currentSmoothSpeed
-				curSeat.Throttle = 1
-				curSeat.AssemblyLinearVelocity = velocityVec
-				curSeat.AssemblyAngularVelocity = Vector3.zero
+				-- Zero out all velocities so physics doesn't accumulate hidden momentum
+				for _, part in ipairs(curBus:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
 
 				if hrp then
-					hrp.AssemblyLinearVelocity = velocityVec
+					hrp.AssemblyLinearVelocity = Vector3.zero
 					hrp.AssemblyAngularVelocity = Vector3.zero
 				end
 			end)
@@ -379,7 +394,9 @@ local success, err = pcall(function()
 				local movedDist = (seatPos - lastStuckCheckPos).Magnitude
 				if movedDist < 6 and flatDist > arrivalThreshold then
 					lastSeatY = desiredSeatY
-					curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY, seatPos.Z + moveDir.Z * 8) * currentRot)
+					pcall(function()
+						curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY, seatPos.Z + moveDir.Z * 8) * currentRot)
+					end)
 				end
 				lastStuckCheckTime = now
 				lastStuckCheckPos = seatPos
@@ -395,7 +412,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: center bus dead-center in checkpoint zone, restore exact original collisions, anchor seat & place safety plate
+		-- Stop: restore collisions, zero velocity, anchor seat, snap to checkpoint center
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -406,6 +423,7 @@ local success, err = pcall(function()
 							part.CanCollide = state
 							part.AssemblyLinearVelocity = Vector3.zero
 							part.AssemblyAngularVelocity = Vector3.zero
+							part.Anchored = true -- Keep anchored while stopped/loading
 						end)
 					end
 				end
@@ -427,8 +445,8 @@ local success, err = pcall(function()
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
 			local finalPos = curSeat and curSeat.Position or destPos
-			local finalGround = probeGround(finalPos, finalPos.Y - BUS_SEAT_GROUND_OFFSET) or (finalPos.Y - BUS_SEAT_GROUND_OFFSET)
-			ensureSafetyPlate(Vector3.new(finalPos.X, finalGround, finalPos.Z), 100)
+			local finalGround2 = probeGround(finalPos, finalPos.Y - BUS_SEAT_GROUND_OFFSET) or (finalPos.Y - BUS_SEAT_GROUND_OFFSET)
+			ensureSafetyPlate(Vector3.new(finalPos.X, finalGround2, finalPos.Z), 100)
 		end)
 
 		isDrivingActive = false
