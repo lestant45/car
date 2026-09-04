@@ -202,9 +202,9 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		local startY = (fallbackY or pos.Y) + 12
+		local startY = pos.Y + 300  -- Start 300 studs above to fly over rooftops/canopies
 		local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-		local rayDir = Vector3.new(0, -120, 0)
+		local rayDir = Vector3.new(0, -400, 0)  -- Cast 400 studs down to always reach ground
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
 		if hit then
@@ -434,9 +434,10 @@ local success, err = pcall(function()
 				curSeat.Throttle = 0
 				curSeat.Anchored = true
 
-				-- Pin bus dead-center into the destination checkpoint zone at road height
-				local finalGround = probeGround(destPos, destPos.Y - BUS_SEAT_GROUND_OFFSET) or (destPos.Y - BUS_SEAT_GROUND_OFFSET)
-				local finalSeatPos = Vector3.new(destPos.X, finalGround + BUS_SEAT_GROUND_OFFSET, destPos.Z)
+				-- Pin bus dead-center into the destination checkpoint zone.
+				-- Trust destPos.Y directly: BXI devs place checkpoint parts at road surface level.
+				-- Do NOT re-probe ground here — it would hit the building roof if inside a terminal.
+				local finalSeatPos = Vector3.new(destPos.X, destPos.Y + BUS_SEAT_GROUND_OFFSET, destPos.Z)
 				local finalRot = CFrame.Angles(0, curHeadingAngle, 0)
 				curBus:PivotTo(CFrame.new(finalSeatPos) * finalRot)
 			end
