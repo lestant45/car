@@ -77,7 +77,7 @@ local success, err = pcall(function()
 	-- 🛡️ SAFETY PLATFORM & STREAMING
 	------------------------------------------------
 	local function ensureSafetyPlate(pos, width)
-		width = width or 50
+		width = width or 80
 		local plate = workspace:FindFirstChild("__SafetyPlate")
 		if not plate then
 			plate = Instance.new("Part")
@@ -107,7 +107,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🚌 BUS SPAWN & MOUNT HELPERS
 	------------------------------------------------
-	local BUS_SEAT_GROUND_OFFSET = 5.525 -- Exact height of DriveSeat above road surface
+	local BUS_SEAT_GROUND_OFFSET = 6.72 -- Measured exact height of Jetbus DriveSeat above road asphalt
 
 	local function getMyBus()
 		local spawned = workspace:FindFirstChild("SpawnedVehicles")
@@ -202,9 +202,9 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		local startY = (fallbackY or pos.Y) + 35
+		local startY = (fallbackY or pos.Y) + 8
 		local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-		local rayDir = Vector3.new(0, -90, 0)
+		local rayDir = Vector3.new(0, -35, 0)
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
 		if hit then
@@ -228,10 +228,21 @@ local success, err = pcall(function()
 		isDrivingActive = true
 		local driveFinished = false
 
+		-- Cache exact factory CanCollide state of all vehicle parts to restore later
+		local originalCollides = {}
+		for _, part in ipairs(bus:GetDescendants()) do
+			if part:IsA("BasePart") then
+				originalCollides[part] = part.CanCollide
+			end
+		end
+
 		local startSeatPos = seat.Position
 		local totalFlatDist = (Vector3.new(destPos.X - startSeatPos.X, 0, destPos.Z - startSeatPos.Z)).Magnitude
 		local startSeatY = startSeatPos.Y
-		local targetFinalSeatY = destPos.Y + BUS_SEAT_GROUND_OFFSET
+
+		-- Determine realistic road ground elevation at target destination
+		local destGroundY = probeGround(destPos, startSeatY - BUS_SEAT_GROUND_OFFSET)
+		local targetFinalSeatY = (destGroundY or (destPos.Y > -400 and destPos.Y or startSeatY)) + BUS_SEAT_GROUND_OFFSET
 
 		local look = seat.CFrame.LookVector
 		local curHeadingAngle = math.atan2(look.X, look.Z)
@@ -241,8 +252,11 @@ local success, err = pcall(function()
 		local lastStuckCheckTime = os.clock()
 		local lastStuckCheckPos = seat.Position
 
+		-- Unanchor seat so movement can begin smoothly
+		seat.Anchored = false
+
 		-- Pre-load destination safety plate & streaming
-		ensureSafetyPlate(destPos, 50)
+		ensureSafetyPlate(Vector3.new(destPos.X, destGroundY or (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET), destPos.Z), 100)
 		requestStreamAsync(destPos)
 
 		if currentDriveConn then
@@ -290,7 +304,6 @@ local success, err = pcall(function()
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
 
 			-- 🛣️ 3D TRAJECTORY ELEVATION & ROAD TRACKING:
-			-- Calculate expected height based on progress toward destination:
 			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
 			local expectedTrajectoryY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
 
@@ -299,13 +312,13 @@ local success, err = pcall(function()
 			local aheadGroundY = probeGround(seatPos + (moveDir * 20), expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
 
 			local desiredSeatY = expectedTrajectoryY
-			-- If near destination (< 300 studs), smoothly converge into checkpoint zone height:
-			if flatDist < 300 then
+			local bestGround = math.max(localGroundY or -1000, aheadGroundY or -1000)
+			if bestGround > -400 and math.abs(bestGround - (lastSeatY - BUS_SEAT_GROUND_OFFSET)) < 30 then
+				-- Prioritize actual road surface underneath bus:
+				desiredSeatY = bestGround + BUS_SEAT_GROUND_OFFSET
+			elseif flatDist < 300 then
 				local destBlend = math.clamp((300 - flatDist) / 300, 0, 1)
 				desiredSeatY = (expectedTrajectoryY * (1 - destBlend)) + (targetFinalSeatY * destBlend)
-			elseif localGroundY and math.abs(localGroundY - (expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)) < 35 then
-				-- Follow local road surface:
-				desiredSeatY = math.max(localGroundY, aheadGroundY) + BUS_SEAT_GROUND_OFFSET
 			end
 
 			-- Adaptive vertical interpolation
@@ -381,21 +394,18 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore collision & place safety plate under road
+		-- Natural stop at destination: restore exact original collisions, anchor seat & place safety plate directly under vehicle
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
 			if curBus then
-				for _, part in ipairs(curBus:GetDescendants()) do
-					if part:IsA("BasePart") then
-						local name = part.Name:lower()
-						if name:find("wheel") or name:find("tire") or name == "fl" or name == "fr" or name == "rl" or name == "rr" or name == "driveseat" then
-							part.CanCollide = true
-						else
-							part.CanCollide = false
-						end
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
+				for part, state in pairs(originalCollides) do
+					if part and part.Parent then
+						pcall(function()
+							part.CanCollide = state
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end)
 					end
 				end
 			end
@@ -403,12 +413,15 @@ local success, err = pcall(function()
 				curSeat.AssemblyLinearVelocity = Vector3.zero
 				curSeat.AssemblyAngularVelocity = Vector3.zero
 				curSeat.Throttle = 0
+				curSeat.Anchored = true
 			end
 			if hrp then
 				hrp.AssemblyLinearVelocity = Vector3.zero
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
-			ensureSafetyPlate(Vector3.new(destPos.X, lastSeatY - BUS_SEAT_GROUND_OFFSET - 0.5, destPos.Z), 50)
+			local finalPos = curSeat and curSeat.Position or destPos
+			local finalGround = probeGround(finalPos, finalPos.Y - BUS_SEAT_GROUND_OFFSET) or (finalPos.Y - BUS_SEAT_GROUND_OFFSET)
+			ensureSafetyPlate(Vector3.new(finalPos.X, finalGround, finalPos.Z), 100)
 		end)
 
 		isDrivingActive = false
@@ -487,8 +500,6 @@ local success, err = pcall(function()
 
 	-- Execute one full bus route loop
 	local function executeBusRouteLoop()
-		local terminalTriggerPos = Vector3.new(22771.8, 294.8, -39584.0)
-
 		-- 1. Ensure Bus and Driver Seat
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then
@@ -514,7 +525,8 @@ local success, err = pcall(function()
 			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName)
 		else
 			-- If server requires proximity to terminal, drive to terminal as fallback:
-			local terminalTriggerPos = Vector3.new(22771.8, 294.8, -39584.0)
+			local termPart = workspace.BusJobTriggers:FindFirstChild(currentTerminalId)
+			local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
 			local seatPos = seat.Position
 			if (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude > 60 then
 				setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
@@ -536,7 +548,7 @@ local success, err = pcall(function()
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(Vector3.new(cpPart.Position.X, 0, cpPart.Position.Z), Config.targetSpeed or 140, 20)
+					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 20)
 				end
 			end
 
@@ -550,6 +562,7 @@ local success, err = pcall(function()
 						s.AssemblyLinearVelocity = Vector3.zero
 						s.AssemblyAngularVelocity = Vector3.zero
 						s.Throttle = 0
+						s.Anchored = true
 					end
 					task.wait(0.5)
 				end
@@ -562,7 +575,7 @@ local success, err = pcall(function()
 				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
 				if endTrigger and endTrigger:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-					driveToDestination(Vector3.new(endTrigger.Position.X, 0, endTrigger.Position.Z), Config.targetSpeed or 140, 15)
+					driveToDestination(endTrigger.Position, Config.targetSpeed or 140, 15)
 				end
 				task.wait(2)
 				break
