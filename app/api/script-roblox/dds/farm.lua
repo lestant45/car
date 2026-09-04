@@ -2029,27 +2029,23 @@ local success, err = pcall(function()
 			while isPassengerOnboard() and taxiActive and not isResettingTaxi do
 				local nowT = tick()
 
-				-- Deteksi cepat notifikasi "Memverifikasi rute" / "Verifying your trip route"
+				-- Deteksi notifikasi "Memverifikasi rute" / "Verifying your trip route"
 				if isRouteVerificationStuck() then
-					UI.Notify("⚠️ Verifikasi Rute Terdeteksi", "Mereset status kerja (Offline -> Online)...", 2.5, "warning")
-					resetTaxiDutyCycle(token, "Verifikasi Rute Terdeteksi")
-					return
+					updateBotActivity("🔍 Server Memverifikasi Rute... Menunggu...", Color3.fromRGB(255, 180, 50))
+					-- Berikan jeda waktu server menyelesaikan verifikasi tanpa melakukan pembatalan paksa
+					if (nowT - disembarkWait > 20.0) then
+						UI.Notify("🔍 Verifikasi Rute Selesai", "Menyelesaikan trip...", 2.5, "warning")
+						break
+					end
+				else
+					-- Fail-safe disembark: Beri waktu wajar (15s) agar animasi/desync server turun penumpang selesai
+					if (nowT - disembarkWait > 15.0) then
+						UI.Notify("🏁 Disembark Selesai", "Melanjutkan penyelesaian order...", 2.5, "warning")
+						break
+					end
 				end
 
-				-- Fail-safe disembark timeout: Jika dalam 4.5 detik penumpang tidak turun, otomatis reset duty
-				if (nowT - disembarkWait > 4.5) then
-					UI.Notify("⚠️ Disembark Timeout", "Penumpang tidak turun. Mereset status kerja...", 2.5, "warning")
-					resetTaxiDutyCycle(token, "Disembark Timeout")
-					return
-				end
-
-				task.wait(0.25)
-			end
-
-			-- Jika penumpang masih belum turun:
-			if isPassengerOnboard() and taxiActive and not isResettingTaxi then
-				resetTaxiDutyCycle(token, "Passenger Stuck")
-				return
+				task.wait(0.4)
 			end
 
 			task.wait(0.5)
@@ -2283,13 +2279,9 @@ local success, err = pcall(function()
 				task.wait(0.25)
 				if taxiActive and not isResettingTaxi then
 					pcall(function()
-						-- 0. Watchdog Diam & Macet Cerdas:
-						-- Jika sedang dalam proses naik/turun penumpang atau pacing waktu sah, segarkan timer!
-						if taxiState == "PICKING_UP" or taxiState == "DROPPING_OFF" or taxiState == "NEW_ORDER_DETECTED" or taxiState == "PACING" then
-							lastPosMovedTime = tick()
-							lastTrackedPos = nil
-							dropoffStuckTime = nil
-						else
+						-- 0. Watchdog Macet Cerdas (HANYA saat sedang aktif berkendara):
+						local isDriving = (isDrivingActive or taxiState == "DRIVING_TO_DESTINATION")
+						if isDriving then
 							local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 							local curPos = root and root.Position
 							if curPos then
@@ -2302,18 +2294,13 @@ local success, err = pcall(function()
 										lastTrackedPos = curPos
 										lastPosMovedTime = tick()
 									else
-										-- A. Jika sedang berkendara tapi diam > 12s -> BENAR-BENAR STUCK (misal jurang / nabrak dinding)
-										-- B. Jika sedang menganggur menunggu orderan -> beri waktu longgar 45s agar matchmaking 7-15s masuk mulus
-										local isDriving = (isDrivingActive or taxiState == "DRIVING_TO_DESTINATION")
-										local threshold = isDriving and 12.0 or 45.0
-
-										if (tick() - lastPosMovedTime >= threshold) and not isResettingTaxi then
+										-- Hanya reset jika diam > 18 detik saat posisi seharusnya berkendara (terjebak void/tembok)
+										if (tick() - lastPosMovedTime >= 18.0) and not isResettingTaxi then
 											lastPosMovedTime = tick()
 											lastTrackedPos = nil
 											task.spawn(function()
 												if restartAutoRideGoToggle then
-													local reason = isDriving and "Stuck saat Berkendara (12s)" or "Idle Matchmaking Timeout (45s)"
-													restartAutoRideGoToggle(reason)
+													restartAutoRideGoToggle("Stuck saat Berkendara (18s)")
 												end
 											end)
 											return
@@ -2321,6 +2308,11 @@ local success, err = pcall(function()
 									end
 								end
 							end
+						else
+							-- Saat menganggur / menunggu orderan, segarkan timer dan biarkan bot tetap Online dengan tenang
+							lastPosMovedTime = tick()
+							lastTrackedPos = nil
+							dropoffStuckTime = nil
 						end
 
 						local pg = player:FindFirstChild("PlayerGui")
@@ -2352,36 +2344,7 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 3. Watchdog Verifikasi Rute: HANYA jika sedang aktif membawa penumpang menuju tujuan
-						if isPassengerOnboard() and (taxiState == "DRIVING_TO_DESTINATION" or taxiState == "DROPPING_OFF") and isRouteVerificationStuck() then
-							task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Verifikasi Rute")
-							return
-						end
-
-						-- 4. Watchdog Stuck di Drop-off: Hanya jika sudah berada di fase DROPPING_OFF (bukan PACING)
-						if isPassengerOnboard() and (taxiState == "DROPPING_OFF") and not isResettingTaxi then
-							local car, seat = getPlayerVehicle()
-							if car and seat and taxiDropPos then
-								local curSpeed = seat.AssemblyLinearVelocity.Magnitude
-								local distToDrop = (car:GetPivot().Position - taxiDropPos).Magnitude
-								if curSpeed < 3 and distToDrop <= 25 then
-									dropoffStuckTime = dropoffStuckTime or tick()
-									if (tick() - dropoffStuckTime >= 3.0) then
-										dropoffStuckTime = nil
-										task.spawn(resetTaxiDutyCycle, taxiToken, "Watchdog: Stuck di Drop-off")
-										return
-									end
-								else
-									dropoffStuckTime = nil
-								end
-							else
-								dropoffStuckTime = nil
-							end
-						else
-							dropoffStuckTime = nil
-						end
-
-						-- 4. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
+						-- 3. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
 						if not taxiBusy and (tick() - lastKeepAliveTime >= 35) then
 							lastKeepAliveTime = tick()
 							ensureDriverSeated()
@@ -2448,13 +2411,7 @@ local success, err = pcall(function()
 			if changeTeam then
 				changeTeam("RideGO Driver")
 			end
-			task.wait(0.8)
-
-			local ev = getTaxiEvent()
-			if ev then
-				ev:FireServer("DismissIntro")
-				task.wait(0.2)
-			end
+			task.wait(1.0)
 
 			if startPhoneOverlayPoller then
 				startPhoneOverlayPoller()
@@ -2467,13 +2424,15 @@ local success, err = pcall(function()
 					ensureDriverSeated()
 				end
 				task.wait(0.8)
-				local ev2 = getTaxiEvent()
-				if ev2 then
-					ev2:FireServer("GoOnline")
+				local ev = getTaxiEvent()
+				if ev then
+					ev:FireServer("DismissIntro")
+					task.wait(0.3)
+					ev:FireServer("GoOnline")
 				end
 			end)
 
-			UI.Notify("RideGO Auto-Farm ON", "Strict Anti-Void: Dilarang berjalan di atas jurang!", 3.5, "success")
+			UI.Notify("RideGO Auto-Farm ON", "Smart Trip Pacing & Anti-Spam Duty Aktif!", 3.5, "success")
 		else
 			if taxiOverlayPoller then
 				task.cancel(taxiOverlayPoller)
