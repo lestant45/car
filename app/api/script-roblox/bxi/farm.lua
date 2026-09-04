@@ -507,13 +507,51 @@ local success, err = pcall(function()
 			return
 		end
 
-		-- 2. Start Bus Job (Can be invoked directly from spawn while seated)
+		-- 2. Start Bus Job (Clear any lingering zombie jobs first, then invoke server)
 		setFarmState(FARM_STATE.STARTING_JOB, "Invoking StartBusJob")
 		local startRes = nil
 		pcall(function()
 			startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
 		end)
 
+		-- Auto-clear lingering zombie job if server reports already in job
+		if startRes == "You are already in a job." or player:GetAttribute("BusJobActive") then
+			pcall(function() Remotes.CancelBusJob:FireServer() end)
+			task.wait(1.5)
+			pcall(function()
+				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
+			end)
+		elseif startRes == "Too many requests." then
+			task.wait(2.5)
+			pcall(function()
+				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
+			end)
+		end
+
+		-- Fallback: If proximity to terminal is strictly required, drive into terminal zone:
+		if not (type(startRes) == "table" and startRes.success) then
+			local termPart = workspace.BusJobTriggers:FindFirstChild(currentTerminalId)
+			local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
+			local seatPos = seat.Position
+			if (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude > 40 then
+				setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
+				driveToDestination(terminalTriggerPos, Config.targetSpeed or 140, 25)
+			end
+
+			pcall(function()
+				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
+			end)
+
+			if startRes == "You are already in a job." then
+				pcall(function() Remotes.CancelBusJob:FireServer() end)
+				task.wait(1.5)
+				pcall(function()
+					startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
+				end)
+			end
+		end
+
+		-- 3. Verify Job Activation
 		if type(startRes) == "table" and startRes.success then
 			currentJobActive = true
 			currentCheckpointIndex = startRes.checkpointIndex or 1
@@ -524,21 +562,8 @@ local success, err = pcall(function()
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
 			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName)
 		else
-			-- If server requires proximity to terminal, drive to terminal as fallback:
-			local termPart = workspace.BusJobTriggers:FindFirstChild(currentTerminalId)
-			local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
-			local seatPos = seat.Position
-			if (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude > 60 then
-				setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
-				driveToDestination(terminalTriggerPos, Config.targetSpeed or 140, 30)
-				pcall(function()
-					startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
-				end)
-			end
-			if not (type(startRes) == "table" and startRes.success) then
-				task.wait(3)
-				return
-			end
+			task.wait(3)
+			return
 		end
 
 		-- 4. Route Navigation Loop (Checkpoint to Checkpoint)
