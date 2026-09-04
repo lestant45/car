@@ -202,9 +202,10 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		local startY = pos.Y + 300  -- Start 300 studs above to fly over rooftops/canopies
-		local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-		local rayDir = Vector3.new(0, -400, 0)  -- Cast 400 studs down to always reach ground
+		-- Always shoot from well above the reference height to catch elevated terrain (slopes, hills)
+		local refY = math.max(pos.Y, fallbackY or pos.Y)
+		local rayOrigin = Vector3.new(pos.X, refY + 80, pos.Z)
+		local rayDir = Vector3.new(0, -220, 0)
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
 		if hit then
@@ -213,10 +214,10 @@ local success, err = pcall(function()
 		return fallbackY
 	end
 
-	-- Drive from current location to target destination using PivotTo (fully kinematic, no physics conflicts)
+	-- Drive from current location to target destination using AssemblyLinearVelocity
 	local function driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
 		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 140)
-		arrivalThreshold = arrivalThreshold or 6
+		arrivalThreshold = arrivalThreshold or 25
 
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
@@ -224,20 +225,6 @@ local success, err = pcall(function()
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
-		-- CRITICAL: Unanchor ALL bus parts before driving (fixes stuck-after-checkpoint)
-		-- Then immediately anchor them all for pure kinematic PivotTo mode (fixes vibration)
-		pcall(function()
-			for _, part in ipairs(bus:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-					part.CanCollide = false
-					part.Anchored = true -- Kinematic mode: PivotTo drives position, not physics
-				end
-			end
-			seat.Throttle = 0
-		end)
 
 		isDrivingActive = true
 		local driveFinished = false
@@ -258,14 +245,18 @@ local success, err = pcall(function()
 		local destGroundY = probeGround(destPos, startSeatY - BUS_SEAT_GROUND_OFFSET)
 		local targetFinalSeatY = (destGroundY or (destPos.Y > -400 and destPos.Y or startSeatY)) + BUS_SEAT_GROUND_OFFSET
 
-		-- Initial heading angle (Facing Forward in Roblox -Z world orientation)
 		local look = seat.CFrame.LookVector
+		-- CFrame.Angles(0,Y,0) produces LookVector = (-sin Y, 0, -cos Y), so
+		-- to preserve the current look direction we need atan2(-X, -Z)
 		local curHeadingAngle = math.atan2(-look.X, -look.Z)
 
 		local currentSmoothSpeed = 0
 		local lastSeatY = startSeatY
 		local lastStuckCheckTime = os.clock()
 		local lastStuckCheckPos = seat.Position
+
+		-- Unanchor seat so movement can begin smoothly
+		seat.Anchored = false
 
 		-- Pre-load destination safety plate & streaming
 		ensureSafetyPlate(Vector3.new(destPos.X, destGroundY or (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET), destPos.Z), 100)
@@ -293,24 +284,24 @@ local success, err = pcall(function()
 			local destVector = Vector3.new(destPos.X - seatPos.X, 0, destPos.Z - seatPos.Z)
 			local flatDist = destVector.Magnitude
 
-			-- Check Arrival: tight horizontal proximity & on ground level
+			-- Check Arrival: both horizontal proximity & vertical alignment
 			local vertDist = math.abs(seatPos.Y - targetFinalSeatY)
-			if flatDist <= arrivalThreshold and vertDist <= 8 then
+			if flatDist <= arrivalThreshold and vertDist <= 25 then
 				driveFinished = true
 				return
 			end
 
 			-- Speed Ramping (Smooth Acceleration & Deceleration near target)
 			local maxSpeed = targetCruiseSpeed
-			local decelDist = math.max(maxSpeed * 0.8, 70)
+			local decelDist = math.max(maxSpeed * 0.8, 80)
 			if flatDist < decelDist then
-				maxSpeed = math.max(25, (flatDist / decelDist) * targetCruiseSpeed)
+				maxSpeed = math.max(35, (flatDist / decelDist) * targetCruiseSpeed)
 			end
 
 			if currentSmoothSpeed < maxSpeed then
-				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (70 * dt))
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
 			elseif currentSmoothSpeed > maxSpeed then
-				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (90 * dt))
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
 			end
 
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
@@ -319,33 +310,41 @@ local success, err = pcall(function()
 			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
 			local expectedTrajectoryY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
 
-			-- Probe local road underneath:
-			local localGroundY = probeGround(seatPos, expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
-			local aheadGroundY = probeGround(seatPos + (moveDir * 20), expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET)
+			-- 🛣️ Multi-lookahead ground probing: detect elevated slopes AHEAD of the bus
+			local probeBase = expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET
+			local localGroundY  = probeGround(seatPos, probeBase)
+			local ahead1GroundY = probeGround(seatPos + (moveDir * 30), probeBase)
+			local ahead2GroundY = probeGround(seatPos + (moveDir * 65), probeBase)
 
-			local bestGround = (localGroundY and localGroundY > -400) and localGroundY or ((aheadGroundY and aheadGroundY > -400) and aheadGroundY or nil)
-			local desiredSeatY = expectedTrajectoryY
-			if bestGround then
+			-- Take the HIGHEST detected ground so the bus always clears upcoming slopes
+			local bestGround = math.max(
+				localGroundY  or -1000,
+				ahead1GroundY or -1000,
+				ahead2GroundY or -1000
+			)
+
+			local desiredSeatY
+			if bestGround > -400 then
+				-- Always follow real terrain; no proximity guard so bus descends/ascends immediately
 				desiredSeatY = bestGround + BUS_SEAT_GROUND_OFFSET
-			elseif flatDist < 300 then
-				local destBlend = math.clamp((300 - flatDist) / 300, 0, 1)
-				desiredSeatY = (expectedTrajectoryY * (1 - destBlend)) + (targetFinalSeatY * destBlend)
+			else
+				desiredSeatY = targetFinalSeatY
 			end
 
-			-- Fast & responsive vertical adaptation
+			-- Adaptive vertical interpolation (faster: 150 studs/sec max, 8 studs minimum per frame)
+			local maxVertStep = math.max(150 * dt, 8)
 			if lastSeatY < desiredSeatY then
-				local maxVertStepUp = math.max(70 * dt, 3.0)
-				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStepUp)
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
 			elseif lastSeatY > desiredSeatY then
-				local maxVertStepDown = math.max(160 * dt, 8.0)
-				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStepDown)
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
 			end
 
-			-- Smooth Angular Steering (Always Face Forward)
+			-- Smooth Angular Steering
 			if moveDir.Magnitude > 0.05 then
+				-- atan2(-X, -Z) because CFrame.Angles(0,Y,0) LookVector = (-sinY, 0, -cosY)
 				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -12 * dt, 12 * dt)
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
 			end
 
 			local stepDist = currentSmoothSpeed * dt
@@ -357,16 +356,15 @@ local success, err = pcall(function()
 			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
 
 			pcall(function()
-				-- KINEMATIC MODE: Anchor all parts first to prevent physics engine fighting PivotTo
-				-- This is the key fix for vibration — physics cannot fight a move if bus is anchored
+				curBus:PivotTo(targetSeatCF)
+
+				-- Collision handling
 				for _, part in ipairs(curBus:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.Anchored = true
 						part.CanCollide = false
+						part.Anchored = false
 					end
 				end
-
-				curBus:PivotTo(targetSeatCF)
 
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -374,16 +372,13 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 				end
 
-				-- Zero out all velocities so physics doesn't accumulate hidden momentum
-				for _, part in ipairs(curBus:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
+				local velocityVec = moveDir * currentSmoothSpeed
+				curSeat.Throttle = 1
+				curSeat.AssemblyLinearVelocity = velocityVec
+				curSeat.AssemblyAngularVelocity = Vector3.zero
 
 				if hrp then
-					hrp.AssemblyLinearVelocity = Vector3.zero
+					hrp.AssemblyLinearVelocity = velocityVec
 					hrp.AssemblyAngularVelocity = Vector3.zero
 				end
 			end)
@@ -394,9 +389,7 @@ local success, err = pcall(function()
 				local movedDist = (seatPos - lastStuckCheckPos).Magnitude
 				if movedDist < 6 and flatDist > arrivalThreshold then
 					lastSeatY = desiredSeatY
-					pcall(function()
-						curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY, seatPos.Z + moveDir.Z * 8) * currentRot)
-					end)
+					curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY, seatPos.Z + moveDir.Z * 8) * currentRot)
 				end
 				lastStuckCheckTime = now
 				lastStuckCheckPos = seatPos
@@ -412,7 +405,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Stop: restore collisions, zero velocity, anchor seat, snap to checkpoint center
+		-- Natural stop at destination: restore exact original collisions, anchor seat & place safety plate directly under vehicle
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -423,31 +416,23 @@ local success, err = pcall(function()
 							part.CanCollide = state
 							part.AssemblyLinearVelocity = Vector3.zero
 							part.AssemblyAngularVelocity = Vector3.zero
-							part.Anchored = true -- Keep anchored while stopped/loading
 						end)
 					end
 				end
 			end
-			if curSeat and curBus then
+			if curSeat then
 				curSeat.AssemblyLinearVelocity = Vector3.zero
 				curSeat.AssemblyAngularVelocity = Vector3.zero
 				curSeat.Throttle = 0
 				curSeat.Anchored = true
-
-				-- Pin bus dead-center into the destination checkpoint zone.
-				-- Trust destPos.Y directly: BXI devs place checkpoint parts at road surface level.
-				-- Do NOT re-probe ground here — it would hit the building roof if inside a terminal.
-				local finalSeatPos = Vector3.new(destPos.X, destPos.Y + BUS_SEAT_GROUND_OFFSET, destPos.Z)
-				local finalRot = CFrame.Angles(0, curHeadingAngle, 0)
-				curBus:PivotTo(CFrame.new(finalSeatPos) * finalRot)
 			end
 			if hrp then
 				hrp.AssemblyLinearVelocity = Vector3.zero
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
 			local finalPos = curSeat and curSeat.Position or destPos
-			local finalGround2 = probeGround(finalPos, finalPos.Y - BUS_SEAT_GROUND_OFFSET) or (finalPos.Y - BUS_SEAT_GROUND_OFFSET)
-			ensureSafetyPlate(Vector3.new(finalPos.X, finalGround2, finalPos.Z), 100)
+			local finalGround = probeGround(finalPos, finalPos.Y - BUS_SEAT_GROUND_OFFSET) or (finalPos.Y - BUS_SEAT_GROUND_OFFSET)
+			ensureSafetyPlate(Vector3.new(finalPos.X, finalGround, finalPos.Z), 100)
 		end)
 
 		isDrivingActive = false
@@ -599,7 +584,7 @@ local success, err = pcall(function()
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 6)
+					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 20)
 				end
 			end
 
@@ -626,7 +611,7 @@ local success, err = pcall(function()
 				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
 				if endTrigger and endTrigger:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-					driveToDestination(endTrigger.Position, Config.targetSpeed or 140, 8)
+					driveToDestination(endTrigger.Position, Config.targetSpeed or 140, 15)
 				end
 				task.wait(2)
 				break
