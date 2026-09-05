@@ -258,6 +258,9 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
+		local driveStartTime = os.clock()
+		local maxDriveTimeout = math.clamp(totalFlatDist / 30, 2.0, 45) + 4.0
+
 		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
 			if not isDrivingActive or not isFarmRunning then
 				driveFinished = true
@@ -275,9 +278,8 @@ local success, err = pcall(function()
 			local destVector = Vector3.new(destPos.X - seatPos.X, 0, destPos.Z - seatPos.Z)
 			local flatDist = destVector.Magnitude
 
-			-- Check Arrival: both horizontal proximity & vertical alignment
-			local vertDist = math.abs(seatPos.Y - targetFinalSeatY)
-			if flatDist <= arrivalThreshold and vertDist <= 25 then
+			-- Check Arrival: arrived within threshold OR max timeout reached
+			if flatDist <= 12 or (os.clock() - driveStartTime) >= maxDriveTimeout then
 				driveFinished = true
 				return
 			end
@@ -318,8 +320,6 @@ local success, err = pcall(function()
 				if spveh then table.insert(sfl, spveh) end
 				local scps = workspace:FindFirstChild("Checkpoints")
 				if scps then table.insert(sfl, scps) end
-				local sspl = workspace:FindFirstChild("__SafetyPlate")
-				if sspl then table.insert(sfl, sspl) end
 				srp.FilterDescendantsInstances = sfl
 
 				local slopeHit = workspace:Raycast(
@@ -407,7 +407,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore exact original collisions & unanchor seat
+		-- Natural stop at destination: restore exact original collisions, unanchor seat & settle on road
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -424,13 +424,13 @@ local success, err = pcall(function()
 				end
 			end
 			if curSeat then
-				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 				curSeat.AssemblyAngularVelocity = Vector3.zero
 				curSeat.Throttle = 0
 				curSeat.Anchored = false
 			end
 			if hrp then
-				hrp.AssemblyLinearVelocity = Vector3.zero
+				hrp.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
 		end)
@@ -613,7 +613,7 @@ local success, err = pcall(function()
 							local roadY = probeGround(cpPart.Position, cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET) or (cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET)
 							local seatTargetY = roadY + BUS_SEAT_GROUND_OFFSET
 							snapBus:PivotTo(CFrame.new(cpPart.Position.X, seatTargetY, cpPart.Position.Z) * CFrame.Angles(0, heading, 0))
-							snapSeat.AssemblyLinearVelocity = Vector3.zero
+							snapSeat.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 							snapSeat.AssemblyAngularVelocity = Vector3.zero
 							snapSeat.Anchored = false
 						end)
