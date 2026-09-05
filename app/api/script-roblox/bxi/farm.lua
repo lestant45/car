@@ -444,11 +444,45 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local currentJobActive = false
 	local waitingForCheckpointCountdown = false
+	local isInCheckpointZone = true
 	local nextCheckpointPartName = nil
 	local nextDestinationName = nil
 	local endTriggerPartName = nil
 	local currentCheckpointIndex = 0
 	local totalCheckpoints = 0
+
+	-- Helper: Snap and align bus perfectly inside checkpoint zone oriented to cpPart CFrame
+	local function snapBusToCheckpoint(cpPart)
+		if not (cpPart and cpPart:IsA("BasePart")) then return end
+		local snapBus, snapSeat = ensureBusAndSeat()
+		if not (snapBus and snapSeat) then return end
+
+		pcall(function()
+			local cpCF = cpPart.CFrame
+			local roadY = probeGround(cpPart.Position, cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET) or (cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET)
+			local seatTargetY = roadY + BUS_SEAT_GROUND_OFFSET
+
+			-- Align orientation along checkpoint slot axis (flip 180 deg if approach direction is reversed)
+			local dot = snapSeat.CFrame.LookVector:Dot(cpCF.LookVector)
+			local rotCF = dot < -0.2 and (cpCF * CFrame.Angles(0, math.pi, 0) - cpCF.Position) or (cpCF - cpCF.Position)
+
+			local targetCF = CFrame.new(cpPart.Position.X, seatTargetY, cpPart.Position.Z) * rotCF
+			snapBus:PivotTo(targetCF)
+
+			-- Unanchor all parts so physics replication to server registers presence in trigger zone
+			for _, p in ipairs(snapBus:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.Anchored = false
+				end
+			end
+
+			snapSeat.Anchored = false
+			snapSeat.AssemblyLinearVelocity = Vector3.new(0, -3, 0)
+			snapSeat.AssemblyAngularVelocity = Vector3.zero
+			snapSeat.Throttle = 0
+			snapSeat.Steer = 0
+		end)
+	end
 
 	-- Listen for Server Job Updates
 	if Remotes:FindFirstChild("BusJobUpdate") then
@@ -457,17 +491,27 @@ local success, err = pcall(function()
 
 			if eventName == "StartCheckpointWait" then
 				waitingForCheckpointCountdown = true
+				isInCheckpointZone = true
 				currentCheckpointIndex = eventData.checkpointIndex or currentCheckpointIndex
 				totalCheckpoints = eventData.totalCheckpoints or totalCheckpoints
 				currentCheckpointText = string.format("%d / %d", currentCheckpointIndex, totalCheckpoints)
 				if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
 				setFarmState(FARM_STATE.WAITING_PASSENGERS, eventData.checkpointName or "Checkpoint Zone")
 
+			elseif eventName == "CheckpointZoneExit" then
+				isInCheckpointZone = false
+
+			elseif eventName == "CheckpointZoneEnter" then
+				isInCheckpointZone = true
+
 			elseif eventName == "WaitCompleted" then
 				waitingForCheckpointCountdown = false
+				isInCheckpointZone = true
 				setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Passenger Loading Complete")
 
 			elseif eventName == "NextCheckpoint" then
+				waitingForCheckpointCountdown = false
+				isInCheckpointZone = true
 				nextCheckpointPartName = eventData.nextCheckpointPartName
 				nextDestinationName = eventData.nextDestinationName
 				currentCheckpointIndex = eventData.checkpointIndex or currentCheckpointIndex
@@ -477,6 +521,8 @@ local success, err = pcall(function()
 				setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or "Next Stop")
 
 			elseif eventName == "FinalDestination" then
+				waitingForCheckpointCountdown = false
+				isInCheckpointZone = true
 				endTriggerPartName = eventData.endTriggerPartName
 				currentCheckpointIndex = eventData.checkpointIndex or currentCheckpointIndex
 				totalCheckpoints = eventData.totalCheckpoints or totalCheckpoints
@@ -487,6 +533,7 @@ local success, err = pcall(function()
 			elseif eventName == "JobSuccess" then
 				currentJobActive = false
 				waitingForCheckpointCountdown = false
+				isInCheckpointZone = true
 				totalRoutesDone = totalRoutesDone + 1
 				if statRouteCard then statRouteCard.Set(tostring(totalRoutesDone)) end
 				setFarmState(FARM_STATE.JOB_COMPLETED, "Route Completed!")
@@ -504,6 +551,7 @@ local success, err = pcall(function()
 			elseif eventName == "JobCancelled" then
 				currentJobActive = false
 				waitingForCheckpointCountdown = false
+				isInCheckpointZone = true
 				setFarmState(FARM_STATE.IDLE, "Job Cancelled")
 			end
 		end)
@@ -603,27 +651,16 @@ local success, err = pcall(function()
 					-- Drive directly to part center with tight 3-stud threshold
 					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
-					-- Precision align bus inside checkpoint zone settling firmly on the road asphalt
-					task.wait(0.2)
-					local snapBus, snapSeat = ensureBusAndSeat()
-					if snapBus and snapSeat then
-						pcall(function()
-							local look = snapSeat.CFrame.LookVector
-							local heading = math.atan2(-look.X, -look.Z)
-							local roadY = probeGround(cpPart.Position, cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET) or (cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET)
-							local seatTargetY = roadY + BUS_SEAT_GROUND_OFFSET
-							snapBus:PivotTo(CFrame.new(cpPart.Position.X, seatTargetY, cpPart.Position.Z) * CFrame.Angles(0, heading, 0))
-							snapSeat.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
-							snapSeat.AssemblyAngularVelocity = Vector3.zero
-							snapSeat.Anchored = false
-						end)
-					end
+					-- Precision align bus inside checkpoint zone oriented to cpPart CFrame
+					snapBusToCheckpoint(cpPart)
+					task.wait(0.3)
+					snapBusToCheckpoint(cpPart)
 
-					-- 💓 Send natural CheckpointHeartbeat and Auto-Nudge into Trigger Zone
+					-- 💓 Send natural CheckpointHeartbeat and Wait for Trigger Activation
 					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
 					local hbTimer = 0
 					local cpWaitStart = os.clock()
-					local lastNudgeTime = os.clock()
+					local lastHealTime = os.clock()
 
 					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 18 do
 						local now = os.clock()
@@ -632,18 +669,10 @@ local success, err = pcall(function()
 							hbTimer = now
 						end
 
-						-- If countdown hasn't started after 3.5s, nudge forward into the "BERHENTI DI SINI" trigger zone
-						if (now - cpWaitStart) > 3.5 and (now - lastNudgeTime) >= 3.0 then
-							lastNudgeTime = now
-							local b, s = ensureBusAndSeat()
-							if b and s then
-								pcall(function()
-									local forward = s.CFrame.LookVector
-									b:PivotTo(b:GetPivot() + (forward * 7))
-									s.AssemblyLinearVelocity = Vector3.zero
-									s.AssemblyAngularVelocity = Vector3.zero
-								end)
-							end
+						-- Self-Heal: Re-center if zone exited or countdown hasn't started after 3.5s
+						if (not isInCheckpointZone or (now - cpWaitStart) > 3.5) and (now - lastHealTime) >= 2.5 then
+							lastHealTime = now
+							snapBusToCheckpoint(cpPart)
 						end
 
 						task.wait(0.2)
@@ -655,14 +684,22 @@ local success, err = pcall(function()
 						local waitTimeout = os.clock()
 						local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
 						local hbTimerB = 0
+						local lastWaitHealTime = os.clock()
+
 						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 25 do
 							local b, s = ensureBusAndSeat()
 							if s then
-								s.AssemblyLinearVelocity = Vector3.zero
-								s.AssemblyAngularVelocity = Vector3.zero
 								s.Throttle = 0
+								s.Steer = 0
 							end
+
 							local now = os.clock()
+							-- If server fired CheckpointZoneExit while waiting, re-center immediately
+							if not isInCheckpointZone and (now - lastWaitHealTime) >= 1.5 then
+								lastWaitHealTime = now
+								snapBusToCheckpoint(cpPart)
+							end
+
 							if hbRemoteB and (now - hbTimerB) >= 1.0 then
 								pcall(function() hbRemoteB:FireServer() end)
 								hbTimerB = now
