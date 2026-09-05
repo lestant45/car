@@ -618,7 +618,24 @@ local success, err = pcall(function()
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 20)
+					-- Reduced threshold (8 studs) to ensure bus enters the trigger zone
+					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 8)
+
+					-- Final precision snap: PivotTo exact checkpoint center XZ
+					-- (keeps current road Y so the bus doesn't float or sink)
+					task.wait(0.15)
+					local snapBus, snapSeat = ensureBusAndSeat()
+					if snapBus and snapSeat then
+						local cpPos = cpPart.Position
+						local curY = snapSeat.Position.Y
+						local curAngle = math.atan2(-snapSeat.CFrame.LookVector.X, -snapSeat.CFrame.LookVector.Z)
+						pcall(function()
+							snapBus:PivotTo(CFrame.new(cpPos.X, curY, cpPos.Z) * CFrame.Angles(0, curAngle, 0))
+							snapSeat.AssemblyLinearVelocity = Vector3.zero
+							snapSeat.AssemblyAngularVelocity = Vector3.zero
+							snapSeat.Anchored = true
+						end)
+					end
 				end
 			end
 
