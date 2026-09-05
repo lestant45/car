@@ -75,26 +75,11 @@ local success, err = pcall(function()
 		return "Rp " .. str
 	end
 
-	------------------------------------------------
-	-- 🛡️ SAFETY PLATFORM & STREAMING
-	------------------------------------------------
-	local function ensureSafetyPlate(pos, width)
-		width = width or 80
-		local plate = workspace:FindFirstChild("__SafetyPlate")
-		if not plate then
-			plate = Instance.new("Part")
-			plate.Name = "__SafetyPlate"
-			plate.Anchored = true
-			plate.CanCollide = true
-			plate.Transparency = 1
-			plate.CastShadow = false
-			plate.Material = Enum.Material.SmoothPlastic
-			pcall(function() plate.Parent = workspace end)
-		end
-		plate.Size = Vector3.new(width, 2, width)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 1.0, pos.Z)
-		return plate
-	end
+	-- Clean up any legacy artificial plate that may block ground triggers
+	pcall(function()
+		local oldPlate = workspace:FindFirstChild("__SafetyPlate")
+		if oldPlate then oldPlate:Destroy() end
+	end)
 
 	local function requestStreamAsync(pos)
 		pcall(function()
@@ -265,8 +250,7 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Pre-load destination safety plate & streaming
-		ensureSafetyPlate(Vector3.new(destPos.X, destGroundY or (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET), destPos.Z), 100)
+		-- Pre-load destination streaming
 		requestStreamAsync(destPos)
 
 		if currentDriveConn then
@@ -423,7 +407,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore exact original collisions, unanchor seat & place safety plate
+		-- Natural stop at destination: restore exact original collisions & unanchor seat
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -449,9 +433,6 @@ local success, err = pcall(function()
 				hrp.AssemblyLinearVelocity = Vector3.zero
 				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
-			local finalPos = curSeat and curSeat.Position or destPos
-			local finalGround = probeGround(finalPos, finalPos.Y - BUS_SEAT_GROUND_OFFSET) or (finalPos.Y - BUS_SEAT_GROUND_OFFSET)
-			ensureSafetyPlate(Vector3.new(finalPos.X, finalGround, finalPos.Z), 100)
 		end)
 
 		isDrivingActive = false
@@ -622,14 +603,16 @@ local success, err = pcall(function()
 					-- Drive directly to part center with tight 3-stud threshold
 					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
-					-- Precision align bus inside checkpoint zone facing forward
+					-- Precision align bus inside checkpoint zone settling firmly on the road asphalt
 					task.wait(0.2)
 					local snapBus, snapSeat = ensureBusAndSeat()
 					if snapBus and snapSeat then
 						pcall(function()
 							local look = snapSeat.CFrame.LookVector
 							local heading = math.atan2(-look.X, -look.Z)
-							snapBus:PivotTo(CFrame.new(cpPart.Position.X, cpPart.Position.Y + 2.0, cpPart.Position.Z) * CFrame.Angles(0, heading, 0))
+							local roadY = probeGround(cpPart.Position, cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET) or (cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET)
+							local seatTargetY = roadY + BUS_SEAT_GROUND_OFFSET
+							snapBus:PivotTo(CFrame.new(cpPart.Position.X, seatTargetY, cpPart.Position.Z) * CFrame.Angles(0, heading, 0))
 							snapSeat.AssemblyLinearVelocity = Vector3.zero
 							snapSeat.AssemblyAngularVelocity = Vector3.zero
 							snapSeat.Anchored = false
