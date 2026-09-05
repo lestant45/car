@@ -355,8 +355,10 @@ local success, err = pcall(function()
 			local desiredSeatY
 			if bestGroundY > -400 then
 				desiredSeatY = bestGroundY + BUS_SEAT_GROUND_OFFSET
-				-- Pre-emptively lift for upcoming slope if it's higher than current road
-				if slopeTargetY and slopeTargetY > bestGroundY then
+				-- Pre-emptively lift for slope/hill, capped at destination road level + margin
+				-- Canopies/roofs ABOVE the destination are higher than this cap → correctly ignored
+				local maxSlopeTarget = (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET) + 8
+				if slopeTargetY and slopeTargetY > bestGroundY and slopeTargetY <= maxSlopeTarget then
 					desiredSeatY = math.max(desiredSeatY, slopeTargetY + BUS_SEAT_GROUND_OFFSET)
 				end
 			else
