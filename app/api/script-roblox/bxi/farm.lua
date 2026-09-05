@@ -279,7 +279,8 @@ local success, err = pcall(function()
 			local flatDist = destVector.Magnitude
 
 			-- Check Arrival: arrived within threshold OR max timeout reached
-			if flatDist <= 12 or (os.clock() - driveStartTime) >= maxDriveTimeout then
+			local thresh = arrivalThreshold or 6
+			if flatDist <= thresh or (os.clock() - driveStartTime) >= maxDriveTimeout then
 				driveFinished = true
 				return
 			end
@@ -403,21 +404,29 @@ local success, err = pcall(function()
 	local totalCheckpoints = 0
 
 	-- Helper: Snap and align bus perfectly inside checkpoint zone oriented to cpPart CFrame
-	local function snapBusToCheckpoint(cpPart)
+	local function snapBusToCheckpoint(cpPart, forwardOffset)
 		if not (cpPart and cpPart:IsA("BasePart")) then return end
 		local snapBus, snapSeat = ensureBusAndSeat()
 		if not (snapBus and snapSeat) then return end
 
 		pcall(function()
 			local cpCF = cpPart.CFrame
-			local roadY = probeGround(cpPart.Position, cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET) or (cpPart.Position.Y - BUS_SEAT_GROUND_OFFSET)
+			local roadY = probeGround(cpPart.Position, cpPart.Position.Y - 2.0) or (cpPart.Position.Y - 2.0)
 			local seatTargetY = roadY + BUS_SEAT_GROUND_OFFSET
 
 			-- Align orientation along checkpoint slot axis (flip 180 deg if approach direction is reversed)
 			local dot = snapSeat.CFrame.LookVector:Dot(cpCF.LookVector)
 			local rotCF = dot < -0.2 and (cpCF * CFrame.Angles(0, math.pi, 0) - cpCF.Position) or (cpCF - cpCF.Position)
+			local forwardDir = rotCF.LookVector
 
-			local targetCF = CFrame.new(cpPart.Position.X, seatTargetY, cpPart.Position.Z) * rotCF
+			-- DriveSeat is ~23 studs in front of bus center.
+			-- To center the passenger door / cabin inside the checkpoint trigger zone,
+			-- we position the DriveSeat forward by +14 studs along heading.
+			local offset = forwardOffset or 14
+			local targetX = cpPart.Position.X + (forwardDir.X * offset)
+			local targetZ = cpPart.Position.Z + (forwardDir.Z * offset)
+
+			local targetCF = CFrame.new(targetX, seatTargetY, targetZ) * rotCF
 			snapBus:PivotTo(targetCF)
 
 			-- Unanchor all parts so physics replication to server registers presence in trigger zone
@@ -603,15 +612,16 @@ local success, err = pcall(function()
 					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
 					-- Precision align bus inside checkpoint zone oriented to cpPart CFrame
-					snapBusToCheckpoint(cpPart)
+					snapBusToCheckpoint(cpPart, 14)
 					task.wait(0.3)
-					snapBusToCheckpoint(cpPart)
+					snapBusToCheckpoint(cpPart, 14)
 
 					-- 💓 Send natural CheckpointHeartbeat and Wait for Trigger Activation
 					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
 					local hbTimer = 0
 					local cpWaitStart = os.clock()
 					local lastHealTime = os.clock()
+					local nudgeCount = 0
 
 					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 18 do
 						local now = os.clock()
@@ -620,10 +630,13 @@ local success, err = pcall(function()
 							hbTimer = now
 						end
 
-						-- Self-Heal: Re-center if zone exited or countdown hasn't started after 3.5s
-						if (not isInCheckpointZone or (now - cpWaitStart) > 3.5) and (now - lastHealTime) >= 2.5 then
+						-- If countdown hasn't started after 2.5s, step forward progressively to trigger passenger box
+						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 2.5 and (now - lastHealTime) >= 2.0 then
 							lastHealTime = now
-							snapBusToCheckpoint(cpPart)
+							nudgeCount = nudgeCount + 1
+							local progressiveOffset = 14 + (nudgeCount * 3)
+							if progressiveOffset > 24 then progressiveOffset = 10 end
+							snapBusToCheckpoint(cpPart, progressiveOffset)
 						end
 
 						task.wait(0.2)
