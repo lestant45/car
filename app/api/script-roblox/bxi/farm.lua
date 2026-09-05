@@ -619,30 +619,50 @@ local success, err = pcall(function()
 				local cpPart = findTargetPart(nextCheckpointPartName, "Checkpoints")
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 8)
+					-- Drive directly to part center with tight 3-stud threshold
+					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
-					-- Precision snap to checkpoint center
+					-- Precision align bus inside checkpoint zone facing forward
 					task.wait(0.2)
 					local snapBus, snapSeat = ensureBusAndSeat()
 					if snapBus and snapSeat then
 						pcall(function()
-							snapBus:PivotTo(cpPart.CFrame + Vector3.new(0, 1.5, 0))
+							local look = snapSeat.CFrame.LookVector
+							local heading = math.atan2(-look.X, -look.Z)
+							snapBus:PivotTo(CFrame.new(cpPart.Position.X, cpPart.Position.Y + 2.0, cpPart.Position.Z) * CFrame.Angles(0, heading, 0))
 							snapSeat.AssemblyLinearVelocity = Vector3.zero
 							snapSeat.AssemblyAngularVelocity = Vector3.zero
 							snapSeat.Anchored = false
 						end)
 					end
 
-					-- 💓 Send natural CheckpointHeartbeat (1.0s interval) so server knows bus is in zone
+					-- 💓 Send natural CheckpointHeartbeat and Auto-Nudge into Trigger Zone
 					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
 					local hbTimer = 0
 					local cpWaitStart = os.clock()
-					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 12 do
+					local lastNudgeTime = os.clock()
+
+					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 18 do
 						local now = os.clock()
 						if hbRemote and (now - hbTimer) >= 1.0 then
 							pcall(function() hbRemote:FireServer() end)
 							hbTimer = now
 						end
+
+						-- If countdown hasn't started after 3.5s, nudge forward into the "BERHENTI DI SINI" trigger zone
+						if (now - cpWaitStart) > 3.5 and (now - lastNudgeTime) >= 3.0 then
+							lastNudgeTime = now
+							local b, s = ensureBusAndSeat()
+							if b and s then
+								pcall(function()
+									local forward = s.CFrame.LookVector
+									b:PivotTo(b:GetPivot() + (forward * 7))
+									s.AssemblyLinearVelocity = Vector3.zero
+									s.AssemblyAngularVelocity = Vector3.zero
+								end)
+							end
+						end
+
 						task.wait(0.2)
 					end
 
@@ -653,6 +673,12 @@ local success, err = pcall(function()
 						local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
 						local hbTimerB = 0
 						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 25 do
+							local b, s = ensureBusAndSeat()
+							if s then
+								s.AssemblyLinearVelocity = Vector3.zero
+								s.AssemblyAngularVelocity = Vector3.zero
+								s.Throttle = 0
+							end
 							local now = os.clock()
 							if hbRemoteB and (now - hbTimerB) >= 1.0 then
 								pcall(function() hbRemoteB:FireServer() end)
@@ -660,9 +686,9 @@ local success, err = pcall(function()
 							end
 							task.wait(0.2)
 						end
+						-- Only mark as completed once passenger loading actually started/finished
+						lastHandledCheckpoint = nextCheckpointPartName
 					end
-
-					lastHandledCheckpoint = nextCheckpointPartName
 				end
 			end
 
