@@ -256,8 +256,14 @@ local success, err = pcall(function()
 		local lastStuckCheckTime = os.clock()
 		local lastStuckCheckPos = seat.Position
 
-		-- Unanchor seat so movement can begin smoothly
-		seat.Anchored = false
+		-- Anchor bus during smooth translation to eliminate physics solver vibration
+		seat.Anchored = true
+		for _, part in ipairs(bus:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				part.Anchored = true
+			end
+		end
 
 		-- Pre-load destination safety plate & streaming
 		ensureSafetyPlate(Vector3.new(destPos.X, destGroundY or (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET), destPos.Z), 100)
@@ -318,7 +324,6 @@ local success, err = pcall(function()
 			local bestGroundY = math.max(localGroundY or -1000, nearAheadGroundY or -1000)
 
 			-- Forward slope detection: horizontal ray finds slope faces ahead of the bus
-			-- (bridges above are NOT detected because the ray is horizontal, not downward)
 			local slopeTargetY = nil
 			do
 				local srp = RaycastParams.new()
@@ -340,7 +345,6 @@ local success, err = pcall(function()
 				)
 				if slopeHit then
 					if math.abs(slopeHit.Normal.Y) < 0.5 then
-						-- Steep face hit (slope/hill wall): probe down from above to find hilltop
 						local topHit = workspace:Raycast(
 							slopeHit.Position + Vector3.new(0, 100, 0),
 							Vector3.new(0, -150, 0),
@@ -348,7 +352,6 @@ local success, err = pcall(function()
 						)
 						slopeTargetY = topHit and topHit.Position.Y
 					else
-						-- Shallow face hit (gentle ramp): use hit surface Y directly
 						slopeTargetY = slopeHit.Position.Y
 					end
 				end
@@ -357,8 +360,6 @@ local success, err = pcall(function()
 			local desiredSeatY
 			if bestGroundY > -400 then
 				desiredSeatY = bestGroundY + BUS_SEAT_GROUND_OFFSET
-				-- Pre-emptively lift for slope/hill, capped at destination road level + margin
-				-- Canopies/roofs ABOVE the destination are higher than this cap → correctly ignored
 				local maxSlopeTarget = (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET) + 8
 				if slopeTargetY and slopeTargetY > bestGroundY and slopeTargetY <= maxSlopeTarget then
 					desiredSeatY = math.max(desiredSeatY, slopeTargetY + BUS_SEAT_GROUND_OFFSET)
@@ -367,7 +368,7 @@ local success, err = pcall(function()
 				desiredSeatY = targetFinalSeatY
 			end
 
-			-- Adaptive vertical interpolation (faster: 150 studs/sec max, 8 studs minimum per frame)
+			-- Adaptive vertical interpolation
 			local maxVertStep = math.max(150 * dt, 8)
 			if lastSeatY < desiredSeatY then
 				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
@@ -377,7 +378,6 @@ local success, err = pcall(function()
 
 			-- Smooth Angular Steering
 			if moveDir.Magnitude > 0.05 then
-				-- atan2(-X, -Z) because CFrame.Angles(0,Y,0) LookVector = (-sinY, 0, -cosY)
 				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
 				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
@@ -394,28 +394,10 @@ local success, err = pcall(function()
 			pcall(function()
 				curBus:PivotTo(targetSeatCF)
 
-				-- Collision handling
-				for _, part in ipairs(curBus:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.CanCollide = false
-						part.Anchored = false
-					end
-				end
-
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-				end
-
-				local velocityVec = moveDir * currentSmoothSpeed
-				curSeat.Throttle = 1
-				curSeat.AssemblyLinearVelocity = velocityVec
-				curSeat.AssemblyAngularVelocity = Vector3.zero
-
-				if hrp then
-					hrp.AssemblyLinearVelocity = velocityVec
-					hrp.AssemblyAngularVelocity = Vector3.zero
 				end
 			end)
 
@@ -441,7 +423,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore exact original collisions, anchor seat & place safety plate directly under vehicle
+		-- Natural stop at destination: restore exact original collisions, unanchor seat & place safety plate
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -450,6 +432,7 @@ local success, err = pcall(function()
 					if part and part.Parent then
 						pcall(function()
 							part.CanCollide = state
+							part.Anchored = false
 							part.AssemblyLinearVelocity = Vector3.zero
 							part.AssemblyAngularVelocity = Vector3.zero
 						end)
@@ -460,7 +443,7 @@ local success, err = pcall(function()
 				curSeat.AssemblyLinearVelocity = Vector3.zero
 				curSeat.AssemblyAngularVelocity = Vector3.zero
 				curSeat.Throttle = 0
-				curSeat.Anchored = true
+				curSeat.Anchored = false
 			end
 			if hrp then
 				hrp.AssemblyLinearVelocity = Vector3.zero
@@ -545,6 +528,25 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Helper: robust checkpoint/trigger part finder across all workspace folders
+	local function findTargetPart(partName, preferredFolder)
+		if not partName then return nil end
+		if preferredFolder and workspace:FindFirstChild(preferredFolder) then
+			local p = workspace[preferredFolder]:FindFirstChild(partName, true)
+			if p and p:IsA("BasePart") then return p end
+		end
+		for _, fName in ipairs({ "Checkpoints", "BusJobTriggers", "BusJobEndTriggers" }) do
+			local f = workspace:FindFirstChild(fName)
+			if f then
+				local p = f:FindFirstChild(partName, true)
+				if p and p:IsA("BasePart") then return p end
+			end
+		end
+		local direct = workspace:FindFirstChild(partName, true)
+		if direct and direct:IsA("BasePart") then return direct end
+		return nil
+	end
+
 	-- Execute one full bus route loop
 	local function executeBusRouteLoop()
 		-- 1. Ensure Bus and Driver Seat
@@ -555,7 +557,7 @@ local success, err = pcall(function()
 		end
 
 		-- 2. Ensure Bus is physically inside Terminal Zone before Invoking StartBusJob (Distance Anti-Exploit Check)
-		local termPart = workspace.BusJobTriggers:FindFirstChild(currentTerminalId)
+		local termPart = findTargetPart(currentTerminalId, "BusJobTriggers")
 		local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
 		local seatPos = seat.Position
 		local distToTerm = (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude
@@ -610,10 +612,11 @@ local success, err = pcall(function()
 		end
 
 		-- 5. Route Navigation Loop (Checkpoint to Checkpoint)
+		local lastHandledCheckpoint = nil
 		while currentJobActive and isFarmRunning do
 			-- A. Driving to next checkpoint
-			if nextCheckpointPartName then
-				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
+			if nextCheckpointPartName and nextCheckpointPartName ~= lastHandledCheckpoint then
+				local cpPart = findTargetPart(nextCheckpointPartName, "Checkpoints")
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
 					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 8)
@@ -634,7 +637,7 @@ local success, err = pcall(function()
 					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
 					local hbTimer = 0
 					local cpWaitStart = os.clock()
-					while not waitingForCheckpointCountdown and isFarmRunning and (os.clock() - cpWaitStart) < 15 do
+					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 12 do
 						local now = os.clock()
 						if hbRemote and (now - hbTimer) >= 1.0 then
 							pcall(function() hbRemote:FireServer() end)
@@ -642,36 +645,30 @@ local success, err = pcall(function()
 						end
 						task.wait(0.2)
 					end
-				end
-			end
 
-			-- B. Waiting inside Checkpoint Zone for passenger countdown
-			if waitingForCheckpointCountdown and isFarmRunning then
-				setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
-				local waitTimeout = os.clock()
-				local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
-				local hbTimerB = 0
-				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 25 do
-					local b, s = ensureBusAndSeat()
-					if s then
-						s.AssemblyLinearVelocity = Vector3.zero
-						s.AssemblyAngularVelocity = Vector3.zero
-						s.Throttle = 0
+					-- B. Waiting inside Checkpoint Zone for passenger countdown
+					if waitingForCheckpointCountdown and isFarmRunning and currentJobActive then
+						setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
+						local waitTimeout = os.clock()
+						local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
+						local hbTimerB = 0
+						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 25 do
+							local now = os.clock()
+							if hbRemoteB and (now - hbTimerB) >= 1.0 then
+								pcall(function() hbRemoteB:FireServer() end)
+								hbTimerB = now
+							end
+							task.wait(0.2)
+						end
 					end
-					local now = os.clock()
-					if hbRemoteB and (now - hbTimerB) >= 1.0 then
-						pcall(function() hbRemoteB:FireServer() end)
-						hbTimerB = now
-					end
-					task.wait(0.2)
+
+					lastHandledCheckpoint = nextCheckpointPartName
 				end
 			end
 
 			-- C. Driving to Final Destination with Safe Anti-Ban Delay
-			if endTriggerPartName and not currentJobActive then
-				break
-			elseif endTriggerPartName and currentJobActive then
-				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
+			if endTriggerPartName and currentJobActive then
+				local endTrigger = findTargetPart(endTriggerPartName, "BusJobEndTriggers")
 				if endTrigger and endTrigger:IsA("BasePart") then
 					-- 🛡️ SAFE ANTI-BAN DELAY: Ensure minimum trip duration before touching final trigger
 					local minDelay = Config.arriveDelay or 65
@@ -694,7 +691,7 @@ local success, err = pcall(function()
 				break
 			end
 
-			task.wait(0.5)
+			task.wait(0.3)
 		end
 
 		task.wait(1)
