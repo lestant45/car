@@ -622,7 +622,6 @@ local success, err = pcall(function()
 					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 8)
 
 					-- Final precision snap: PivotTo exact checkpoint center XZ
-					-- (keeps current road Y so the bus doesn't float or sink)
 					task.wait(0.15)
 					local snapBus, snapSeat = ensureBusAndSeat()
 					if snapBus and snapSeat then
@@ -636,13 +635,30 @@ local success, err = pcall(function()
 							snapSeat.Anchored = true
 						end)
 					end
+
+					-- 💓 Fire CheckpointHeartbeat so server knows bus is inside the zone
+					-- Server waits for this signal (NOT Touched events) to start the countdown
+					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
+					local hbTimer = 0
+					local cpWaitStart = os.clock()
+					while not waitingForCheckpointCountdown and isFarmRunning and (os.clock() - cpWaitStart) < 12 do
+						local now = os.clock()
+						if hbRemote and (now - hbTimer) >= 0.3 then
+							pcall(function() hbRemote:FireServer() end)
+							hbTimer = now
+						end
+						task.wait(0.1)
+					end
 				end
 			end
 
 			-- B. Waiting inside Checkpoint Zone for passenger countdown
+			-- Keep firing CheckpointHeartbeat so server maintains the boarding countdown
 			if waitingForCheckpointCountdown and isFarmRunning then
 				setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
 				local waitTimeout = os.clock()
+				local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
+				local hbTimerB = 0
 				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 25 do
 					local b, s = ensureBusAndSeat()
 					if s then
@@ -651,7 +667,12 @@ local success, err = pcall(function()
 						s.Throttle = 0
 						s.Anchored = true
 					end
-					task.wait(0.5)
+					local now = os.clock()
+					if hbRemoteB and (now - hbTimerB) >= 0.4 then
+						pcall(function() hbRemoteB:FireServer() end)
+						hbTimerB = now
+					end
+					task.wait(0.2)
 				end
 			end
 
