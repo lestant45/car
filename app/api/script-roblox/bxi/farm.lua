@@ -765,6 +765,25 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🔁 MASTER AUTO FARM THREAD
 	------------------------------------------------
+	local function respawnToStart()
+		setFarmState(FARM_STATE.IDLE, "Fast Reset to Garage")
+		pcall(function()
+			if Remotes:FindFirstChild("DespawnCar") then
+				Remotes.DespawnCar:FireServer()
+			end
+		end)
+		task.wait(0.5)
+
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.Health = 0
+		end
+
+		player.CharacterAdded:Wait()
+		task.wait(1.5)
+	end
+
 	task.spawn(function()
 		while true do
 			task.wait(1)
@@ -777,6 +796,10 @@ local success, err = pcall(function()
 					local cd = Config.jobCooldown or 3
 					setFarmState(FARM_STATE.IDLE, string.format("Cooldown (%ds)", cd))
 					task.wait(cd)
+
+					if Config.autoRespawnLoop ~= false and isFarmRunning then
+						respawnToStart()
+					end
 				elseif not Config.autoNextJob then
 					isFarmRunning = false
 					setFarmState(FARM_STATE.IDLE, "Single Route Done")
@@ -892,6 +915,10 @@ local success, err = pcall(function()
 
 	UI.AddToggle(tab, "Continuous Loop (Auto Start Next Job)", Config.autoNextJob, function(state)
 		Config.autoNextJob = state
+	end)
+
+	UI.AddToggle(tab, "Fast Respawn Loop (Instant Reset to Garage)", Config.autoRespawnLoop ~= false, function(state)
+		Config.autoRespawnLoop = state
 	end)
 
 	-- 3. Automation Modules

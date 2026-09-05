@@ -31,6 +31,7 @@ local success, err = pcall(function()
 			arriveDelay = 65,
 			jobCooldown = 3,
 			autoNextJob = true,
+			autoRespawnLoop = true,
 			autoClaimQuests = true,
 			autoSpinBox = false,
 			selectedBox = "Event",
