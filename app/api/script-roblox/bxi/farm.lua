@@ -202,10 +202,9 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		-- Always shoot from well above the reference height to catch elevated terrain (slopes, hills)
-		local refY = math.max(pos.Y, fallbackY or pos.Y)
-		local rayOrigin = Vector3.new(pos.X, refY + 80, pos.Z)
-		local rayDir = Vector3.new(0, -220, 0)
+		-- Below-only probe: shoot from just above current position so bridges/canopies above are never detected
+		local rayOrigin = Vector3.new(pos.X, pos.Y + 5, pos.Z)
+		local rayDir = Vector3.new(0, -145, 0)
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
 		if hit then
@@ -310,23 +309,56 @@ local success, err = pcall(function()
 			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
 			local expectedTrajectoryY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
 
-			-- 🛣️ Multi-lookahead ground probing: detect elevated slopes AHEAD of the bus
+			-- 🛣️ Ground tracking: below-only probes (safe under bridges) + forward slope detection
 			local probeBase = expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET
-			local localGroundY  = probeGround(seatPos, probeBase)
-			local ahead1GroundY = probeGround(seatPos + (moveDir * 30), probeBase)
-			local ahead2GroundY = probeGround(seatPos + (moveDir * 65), probeBase)
+			local localGroundY    = probeGround(seatPos, probeBase)
+			local nearAheadGroundY = probeGround(seatPos + (moveDir * 25), probeBase)
+			local bestGroundY = math.max(localGroundY or -1000, nearAheadGroundY or -1000)
 
-			-- Take the HIGHEST detected ground so the bus always clears upcoming slopes
-			local bestGround = math.max(
-				localGroundY  or -1000,
-				ahead1GroundY or -1000,
-				ahead2GroundY or -1000
-			)
+			-- Forward slope detection: horizontal ray finds slope faces ahead of the bus
+			-- (bridges above are NOT detected because the ray is horizontal, not downward)
+			local slopeTargetY = nil
+			do
+				local srp = RaycastParams.new()
+				srp.FilterType = Enum.RaycastFilterType.Exclude
+				local sfl = {}
+				if char then table.insert(sfl, char) end
+				local spveh = workspace:FindFirstChild("SpawnedVehicles")
+				if spveh then table.insert(sfl, spveh) end
+				local scps = workspace:FindFirstChild("Checkpoints")
+				if scps then table.insert(sfl, scps) end
+				local sspl = workspace:FindFirstChild("__SafetyPlate")
+				if sspl then table.insert(sfl, sspl) end
+				srp.FilterDescendantsInstances = sfl
+
+				local slopeHit = workspace:Raycast(
+					Vector3.new(seatPos.X, lastSeatY, seatPos.Z),
+					moveDir * 80,
+					srp
+				)
+				if slopeHit then
+					if math.abs(slopeHit.Normal.Y) < 0.5 then
+						-- Steep face hit (slope/hill wall): probe down from above to find hilltop
+						local topHit = workspace:Raycast(
+							slopeHit.Position + Vector3.new(0, 100, 0),
+							Vector3.new(0, -150, 0),
+							srp
+						)
+						slopeTargetY = topHit and topHit.Position.Y
+					else
+						-- Shallow face hit (gentle ramp): use hit surface Y directly
+						slopeTargetY = slopeHit.Position.Y
+					end
+				end
+			end
 
 			local desiredSeatY
-			if bestGround > -400 then
-				-- Always follow real terrain; no proximity guard so bus descends/ascends immediately
-				desiredSeatY = bestGround + BUS_SEAT_GROUND_OFFSET
+			if bestGroundY > -400 then
+				desiredSeatY = bestGroundY + BUS_SEAT_GROUND_OFFSET
+				-- Pre-emptively lift for upcoming slope if it's higher than current road
+				if slopeTargetY and slopeTargetY > bestGroundY then
+					desiredSeatY = math.max(desiredSeatY, slopeTargetY + BUS_SEAT_GROUND_OFFSET)
+				end
 			else
 				desiredSeatY = targetFinalSeatY
 			end
