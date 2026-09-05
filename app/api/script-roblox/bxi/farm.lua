@@ -622,20 +622,24 @@ local success, err = pcall(function()
 					task.wait(0.2)
 					local snapBus, snapSeat = ensureBusAndSeat()
 					if snapBus and snapSeat then
-						local cpPos = cpPart.Position
-						local curY = snapSeat.Position.Y
-						local curAngle = math.atan2(-snapSeat.CFrame.LookVector.X, -snapSeat.CFrame.LookVector.Z)
 						pcall(function()
-							snapBus:PivotTo(CFrame.new(cpPos.X, curY, cpPos.Z) * CFrame.Angles(0, curAngle, 0))
+							snapBus:PivotTo(cpPart.CFrame + Vector3.new(0, 1.5, 0))
 							snapSeat.AssemblyLinearVelocity = Vector3.zero
 							snapSeat.AssemblyAngularVelocity = Vector3.zero
-							snapSeat.Anchored = true
+							snapSeat.Anchored = false
 						end)
 					end
 
-					-- Wait for game to trigger checkpoint passenger loading
+					-- 💓 Send natural CheckpointHeartbeat (1.0s interval) so server knows bus is in zone
+					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
+					local hbTimer = 0
 					local cpWaitStart = os.clock()
-					while not waitingForCheckpointCountdown and isFarmRunning and (os.clock() - cpWaitStart) < 8 do
+					while not waitingForCheckpointCountdown and isFarmRunning and (os.clock() - cpWaitStart) < 15 do
+						local now = os.clock()
+						if hbRemote and (now - hbTimer) >= 1.0 then
+							pcall(function() hbRemote:FireServer() end)
+							hbTimer = now
+						end
 						task.wait(0.2)
 					end
 				end
@@ -645,15 +649,21 @@ local success, err = pcall(function()
 			if waitingForCheckpointCountdown and isFarmRunning then
 				setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
 				local waitTimeout = os.clock()
-				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 20 do
+				local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
+				local hbTimerB = 0
+				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 25 do
 					local b, s = ensureBusAndSeat()
 					if s then
 						s.AssemblyLinearVelocity = Vector3.zero
 						s.AssemblyAngularVelocity = Vector3.zero
 						s.Throttle = 0
-						s.Anchored = true
 					end
-					task.wait(0.3)
+					local now = os.clock()
+					if hbRemoteB and (now - hbTimerB) >= 1.0 then
+						pcall(function() hbRemoteB:FireServer() end)
+						hbTimerB = now
+					end
+					task.wait(0.2)
 				end
 			end
 
