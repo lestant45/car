@@ -259,7 +259,8 @@ local success, err = pcall(function()
 		end
 
 		local driveStartTime = os.clock()
-		local maxDriveTimeout = math.clamp(totalFlatDist / 30, 2.0, 45) + 4.0
+		local expectedSeconds = totalFlatDist / math.max(targetCruiseSpeed * 0.4, 25)
+		local maxDriveTimeout = math.max(expectedSeconds * 2.0 + 20.0, 35.0)
 
 		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
 			if not isDrivingActive or not isFarmRunning then
@@ -408,6 +409,13 @@ local success, err = pcall(function()
 		if not (cpPart and cpPart:IsA("BasePart")) then return end
 		local snapBus, snapSeat = ensureBusAndSeat()
 		if not (snapBus and snapSeat) then return end
+
+		-- 🛡️ Anti-Cheat Teleport Guard: only snap if already within proximity (<= 45 studs)
+		local seatPos = snapSeat.Position
+		local distToCp = (Vector3.new(seatPos.X - cpPart.Position.X, 0, seatPos.Z - cpPart.Position.Z)).Magnitude
+		if distToCp > 45 then
+			return
+		end
 
 		pcall(function()
 			local cpCF = cpPart.CFrame
