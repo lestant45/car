@@ -17,7 +17,9 @@ local success, err = pcall(function()
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoBusJob = false,
 		selectedRoute = "Baranangsiang_ke_Rambutan",
-		targetSpeed = 140,
+		targetSpeed = 95,
+		arriveDelay = 65,
+		jobCooldown = 3,
 		autoNextJob = true,
 		autoClaimQuests = true,
 		autoSpinBox = false,
@@ -215,7 +217,7 @@ local success, err = pcall(function()
 
 	-- Drive from current location to target destination using AssemblyLinearVelocity
 	local function driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
-		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 140)
+		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 95)
 		arrivalThreshold = arrivalThreshold or 25
 
 		local bus, seat = ensureBusAndSeat()
@@ -552,15 +554,32 @@ local success, err = pcall(function()
 			return
 		end
 
-		-- 2. Start Bus Job (Clear any lingering zombie jobs first, then invoke server)
+		-- 2. Ensure Bus is physically inside Terminal Zone before Invoking StartBusJob (Distance Anti-Exploit Check)
+		local termPart = workspace.BusJobTriggers:FindFirstChild(currentTerminalId)
+		local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
+		local seatPos = seat.Position
+		local distToTerm = (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude
+
+		if distToTerm > 30 then
+			setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
+			driveToDestination(terminalTriggerPos, Config.targetSpeed or 95, 20)
+			task.wait(0.5)
+		end
+
+		-- Auto-clear lingering zombie job if server reports already in job
+		if player:GetAttribute("BusJobActive") then
+			pcall(function() Remotes.CancelBusJob:FireServer() end)
+			task.wait(1.5)
+		end
+
+		-- 3. Start Bus Job
 		setFarmState(FARM_STATE.STARTING_JOB, "Invoking StartBusJob")
 		local startRes = nil
 		pcall(function()
 			startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
 		end)
 
-		-- Auto-clear lingering zombie job if server reports already in job
-		if startRes == "You are already in a job." or player:GetAttribute("BusJobActive") then
+		if startRes == "You are already in a job." then
 			pcall(function() Remotes.CancelBusJob:FireServer() end)
 			task.wait(1.5)
 			pcall(function()
@@ -573,32 +592,11 @@ local success, err = pcall(function()
 			end)
 		end
 
-		-- Fallback: If proximity to terminal is strictly required, drive into terminal zone:
-		if not (type(startRes) == "table" and startRes.success) then
-			local termPart = workspace.BusJobTriggers:FindFirstChild(currentTerminalId)
-			local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
-			local seatPos = seat.Position
-			if (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude > 40 then
-				setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
-				driveToDestination(terminalTriggerPos, Config.targetSpeed or 140, 25)
-			end
-
-			pcall(function()
-				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
-			end)
-
-			if startRes == "You are already in a job." then
-				pcall(function() Remotes.CancelBusJob:FireServer() end)
-				task.wait(1.5)
-				pcall(function()
-					startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
-				end)
-			end
-		end
-
-		-- 3. Verify Job Activation
+		-- 4. Verify Job Activation
+		local jobStartTime = os.clock()
 		if type(startRes) == "table" and startRes.success then
 			currentJobActive = true
+			jobStartTime = os.clock()
 			currentCheckpointIndex = startRes.checkpointIndex or 1
 			totalCheckpoints = startRes.totalCheckpoints or 8
 			nextCheckpointPartName = startRes.nextCheckpointPartName
@@ -607,22 +605,21 @@ local success, err = pcall(function()
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
 			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName)
 		else
-			task.wait(3)
+			task.wait(2.5)
 			return
 		end
 
-		-- 4. Route Navigation Loop (Checkpoint to Checkpoint)
+		-- 5. Route Navigation Loop (Checkpoint to Checkpoint)
 		while currentJobActive and isFarmRunning do
 			-- A. Driving to next checkpoint
 			if nextCheckpointPartName then
 				local cpPart = workspace.Checkpoints:FindFirstChild(nextCheckpointPartName, true)
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					-- Reduced threshold (8 studs) to ensure bus enters the trigger zone
-					driveToDestination(cpPart.Position, Config.targetSpeed or 140, 8)
+					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 8)
 
-					-- Final precision snap: PivotTo exact checkpoint center XZ
-					task.wait(0.15)
+					-- Precision snap to checkpoint center
+					task.wait(0.2)
 					local snapBus, snapSeat = ensureBusAndSeat()
 					if snapBus and snapSeat then
 						local cpPos = cpPart.Position
@@ -636,30 +633,19 @@ local success, err = pcall(function()
 						end)
 					end
 
-					-- 💓 Fire CheckpointHeartbeat so server knows bus is inside the zone
-					-- Server waits for this signal (NOT Touched events) to start the countdown
-					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
-					local hbTimer = 0
+					-- Wait for game to trigger checkpoint passenger loading
 					local cpWaitStart = os.clock()
-					while not waitingForCheckpointCountdown and isFarmRunning and (os.clock() - cpWaitStart) < 12 do
-						local now = os.clock()
-						if hbRemote and (now - hbTimer) >= 0.3 then
-							pcall(function() hbRemote:FireServer() end)
-							hbTimer = now
-						end
-						task.wait(0.1)
+					while not waitingForCheckpointCountdown and isFarmRunning and (os.clock() - cpWaitStart) < 8 do
+						task.wait(0.2)
 					end
 				end
 			end
 
 			-- B. Waiting inside Checkpoint Zone for passenger countdown
-			-- Keep firing CheckpointHeartbeat so server maintains the boarding countdown
 			if waitingForCheckpointCountdown and isFarmRunning then
 				setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
 				local waitTimeout = os.clock()
-				local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
-				local hbTimerB = 0
-				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 25 do
+				while waitingForCheckpointCountdown and isFarmRunning and (os.clock() - waitTimeout) < 20 do
 					local b, s = ensureBusAndSeat()
 					if s then
 						s.AssemblyLinearVelocity = Vector3.zero
@@ -667,23 +653,32 @@ local success, err = pcall(function()
 						s.Throttle = 0
 						s.Anchored = true
 					end
-					local now = os.clock()
-					if hbRemoteB and (now - hbTimerB) >= 0.4 then
-						pcall(function() hbRemoteB:FireServer() end)
-						hbTimerB = now
-					end
-					task.wait(0.2)
+					task.wait(0.3)
 				end
 			end
 
-			-- C. Driving to Final Destination
+			-- C. Driving to Final Destination with Safe Anti-Ban Delay
 			if endTriggerPartName and not currentJobActive then
 				break
 			elseif endTriggerPartName and currentJobActive then
 				local endTrigger = workspace.BusJobEndTriggers:FindFirstChild(endTriggerPartName)
 				if endTrigger and endTrigger:IsA("BasePart") then
-					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-					driveToDestination(endTrigger.Position, Config.targetSpeed or 140, 15)
+					-- 🛡️ SAFE ANTI-BAN DELAY: Ensure minimum trip duration before touching final trigger
+					local minDelay = Config.arriveDelay or 65
+					local elapsed = os.clock() - jobStartTime
+					local remaining = minDelay - elapsed
+
+					while remaining > 0 and isFarmRunning and currentJobActive do
+						local secs = math.ceil(remaining)
+						setFarmState(FARM_STATE.DRIVING_FINAL, string.format("Safe Delay Finish (%ds)", secs))
+						task.wait(0.5)
+						remaining = minDelay - (os.clock() - jobStartTime)
+					end
+
+					if isFarmRunning and currentJobActive then
+						setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
+						driveToDestination(endTrigger.Position, Config.targetSpeed or 95, 12)
+					end
 				end
 				task.wait(2)
 				break
@@ -692,7 +687,7 @@ local success, err = pcall(function()
 			task.wait(0.5)
 		end
 
-		task.wait(2)
+		task.wait(1)
 	end
 
 	------------------------------------------------
@@ -753,7 +748,11 @@ local success, err = pcall(function()
 				pcall(checkAndSpinBox)
 				pcall(executeBusRouteLoop)
 
-				if not Config.autoNextJob then
+				if Config.autoNextJob and isFarmRunning then
+					local cd = Config.jobCooldown or 3
+					setFarmState(FARM_STATE.IDLE, string.format("Cooldown (%ds)", cd))
+					task.wait(cd)
+				elseif not Config.autoNextJob then
 					isFarmRunning = false
 					setFarmState(FARM_STATE.IDLE, "Single Route Done")
 				end
@@ -854,9 +853,17 @@ local success, err = pcall(function()
 		Config.selectedRoute = chosen
 	end)
 
-	UI.AddSlider(tab, "Driving Cruise Speed", 80, 260, Config.targetSpeed or 140, function(val)
+	UI.AddSlider(tab, "Driving Cruise Speed", 60, 180, Config.targetSpeed or 95, function(val)
 		Config.targetSpeed = val
 	end, "km/h")
+
+	UI.AddSlider(tab, "Safe Route Delay (Anti-Ban)", 40, 120, Config.arriveDelay or 65, function(val)
+		Config.arriveDelay = val
+	end, "sec")
+
+	UI.AddSlider(tab, "Cooldown Between Jobs", 1, 10, Config.jobCooldown or 3, function(val)
+		Config.jobCooldown = val
+	end, "sec")
 
 	UI.AddToggle(tab, "Continuous Loop (Auto Start Next Job)", Config.autoNextJob, function(state)
 		Config.autoNextJob = state
