@@ -189,9 +189,9 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		-- Below-only probe: shoot from just above current position so bridges/canopies above are never detected
-		local rayOrigin = Vector3.new(pos.X, pos.Y + 5, pos.Z)
-		local rayDir = Vector3.new(0, -145, 0)
+		-- Safe downwards-only probe: ray starts just 0.5 stud above target to ensure it never hits overhead roofs/ceilings
+		local rayOrigin = Vector3.new(pos.X, pos.Y + 0.5, pos.Z)
+		local rayDir = Vector3.new(0, -35, 0)
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
 		if hit then
@@ -299,58 +299,9 @@ local success, err = pcall(function()
 
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
 
-			-- 🛣️ 3D TRAJECTORY ELEVATION & ROAD TRACKING:
+			-- 🛣️ 3D DIRECT TRAJECTORY: Smooth linear elevation towards target checkpoint (no wall/roof climbing)
 			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
-			local expectedTrajectoryY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
-
-			-- 🛣️ Ground tracking: below-only probes (safe under bridges) + forward slope detection
-			local probeBase = expectedTrajectoryY - BUS_SEAT_GROUND_OFFSET
-			local localGroundY    = probeGround(seatPos, probeBase)
-			local nearAheadGroundY = probeGround(seatPos + (moveDir * 25), probeBase)
-			local bestGroundY = math.max(localGroundY or -1000, nearAheadGroundY or -1000)
-
-			-- Forward slope detection: horizontal ray finds slope faces ahead of the bus
-			local slopeTargetY = nil
-			do
-				local srp = RaycastParams.new()
-				srp.FilterType = Enum.RaycastFilterType.Exclude
-				local sfl = {}
-				if char then table.insert(sfl, char) end
-				local spveh = workspace:FindFirstChild("SpawnedVehicles")
-				if spveh then table.insert(sfl, spveh) end
-				local scps = workspace:FindFirstChild("Checkpoints")
-				if scps then table.insert(sfl, scps) end
-				srp.FilterDescendantsInstances = sfl
-
-				local slopeHit = workspace:Raycast(
-					Vector3.new(seatPos.X, lastSeatY, seatPos.Z),
-					moveDir * 80,
-					srp
-				)
-				if slopeHit then
-					if math.abs(slopeHit.Normal.Y) < 0.5 then
-						local topHit = workspace:Raycast(
-							slopeHit.Position + Vector3.new(0, 100, 0),
-							Vector3.new(0, -150, 0),
-							srp
-						)
-						slopeTargetY = topHit and topHit.Position.Y
-					else
-						slopeTargetY = slopeHit.Position.Y
-					end
-				end
-			end
-
-			local desiredSeatY
-			if bestGroundY > -400 then
-				desiredSeatY = bestGroundY + BUS_SEAT_GROUND_OFFSET
-				local maxSlopeTarget = (targetFinalSeatY - BUS_SEAT_GROUND_OFFSET) + 8
-				if slopeTargetY and slopeTargetY > bestGroundY and slopeTargetY <= maxSlopeTarget then
-					desiredSeatY = math.max(desiredSeatY, slopeTargetY + BUS_SEAT_GROUND_OFFSET)
-				end
-			else
-				desiredSeatY = targetFinalSeatY
-			end
+			local desiredSeatY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
 
 			-- Adaptive vertical interpolation
 			local maxVertStep = math.max(150 * dt, 8)
