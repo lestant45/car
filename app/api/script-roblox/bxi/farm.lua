@@ -546,6 +546,13 @@ local success, err = pcall(function()
 
 	-- Execute one full bus route loop
 	local function executeBusRouteLoop()
+		-- 🔄 Reset all persistent job state from previous run to avoid stale triggers
+		waitingForCheckpointCountdown = false
+		isInCheckpointZone = true
+		nextCheckpointPartName = nil
+		nextDestinationName = nil
+		endTriggerPartName = nil
+
 		-- 1. Ensure Bus and Driver Seat
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then
