@@ -208,6 +208,9 @@ local success, err = pcall(function()
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
 
+		-- Release parking handbrake before driving
+		setHandbrake(false)
+
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -404,19 +407,86 @@ local success, err = pcall(function()
 	local currentCheckpointIndex = 0
 	local totalCheckpoints = 0
 
+	------------------------------------------------
+	-- 🛑 HANDBRAKE & ANTI-ROLL POSITION LOCK
+	------------------------------------------------
+	local checkpointHoldConn = nil
+
+	local function setHandbrake(enabled)
+		pcall(function()
+			local achassisGui = player.PlayerGui:FindFirstChild("A-Chassis Interface")
+			local pbrakeVal = achassisGui and achassisGui:FindFirstChild("Values") and achassisGui.Values:FindFirstChild("PBrake")
+			if pbrakeVal and pbrakeVal.Value ~= enabled then
+				local vim = game:GetService("VirtualInputManager")
+				if vim then
+					vim:SendKeyEvent(true, Enum.KeyCode.P, false, game)
+					task.wait(0.04)
+					vim:SendKeyEvent(false, Enum.KeyCode.P, false, game)
+				end
+			end
+
+			-- Double sync all PBrake value instances in bus & gui
+			if pbrakeVal then pbrakeVal.Value = enabled end
+			local curBus = getMyBus()
+			if curBus then
+				for _, d in ipairs(curBus:GetDescendants()) do
+					if d.Name == "PBrake" and d:IsA("BoolValue") then
+						d.Value = enabled
+					end
+				end
+			end
+		end)
+	end
+
+	local function holdCheckpointPosition(targetCF)
+		if checkpointHoldConn then
+			checkpointHoldConn:Disconnect()
+			checkpointHoldConn = nil
+		end
+		setHandbrake(true)
+
+		checkpointHoldConn = RunService.Heartbeat:Connect(function()
+			if not isFarmRunning then return end
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if not (curBus and curSeat) then return end
+
+			curSeat.AssemblyLinearVelocity = Vector3.zero
+			curSeat.AssemblyAngularVelocity = Vector3.zero
+			curSeat.Throttle = 0
+			curSeat.Steer = 0
+
+			-- Anti-roll guard: if vehicle rolls/slips downhill by > 0.6 studs, lock it back immediately
+			if targetCF and (curSeat.Position - targetCF.Position).Magnitude > 0.6 then
+				curBus:PivotTo(targetCF)
+				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyAngularVelocity = Vector3.zero
+			end
+		end)
+	end
+
+	local function releaseCheckpointHold()
+		if checkpointHoldConn then
+			checkpointHoldConn:Disconnect()
+			checkpointHoldConn = nil
+		end
+		setHandbrake(false)
+	end
+
 	-- Helper: Snap and align bus perfectly inside checkpoint zone oriented to cpPart CFrame
 	local function snapBusToCheckpoint(cpPart, forwardOffset)
-		if not (cpPart and cpPart:IsA("BasePart")) then return end
+		if not (cpPart and cpPart:IsA("BasePart")) then return nil end
 		local snapBus, snapSeat = ensureBusAndSeat()
-		if not (snapBus and snapSeat) then return end
+		if not (snapBus and snapSeat) then return nil end
 
-		-- 🛡️ Anti-Cheat Teleport Guard: only snap if already within proximity (<= 45 studs)
+		-- 🛡️ Anti-Cheat Teleport Guard: only snap if already within proximity (<= 65 studs)
 		local seatPos = snapSeat.Position
 		local distToCp = (Vector3.new(seatPos.X - cpPart.Position.X, 0, seatPos.Z - cpPart.Position.Z)).Magnitude
-		if distToCp > 45 then
-			return
+		if distToCp > 65 then
+			return nil
 		end
 
+		local targetCF = nil
 		pcall(function()
 			local cpCF = cpPart.CFrame
 			local roadY = probeGround(cpPart.Position, cpPart.Position.Y - 2.0) or (cpPart.Position.Y - 2.0)
@@ -434,7 +504,7 @@ local success, err = pcall(function()
 			local targetX = cpPart.Position.X + (forwardDir.X * offset)
 			local targetZ = cpPart.Position.Z + (forwardDir.Z * offset)
 
-			local targetCF = CFrame.new(targetX, seatTargetY, targetZ) * rotCF
+			targetCF = CFrame.new(targetX, seatTargetY, targetZ) * rotCF
 			snapBus:PivotTo(targetCF)
 
 			-- Unanchor all parts so physics replication to server registers presence in trigger zone
@@ -445,11 +515,14 @@ local success, err = pcall(function()
 			end
 
 			snapSeat.Anchored = false
-			snapSeat.AssemblyLinearVelocity = Vector3.new(0, -3, 0)
+			snapSeat.AssemblyLinearVelocity = Vector3.zero
 			snapSeat.AssemblyAngularVelocity = Vector3.zero
 			snapSeat.Throttle = 0
 			snapSeat.Steer = 0
+			setHandbrake(true)
 		end)
+
+		return targetCF
 	end
 
 	-- Listen for Server Job Updates
@@ -552,6 +625,7 @@ local success, err = pcall(function()
 		nextCheckpointPartName = nil
 		nextDestinationName = nil
 		endTriggerPartName = nil
+		releaseCheckpointHold()
 
 		-- 1. Ensure Bus and Driver Seat
 		local bus, seat = ensureBusAndSeat()
@@ -627,9 +701,10 @@ local success, err = pcall(function()
 					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
 					-- Precision align bus inside checkpoint zone oriented to cpPart CFrame
-					snapBusToCheckpoint(cpPart, 14)
-					task.wait(0.3)
-					snapBusToCheckpoint(cpPart, 14)
+					local parkedCF = snapBusToCheckpoint(cpPart, 14)
+					task.wait(0.2)
+					parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
+					holdCheckpointPosition(parkedCF)
 
 					-- 💓 Send natural CheckpointHeartbeat and Wait for Trigger Activation
 					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
@@ -645,13 +720,14 @@ local success, err = pcall(function()
 							hbTimer = now
 						end
 
-						-- If countdown hasn't started after 2.5s, step forward progressively to trigger passenger box
-						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 2.5 and (now - lastHealTime) >= 2.0 then
+						-- If countdown hasn't started after 3.0s, adjust offset once and lock
+						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 3.0 and (now - lastHealTime) >= 2.5 then
 							lastHealTime = now
 							nudgeCount = nudgeCount + 1
-							local progressiveOffset = 14 + (nudgeCount * 3)
-							if progressiveOffset > 24 then progressiveOffset = 10 end
-							snapBusToCheckpoint(cpPart, progressiveOffset)
+							local progressiveOffset = 14 + (nudgeCount * 2)
+							if progressiveOffset > 22 then progressiveOffset = 12 end
+							parkedCF = snapBusToCheckpoint(cpPart, progressiveOffset) or parkedCF
+							holdCheckpointPosition(parkedCF)
 						end
 
 						task.wait(0.2)
@@ -665,18 +741,16 @@ local success, err = pcall(function()
 						local hbTimerB = 0
 						local lastWaitHealTime = os.clock()
 
-						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 25 do
-							local b, s = ensureBusAndSeat()
-							if s then
-								s.Throttle = 0
-								s.Steer = 0
-							end
+						-- Ensure anti-roll position lock & handbrake stay strictly active
+						holdCheckpointPosition(parkedCF)
 
+						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 25 do
 							local now = os.clock()
 							-- If server fired CheckpointZoneExit while waiting, re-center immediately
-							if not isInCheckpointZone and (now - lastWaitHealTime) >= 1.5 then
+							if not isInCheckpointZone and (now - lastWaitHealTime) >= 1.2 then
 								lastWaitHealTime = now
-								snapBusToCheckpoint(cpPart)
+								parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
+								holdCheckpointPosition(parkedCF)
 							end
 
 							if hbRemoteB and (now - hbTimerB) >= 1.0 then
@@ -688,6 +762,9 @@ local success, err = pcall(function()
 						-- Only mark as completed once passenger loading actually started/finished
 						lastHandledCheckpoint = nextCheckpointPartName
 					end
+
+					-- Release parking hold once passenger loading finishes
+					releaseCheckpointHold()
 				end
 			end
 
@@ -889,6 +966,7 @@ local success, err = pcall(function()
 		else
 			isDrivingActive = false
 			currentJobActive = false
+			releaseCheckpointHold()
 			setFarmState(FARM_STATE.IDLE, "Stopped")
 			UI.Notify("Auto Farm Stopped", "Farm paused.", 2, "warning")
 		end
