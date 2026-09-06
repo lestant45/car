@@ -159,6 +159,72 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
+	-- 🛑 HANDBRAKE & ANTI-ROLL POSITION LOCK
+	------------------------------------------------
+	local checkpointHoldConn = nil
+
+	local function setHandbrake(enabled)
+		pcall(function()
+			local achassisGui = player.PlayerGui:FindFirstChild("A-Chassis Interface")
+			local pbrakeVal = achassisGui and achassisGui:FindFirstChild("Values") and achassisGui.Values:FindFirstChild("PBrake")
+			if pbrakeVal and pbrakeVal.Value ~= enabled then
+				local vim = game:GetService("VirtualInputManager")
+				if vim then
+					vim:SendKeyEvent(true, Enum.KeyCode.P, false, game)
+					task.wait(0.04)
+					vim:SendKeyEvent(false, Enum.KeyCode.P, false, game)
+				end
+			end
+
+			-- Double sync all PBrake value instances in bus & gui
+			if pbrakeVal then pbrakeVal.Value = enabled end
+			local curBus = getMyBus()
+			if curBus then
+				for _, d in ipairs(curBus:GetDescendants()) do
+					if d.Name == "PBrake" and d:IsA("BoolValue") then
+						d.Value = enabled
+					end
+				end
+			end
+		end)
+	end
+
+	local function holdCheckpointPosition(targetCF)
+		if checkpointHoldConn then
+			checkpointHoldConn:Disconnect()
+			checkpointHoldConn = nil
+		end
+		setHandbrake(true)
+
+		checkpointHoldConn = RunService.Heartbeat:Connect(function()
+			if not isFarmRunning then return end
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if not (curBus and curSeat) then return end
+
+			curSeat.AssemblyLinearVelocity = Vector3.zero
+			curSeat.AssemblyAngularVelocity = Vector3.zero
+			curSeat.Throttle = 0
+			curSeat.Steer = 0
+
+			-- Anti-roll guard: if vehicle rolls/slips downhill by > 0.6 studs, lock it back immediately
+			if targetCF and (curSeat.Position - targetCF.Position).Magnitude > 0.6 then
+				curBus:PivotTo(targetCF)
+				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyAngularVelocity = Vector3.zero
+			end
+		end)
+	end
+
+	local function releaseCheckpointHold()
+		if checkpointHoldConn then
+			checkpointHoldConn:Disconnect()
+			checkpointHoldConn = nil
+		end
+		setHandbrake(false)
+	end
+
+	------------------------------------------------
 	-- 🏎️ ASSEMBLY LINEAR VELOCITY ROAD DRIVING ENGINE
 	------------------------------------------------
 	local isDrivingActive = false
@@ -406,72 +472,6 @@ local success, err = pcall(function()
 	local endTriggerPartName = nil
 	local currentCheckpointIndex = 0
 	local totalCheckpoints = 0
-
-	------------------------------------------------
-	-- 🛑 HANDBRAKE & ANTI-ROLL POSITION LOCK
-	------------------------------------------------
-	local checkpointHoldConn = nil
-
-	local function setHandbrake(enabled)
-		pcall(function()
-			local achassisGui = player.PlayerGui:FindFirstChild("A-Chassis Interface")
-			local pbrakeVal = achassisGui and achassisGui:FindFirstChild("Values") and achassisGui.Values:FindFirstChild("PBrake")
-			if pbrakeVal and pbrakeVal.Value ~= enabled then
-				local vim = game:GetService("VirtualInputManager")
-				if vim then
-					vim:SendKeyEvent(true, Enum.KeyCode.P, false, game)
-					task.wait(0.04)
-					vim:SendKeyEvent(false, Enum.KeyCode.P, false, game)
-				end
-			end
-
-			-- Double sync all PBrake value instances in bus & gui
-			if pbrakeVal then pbrakeVal.Value = enabled end
-			local curBus = getMyBus()
-			if curBus then
-				for _, d in ipairs(curBus:GetDescendants()) do
-					if d.Name == "PBrake" and d:IsA("BoolValue") then
-						d.Value = enabled
-					end
-				end
-			end
-		end)
-	end
-
-	local function holdCheckpointPosition(targetCF)
-		if checkpointHoldConn then
-			checkpointHoldConn:Disconnect()
-			checkpointHoldConn = nil
-		end
-		setHandbrake(true)
-
-		checkpointHoldConn = RunService.Heartbeat:Connect(function()
-			if not isFarmRunning then return end
-			local curBus = getMyBus()
-			local curSeat = getDriverSeat(curBus)
-			if not (curBus and curSeat) then return end
-
-			curSeat.AssemblyLinearVelocity = Vector3.zero
-			curSeat.AssemblyAngularVelocity = Vector3.zero
-			curSeat.Throttle = 0
-			curSeat.Steer = 0
-
-			-- Anti-roll guard: if vehicle rolls/slips downhill by > 0.6 studs, lock it back immediately
-			if targetCF and (curSeat.Position - targetCF.Position).Magnitude > 0.6 then
-				curBus:PivotTo(targetCF)
-				curSeat.AssemblyLinearVelocity = Vector3.zero
-				curSeat.AssemblyAngularVelocity = Vector3.zero
-			end
-		end)
-	end
-
-	local function releaseCheckpointHold()
-		if checkpointHoldConn then
-			checkpointHoldConn:Disconnect()
-			checkpointHoldConn = nil
-		end
-		setHandbrake(false)
-	end
 
 	-- Helper: Snap and align bus perfectly inside checkpoint zone oriented to cpPart CFrame
 	local function snapBusToCheckpoint(cpPart, forwardOffset)
@@ -874,19 +874,27 @@ local success, err = pcall(function()
 			if isFarmRunning then
 				pcall(checkAndClaimQuests)
 				pcall(checkAndSpinBox)
-				pcall(executeBusRouteLoop)
+				local loopSuccess, loopErr = pcall(executeBusRouteLoop)
+				if not loopSuccess then
+					warn("[HipHub BXI Farm Error]:", loopErr)
+				end
 
-				if Config.autoNextJob and isFarmRunning then
-					local cd = Config.jobCooldown or 3
-					setFarmState(FARM_STATE.IDLE, string.format("Cooldown (%ds)", cd))
-					task.wait(cd)
+				-- Only trigger cooldown & fast respawn if a route was actually completed
+				if currentFarmState == FARM_STATE.JOB_COMPLETED and isFarmRunning then
+					if Config.autoNextJob then
+						local cd = Config.jobCooldown or 3
+						setFarmState(FARM_STATE.IDLE, string.format("Cooldown (%ds)", cd))
+						task.wait(cd)
 
-					if Config.autoRespawnLoop ~= false and isFarmRunning then
-						respawnToStart()
+						if Config.autoRespawnLoop ~= false and isFarmRunning then
+							respawnToStart()
+						end
+					else
+						isFarmRunning = false
+						setFarmState(FARM_STATE.IDLE, "Single Route Done")
 					end
-				elseif not Config.autoNextJob then
-					isFarmRunning = false
-					setFarmState(FARM_STATE.IDLE, "Single Route Done")
+				else
+					task.wait(1.5)
 				end
 			end
 		end
