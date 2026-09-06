@@ -185,6 +185,7 @@ local success, err = pcall(function()
 	local dropoffStuckTime    = nil
 	local taxiPickupAddr      = ""
 	local taxiDropAddr        = ""
+	local isRideGoDutyOnline  = false
 
 	local autoRideGoToggle        = nil
 	local restartAutoRideGoToggle = nil
@@ -192,6 +193,7 @@ local success, err = pcall(function()
 	local changeTeam          = nil
 	local mountBike           = nil
 	local ensureDriverSeated  = nil
+	local recoverRideGoDuty   = nil
 	local cancelActiveDrive   = nil
 	local startPhoneOverlayPoller = nil
 
@@ -204,6 +206,8 @@ local success, err = pcall(function()
 		taxiState = newState
 		if customText then
 			updateBotActivity(customText, customColor)
+		elseif newState == "CONNECTING" then
+			updateBotActivity("🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 		elseif newState == "WAITING_FOR_NEXT_ORDER" then
 			updateBotActivity("🟢 Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
 		elseif newState == "PICKING_UP" then
@@ -697,6 +701,44 @@ local success, err = pcall(function()
 
 		warn("[HipHub DDS] ensureDriverSeated: gagal duduk setelah 3 percobaan")
 		return false
+	end
+
+	-- 🔄 Auto-Duty Health & Seat Recovery Engine (Anti-AFK & Redfinger Duty Reconnector)
+	recoverRideGoDuty = function()
+		if not taxiActive or taxiBusy or isResettingTaxi then return end
+
+		pcall(function()
+			-- 1. Pastikan Tim adalah "RideGO Driver"
+			local curTeam = player.Team and player.Team.Name or ""
+			if not curTeam:lower():find("ridego") then
+				if changeTeam then
+					changeTeam("RideGO Driver")
+					task.wait(0.8)
+				end
+			end
+
+			-- 2. Pastikan Motor Ada & Pengemudi Duduk di Kursi
+			local char = player.Character
+			local hum  = char and char:FindFirstChildOfClass("Humanoid")
+			if not (hum and hum.SeatPart) then
+				updateBotActivity("🛵 Redfinger: Menaiki Motor...", Color3.fromRGB(0, 212, 255))
+				local ok = ensureDriverSeated()
+				if not ok then
+					spawnTaxiBike()
+					task.wait(1.5)
+					ensureDriverSeated()
+				end
+				task.wait(0.5)
+			end
+
+			-- 3. Kirim Remote Duty Activation
+			local ev = getTaxiEvent()
+			if ev then
+				ev:FireServer("DismissIntro")
+				task.wait(0.3)
+				ev:FireServer("GoOnline")
+			end
+		end)
 	end
 
 	local function requestStreamAsync(pos)
@@ -2183,6 +2225,7 @@ local success, err = pcall(function()
 			local payload   = type(raw[2]) == "table" and raw[2] or nil
 
 			if eventType == "DutyStarted" then
+				isRideGoDutyOnline = true
 				UI.Notify("RideGO Online ✅", "Mounted & waiting for orders...", 3, "success")
 				if not taxiBusy then
 					setTaxiState("WAITING_FOR_NEXT_ORDER")
@@ -2231,9 +2274,17 @@ local success, err = pcall(function()
 				UI.Notify("Trip Started! 🚀", "Passenger on board.", 2, "success")
 
 			elseif eventType == "DutyEnded" then
-				if taxiActive and not taxiBusy then
-					task.wait(1.5)
-					TaxiEvent:FireServer("GoOnline")
+				isRideGoDutyOnline = false
+				if taxiActive and not taxiBusy and not isResettingTaxi then
+					updateBotActivity("🟡 Menghubungkan Kembali ke RideGO...", Color3.fromRGB(255, 200, 50))
+					task.spawn(function()
+						task.wait(1.2)
+						if taxiActive and not taxiBusy and not isRideGoDutyOnline and not isResettingTaxi then
+							if recoverRideGoDuty then
+								recoverRideGoDuty()
+							end
+						end
+					end)
 				end
 
 			elseif eventType == "OrderCompleted" or eventType == "TripComplete" then
@@ -2242,10 +2293,18 @@ local success, err = pcall(function()
 				task.wait(0.5)
 				TaxiEvent:FireServer("AckTripComplete")
 				if not taxiBusy then
-					setTaxiState("WAITING_FOR_NEXT_ORDER")
+					if isRideGoDutyOnline then
+						setTaxiState("WAITING_FOR_NEXT_ORDER")
+					else
+						setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
+					end
 					if taxiActive then
-						task.wait(1.5)
-						TaxiEvent:FireServer("GoOnline")
+						task.wait(1.2)
+						if recoverRideGoDuty then
+							recoverRideGoDuty()
+						else
+							TaxiEvent:FireServer("GoOnline")
+						end
 					end
 				end
 
@@ -2256,11 +2315,19 @@ local success, err = pcall(function()
 				taxiDropPos = nil
 				passengerSeated = false
 				cancelActiveDrive()
-				setTaxiState("WAITING_FOR_NEXT_ORDER")
+				if isRideGoDutyOnline then
+					setTaxiState("WAITING_FOR_NEXT_ORDER")
+				else
+					setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
+				end
 				UI.Notify("Order Reset", "Waiting for next offer...", 2, "warning")
 				if taxiActive then
-					task.wait(2)
-					TaxiEvent:FireServer("GoOnline")
+					task.wait(1.5)
+					if recoverRideGoDuty then
+						recoverRideGoDuty()
+					else
+						TaxiEvent:FireServer("GoOnline")
+					end
 				end
 			end
 		end)
@@ -2344,16 +2411,26 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 3. Matchmaking Keep-Alive Heartbeat (setiap 35s saat menganggur)
-						if not taxiBusy and (tick() - lastKeepAliveTime >= 35) then
+						-- 3. Active Duty & Redfinger Seat-Recovery Engine (setiap 12s saat menganggur)
+						if not taxiBusy and (tick() - lastKeepAliveTime >= 12) then
 							lastKeepAliveTime = tick()
-							ensureDriverSeated()
-							if TaxiEvent then
-								TaxiEvent:FireServer("GoOnline")
+							local char = player.Character
+							local hum  = char and char:FindFirstChildOfClass("Humanoid")
+							local isSeated = (hum and hum.SeatPart ~= nil)
+
+							if not isSeated or not isRideGoDutyOnline then
+								if recoverRideGoDuty then
+									recoverRideGoDuty()
+								end
+							else
+								-- Jika sudah duduk & online, kirim keep-alive santai ke server
+								if TaxiEvent then
+									TaxiEvent:FireServer("GoOnline")
+								end
 							end
 						end
 
-						-- 5. Anti-AFK Camera Keep-Alive (setiap 25s tanpa disallowed service)
+						-- 4. Anti-AFK Camera Keep-Alive (setiap 25s tanpa disallowed service)
 						if (tick() - lastAfkCameraTime >= 25) then
 							lastAfkCameraTime = tick()
 							pcall(function()
@@ -2369,7 +2446,7 @@ local success, err = pcall(function()
 							end)
 						end
 
-						-- 6. Target Earn Check Periodik
+						-- 5. Target Earn Check Periodik
 						local targetEarn = _G.HipHubConfig and _G.HipHubConfig.misc and tonumber(_G.HipHubConfig.misc.targetEarn) or 0
 						if targetEarn > 0 then
 							local curM = getLiveMoneyRaw()
@@ -2398,7 +2475,8 @@ local success, err = pcall(function()
 		taxiPickupAddr      = ""
 		taxiDropAddr        = ""
 		passengerSeated    = false
-		taxiState          = state and "WAITING_FOR_NEXT_ORDER" or "IDLE"
+		isRideGoDutyOnline = false
+		taxiState          = state and "CONNECTING" or "IDLE"
 		Config.autoRideGO  = state
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.autoRideGO = state
@@ -2408,32 +2486,22 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			if changeTeam then
-				changeTeam("RideGO Driver")
-			end
-			task.wait(1.0)
+			setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 
 			if startPhoneOverlayPoller then
 				startPhoneOverlayPoller()
 			end
 
 			task.spawn(function()
-				if mountBike then
-					mountBike()
-				elseif ensureDriverSeated then
-					ensureDriverSeated()
-				end
-				task.wait(0.8)
-				local ev = getTaxiEvent()
-				if ev then
-					ev:FireServer("DismissIntro")
-					task.wait(0.3)
-					ev:FireServer("GoOnline")
+				if recoverRideGoDuty then
+					recoverRideGoDuty()
 				end
 			end)
 
-			UI.Notify("RideGO Auto-Farm ON", "Smart Trip Pacing & Anti-Spam Duty Aktif!", 3.5, "success")
+			UI.Notify("RideGO Auto-Farm ON", "Auto-Duty Health & Seat Recovery Aktif!", 3.5, "success")
 		else
+			isRideGoDutyOnline = false
+			setTaxiState("IDLE")
 			if taxiOverlayPoller then
 				task.cancel(taxiOverlayPoller)
 				taxiOverlayPoller = nil
