@@ -552,7 +552,9 @@ local success, err = pcall(function()
 		-- 1. Cari motor yang sah milik player di workspace
 		for _, c in ipairs(workspace:GetChildren()) do
 			if c:IsA("Model") and c ~= char and isMotorcycle(c) then
-				local seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
+				-- 🎯 Prioritaskan DriveSeat sebelum VehicleSeat agar tidak menduduki kursi penumpang!
+				local seat = c:FindFirstChild("DriveSeat", true)
+					or c:FindFirstChildWhichIsA("VehicleSeat", true)
 				if seat then return c, seat end
 			elseif c:IsA("Model") and c ~= char and isUnwantedVehicle(c) and c.Name:find(player.Name) then
 				-- Jika ada truk/bus milik player yang masih tersisa di workspace -> despawn
@@ -1105,7 +1107,9 @@ local success, err = pcall(function()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local seat = car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChild("DriveSeat", true)
+		-- 🎯 Selalu prioritaskan DriveSeat (bukan VehicleSeat kursi penumpang!)
+		local seat = car:FindFirstChild("DriveSeat", true)
+			or car:FindFirstChildWhichIsA("VehicleSeat", true)
 		local prim = car.PrimaryPart or seat or car:FindFirstChildWhichIsA("BasePart")
 
 		local activeMissions = workspace:FindFirstChild("ActiveMissions")
@@ -1149,13 +1153,22 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 5. Pastikan driver tetap duduk di kursi setelah mendarat
+		-- 5. Pastikan driver tetap duduk di DriveSeat (BUKAN kursi penumpang!) setelah mendarat
 		if hum and seat then
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
 			if hum.SeatPart ~= seat then
+				pcall(function() seat:Sit(hum) end)
+			end
+			-- 🔍 Verifikasi: jika setelah Sit() player malah duduk di kursi penumpang, paksa ulang!
+			task.wait(0.05)
+			if hum.SeatPart and hum.SeatPart ~= seat then
+				-- Player duduk di kursi yang salah → paksa ke DriveSeat
+				hum.Sit = false
+				task.wait(0.05)
+				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
 				pcall(function() seat:Sit(hum) end)
 			end
 		end
@@ -1808,13 +1821,13 @@ local success, err = pcall(function()
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
 					if courierActive then
-						-- 📦 Mode Auto Kurir: JANGAN PERNAH panggil restartAutoRideGoToggle!
-						-- Buatkan safety plate di bawah destP dan lompat langsung ke destP
-						pcall(function()
-							ensureSafetyPlate(destP, 80)
-							local landTarget = Vector3.new(destP.X + 2.5, destP.Y + 0.5, destP.Z)
-							local jumpDist = (Vector3.new(landTarget.X, 0, landTarget.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
-							teleportVehicleAcrossVoid(car, landTarget, (landTarget - carPos).Unit, jumpDist)
+						-- 📦 Mode Auto Kurir: Gunakan attemptVoidBridge yang sudah memiliki Klaten Ground Scanner!
+						-- JANGAN hardcode teleport ke destP (kardus) karna menyebabkan kick Error 263.
+						task.spawn(function()
+							local bridgeLanding = attemptVoidBridge(car, carPos, destP)
+							if bridgeLanding then
+								lastGroundY = bridgeLanding.Y
+							end
 						end)
 						return
 					else
