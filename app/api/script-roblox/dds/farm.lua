@@ -988,6 +988,16 @@ local success, err = pcall(function()
 		end)
 	end
 
+	local function getPassengerSeat(car)
+		if not car then return nil end
+		for _, part in ipairs(car:GetDescendants()) do
+			if part:IsA("Seat") and not part:IsA("VehicleSeat") and part.Name ~= "DriveSeat" then
+				return part
+			end
+		end
+		return nil
+	end
+
 	-- 🛡️ Synchronized Atomic Pivot & Physics Stabilization Leap
 	local function teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
 		-- 1. Pre-stream daratan seberang & bentangkan Safety Plate kokoh (80x80)
@@ -2539,11 +2549,9 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Straight-Line Air Glide)
+	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Motorcycle Navigation)
 	------------------------------------------------
 	local courierActive          = false
-	local courierGlideConn       = nil
-	local isCourierGliding       = false
 	local activeCourierDestId    = nil
 	local courierLoopThread      = nil
 
@@ -2562,36 +2570,60 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function hasCourierPackage()
+	local function getCourierPackageTool()
 		local char = player.Character
 		if char then
-			if char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool") then
-				return true
-			end
+			local t = char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool")
+			if t then return t end
 		end
 		local bp = player:FindFirstChild("Backpack")
-		if bp and (bp:FindFirstChild("Package") or bp:FindFirstChildWhichIsA("Tool")) then
-			return true
+		if bp then
+			local t = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChildWhichIsA("Tool")
+			if t then return t end
 		end
-		return false
+		return nil
+	end
+
+	local function hasCourierPackage()
+		return getCourierPackageTool() ~= nil
+	end
+
+	local function equipCourierPackage()
+		local char = player.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		local bp   = player:FindFirstChild("Backpack")
+		if hum and bp then
+			local tool = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChildWhichIsA("Tool")
+			if tool then
+				hum:EquipTool(tool)
+				task.wait(0.2)
+			end
+		end
+		return char and (char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool"))
 	end
 
 	local function getCourierDestination()
 		local livrason = workspace:FindFirstChild("Livrason")
 		local locFolder = livrason and livrason:FindFirstChild("Location")
-		if not locFolder then return nil, nil, nil end
+		if not locFolder then return nil, nil, nil, nil end
 
-		-- 1. Berdasarkan activeCourierDestId dari RemoteEvent
-		if activeCourierDestId then
-			local child = locFolder:FindFirstChild(activeCourierDestId)
+		-- 1. Berdasarkan attribute CurrentDelivery pada player (paling akurat dari server!)
+		local curDeliveryAttr = player:GetAttribute("CurrentDelivery")
+		local targetId = (curDeliveryAttr and tostring(curDeliveryAttr) ~= "" and tostring(curDeliveryAttr) ~= "0") and tostring(curDeliveryAttr) or activeCourierDestId
+
+		if targetId then
+			local child = locFolder:FindFirstChild(targetId)
 			local block = child and child:FindFirstChild("Block")
 			local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
+			if prompt then
+				prompt.Enabled = true
+			end
 			if block then
-				return block.Position, prompt, block
+				return block.Position, prompt, block, targetId
 			end
 		end
 
-		-- 2. Scan lokasi yang memiliki ProximityPrompt atau POINT aktif
+		-- 2. Fallback scan lokasi yang memiliki POINT aktif atau prompt aktif
 		for _, child in ipairs(locFolder:GetChildren()) do
 			local block = child:FindFirstChild("Block")
 			local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
@@ -2599,7 +2631,8 @@ local success, err = pcall(function()
 			local bg = point and point:FindFirstChildOfClass("BillboardGui")
 
 			if (prompt and prompt.Enabled) or (bg and bg.Enabled) then
-				return block and block.Position, prompt, block
+				if prompt then prompt.Enabled = true end
+				return block and block.Position, prompt, block, child.Name
 			end
 		end
 
@@ -2609,22 +2642,26 @@ local success, err = pcall(function()
 			local parentPart = indicateur.Attachment0.Parent
 			if parentPart and parentPart:IsA("BasePart") then
 				local prompt = parentPart:FindFirstChildOfClass("ProximityPrompt")
-				return parentPart.Position, prompt, parentPart
+				if prompt then prompt.Enabled = true end
+				return parentPart.Position, prompt, parentPart, parentPart.Parent and parentPart.Parent.Name or "Beam"
 			end
 		end
 
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	end
 
 	local function triggerCourierPrompt(prompt, holdDuration)
 		if not prompt then return false end
-		local duration = holdDuration or prompt.HoldDuration or 1.0
+		local duration = holdDuration or prompt.HoldDuration or 0.5
 		pcall(function()
+			prompt.Enabled = true
 			if fireproximityprompt then
+				fireproximityprompt(prompt)
+				task.wait(0.08)
 				fireproximityprompt(prompt, duration + 0.15)
 			elseif prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
-				task.wait(duration + 0.05)
+				task.wait(duration + 0.1)
 				prompt:InputHoldEnd()
 			end
 		end)
@@ -2688,10 +2725,10 @@ local success, err = pcall(function()
 
 						-- 3. Jika belum punya paket di tangan -> Kendarai motor ke Depot Take1
 						if not hasCourierPackage() then
-							local takePos = Vector3.new(-5105.6, 5.5, -3759.0)
+							local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
 							updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 
-							driveVehicleTo(takePos, Config.courierSpeed or 95, 30)
+							driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
 							if not courierActive then return end
 
 							updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
@@ -2703,9 +2740,9 @@ local success, err = pcall(function()
 							local tStartTake = tick()
 							while not hasCourierPackage() and courierActive and (tick() - tStartTake < 5.0) do
 								if takePrompt then
-									triggerCourierPrompt(takePrompt, 1.0)
+									triggerCourierPrompt(takePrompt, 0.5)
 								end
-								task.wait(0.4)
+								task.wait(0.3)
 							end
 							task.wait(0.5)
 							return
@@ -2714,12 +2751,12 @@ local success, err = pcall(function()
 						-- 4. Jika paket sudah di tangan -> kendarai motor ke titik drop-off
 						if hasCourierPackage() then
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
-							local dropPos, dropPrompt, dropBlock = getCourierDestination()
+							local dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
 
 							local tWaitDest = tick()
 							while not dropPos and courierActive and (tick() - tWaitDest < 4.0) do
 								task.wait(0.3)
-								dropPos, dropPrompt, dropBlock = getCourierDestination()
+								dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
 							end
 
 							if not dropPos then
@@ -2736,10 +2773,21 @@ local success, err = pcall(function()
 							local tripDist = (dropPos - startPos).Magnitude
 							local tripStartTime = tick()
 
-							updateBotActivity("🛵 Mengantar Paket ke Tujuan...", Color3.fromRGB(0, 212, 255))
-							driveVehicleTo(dropPos, Config.courierSpeed or 95, 30)
+							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
+							
+							-- Berhenti rapat (radius 5 stud) agar ProximityPrompt tumpukan kardus terjangkau
+							driveVehicleTo(dropPos, Config.courierSpeed or 95, 5)
 
 							if not courierActive then return end
+
+							-- Pastikan motor parkir rapat dan stabil di samping tumpukan kardus
+							pcall(function()
+								local c, s = getPlayerVehicle()
+								if c and dropPos then
+									local groundPos = Vector3.new(dropPos.X + 3.0, dropPos.Y + 0.5, dropPos.Z)
+									c:PivotTo(CFrame.new(groundPos))
+								end
+							end)
 
 							-- 🛡️ Smart Delivery Pacing (Anti-Kick)
 							if Config.courierPacing and tripDist > 120 then
@@ -2754,19 +2802,51 @@ local success, err = pcall(function()
 							end
 
 							-- Jeda natural sebelum menyerahkan paket
-							task.wait(0.5 + (math.random(0, 5) / 10.0))
+							task.wait(0.4 + (math.random(0, 4) / 10.0))
 
-							updateBotActivity("📦 Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
+							updateBotActivity("📦 Memegang & Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
+							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
 							local tWaitDeliver = tick()
-							while hasCourierPackage() and courierActive and (tick() - tWaitDeliver < 5.0) do
-								if not dropPrompt then
-									local _, np, _ = getCourierDestination()
+							local isHandedOver = false
+
+							while courierActive and (tick() - tWaitDeliver < 6.0) do
+								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character)
+								equipCourierPackage()
+
+								-- 2. Pastikan Prompt diaktifkan & ditembak
+								if not dropPrompt or not dropPrompt.Parent then
+									local _, np, _, _ = getCourierDestination()
 									dropPrompt = np
 								end
 								if dropPrompt then
-									triggerCourierPrompt(dropPrompt, 1.0)
+									dropPrompt.Enabled = true
+									triggerCourierPrompt(dropPrompt, 0.5)
 								end
-								task.wait(0.4)
+
+								-- 3. Cek apakah server sudah memproses serah terima paket
+								local curIdNow = tostring(player:GetAttribute("CurrentDelivery") or "")
+								if (initialDeliveryId ~= "" and curIdNow ~= initialDeliveryId) or not hasCourierPackage() then
+									isHandedOver = true
+									break
+								end
+
+								-- 4. Jika setelah 2.5s belum terpicu saat duduk di motor, sentuh daratan sesaat
+								if (tick() - tWaitDeliver > 2.5) and isDriverSittingOnMotor() then
+									pcall(function()
+										local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+										if hum then hum.Sit = false end
+										task.wait(0.15)
+										equipCourierPackage()
+										if dropPrompt then triggerCourierPrompt(dropPrompt, 0.5) end
+									end)
+								end
+
+								task.wait(0.35)
+							end
+
+							-- Jika sempat berdiri sesaat, pastikan duduk kembali ke motor
+							if not isDriverSittingOnMotor() then
+								ensureDriverSeated()
 							end
 
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
