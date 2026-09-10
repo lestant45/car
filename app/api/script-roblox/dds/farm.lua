@@ -2773,18 +2773,21 @@ local success, err = pcall(function()
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if hum then
-			hum.PlatformStand = false
-		end
 		if hrp then
+			hrp.Anchored = false
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
+		end
+		if hum then
+			hum.PlatformStand = false
 		end
 	end
 
 	-- 🕊️ DIRECT CHARACTER AIR-GLIDE ENGINE:
-	-- Karakter meluncur mulus 3-Fase di udara (Naik -> Glide Langit -> Turun Lembut).
-	-- Melewati seluruh jurang, air sungai, rintangan, dan gedung tanpa motor & tanpa physics error 263!
+	-- Menggunakan hrp.Anchored = true selama tween agar physics gravitasi tidak beradu (100% mulus tanpa jitter / ngadat)
+	-- Menggunakan ketinggian jelajah tetap (135) agar karakter tidak melayang naik terus ke angkasa
+	local FIXED_CRUISE_Y = 135
+
 	local function glideCharacterTo(targetPos, speed, stopDist)
 		cancelActiveGlide()
 		local char = player.Character
@@ -2805,6 +2808,7 @@ local success, err = pcall(function()
 		end
 
 		hum.PlatformStand = true
+		hrp.Anchored = true
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
 
@@ -2812,29 +2816,30 @@ local success, err = pcall(function()
 
 		-- Jarak dekat (<= 25 stud): Meluncur lurus tanpa naik ke langit
 		if dist <= 25 then
-			local landCFrame = CFrame.new(Vector3.new(targetPos.X, targetPos.Y + 2.5, targetPos.Z))
+			local landCFrame = CFrame.new(Vector3.new(targetPos.X + 1.2, targetPos.Y + 2.0, targetPos.Z + 1.2))
 			local tGlide = math.max(0.2, dist / cruiseSpeed)
 			local tw = TweenService:Create(hrp, TweenInfo.new(tGlide, Enum.EasingStyle.Linear), {CFrame = landCFrame})
 			activeGlideTween = tw
 			tw:Play()
 			tw.Completed:Wait()
 			activeGlideTween = nil
+			hrp.Anchored = false
 			hum.PlatformStand = false
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
 			return true
 		end
 
-		-- Penerbangan 3 Fase di Udara (Bebas Halangan & Bebas Air Sungai):
-		local flightY = math.max(130, math.max(hrp.Position.Y, targetPos.Y) + 25)
+		-- Ketinggian jelajah tetap (TIDAK BERUBAH-UBAH agar karakter tidak terus naik ke angkasa)
+		local flightY = math.max(FIXED_CRUISE_Y, targetPos.Y + 20)
 
-		-- Fase 1: Naik Vertikal (Lift Off)
+		-- Fase 1: Naik Vertikal Mulus (Lift Off)
 		local risePos = Vector3.new(hrp.Position.X, flightY, hrp.Position.Z)
 		local riseDist = math.abs(flightY - hrp.Position.Y)
-		local riseTime = math.clamp(riseDist / (cruiseSpeed * 0.9), 0.25, 2.5)
-		local faceDir = (Vector3.new(targetPos.X, risePos.Y, targetPos.Z) - risePos)
-		local lookRot = faceDir.Magnitude > 0.1 and CFrame.new(risePos, risePos + faceDir.Unit) or CFrame.new(risePos)
-		local twRise = TweenService:Create(hrp, TweenInfo.new(riseTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = lookRot})
+		local riseTime = math.clamp(riseDist / (cruiseSpeed * 0.95), 0.25, 2.5)
+		local forwardDir = (Vector3.new(targetPos.X, risePos.Y, targetPos.Z) - risePos)
+		local lookRot = forwardDir.Magnitude > 0.5 and CFrame.new(risePos, risePos + forwardDir.Unit) or CFrame.new(risePos)
+		local twRise = TweenService:Create(hrp, TweenInfo.new(riseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = lookRot})
 		activeGlideTween = twRise
 		twRise:Play()
 		twRise.Completed:Wait()
@@ -2848,7 +2853,7 @@ local success, err = pcall(function()
 		local cruiseEndPos = Vector3.new(targetPos.X, flightY, targetPos.Z)
 		local flatDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
 		local cruiseTime = math.max(0.3, flatDist / cruiseSpeed)
-		local cruiseRot = flatDist > 0.1 and CFrame.new(cruiseEndPos, cruiseEndPos + (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Unit) or CFrame.new(cruiseEndPos)
+		local cruiseRot = flatDist > 0.5 and CFrame.new(cruiseEndPos, cruiseEndPos + (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Unit) or CFrame.new(cruiseEndPos)
 		local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = cruiseRot})
 		activeGlideTween = twCruise
 		twCruise:Play()
@@ -2863,15 +2868,16 @@ local success, err = pcall(function()
 		ensureSafetyPlate(targetPos, 60)
 
 		-- Fase 3: Turun Lembut ke Titik Tujuan (Soft Touchdown)
-		local landTarget = Vector3.new(targetPos.X, targetPos.Y + 2.5, targetPos.Z)
+		local landTarget = Vector3.new(targetPos.X + 1.2, targetPos.Y + 2.0, targetPos.Z + 1.2)
 		local dropDist = math.abs(flightY - landTarget.Y)
-		local dropTime = math.clamp(dropDist / (cruiseSpeed * 0.9), 0.25, 2.5)
-		local twDrop = TweenService:Create(hrp, TweenInfo.new(dropTime, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {CFrame = CFrame.new(landTarget)})
+		local dropTime = math.clamp(dropDist / (cruiseSpeed * 0.95), 0.25, 2.5)
+		local twDrop = TweenService:Create(hrp, TweenInfo.new(dropTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {CFrame = CFrame.new(landTarget, Vector3.new(targetPos.X, targetPos.Y + 2.0, targetPos.Z))})
 		activeGlideTween = twDrop
 		twDrop:Play()
 		twDrop.Completed:Wait()
 
 		activeGlideTween = nil
+		hrp.Anchored = false
 		hum.PlatformStand = false
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
@@ -3044,6 +3050,7 @@ local success, err = pcall(function()
 							updateBotActivity("📦 Memegang & Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
 							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
 							local tWaitDeliver = tick()
+							local handedOver = false
 
 							while courierActive and (tick() - tWaitDeliver < 6.0) do
 								-- 1. WAJIB: Pegang paket di tangan (Equip dari Backpack ke Character)
@@ -3062,28 +3069,33 @@ local success, err = pcall(function()
 								-- 3. Cek apakah server sudah memproses serah terima paket
 								local curIdNow = tostring(player:GetAttribute("CurrentDelivery") or "")
 								if (initialDeliveryId ~= "" and curIdNow ~= initialDeliveryId) or not hasCourierPackage() then
+									handedOver = true
 									break
 								end
 
 								task.wait(0.3)
 							end
 
-							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
-							local totalDone = _G.HipHubCompletedCourier
-							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
+							if handedOver or not hasCourierPackage() then
+								_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
+								local totalDone = _G.HipHubCompletedCourier
+								UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
 
-							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
-							-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas secara otomatis tanpa perlu ke depot
-							updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
-							local tWaitNext = tick()
-							while (tick() - tWaitNext < 3.2) and courierActive do
-								if hasCourierPackage() then
-									UI.Notify("📦 Paket Baru Diterima!", "Mempersiapkan rute ke penerima berikutnya...", 2.0, "success")
-									break
+								-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
+								-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas secara otomatis tanpa perlu ke depot
+								updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
+								local tWaitNext = tick()
+								while (tick() - tWaitNext < 3.2) and courierActive do
+									if hasCourierPackage() then
+										UI.Notify("📦 Paket Baru Diterima!", "Mempersiapkan rute ke penerima berikutnya...", 2.0, "success")
+										break
+									end
+									task.wait(0.25)
 								end
-								task.wait(0.25)
+								task.wait(0.4)
+							else
+								task.wait(0.5)
 							end
-							task.wait(0.4)
 						end
 					end)
 
