@@ -2631,122 +2631,10 @@ local success, err = pcall(function()
 		return true
 	end
 
-	local function cancelCourierGlide()
-		if courierGlideConn then
-			pcall(function() courierGlideConn:Disconnect() end)
-			courierGlideConn = nil
-		end
-		isCourierGliding = false
+	local function isDriverSittingOnMotor()
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			pcall(function()
-				hum.PlatformStanding = false
-			end)
-		end
-	end
-
-	local function glideCharacterTo(targetPos, speed, arriveRadius)
-		cancelCourierGlide()
-		if typeof(targetPos) == "CFrame" then targetPos = targetPos.Position end
-		if typeof(targetPos) ~= "Vector3" then return false end
-
-		local char = player.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		if not char or not root or not hum then return false end
-
-		isCourierGliding = true
-		arriveRadius = arriveRadius or 3.5
-		speed = tonumber(speed) or tonumber(Config.courierSpeed) or 95
-
-		-- Matikan ragdoll & pastikan noclip
-		pcall(function()
-			hum.PlatformStanding = true
-			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-		end)
-
-		for _, p in ipairs(char:GetDescendants()) do
-			if p:IsA("BasePart") then
-				p.CanCollide = false
-			end
-		end
-
-		local startP = root.Position
-		local destP = targetPos
-		local distTotal = (destP - startP).Magnitude
-		if distTotal <= arriveRadius then
-			isCourierGliding = false
-			return true
-		end
-
-		local glideFinished = false
-		local lastT = os.clock()
-
-		courierGlideConn = RunService.Heartbeat:Connect(function()
-			if not courierActive or not isCourierGliding then
-				if courierGlideConn then courierGlideConn:Disconnect() end
-				glideFinished = true
-				return
-			end
-
-			local now = os.clock()
-			local dt = math.clamp(now - lastT, 0.001, 0.1)
-			lastT = now
-
-			local cPos = root.Position
-			local delta = destP - cPos
-			local curDist = delta.Magnitude
-
-			if curDist <= arriveRadius then
-				glideFinished = true
-				if courierGlideConn then courierGlideConn:Disconnect() end
-				return
-			end
-
-			-- Pengereman halus mendekati target agar presisi
-			local curTargetSpeed = speed
-			if curDist < 12 then
-				curTargetSpeed = math.max(15, speed * (curDist / 12))
-			elseif curDist < 30 then
-				curTargetSpeed = math.max(25, speed * (curDist / 30))
-			end
-
-			local moveDir = delta.Unit
-			local stepDist = curTargetSpeed * dt
-			local newPos = cPos + moveDir * stepDist
-
-			pcall(function()
-				for _, p in ipairs(char:GetDescendants()) do
-					if p:IsA("BasePart") then
-						p.CanCollide = false
-					end
-				end
-
-				root.CFrame = CFrame.new(newPos, newPos + moveDir)
-				root.AssemblyLinearVelocity = moveDir * curTargetSpeed
-				root.AssemblyAngularVelocity = Vector3.zero
-			end)
-		end)
-
-		while not glideFinished and courierActive and isCourierGliding do
-			task.wait(0.05)
-		end
-
-		cancelCourierGlide()
-		pcall(function()
-			if root then
-				root.AssemblyLinearVelocity = Vector3.zero
-				root.AssemblyAngularVelocity = Vector3.zero
-			end
-			if hum then
-				hum.PlatformStanding = false
-			end
-		end)
-
-		return (root.Position - destP).Magnitude <= (arriveRadius + 2.5)
+		return hum and hum.SeatPart ~= nil
 	end
 
 	toggleAutoCourier = function(state)
@@ -2765,8 +2653,8 @@ local success, err = pcall(function()
 				autoRideGoToggle.Set(false)
 			end
 
-			updateBotActivity("📦 Memulai Auto Kurir...", Color3.fromRGB(0, 212, 255))
-			UI.Notify("Courier Auto-Worker ON", "Straight-Line Air Glide Aktif (Bisa lewati jurang)!", 3.5, "success")
+			updateBotActivity("📦 Memulai Auto Kurir (Mode Motor)...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Courier Auto-Worker ON", "Navigasi Motor & Void Bridging Aktif!", 3.5, "success")
 
 			courierLoopThread = task.spawn(function()
 				while courierActive do
@@ -2785,13 +2673,26 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 2. Jika belum punya paket di tangan -> melayang ke Depot Take1
+						-- 2. Pastikan Pengemudi Duduk di Motor (Bypass Anti-Speedhack 267)
+						if not isDriverSittingOnMotor() then
+							updateBotActivity("🛵 Menaiki Motor...", Color3.fromRGB(0, 212, 255))
+							local ok = ensureDriverSeated()
+							if not ok then
+								spawnTaxiBike()
+								task.wait(1.5)
+								ensureDriverSeated()
+							end
+							task.wait(0.5)
+							return
+						end
+
+						-- 3. Jika belum punya paket di tangan -> Kendarai motor ke Depot Take1
 						if not hasCourierPackage() then
 							local takePos = Vector3.new(-5105.6, 5.5, -3759.0)
-							updateBotActivity("📦 Melayang ke Depot Paket...", Color3.fromRGB(0, 212, 255))
+							updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 
-							local arrived = glideCharacterTo(takePos, Config.courierSpeed or 95, 3.5)
-							if not arrived or not courierActive then return end
+							driveVehicleTo(takePos, Config.courierSpeed or 95, 30)
+							if not courierActive then return end
 
 							updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
 							local livrason = workspace:FindFirstChild("Livrason")
@@ -2810,7 +2711,7 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 3. Jika paket sudah di tangan -> cari titik drop-off
+						-- 4. Jika paket sudah di tangan -> kendarai motor ke titik drop-off
 						if hasCourierPackage() then
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
 							local dropPos, dropPrompt, dropBlock = getCourierDestination()
@@ -2830,14 +2731,13 @@ local success, err = pcall(function()
 								return
 							end
 
-							local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-							local startPos = root and root.Position or dropPos
+							local car, seat = getPlayerVehicle()
+							local startPos = car and car:GetPivot().Position or dropPos
 							local tripDist = (dropPos - startPos).Magnitude
 							local tripStartTime = tick()
 
-							updateBotActivity("📦 Mengantar Paket ke Tujuan...", Color3.fromRGB(0, 212, 255))
-							local dropDestPos = dropPos + Vector3.new(0, 2.5, 0)
-							glideCharacterTo(dropDestPos, Config.courierSpeed or 95, 3.5)
+							updateBotActivity("🛵 Mengantar Paket ke Tujuan...", Color3.fromRGB(0, 212, 255))
+							driveVehicleTo(dropPos, Config.courierSpeed or 95, 30)
 
 							if not courierActive then return end
 
@@ -2883,7 +2783,9 @@ local success, err = pcall(function()
 				end
 			end)
 		else
-			cancelCourierGlide()
+			if cancelActiveDrive then
+				cancelActiveDrive()
+			end
 			if courierLoopThread then
 				pcall(function() task.cancel(courierLoopThread) end)
 				courierLoopThread = nil
@@ -2895,6 +2797,7 @@ local success, err = pcall(function()
 			UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
 		end
 	end
+
 
 	------------------------------------------------
 	-- 🖼️ 3. UI COMPONENTS IN FARM TAB
