@@ -2759,44 +2759,33 @@ local success, err = pcall(function()
 	end
 
 	local activeGlideTween = nil
-	local activeGlideThread = nil
-	local origWorkspaceGravity = workspace.Gravity > 0 and workspace.Gravity or 196.2
-
-	local function restoreGlideGravity()
-		pcall(function()
-			workspace.Gravity = origWorkspaceGravity
-		end)
-	end
+	local activeNoclipConn = nil
 
 	local function cancelActiveGlide()
 		if activeGlideTween then
 			pcall(function() activeGlideTween:Cancel() end)
 			activeGlideTween = nil
 		end
-		if activeGlideThread then
-			pcall(function() task.cancel(activeGlideThread) end)
-			activeGlideThread = nil
+		if activeNoclipConn then
+			pcall(function() activeNoclipConn:Disconnect() end)
+			activeNoclipConn = nil
 		end
-		restoreGlideGravity()
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			hrp.Anchored = false
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end
 		if hum then
 			hum.PlatformStand = false
 		end
+		if hrp then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end
 	end
 
-	-- 🕊️ DIRECT CHARACTER AIR-GLIDE ENGINE:
-	-- Menggunakan workspace.Gravity = 0 (Lokal) TANPA BodyVelocity/BodyMover (100% Anti-Kick Anticheat!)
-	-- hrp.Anchored tetap FALSE sehingga client terus mereplikasi data physics 60Hz ke server (Anti-Timeout 267)
-	-- Gravitasi 0 membuat karakter melayang bebas bobot sehingga TweenService bergerak mulus seperti kaca tanpa ngadat
-	local FIXED_CRUISE_Y = 135
-
+	-- 🚶 STRAIGHT GROUND-LEVEL CHARACTER GLIDE ENGINE:
+	-- Meluncur lurus dekat daratan langsung ke target (Bypass Anti-Fly Ketinggian Server)
+	-- Menggunakan Noclip Stepped agar menembus rintangan/gedung/pohon secara mulus
+	-- Tanpa BodyVelocity, Tanpa Anchored, Tanpa Pengubahan Gravitasi (100% Bersih & Aman)
 	local function glideCharacterTo(targetPos, speed, stopDist)
 		cancelActiveGlide()
 		local char = player.Character
@@ -2804,7 +2793,6 @@ local success, err = pcall(function()
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		if not hrp or not hum or hum.Health <= 0 then return false end
 
-		-- Turun dari kendaraan apapun jika sedang duduk
 		if hum.Sit then
 			hum.Sit = false
 			task.wait(0.15)
@@ -2816,88 +2804,42 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- WAJIB: hrp.Anchored = false (Replikasi physics aman ke server)
-		hrp.Anchored = false
-		hum.PlatformStand = true
-
-		-- Matikan gravitasi secara lokal (Bebas bobot & tanpa BodyVelocity)
-		if workspace.Gravity > 0 then
-			origWorkspaceGravity = workspace.Gravity
-		end
-		workspace.Gravity = 0
-
-		hrp.AssemblyLinearVelocity = Vector3.zero
-		hrp.AssemblyAngularVelocity = Vector3.zero
-
-		local cruiseSpeed = math.clamp(tonumber(speed) or Config.courierSpeed or 125, 40, 250)
-
-		-- Jarak dekat (<= 25 stud): Meluncur lurus tanpa naik ke langit
-		if dist <= 25 then
-			local landCFrame = CFrame.new(Vector3.new(targetPos.X + 1.2, targetPos.Y + 2.0, targetPos.Z + 1.2))
-			local tGlide = math.max(0.2, dist / cruiseSpeed)
-			local tw = TweenService:Create(hrp, TweenInfo.new(tGlide, Enum.EasingStyle.Linear), {CFrame = landCFrame})
-			activeGlideTween = tw
-			tw:Play()
-			tw.Completed:Wait()
-			activeGlideTween = nil
-			restoreGlideGravity()
-			hum.PlatformStand = false
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-			return true
-		end
-
-		-- Ketinggian jelajah tetap (TIDAK BERUBAH-UBAH agar karakter tidak terus naik ke angkasa)
-		local flightY = math.max(FIXED_CRUISE_Y, targetPos.Y + 20)
-
-		-- Fase 1: Naik Vertikal Mulus (Lift Off)
-		local risePos = Vector3.new(hrp.Position.X, flightY, hrp.Position.Z)
-		local riseDist = math.abs(flightY - hrp.Position.Y)
-		local riseTime = math.clamp(riseDist / (cruiseSpeed * 0.95), 0.25, 2.5)
-		local forwardDir = (Vector3.new(targetPos.X, risePos.Y, targetPos.Z) - risePos)
-		local lookRot = forwardDir.Magnitude > 0.5 and CFrame.new(risePos, risePos + forwardDir.Unit) or CFrame.new(risePos)
-		local twRise = TweenService:Create(hrp, TweenInfo.new(riseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = lookRot})
-		activeGlideTween = twRise
-		twRise:Play()
-		twRise.Completed:Wait()
-
-		if not courierActive then
-			cancelActiveGlide()
-			return false
-		end
-
-		-- Fase 2: Meluncur Lurus di Langit (Sky Cruise)
-		local cruiseEndPos = Vector3.new(targetPos.X, flightY, targetPos.Z)
-		local flatDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
-		local cruiseTime = math.max(0.3, flatDist / cruiseSpeed)
-		local cruiseRot = flatDist > 0.5 and CFrame.new(cruiseEndPos, cruiseEndPos + (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Unit) or CFrame.new(cruiseEndPos)
-		local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = cruiseRot})
-		activeGlideTween = twCruise
-		twCruise:Play()
-		twCruise.Completed:Wait()
-
-		if not courierActive then
-			cancelActiveGlide()
-			return false
-		end
-
-		-- Bentangkan Safety Plate di bawah titik pendaratan agar tidak jatuh ke jurang (terutama Lokasi 8 Klaten)
+		-- Pre-stream daratan tujuan & bentangkan Safety Plate
+		requestStreamAsync(targetPos)
 		ensureSafetyPlate(targetPos, 60)
 
-		-- Fase 3: Turun Lembut ke Titik Tujuan (Soft Touchdown)
-		local landTarget = Vector3.new(targetPos.X + 1.2, targetPos.Y + 2.0, targetPos.Z + 1.2)
-		local dropDist = math.abs(flightY - landTarget.Y)
-		local dropTime = math.clamp(dropDist / (cruiseSpeed * 0.95), 0.25, 2.5)
-		local twDrop = TweenService:Create(hrp, TweenInfo.new(dropTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {CFrame = CFrame.new(landTarget, Vector3.new(targetPos.X, targetPos.Y + 2.0, targetPos.Z))})
-		activeGlideTween = twDrop
-		twDrop:Play()
-		twDrop.Completed:Wait()
+		-- Noclip loop agar karakter menembus semua rintangan (gedung, pohon, pagar) tanpa terhalang
+		activeNoclipConn = RunService.Stepped:Connect(function()
+			local c = player.Character
+			if c then
+				for _, p in ipairs(c:GetDescendants()) do
+					if p:IsA("BasePart") then
+						p.CanCollide = false
+					end
+				end
+			end
+		end)
 
-		activeGlideTween = nil
-		restoreGlideGravity()
-		hum.PlatformStand = false
+		hum.PlatformStand = true
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
+
+		local cruiseSpeed = math.clamp(tonumber(speed) or Config.courierSpeed or 100, 30, 180)
+		local tripTime = math.max(0.3, dist / cruiseSpeed)
+
+		-- Titik tujuan lurus pas di dekat permukaan tanah/kardus
+		local goalPos = Vector3.new(targetPos.X + 1.2, targetPos.Y + 2.0, targetPos.Z + 1.2)
+		local flatDiff = Vector3.new(goalPos.X - hrp.Position.X, 0, goalPos.Z - hrp.Position.Z)
+		local targetCFrame = flatDiff.Magnitude > 0.5 
+			and CFrame.new(goalPos, goalPos + flatDiff.Unit) 
+			or CFrame.new(goalPos)
+
+		local tw = TweenService:Create(hrp, TweenInfo.new(tripTime, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
+		activeGlideTween = tw
+		tw:Play()
+		tw.Completed:Wait()
+
+		cancelActiveGlide()
 		return true
 	end
 
@@ -3191,7 +3133,7 @@ local success, err = pcall(function()
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
 	UI.AddSection(tab, "Courier Delivery Auto-Worker")
-	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Direct Character Air-Glide (Bypass jurang, air sungai & anti crash 263)", Config.autoCourier, function(state)
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Straight Ground-Level Glide (Lurus dekat tanah & tembus rintangan)", Config.autoCourier, function(state)
 		toggleAutoCourier(state)
 	end)
 	_G.HipHubAutoCourierToggle = autoCourierToggle
@@ -3206,7 +3148,7 @@ local success, err = pcall(function()
 		end
 	end)
 
-	UI.AddSlider(tab, "Courier Speed (Studs/s)", 40, 250, math.floor(Config.courierSpeed or 125), function(val)
+	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 200, math.floor(Config.courierSpeed or 100), function(val)
 		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierSpeed = val
