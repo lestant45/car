@@ -155,13 +155,13 @@ local success, err = pcall(function()
 		tripPacing = true,
 		autoRejoinOrders = 30,
 		autoCourier = false,
-		courierSpeed = 95,
+		courierSpeed = 100,
 		courierPacing = true
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
-	if Config.courierSpeed == nil then Config.courierSpeed = 95 end
+	if Config.courierSpeed == nil then Config.courierSpeed = 100 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -1353,6 +1353,106 @@ local success, err = pcall(function()
 		return nil
 	end
 
+	-- 🛣️ Highway Waypoint Router (City / Solo <-> Klaten Continuous Road Network)
+	local function isKlatenPos(pos)
+		if not pos then return false end
+		return (pos.X < -10400) and (pos.Z > 1650)
+	end
+
+	local HIGHWAY_WAYPOINTS = {
+		Vector3.new(-5105.6, 5.0, -3759.0),   -- 1. Depot Paket (Jajar Utara)
+		Vector3.new(-5221.0, -1.0, -3000.0),  -- 2. Jl. Jajar Tengah (Utara)
+		Vector3.new(-5221.0, -1.0, -2000.0),  -- 3. Jl. Jajar Tengah (Pusat)
+		Vector3.new(-5221.0, -1.0, -820.0),   -- 4. Jl. Jajar Selatan (Simpang Faroka)
+		Vector3.new(-5528.0, -1.0, -566.0),   -- 5. Belokan Jajar Selatan ke Faroka
+		Vector3.new(-6471.0, -1.0, -572.0),   -- 6. Jl. Faroka Timur
+		Vector3.new(-7374.0, -1.0, -458.0),   -- 7. Jl. Faroka Tengah
+		Vector3.new(-8341.0, -1.0, 173.0),    -- 8. Jl. Faroka Barat (Simpang Kartasura)
+		Vector3.new(-8811.0, 0.0, 819.0),     -- 9. Jl. Kartasura Timur
+		Vector3.new(-9522.0, 0.0, 825.0),     -- 10. Jl. Kartasura Tengah
+		Vector3.new(-10019.0, 0.0, 1344.0),   -- 11. Jl. Kartasura Barat
+		Vector3.new(-10374.0, 0.0, 1622.0),   -- 12. Ujung Kartasura (Perbatasan Klaten)
+		Vector3.new(-10778.0, 4.0, 1856.0),   -- 13. Jl. Klaten Gerbang Masuk
+		Vector3.new(-11561.0, 0.0, 2308.0),   -- 14. Jl. Klaten Timur
+		Vector3.new(-12605.0, 4.0, 2910.0),   -- 15. Jl. Klaten Tengah
+		Vector3.new(-13628.0, 23.0, 3367.0),  -- 16. Jl. Klaten Tanjakan Sawah
+		Vector3.new(-15294.0, 55.0, 4108.0),  -- 17. Jl. Klaten Puncak Tanjakan
+		Vector3.new(-15961.0, 102.0, 4493.0), -- 18. Jl. Klaten Barat / Pusat Kota Klaten
+	}
+
+	local function buildHighwayRoute(startPos, destPos)
+		local startInKlaten = isKlatenPos(startPos)
+		local destInKlaten = isKlatenPos(destPos)
+
+		-- Jika berada di zona yang sama (Klaten -> Klaten atau City -> City), langsung direct navigation
+		if startInKlaten == destInKlaten then
+			return { destPos }
+		end
+
+		local path = {}
+
+		if not startInKlaten and destInKlaten then
+			-- Perjalanan dari Kota Solo / Depot menuju ke Klaten (Arah maju 1 -> 18)
+			local bestStartIdx = 1
+			local minDist = math.huge
+			for i = 1, 12 do
+				local wp = HIGHWAY_WAYPOINTS[i]
+				local d = (Vector3.new(startPos.X, 0, startPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
+				if d < minDist then
+					minDist = d
+					bestStartIdx = i
+				end
+			end
+
+			local bestEndIdx = 18
+			local minEndDist = math.huge
+			for i = 13, #HIGHWAY_WAYPOINTS do
+				local wp = HIGHWAY_WAYPOINTS[i]
+				local d = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
+				if d < minEndDist then
+					minEndDist = d
+					bestEndIdx = i
+				end
+			end
+
+			for i = bestStartIdx, bestEndIdx do
+				table.insert(path, HIGHWAY_WAYPOINTS[i])
+			end
+			table.insert(path, destPos)
+
+		elseif startInKlaten and not destInKlaten then
+			-- Perjalanan dari Klaten pulang ke Kota Solo / Depot (Arah mundur 18 -> 1)
+			local bestStartIdx = 18
+			local minDist = math.huge
+			for i = #HIGHWAY_WAYPOINTS, 13, -1 do
+				local wp = HIGHWAY_WAYPOINTS[i]
+				local d = (Vector3.new(startPos.X, 0, startPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
+				if d < minDist then
+					minDist = d
+					bestStartIdx = i
+				end
+			end
+
+			local bestEndIdx = 1
+			local minEndDist = math.huge
+			for i = 12, 1, -1 do
+				local wp = HIGHWAY_WAYPOINTS[i]
+				local d = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
+				if d < minEndDist then
+					minEndDist = d
+					bestEndIdx = i
+				end
+			end
+
+			for i = bestStartIdx, bestEndIdx, -1 do
+				table.insert(path, HIGHWAY_WAYPOINTS[i])
+			end
+			table.insert(path, destPos)
+		end
+
+		return path
+	end
+
 	-- 🛣️ Pure Road Navigation Engine
 	local function driveVehicleTo(targetPos, speed, destroyPlateAfterStuds)
 		if typeof(targetPos) == "CFrame" then
@@ -1386,19 +1486,6 @@ local success, err = pcall(function()
 			destroySafetyPlate()
 		end
 
-		-- 🗺️ Pre-stream terrain tujuan agar probeGround tidak salah deteksi void
-		requestStreamAsync(targetPos)
-		-- Khusus mode Kurir: jika jarak jauh (>200 stud), beri waktu lebih agar terrain Klaten ter-load
-		-- sebelum void scanner mulai scan. Tanpa ini, jalan Klaten dianggap void → teleport → kick!
-		if courierActive then
-			local distToTarget = (car:GetPivot().Position - targetPos).Magnitude
-			if distToTarget > 200 then
-				task.wait(0.5)
-			else
-				task.wait(0.2)
-			end
-		end
-
 		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
 		local startCF = car:GetPivot()
 		local startP  = startCF.Position
@@ -1409,6 +1496,31 @@ local success, err = pcall(function()
 			isDrivingActive = false
 			return true
 		end
+
+		local routePath = buildHighwayRoute(startP, destP)
+		local currentWaypointIdx = 1
+		local currentGoal = routePath[currentWaypointIdx]
+
+		-- Jika posisi awal sudah dekat dengan waypoint pertama (misal di depot), langsung target waypoint berikutnya
+		while currentWaypointIdx < #routePath and (Vector3.new(startP.X, 0, startP.Z) - Vector3.new(currentGoal.X, 0, currentGoal.Z)).Magnitude <= 32 do
+			currentWaypointIdx = currentWaypointIdx + 1
+			currentGoal = routePath[currentWaypointIdx]
+		end
+
+		if #routePath > 1 then
+			if not isKlatenPos(startP) and isKlatenPos(destP) then
+				UI.Notify("🛣️ Navigasi Jalan Klaten", string.format("Menavigasi %d titik rute antar-kota...", #routePath), 3.0, "info")
+			else
+				UI.Notify("🛣️ Navigasi Pulang Kota", string.format("Menavigasi %d titik rute antar-kota...", #routePath), 3.0, "info")
+			end
+		end
+
+		-- 🗺️ Pre-stream rute jalan di depan agar terrain dan aspal siap sebelum motor lewat
+		requestStreamAsync(currentGoal)
+		if #routePath > 1 and currentWaypointIdx < #routePath then
+			requestStreamAsync(routePath[currentWaypointIdx + 1])
+		end
+		task.wait(0.25)
 
 		local rayFilter = { car, player.Character }
 		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
@@ -1572,13 +1684,16 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
-		local stuckLastDist   = totalDist
+		local stuckLastDist   = (currentGoal - startP).Magnitude
 		local stuckLastTime   = os.clock()
 		local stuckNudgeCount = 0
 
 		local navHeading = nil
 		local edgeFollowSign = 1
-		local curHeadingAngle = math.atan2(((destP - startP).Unit).X, ((destP - startP).Unit).Z)
+		local initGoalDelta = currentGoal - startP
+		local initGoalFlat = Vector3.new(initGoalDelta.X, 0, initGoalDelta.Z)
+		local initGoalDir = initGoalFlat.Magnitude > 0.1 and initGoalFlat.Unit or Vector3.new(0, 0, -1)
+		local curHeadingAngle = math.atan2(initGoalDir.X, initGoalDir.Z)
 		local lastBridgeScanTime = 0
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
@@ -1679,7 +1794,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			local delta = destP - carPos
+			local delta = currentGoal - carPos
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
 			local dist = flatDelta.Magnitude
 
@@ -1692,11 +1807,29 @@ local success, err = pcall(function()
 				end
 			end
 
-			local arrivalDist = (courierActive and 7.5 or 3.5)
+			local isFinalWaypoint = (currentWaypointIdx >= #routePath)
+			local arrivalDist = isFinalWaypoint and (courierActive and 7.5 or 3.5) or 32.0
+
 			if dist <= arrivalDist then
-				driveFinished = true
-				if currentDriveConn then currentDriveConn:Disconnect() end
-				return
+				if isFinalWaypoint then
+					driveFinished = true
+					if currentDriveConn then currentDriveConn:Disconnect() end
+					return
+				else
+					currentWaypointIdx = currentWaypointIdx + 1
+					currentGoal = routePath[currentWaypointIdx]
+					requestStreamAsync(currentGoal)
+					if currentWaypointIdx < #routePath then
+						requestStreamAsync(routePath[currentWaypointIdx + 1])
+					end
+					stuckLastDist = (currentGoal - carPos).Magnitude
+					stuckLastTime = os.clock()
+					cliffWaitStartTime = nil
+					if #routePath > 1 then
+						updateBotActivity(string.format("🛣️ Tol: Titik %d/%d (%.0fm)...", currentWaypointIdx, #routePath, stuckLastDist), Color3.fromRGB(0, 212, 255))
+					end
+					return
+				end
 			end
 
 			-- Stuck Recovery
@@ -1751,23 +1884,22 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (Mulai dari 800 Studs):
-			-- Stage 1 (800 -> 50 stud): Kecepatan turun mulus dari speed (300 stud/s) ke 28 stud/s (~25 km/h)
-			-- Stage 2 (50 -> 10 stud): Kecepatan merayap pelan dari 28 stud/s ke 4.0 stud/s
-			-- Stage 3 (< 10 stud): Meluncur lembut ke 0 stud/s dan berhenti tepat di titik tujuan (dist <= 3.5)
+			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (HANYA AKTIF DI TITIK AKHIR):
 			local targetSpeed = speed
 
-			if dist < 10 then
-				local ratio = math.clamp(dist / 10, 0, 1)
-				targetSpeed = math.max(0, 4.0 * ratio)
-			elseif dist < 50 then
-				local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
-				targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
-			elseif dist < 800 then
-				local factor = math.clamp((dist - 50) / 750, 0, 1)
-				-- Smoothstep S-Curve: Transisi eksponensial sangat empuk tanpa sentakan inersia
-				local sFactor = factor * factor * (3 - 2 * factor)
-				targetSpeed = 28.0 + (speed - 28.0) * sFactor
+			if isFinalWaypoint then
+				if dist < 10 then
+					local ratio = math.clamp(dist / 10, 0, 1)
+					targetSpeed = math.max(0, 4.0 * ratio)
+				elseif dist < 50 then
+					local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
+					targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
+				elseif dist < 800 then
+					local factor = math.clamp((dist - 50) / 750, 0, 1)
+					-- Smoothstep S-Curve: Transisi eksponensial sangat empuk tanpa sentakan inersia
+					local sFactor = factor * factor * (3 - 2 * factor)
+					targetSpeed = 28.0 + (speed - 28.0) * sFactor
+				end
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
@@ -1847,7 +1979,19 @@ local success, err = pcall(function()
 
 				-- ⏱️ Timeout di Tepi Jurang:
 				local cliffWaitDuration = nowClock - cliffWaitStartTime
-				if cliffWaitDuration >= 8.0 then
+				if not isFinalWaypoint and cliffWaitDuration >= 3.0 then
+					-- Jika tertahan di waypoint perantara, lanjutkan ke waypoint berikutnya
+					cliffWaitStartTime = nil
+					currentWaypointIdx = currentWaypointIdx + 1
+					currentGoal = routePath[currentWaypointIdx]
+					requestStreamAsync(currentGoal)
+					if currentWaypointIdx < #routePath then
+						requestStreamAsync(routePath[currentWaypointIdx + 1])
+					end
+					stuckLastDist = (currentGoal - carPos).Magnitude
+					stuckLastTime = os.clock()
+					return
+				elseif cliffWaitDuration >= 8.0 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
 					if courierActive then
@@ -1863,13 +2007,13 @@ local success, err = pcall(function()
 
 				if (nowClock - lastBridgeScanTime) >= 0.15 then
 					lastBridgeScanTime = nowClock
-					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP)
+					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, currentGoal)
 					if bridgeLanding then
 						cliffWaitStartTime = nil
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
-						stuckLastDist = (destP - bridgeLanding).Magnitude
-						local newDir = (destP - bridgeLanding).Unit
+						stuckLastDist = (currentGoal - bridgeLanding).Magnitude
+						local newDir = (currentGoal - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
 						stuckLastTime = os.clock()
 						currentSmoothSpeed = 0
