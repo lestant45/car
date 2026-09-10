@@ -807,9 +807,14 @@ local success, err = pcall(function()
 			cur = cur.Parent
 		end
 
+		-- 🚫 AIR / SUNGAI / DANAU BUKAN JALAN! Jangan pernah dianggap sebagai tanah pijakan!
+		if obj:IsA("BasePart") and obj.Material == Enum.Material.Water then return false end
+		if name:find("AIR") or name:find("WATER") or name:find("SUNGAI") or name:find("RIVER") or name:find("DANAU") or name:find("KOLAM") then
+			return false
+		end
+
 		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW"
-			or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("AIR_SUNGAI")
-			or name:find("SUNGAI") or name:find("GROUND") or name:find("TERRAIN")
+			or name == "ZEBRA_CROSS" or name == "OTHER_FLYOVER_PURWOSARI" or name:find("GROUND") or name:find("TERRAIN")
 			or name:find("GRASS") or name == "FLYOVER" or name:find("JEMBATAN") or name:find("BRIDGE")
 			or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL")
 			or name:find("TROTO") or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT")
@@ -1186,6 +1191,7 @@ local success, err = pcall(function()
 					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
 					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
 
+					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
 					local isRoofOrObstacle = (mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass)
 						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
 						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
@@ -1194,7 +1200,11 @@ local success, err = pcall(function()
 
 					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
 
-					if isRoofOrObstacle or isBuildingModel then
+					if isWater then
+						-- Air sungai adalah jurang cair! Jangan pernah jadikan solidY
+						solidY = nil
+						break
+					elseif isRoofOrObstacle or isBuildingModel then
 						table.insert(localFilter, inst)
 						origin = Vector3.new(px, hit.Position.Y - 0.4, pz)
 					else
@@ -1209,7 +1219,7 @@ local success, err = pcall(function()
 
 				if isGround then
 					refY = solidY
-					local isVoidGap = (inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 35))
+					local isVoidGap = (inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15))
 					local isElevatedLedge = (solidY >= fromPos.Y + 6 and curDist >= 15 and curDist <= 120)
 
 					if isVoidGap or isElevatedLedge then
@@ -1297,7 +1307,8 @@ local success, err = pcall(function()
 			[Enum.Material.ClayRoofTiles] = true,
 			[Enum.Material.WoodPlanks] = true,
 			[Enum.Material.Fabric] = true,
-			[Enum.Material.Glass] = true
+			[Enum.Material.Glass] = true,
+			[Enum.Material.Water] = true
 		}
 
 		local function probeGround(probePos, refY)
@@ -1337,6 +1348,7 @@ local success, err = pcall(function()
 					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
 					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
 
+					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
 					local isRoofOrObstacle = nonDrivableMats[mat]
 						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
 						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
@@ -1345,7 +1357,10 @@ local success, err = pcall(function()
 
 					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
 
-					if isRoofOrObstacle or isBuildingModel then
+					if isWater then
+						-- Air sungai / kolam BUKAN daratan! Raycast di sini dianggap jurang hampa (void)
+						break
+					elseif isRoofOrObstacle or isBuildingModel then
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
@@ -1399,9 +1414,34 @@ local success, err = pcall(function()
 			local carCF = car:GetPivot()
 			local carPos = carCF.Position
 
-			-- 🔒 Enforced Frame-Level Seat Lock: pastikan pengemudi tidak terlempar dari motor saat melaju
-			if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
-				pcall(function() seat:Sit(hum) end)
+			-- 🔒 Enforced Frame-Level Seat Lock & Swimming Neutralizer:
+			if hum and seat then
+				pcall(function()
+					hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+				end)
+				if not hum.SeatPart or hum.SeatPart ~= seat then
+					pcall(function() seat:Sit(hum) end)
+				end
+			end
+
+			-- 🛡️ Anti-Water Submersion & NaN Physics Shield:
+			-- Jika motor mulai turun ke arah air sungai, otomatis tahan dan angkat ke atas Safety Plate
+			if (carPos.Y < (lastGroundY - 2.0)) then
+				pcall(function()
+					local checkOrigin = Vector3.new(carPos.X, carPos.Y + 3, carPos.Z)
+					local waterParams = RaycastParams.new()
+					waterParams.FilterDescendantsInstances = { car, player.Character }
+					waterParams.FilterType = Enum.RaycastFilterType.Exclude
+					waterParams.IgnoreWater = false
+					local wHit = workspace:Raycast(checkOrigin, Vector3.new(0, -7, 0), waterParams)
+					if wHit and (wHit.Material == Enum.Material.Water or wHit.Instance.Name:upper():find("AIR") or wHit.Instance.Name:upper():find("SUNGAI")) then
+						local rescueY = math.max(lastGroundY, wHit.Position.Y + 2.0)
+						local rescuePos = Vector3.new(carPos.X, rescueY, carPos.Z)
+						ensureSafetyPlate(rescuePos, 80)
+						car:PivotTo(CFrame.new(rescuePos))
+						lastGroundY = rescueY
+					end
+				end)
 			end
 
 			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas (sebelum mencapai ketinggian kick server)
