@@ -2761,6 +2761,13 @@ local success, err = pcall(function()
 	local activeGlideTween = nil
 	local activeGlideThread = nil
 
+	local function removeGlideVelocity(hrp)
+		if hrp then
+			local bv = hrp:FindFirstChild("__GlideVelocity")
+			if bv then pcall(function() bv:Destroy() end) end
+		end
+	end
+
 	local function cancelActiveGlide()
 		if activeGlideTween then
 			pcall(function() activeGlideTween:Cancel() end)
@@ -2774,6 +2781,7 @@ local success, err = pcall(function()
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if hrp then
+			removeGlideVelocity(hrp)
 			hrp.Anchored = false
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
@@ -2784,8 +2792,9 @@ local success, err = pcall(function()
 	end
 
 	-- 🕊️ DIRECT CHARACTER AIR-GLIDE ENGINE:
-	-- Menggunakan hrp.Anchored = true selama tween agar physics gravitasi tidak beradu (100% mulus tanpa jitter / ngadat)
-	-- Menggunakan ketinggian jelajah tetap (135) agar karakter tidak melayang naik terus ke angkasa
+	-- Menggunakan BodyVelocity (anti-gravitasi PGS) dengan hrp.Anchored = FALSE!
+	-- Karakter tetap mereplikasi paket physics 60Hz ke server sehingga koneksi TIDAK AKAN PERNAH timeout / DC 267!
+	-- BodyVelocity menahan gravitasi sepenuhnya sehingga tween meluncur mulus tanpa ngadat/jitter.
 	local FIXED_CRUISE_Y = 135
 
 	local function glideCharacterTo(targetPos, speed, stopDist)
@@ -2807,8 +2816,20 @@ local success, err = pcall(function()
 			return true
 		end
 
+		-- WAJIB: hrp.Anchored = false agar client tetap mereplikasi paket posisi ke server (ANTI DC 267)
+		hrp.Anchored = false
 		hum.PlatformStand = true
-		hrp.Anchored = true
+
+		-- BodyVelocity menahan gaya gravitasi agar tween 100% mulus tanpa ngadat
+		local bv = hrp:FindFirstChild("__GlideVelocity")
+		if not bv then
+			bv = Instance.new("BodyVelocity")
+			bv.Name = "__GlideVelocity"
+			bv.Velocity = Vector3.zero
+			bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+			bv.Parent = hrp
+		end
+
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
 
@@ -2823,7 +2844,7 @@ local success, err = pcall(function()
 			tw:Play()
 			tw.Completed:Wait()
 			activeGlideTween = nil
-			hrp.Anchored = false
+			removeGlideVelocity(hrp)
 			hum.PlatformStand = false
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
@@ -2877,7 +2898,7 @@ local success, err = pcall(function()
 		twDrop.Completed:Wait()
 
 		activeGlideTween = nil
-		hrp.Anchored = false
+		removeGlideVelocity(hrp)
 		hum.PlatformStand = false
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
