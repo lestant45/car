@@ -1867,7 +1867,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			local arrivalDist = (courierActive and 7.5 or 3.5)
+			local arrivalDist = (courierActive and 4.5 or 3.5)
 			if dist <= arrivalDist then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
@@ -3152,12 +3152,10 @@ local success, err = pcall(function()
 		pcall(function()
 			prompt.Enabled = true
 			if fireproximityprompt then
-				fireproximityprompt(prompt)
-				task.wait(0.08)
-				fireproximityprompt(prompt, duration + 0.15)
+				fireproximityprompt(prompt, duration + 0.1)
 			elseif prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
-				task.wait(duration + 0.1)
+				task.wait(duration + 0.15)
 				prompt:InputHoldEnd()
 			end
 		end)
@@ -3343,23 +3341,52 @@ local success, err = pcall(function()
 							-- Jeda natural sebelum menyerahkan paket
 							task.wait(0.3 + (math.random(0, 3) / 10.0))
 
+							-- 🛡️ Anti-Kick Distance Guard: Pastikan karakter berada dalam jarak aman Proximity (<= 5.5 stud 3D)
+							local char = player.Character
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
+							local hum = char and char:FindFirstChildOfClass("Humanoid")
+							if hrp and dropPos then
+								local dist3D = (hrp.Position - dropPos).Magnitude
+								if dist3D > 5.5 then
+									-- Kotak berada di teras tinggi / di atas tangga sehingga jarak motor ke kotak > 5.5 stud
+									-- Dekatkan karakter ke jarak 3.2 stud dari kotak dengan safety plate agar bebas kick server (MaxActivationDistance = 11)
+									local offsetDir = (hrp.Position - dropPos)
+									local flatOffset = Vector3.new(offsetDir.X, 0, offsetDir.Z)
+									local unitOffset = flatOffset.Magnitude > 0.1 and flatOffset.Unit or Vector3.new(0, 0, 1)
+									local standPos = dropPos + unitOffset * 3.2
+									local standGroundY = dropPos.Y - 1.5
+									local standFinal = Vector3.new(standPos.X, standGroundY, standPos.Z)
+
+									ensureSafetyPlate(standFinal, 15)
+									if hum then hum.Sit = false end
+									hrp.CFrame = CFrame.new(standFinal, dropPos)
+									hrp.AssemblyLinearVelocity = Vector3.zero
+									hrp.AssemblyAngularVelocity = Vector3.zero
+									task.wait(0.2)
+								end
+							end
+
 							updateBotActivity("📦 Memegang & Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
 							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
 							local tWaitDeliver = tick()
 							local isHandedOver = false
 
-							while courierActive and (tick() - tWaitDeliver < 6.0) do
+							while courierActive and (tick() - tWaitDeliver < 7.0) do
 								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character)
 								equipCourierPackage()
 
-								-- 2. Pastikan Prompt diaktifkan & ditembak
+								-- 2. Pastikan Prompt diaktifkan & ditembak secara natural
 								if not dropPrompt or not dropPrompt.Parent then
 									local _, np, _, _ = getCourierDestination()
 									dropPrompt = np
 								end
 								if dropPrompt then
 									dropPrompt.Enabled = true
-									triggerCourierPrompt(dropPrompt, 0.5)
+									local holdTime = dropPrompt.HoldDuration or 0.5
+									triggerCourierPrompt(dropPrompt, holdTime)
+									task.wait(holdTime + 0.25)
+								else
+									task.wait(0.3)
 								end
 
 								-- 3. Cek apakah server sudah memproses serah terima paket
@@ -3372,19 +3399,17 @@ local success, err = pcall(function()
 								-- 4. Jaga agar tetap duduk di kursi motor HANYA jika motor berada dekat (<= 30 stud)
 								if not isDriverSittingOnMotor() then
 									local car = getPlayerVehicle()
-									local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-									if car and hrp and (car:GetPivot().Position - hrp.Position).Magnitude <= 30 then
+									local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+									if car and hrpNow and (car:GetPivot().Position - hrpNow.Position).Magnitude <= 30 then
 										ensureDriverSeated()
 									end
 								end
-
-								task.wait(0.35)
 							end
 
 							if not isDriverSittingOnMotor() then
 								local car = getPlayerVehicle()
-								local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-								if car and hrp and (car:GetPivot().Position - hrp.Position).Magnitude <= 30 then
+								local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+								if car and hrpNow and (car:GetPivot().Position - hrpNow.Position).Magnitude <= 30 then
 									ensureDriverSeated()
 								end
 							end
