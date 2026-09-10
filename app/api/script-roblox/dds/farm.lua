@@ -840,6 +840,10 @@ local success, err = pcall(function()
 	local function isObstacleName(name)
 		if not name then return false end
 		local n = name:upper()
+		-- 🛡️ PROTEKSI MUTLAK KLATEN & SAWAH: BUKAN RINTANGAN!
+		if n:find("KLATEN") or n:find("SAWAH") then
+			return false
+		end
 		if n:find("BANGUNAN") or n:find("BUILDING") or n:find("RUMAH") or n:find("GEDUNG")
 			or n:find("HOUSE") or n:find("HOTEL") or n:find("HARRIZON") or n:find("POHON")
 			or n:find("TREE") or n:find("LAMPU") or n:find("LAMP") or n:find("PROPS")
@@ -869,6 +873,15 @@ local success, err = pcall(function()
 		if obj:IsA("Terrain") then return true end
 		if obj.Name == "__DdsSafetyPlate" then return true end
 
+		-- 🛡️ Proteksi Mutlak Klaten & Sawah sebagai Ground Sah
+		local fullName = obj:GetFullName():upper()
+		if fullName:find("JL_KLATEN") or fullName:find("SAWAH") or (fullName:find("BUILDING_KLATEN") and not fullName:find("WATER") and not fullName:find("AIR")) then
+			if obj:IsA("BasePart") and obj.Material == Enum.Material.Water then return false end
+			local name = obj.Name:upper()
+			if name:find("AIR") or name:find("WATER") or name:find("SUNGAI") or name:find("RIVER") then return false end
+			return true
+		end
+
 		local name = obj.Name:upper()
 		-- JIKA nama atau induknya mengandung unsur rintangan / gedung / pohon, BUKAN JALAN!
 		if isObstacleName(name) then return false end
@@ -893,6 +906,7 @@ local success, err = pcall(function()
 			or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL")
 			or name:find("TROTO") or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT")
 			or name:find("ASPAL") or name:find("LANTAI") or name:find("FLOOR") or name:find("SEMEN")
+			or name:find("SAWAH") or name:find("KLATEN")
 		then
 			return true
 		end
@@ -959,6 +973,13 @@ local success, err = pcall(function()
 					end
 				end
 			end
+		end
+
+		-- 🛡️ PROTEKSI MUTLAK AREA KLATEN & SAWAH:
+		-- DILARANG KERAS destroy apapun di daerah Klaten (BUILDING_KLATEN, JL_KLATEN, SAWAH)!
+		local fullName = obj:GetFullName():upper()
+		if fullName:find("KLATEN") or fullName:find("SAWAH") then
+			return false
 		end
 
 		local name = obj.Name:upper()
