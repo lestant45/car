@@ -342,7 +342,7 @@ local success, err = pcall(function()
 
 	-- 🔄 Unified Toggle Restart Engine (Mematikan toggle UI -> tunggu 1.2s -> nyalakan lagi)
 	restartAutoRideGoToggle = function(reason)
-		if isResettingTaxi then return end
+		if isResettingTaxi or courierActive then return end
 		isResettingTaxi = true
 		UI.Notify("🔄 Resetting Duty", (reason or "Mereset status RideGO...") .. " (Mencari order baru)", 2.5, "warning")
 
@@ -1129,6 +1129,16 @@ local success, err = pcall(function()
 		local maxScan = math.min(totalDistToDest * 1.05, 3000)
 		local stepSize = 35
 
+		-- 📦 Khusus Mode Auto Kurir: Jika tujuan pengantaran kurir (toPos) berada di seberang jurang (seperti Lokasi 8 Klaten):
+		-- Lokasi 8 berada melayang di atas jurang tanpa tanah alami. Langsung buat Safety Plate & lompat ke toPos!
+		if courierActive and totalDistToDest <= 2500 then
+			ensureSafetyPlate(toPos, 80)
+			local landPos = Vector3.new(toPos.X + 2.5, toPos.Y + 0.5, toPos.Z)
+			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+			local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+			return landed, jumpDist
+		end
+
 		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
 		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
 		local scanAngles = { 0, 10, -10, 20, -20, 30, -30 }
@@ -1563,14 +1573,26 @@ local success, err = pcall(function()
 				local nowClock = os.clock()
 				cliffWaitStartTime = cliffWaitStartTime or nowClock
 
-				-- ⏱️ Timeout 3.5 Detik di Tepi Jurang: Jika tidak bisa melompat dalam 3.5s, otomatis reset toggle UI untuk cari order baru
+				-- ⏱️ Timeout di Tepi Jurang:
 				if (nowClock - cliffWaitStartTime) >= 3.5 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
-					task.spawn(function()
-						restartAutoRideGoToggle("Jurang Terlalu Luas")
-					end)
-					return
+					if courierActive then
+						-- 📦 Mode Auto Kurir: JANGAN PERNAH panggil restartAutoRideGoToggle!
+						-- Buatkan safety plate di bawah destP dan lompat langsung ke destP
+						pcall(function()
+							ensureSafetyPlate(destP, 80)
+							local landTarget = Vector3.new(destP.X + 2.5, destP.Y + 0.5, destP.Z)
+							local jumpDist = (Vector3.new(landTarget.X, 0, landTarget.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
+							teleportVehicleAcrossVoid(car, landTarget, (landTarget - carPos).Unit, jumpDist)
+						end)
+						return
+					else
+						task.spawn(function()
+							restartAutoRideGoToggle("Jurang Terlalu Luas")
+						end)
+						return
+					end
 				end
 
 				if (nowClock - lastBridgeScanTime) >= 0.15 then
@@ -2742,15 +2764,16 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 3. Jika belum punya paket di tangan/tas -> Cek sejenak apakah server auto-give paket baru
+						-- 3. Jika belum punya paket di tangan/tas -> Cek lagi sebelum memutuskan ke depot
 						if not hasCourierPackage() then
-							-- Beri jeda 1.2 detik karena server DDS sering otomatis memasukkan paket berikutnya ke tas!
+							-- Beri jeda tambahan jika server belum sempat memberikan paket baru
 							local tWaitAuto = tick()
-							while (tick() - tWaitAuto < 1.2) and courierActive do
+							while (tick() - tWaitAuto < 1.5) and courierActive do
 								if hasCourierPackage() then break end
 								task.wait(0.2)
 							end
 
+							-- HANYA jika setelah total waktu tunggu habis paket BENAR-BENAR belum ada di tas:
 							if not hasCourierPackage() and courierActive then
 								local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
 								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
@@ -2759,7 +2782,7 @@ local success, err = pcall(function()
 									driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
 								end)
 
-								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> langsung batalkan arah depot!
+								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> batalkan arah depot secara mulus!
 								while not hasCourierPackage() and courierActive and coroutine.status(depotDriveThread) ~= "dead" do
 									task.wait(0.2)
 								end
@@ -2767,6 +2790,7 @@ local success, err = pcall(function()
 								if hasCourierPackage() then
 									cancelActiveDrive()
 									pcall(function() task.cancel(depotDriveThread) end)
+									task.wait(0.3) -- Jeda rem sesaat sebelum akselerasi ke arah tujuan baru
 								end
 
 								if not courierActive then return end
@@ -2889,8 +2913,21 @@ local success, err = pcall(function()
 
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 							local totalDone = _G.HipHubCompletedCourier
-							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar. Menuju penerima berikutnya...", totalDone), 2.5, "success")
-							task.wait(0.5)
+							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
+
+							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
+							-- Motor WAJIB diam total di tempat (rem aktif). JANGAN PERNAH jalan ke arah depot!
+							-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
+							updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
+							local tWaitNext = tick()
+							while (tick() - tWaitNext < 3.2) and courierActive do
+								if hasCourierPackage() then
+									UI.Notify("📦 Paket Baru Diterima!", "Mempersiapkan rute ke penerima berikutnya...", 2.0, "success")
+									break
+								end
+								task.wait(0.25)
+							end
+							task.wait(0.4)
 						end
 					end)
 
