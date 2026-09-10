@@ -204,6 +204,7 @@ local success, err = pcall(function()
 	local recoverRideGoDuty   = nil
 	local cancelActiveDrive   = nil
 	local glidePlayerAcrossVoid = nil
+	local arrivedViaSeatCarrier = false
 	local startPhoneOverlayPoller = nil
 
 	local function updateBotActivity(statusText, customColor)
@@ -1222,10 +1223,58 @@ local success, err = pcall(function()
 		return landPos
 	end
 
-	-- 🦅 Sky Glide Engine: Fallback Kinematik Tanpa Beban Fisika Kendaraan Khusus Jurang Terlalu Luas (Klaten)
+	-- Helper penghitung ketinggian Y adaptif (menempel di tanah jika ada, atau lereng lurus halus di atas jurang)
+	local function calculateAdaptiveY(currentY, nextX, nextZ, startPos, destPos, flatDist, totalDist, char, ignoreList, dt)
+		local rayParams = RaycastParams.new()
+		local filter = { char }
+		if ignoreList then
+			for _, it in ipairs(ignoreList) do
+				if it and it.Parent then table.insert(filter, it) end
+			end
+		end
+		rayParams.FilterDescendantsInstances = filter
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		rayParams.IgnoreWater = false
+
+		local hit = workspace:Raycast(
+			Vector3.new(nextX, currentY + 6, nextZ),
+			Vector3.new(0, -35, 0),
+			rayParams
+		)
+
+		local isSolidGround = false
+		local groundY = currentY
+
+		if hit and hit.Instance then
+			local mat = hit.Material
+			local n = hit.Instance.Name:lower()
+			local isWater = (mat == Enum.Material.Water) or n:find("water") or n:find("air") or n:find("laut")
+			if not isWater then
+				isSolidGround = true
+				groundY = hit.Position.Y
+			end
+		end
+
+		if isSolidGround then
+			-- Ada jalan/tanah sah! Tempelkan di atas permukaan tanah (ground + 3.0 stud)
+			local targetY = groundY + 3.0
+			local maxStep = math.max(60 * dt, 1.5)
+			return currentY + math.clamp(targetY - currentY, -maxStep, maxStep), true
+		else
+			-- Di atas jurang laut (void): slope garis lurus bertahap dari startY ke destPos.Y
+			local progress = math.clamp(1 - (flatDist / math.max(totalDist, 1)), 0, 1)
+			local slopeY = startPos.Y + (destPos.Y - startPos.Y) * progress
+			-- Pastikan tidak tenggelam ke dalam air laut (level laut DDS ~ Y = 10-14)
+			local safeVoidY = math.max(slopeY, 16.5)
+			local maxStep = math.max(50 * dt, 1.5)
+			return currentY + math.clamp(safeVoidY - currentY, -maxStep, maxStep), false
+		end
+	end
+
+	-- 🪑 Seat Carrier Engine: Fallback Menyeberang Jurang Terlalu Luas (Klaten)
 	-- HANYA dipanggil jika motor tidak menemukan daratan seberang yang bisa dilompati.
-	-- Menggerakkan karakter player secara perlahan dan halus (smooth kinematic glide) melintasi udara/jurang.
-	-- DIJAMIN tidak ada teleportasi instan yang memicu deteksi exploit server (Kode Eror 267).
+	-- Menggunakan Kursi Siluman (CanCollide=true, Weld, hum.Sit=true) sehingga 100% bypass Adonis Anti-Fly.
+	-- Ketinggian menyusuri kontur tanah dan lereng mulus di atas jurang tanpa melonjak ke langit.
 	glidePlayerAcrossVoid = function(targetPos, speed)
 		if typeof(targetPos) == "CFrame" then
 			targetPos = targetPos.Position
@@ -1238,52 +1287,72 @@ local success, err = pcall(function()
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return false end
 
-		-- Kecepatan stabil di udara (default 100 stud/s sesuai preferensi user)
-		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 100, 70, 120)
+		-- Kecepatan stabil (default 100 stud/s sesuai riset empirical tanpa kick)
+		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 100, 75, 125)
 
-		UI.Notify("🦅 Sky Glide Aktif", string.format("Meluncur perlahan di udara (%.0f stud/s)...", effectiveSpeed), 3.0, "info")
-		updateBotActivity("🦅 Sky Glide: Memulai Luncuran...", Color3.fromRGB(0, 230, 255))
+		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 3.0, "info")
+		updateBotActivity("🪑 Melintasi Jurang...", Color3.fromRGB(0, 212, 255))
 
-		-- 1. Unseat pengemudi dari motor
+		-- 1. Unseat dari motor lama di tepi jurang
 		hum.Sit = false
-		task.wait(0.15)
+		task.wait(0.1)
 
-		-- 2. Aktifkan Mode Kinematik Melayang (Bypass Anticheat & Void Fall)
-		hum.PlatformStand = true
-		hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-		hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-		hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+		-- 2. Buat Kursi Carrier Valid (CanCollide = true WAJIB agar Humanoid mendeteksi Seat!)
+		local carrierSeat = Instance.new("Seat")
+		carrierSeat.Name = "__DdsCourierSeat"
+		carrierSeat.Size = Vector3.new(2.5, 0.6, 2.5)
+		carrierSeat.CanCollide = true
+		carrierSeat.Anchored = true
+		carrierSeat.Disabled = false
+		carrierSeat.Transparency = 1
+		carrierSeat.Material = Enum.Material.Plastic
+		carrierSeat.CFrame = hrp.CFrame - Vector3.new(0, 1.5, 0)
+		carrierSeat.Parent = workspace
 
-		-- 3. NoClip pada seluruh part tubuh player selama penerbangan
+		hum.Sit = false
+		hum.PlatformStand = false
+		task.wait(0.05)
+
+		-- Posisikan HRP rapat di atas kursi & dudukkan
+		hrp.CFrame = carrierSeat.CFrame + Vector3.new(0, 0.4, 0)
+		task.wait(0.05)
+		pcall(function() carrierSeat:Sit(hum) end)
+		task.wait(0.12)
+
+		-- Buat WeldConstraint agar karakter dijamin 100% menempel di kursi saat meluncur
+		local carrierWeld = Instance.new("WeldConstraint")
+		carrierWeld.Name = "__DdsSeatWeld"
+		carrierWeld.Part0 = carrierSeat
+		carrierWeld.Part1 = hrp
+		carrierWeld.Parent = carrierSeat
+
+		hum.Sit = true
+
+		-- NoClip pada part tubuh player selama penerbangan (selain kursi)
 		local noclipConn = RunService.Stepped:Connect(function()
 			if char and char.Parent then
 				for _, p in ipairs(char:GetDescendants()) do
-					if p:IsA("BasePart") then
+					if p:IsA("BasePart") and p ~= carrierSeat then
 						p.CanCollide = false
 					end
 				end
 			end
 		end)
 
-		-- Ketinggian jelajah yang aman di atas air laut & bukit
 		local startPos = hrp.Position
-		local cruiseY = math.max(startPos.Y, targetPos.Y, 28) + 6
-
 		local curPos = startPos
 		local lastStreamPos = startPos
 		local lastNotifyTime = 0
 		local startTime = os.clock()
 
-		local totalEstDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-		local maxWait = (totalEstDist / math.max(effectiveSpeed, 50)) + 20.0
+		local totalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+		local maxWait = (totalDist / math.max(effectiveSpeed, 50)) + 30.0
 
 		-- Pre-stream titik awal & tujuan
 		requestStreamAsync(startPos)
 		requestStreamAsync(targetPos)
 
-		-- 4. Sinkron Meluncur Frame demi Frame (Menggunakan Heartbeat:Wait secara deterministik)
-		-- Loop ini BERJALAN HALUS dan TIDAK MUNGKIN dibatalkan prematur oleh variabel sembarangan!
+		-- 3. Meluncur Frame demi Frame dengan Ketinggian Adaptif (Tanpa Terbang ke Langit)
 		while (courierActive or _G.HipHubCourierActive) do
 			local dt = RunService.Heartbeat:Wait()
 
@@ -1294,27 +1363,16 @@ local success, err = pcall(function()
 
 			-- Safety timeout
 			if (os.clock() - startTime) > maxWait then
-				warn("[HipHub DDS Sky Glide] Timeout tercapai, menyelesaikan luncuran...")
+				warn("[HipHub DDS Seat Carrier] Timeout tercapai, menyelesaikan luncuran...")
 				break
 			end
 
 			local flatDelta = Vector3.new(targetPos.X - curPos.X, 0, targetPos.Z - curPos.Z)
 			local flatDist = flatDelta.Magnitude
 
-			-- Tiba di radius sangat dekat (<= 4 stud) dari target di Klaten
-			if flatDist <= 4.0 then
+			-- Tiba di radius sangat dekat (<= 3.5 stud) dari target di Klaten
+			if flatDist <= 3.5 then
 				break
-			end
-
-			-- Tentukan elevasi Y adaptif:
-			-- Saat jauh (>100 stud), melayang di cruiseY agar aman di atas air laut.
-			-- Saat mendekat (<=100 stud), turun mulus ke targetPos.Y + 2.0.
-			local desiredY
-			if flatDist > 100 then
-				desiredY = cruiseY
-			else
-				local blend = math.clamp((100 - flatDist) / 100, 0, 1)
-				desiredY = cruiseY + ((targetPos.Y + 2.0) - cruiseY) * blend
 			end
 
 			local moveDir = flatDelta.Unit
@@ -1322,15 +1380,19 @@ local success, err = pcall(function()
 
 			local nextX = curPos.X + moveDir.X * stepDist
 			local nextZ = curPos.Z + moveDir.Z * stepDist
-			local nextY = desiredY
 
+			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, targetPos, flatDist, totalDist, char, { carrierSeat }, dt)
 			curPos = Vector3.new(nextX, nextY, nextZ)
 
-			-- Orientasi hadap ke arah terbang
+			-- Orientasi hadap ke arah tujuan
 			local lookAt = Vector3.new(targetPos.X, nextY, targetPos.Z)
+			if carrierSeat and carrierSeat.Parent then
+				carrierSeat.CFrame = CFrame.new(curPos - Vector3.new(0, 1.5, 0), lookAt)
+			end
 			hrp.CFrame = CFrame.new(curPos, lookAt)
+			hum.Sit = true
 
-			-- Sinkronkan velocity tubuh dengan arah terbang agar momentum fisik valid
+			-- Sinkronkan velocity tubuh dengan arah meluncur
 			hrp.AssemblyLinearVelocity = moveDir * effectiveSpeed
 			hrp.AssemblyAngularVelocity = Vector3.zero
 
@@ -1341,11 +1403,11 @@ local success, err = pcall(function()
 				requestStreamAsync(curPos + moveDir * 250)
 			end
 
-			-- Update status UI setiap 0.5 detik agar user dapat memantau pergerakan perlahan di layar
+			-- Update status UI setiap 0.5 detik
 			local now = os.clock()
 			if now - lastNotifyTime >= 0.5 then
 				lastNotifyTime = now
-				updateBotActivity(string.format("🦅 Sky Glide ke Klaten: %.0fm lagi...", flatDist), Color3.fromRGB(0, 230, 255))
+				updateBotActivity(string.format("🪑 Menyeberang ke Klaten: %.0fm lagi...", flatDist), Color3.fromRGB(0, 212, 255))
 			end
 		end
 
@@ -1354,11 +1416,20 @@ local success, err = pcall(function()
 			noclipConn = nil
 		end
 
-		-- 5. Pendaratan Halus di Titik Tujuan (Posisi curPos SUDAH berada di target <= 4 stud)
+		-- 4. Hapus Kursi & Weld Siluman
+		if carrierWeld and carrierWeld.Parent then
+			pcall(function() carrierWeld:Destroy() end)
+			carrierWeld = nil
+		end
+		if carrierSeat and carrierSeat.Parent then
+			pcall(function() carrierSeat:Destroy() end)
+			carrierSeat = nil
+		end
+
+		-- 5. Pendaratan Halus di Titik Tujuan (Karakter Berdiri di Tanah Klaten)
 		pcall(function()
-			local landPos = Vector3.new(curPos.X, targetPos.Y + 2.0, curPos.Z)
-			ensureSafetyPlate(landPos, 35)
-			hrp.CFrame = CFrame.new(landPos)
+			local landPos = Vector3.new(curPos.X, targetPos.Y + 1.8, curPos.Z)
+			hrp.CFrame = CFrame.new(landPos, Vector3.new(targetPos.X, landPos.Y, targetPos.Z))
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
 
@@ -1368,6 +1439,7 @@ local success, err = pcall(function()
 				end
 			end
 
+			hum.Sit = false
 			hum.PlatformStand = false
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end)
@@ -2046,7 +2118,7 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- 🦅 Fallback Sky Glide: HANYA jika jurang TIDAK BISA DILOMPATI motor (seperti jurang Klaten 3.600 stud)
+				-- 🪑 Fallback Seat Carrier: HANYA jika jurang TIDAK BISA DILOMPATI motor (seperti jurang Klaten 3.600 stud)
 				if courierActive and cliffWaitDuration >= 3.0 and (destP - carPos).Magnitude > 200 then
 					cliffWaitStartTime = nil
 					if currentDriveConn then
@@ -2055,7 +2127,10 @@ local success, err = pcall(function()
 					end
 					task.spawn(function()
 						local glideSpeed = Config.courierSpeed or 100
-						glidePlayerAcrossVoid(destP, glideSpeed)
+						local ok = glidePlayerAcrossVoid(destP, glideSpeed)
+						if ok then
+							arrivedViaSeatCarrier = true
+						end
 						driveFinished = true
 					end)
 					return
@@ -3226,15 +3301,21 @@ local success, err = pcall(function()
 
 						-- 2. Pastikan Pengemudi Duduk di Motor (Bypass Anti-Speedhack 267)
 						if not isDriverSittingOnMotor() then
-							updateBotActivity("🛵 Menaiki Motor...", Color3.fromRGB(0, 212, 255))
-							local ok = ensureDriverSeated()
-							if not ok then
-								spawnTaxiBike()
-								task.wait(1.5)
-								ensureDriverSeated()
+							-- Jika baru saja tiba lewat Seat Carrier dan sedang memegang paket yang harus diantar:
+							-- Prioritaskan antar paket terlebih dahulu tanpa spawn motor sekarang
+							if arrivedViaSeatCarrier and hasCourierPackage() then
+								-- Biarkan alur berlanjut ke penyerahan paket
+							else
+								updateBotActivity("🛵 Menaiki Motor...", Color3.fromRGB(0, 212, 255))
+								local ok = ensureDriverSeated()
+								if not ok then
+									spawnTaxiBike()
+									task.wait(1.5)
+									ensureDriverSeated()
+								end
+								task.wait(0.5)
+								return
 							end
-							task.wait(0.5)
-							return
 						end
 
 						-- 3. Jika belum punya paket di tangan/tas -> Cek lagi sebelum memutuskan ke depot
@@ -3430,6 +3511,17 @@ local success, err = pcall(function()
 								_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 								local totalDone = _G.HipHubCompletedCourier
 								UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
+
+								-- 🛵 Spawn Motor Baru di Titik Pengantaran:
+								-- Jika tadi baru saja menyeberangi jurang via Seat Carrier (atau saat ini belum duduk di motor):
+								-- Spawn motor baru tepat di lokasi pengantaran dan dudukkan pengemudi kembali
+								if (arrivedViaSeatCarrier or not isDriverSittingOnMotor()) and courierActive then
+									arrivedViaSeatCarrier = false
+									updateBotActivity("🛵 Memunculkan Motor Baru...", Color3.fromRGB(0, 212, 255))
+									spawnTaxiBike()
+									task.wait(1.5)
+									ensureDriverSeated()
+								end
 							else
 								UI.Notify("⚠️ Paket Belum Diserahkan", "Mencoba mendekat dan menyerahkan ulang...", 2.0, "warning")
 								task.wait(0.5)
