@@ -516,6 +516,7 @@ local success, err = pcall(function()
 	end
 
 	local function destroySafetyPlate()
+		if courierActive then return end -- 🛡️ Pertahankan plat pengaman di bawah kardus Klaten saat mode kurir aktif
 		pcall(function()
 			local plate = workspace:FindFirstChild("__DdsSafetyPlate")
 			if plate then
@@ -1129,6 +1130,17 @@ local success, err = pcall(function()
 		local maxScan = math.min(totalDistToDest * 1.05, 3000)
 		local stepSize = 35
 
+		-- 📦 Khusus Mode Auto Kurir: Jika tujuan pengantaran kurir (toPos) berada di seberang jurang (seperti Lokasi 8 Klaten):
+		-- Lokasi 8 berada melayang di atas jurang tanpa tanah alami. Lompat HANYA jika jarak masih jauh (>= 20 stud)!
+		-- Jika sudah sampai di dekat kardus (< 20 stud), JANGAN melompat lagi agar tidak loop jump!
+		if courierActive and totalDistToDest >= 20 and totalDistToDest <= 2500 then
+			ensureSafetyPlate(toPos, 80)
+			local landPos = Vector3.new(toPos.X + 2.5, toPos.Y + 0.5, toPos.Z)
+			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+			local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+			return landed, jumpDist
+		end
+
 		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
 		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
 		local scanAngles = { 0, 10, -10, 20, -20, 30, -30 }
@@ -1268,8 +1280,11 @@ local success, err = pcall(function()
 		end
 
 		local rayFilter = { car, player.Character }
-		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
-		if existingPlate then table.insert(rayFilter, existingPlate) end
+		-- Khusus mode Kurir, __DdsSafetyPlate TIDAK diexclude agar terbaca sebagai tanah kokoh di area jurang Klaten!
+		if not courierActive then
+			local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+			if existingPlate then table.insert(rayFilter, existingPlate) end
+		end
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = rayFilter
@@ -1411,7 +1426,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 3.5 then
+			local arrivalDist = (courierActive and 7.5 or 3.5)
+			if dist <= arrivalDist then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -1569,7 +1585,13 @@ local success, err = pcall(function()
 					cancelActiveDrive()
 					if courierActive then
 						-- 📦 Mode Auto Kurir: JANGAN PERNAH panggil restartAutoRideGoToggle!
-						UI.Notify("Jurang Terlalu Luas", "Mencari jalur alternatif...", 2.0, "warning")
+						-- Buatkan safety plate di bawah destP dan lompat langsung ke destP
+						pcall(function()
+							ensureSafetyPlate(destP, 80)
+							local landTarget = Vector3.new(destP.X + 2.5, destP.Y + 0.5, destP.Z)
+							local jumpDist = (Vector3.new(landTarget.X, 0, landTarget.Z) - Vector3.new(carPos.X, 0, carPos.Z)).Magnitude
+							teleportVehicleAcrossVoid(car, landTarget, (landTarget - carPos).Unit, jumpDist)
+						end)
 						return
 					else
 						task.spawn(function()
@@ -2819,37 +2841,6 @@ local success, err = pcall(function()
 								return
 							end
 
-							-- 🚫 AUTO-SKIP KLATEN (Area Rusak Bawaan Game / Melayang Tanpa Tanah)
-							local isKlaten = (tostring(destId) == "8")
-								or (dropPos and dropPos.X < -15000)
-								or (tostring(player:GetAttribute("CurrentDelivery") or "") == "8")
-
-							if isKlaten then
-								activeCourierDestId = nil
-								updateBotActivity("⚠️ Melewati Klaten (Area Hampa)...", Color3.fromRGB(255, 170, 50))
-								UI.Notify("Skip Klaten 🚫", "Tujuan Klaten dilewati demi keselamatan. Resetting order...", 3.5, "warning")
-
-								-- 1. Batalkan pesanan Klaten dengan reset tim ke Warga
-								if changeTeam then
-									changeTeam("Warga")
-								end
-								task.wait(0.8)
-
-								-- 2. Kembali ke tim Courier untuk mendapatkan pesanan baru
-								if changeTeam then
-									changeTeam("Courier")
-								end
-								task.wait(0.8)
-
-								-- 3. Pastikan tetap duduk di motor
-								if not isDriverSittingOnMotor() then
-									ensureDriverSeated()
-								end
-
-								task.wait(0.5)
-								return -- Siklus berikutnya langsung mengambil paket baru di depot
-							end
-
 							local car, seat = getPlayerVehicle()
 							local startPos = car and car:GetPivot().Position or dropPos
 							local tripDist = (dropPos - startPos).Magnitude
@@ -2857,8 +2848,8 @@ local success, err = pcall(function()
 
 							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
 							
-							-- Berhenti rapat (radius 5 stud) agar ProximityPrompt tumpukan kardus terjangkau
-							driveVehicleTo(dropPos, Config.courierSpeed or 95, 5)
+							-- Berhenti rapat (radius 5-7 stud) agar ProximityPrompt tumpukan kardus terjangkau
+							driveVehicleTo(dropPos, Config.courierSpeed or 95, 0)
 
 							if not courierActive then return end
 
