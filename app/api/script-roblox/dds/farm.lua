@@ -1130,8 +1130,9 @@ local success, err = pcall(function()
 		local stepSize = 35
 
 		-- 📦 Khusus Mode Auto Kurir: Jika tujuan pengantaran kurir (toPos) berada di seberang jurang (seperti Lokasi 8 Klaten):
-		-- Lokasi 8 berada melayang di atas jurang tanpa tanah alami. Langsung buat Safety Plate & lompat ke toPos!
-		if courierActive and totalDistToDest <= 2500 then
+		-- Lokasi 8 berada melayang di atas jurang tanpa tanah alami. Langsung buat Safety Plate & lompat 1x ke toPos!
+		-- Syarat > 30 stud memastikan lompatan hanya terjadi 1 kali saat berada di seberang jurang, bukan terus menerus berulang
+		if courierActive and totalDistToDest > 30 and totalDistToDest <= 2500 then
 			ensureSafetyPlate(toPos, 80)
 			local landPos = Vector3.new(toPos.X + 2.5, toPos.Y + 0.5, toPos.Z)
 			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
@@ -1260,7 +1261,7 @@ local success, err = pcall(function()
 		neutralizeBikeHazards(car)
 
 		local plateDestroyedDeferred = false
-		if not destroyPlateAfterStuds or destroyPlateAfterStuds <= 0 then
+		if not courierActive and (not destroyPlateAfterStuds or destroyPlateAfterStuds <= 0) then
 			destroySafetyPlate()
 		end
 
@@ -1279,7 +1280,9 @@ local success, err = pcall(function()
 
 		local rayFilter = { car, player.Character }
 		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
-		if existingPlate then table.insert(rayFilter, existingPlate) end
+		if existingPlate and not courierActive then
+			table.insert(rayFilter, existingPlate)
+		end
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = rayFilter
@@ -1412,8 +1415,8 @@ local success, err = pcall(function()
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
 			local dist = flatDelta.Magnitude
 
-			-- Deferred safetyPlate removal
-			if not plateDestroyedDeferred and destroyPlateAfterStuds and destroyPlateAfterStuds > 0 then
+			-- Deferred safetyPlate removal (Hanya untuk Taxi RideGO, JANGAN hapus untuk Kurir!)
+			if not courierActive and not plateDestroyedDeferred and destroyPlateAfterStuds and destroyPlateAfterStuds > 0 then
 				local flatTravelled = Vector3.new(carPos.X - startP.X, 0, carPos.Z - startP.Z).Magnitude
 				if flatTravelled >= destroyPlateAfterStuds then
 					plateDestroyedDeferred = true
@@ -1421,7 +1424,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			if dist <= 3.5 then
+			local finishDist = courierActive and 7.5 or 3.5
+			if dist <= finishDist then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
 				return
@@ -2842,8 +2846,8 @@ local success, err = pcall(function()
 
 							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
 							
-							-- Berhenti rapat (radius 5 stud) agar ProximityPrompt tumpukan kardus terjangkau
-							driveVehicleTo(dropPos, Config.courierSpeed or 95, 5)
+							-- Berhenti rapat (radius 5-7 stud) agar ProximityPrompt tumpukan kardus terjangkau
+							driveVehicleTo(dropPos, Config.courierSpeed or 95, 0)
 
 							if not courierActive then return end
 
@@ -2855,6 +2859,12 @@ local success, err = pcall(function()
 								if c and dropPos then
 									local groundPos = Vector3.new(dropPos.X + 2.5, dropPos.Y + 0.3, dropPos.Z)
 									c:PivotTo(CFrame.new(groundPos))
+									for _, part in ipairs(c:GetDescendants()) do
+										if part:IsA("BasePart") then
+											part.AssemblyLinearVelocity = Vector3.zero
+											part.AssemblyAngularVelocity = Vector3.zero
+										end
+									end
 								end
 							end)
 
