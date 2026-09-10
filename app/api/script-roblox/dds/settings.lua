@@ -59,6 +59,7 @@ local success, err = pcall(function()
 			targetFps = 60,
 			autoRejoin = true,
 			antiPlayerJoin = false,
+			destroyBuildings = false,
 			targetEarn = 0
 		}
 	}
@@ -796,6 +797,15 @@ local success, err = pcall(function()
 		saveConfig(true)
 		if setfpscap then
 			pcall(setfpscap, state and 15 or 60)
+		end
+	end)
+
+	UI.AddSection(tab, "World & Map Optimization")
+	UI.AddToggle(tab, "Destroy Buildings & Obstacles", "Hapus gedung & rintangan secara global. Matikan agar map tetap utuh & natural.", _G.HipHubConfig.misc.destroyBuildings or false, function(state)
+		_G.HipHubConfig.misc.destroyBuildings = state
+		saveConfig(true)
+		if state and _G.HipHubDestroyAllBuildings then
+			_G.HipHubDestroyAllBuildings()
 		end
 	end)
 

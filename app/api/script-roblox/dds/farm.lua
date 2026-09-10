@@ -916,6 +916,7 @@ local success, err = pcall(function()
 	end
 
 	local function destroyAllBuildings()
+		if not (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.destroyBuildings) then return end
 		pcall(function()
 			for _, c in ipairs(workspace:GetChildren()) do
 				if shouldDestroyBuilding(c) then
@@ -930,9 +931,11 @@ local success, err = pcall(function()
 			end
 		end)
 	end
+	_G.HipHubDestroyAllBuildings = destroyAllBuildings
 
-	-- Auto-destroy newly streamed buildings & obstacles across all districts
+	-- Auto-destroy newly streamed buildings & obstacles across all districts (hanya jika toggle aktif)
 	workspace.DescendantAdded:Connect(function(descendant)
+		if not (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.destroyBuildings) then return end
 		if shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
 			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
@@ -2739,29 +2742,53 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 3. Jika belum punya paket di tangan/tas -> Kendarai motor ke Depot Take1 untuk ambil paket baru
+						-- 3. Jika belum punya paket di tangan/tas -> Cek sejenak apakah server auto-give paket baru
 						if not hasCourierPackage() then
-							local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
-							updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
-
-							driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
-							if not courierActive then return end
-
-							updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
-							local livrason = workspace:FindFirstChild("Livrason")
-							local takePrompt = livrason and livrason:FindFirstChild("Take1") 
-								and livrason.Take1:FindFirstChild("Take") 
-								and livrason.Take1.Take:FindFirstChildOfClass("ProximityPrompt")
-
-							local tStartTake = tick()
-							while not hasCourierPackage() and courierActive and (tick() - tStartTake < 5.0) do
-								if takePrompt then
-									triggerCourierPrompt(takePrompt, 0.5)
-								end
-								task.wait(0.3)
+							-- Beri jeda 1.2 detik karena server DDS sering otomatis memasukkan paket berikutnya ke tas!
+							local tWaitAuto = tick()
+							while (tick() - tWaitAuto < 1.2) and courierActive do
+								if hasCourierPackage() then break end
+								task.wait(0.2)
 							end
-							task.wait(0.5)
-							return
+
+							if not hasCourierPackage() and courierActive then
+								local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
+								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
+
+								local depotDriveThread = task.spawn(function()
+									driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
+								end)
+
+								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> langsung batalkan arah depot!
+								while not hasCourierPackage() and courierActive and coroutine.status(depotDriveThread) ~= "dead" do
+									task.wait(0.2)
+								end
+
+								if hasCourierPackage() then
+									cancelActiveDrive()
+									pcall(function() task.cancel(depotDriveThread) end)
+								end
+
+								if not courierActive then return end
+
+								if not hasCourierPackage() then
+									updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
+									local livrason = workspace:FindFirstChild("Livrason")
+									local takePrompt = livrason and livrason:FindFirstChild("Take1") 
+										and livrason.Take1:FindFirstChild("Take") 
+										and livrason.Take1.Take:FindFirstChildOfClass("ProximityPrompt")
+
+									local tStartTake = tick()
+									while not hasCourierPackage() and courierActive and (tick() - tStartTake < 5.0) do
+										if takePrompt then
+											triggerCourierPrompt(takePrompt, 0.5)
+										end
+										task.wait(0.3)
+									end
+									task.wait(0.5)
+									return
+								end
+							end
 						end
 
 						-- 4. Jika paket sudah di tangan/tas -> langsung kendarai motor ke titik drop-off tanpa mampir depot
