@@ -1202,15 +1202,78 @@ local success, err = pcall(function()
 		local maxScan = math.min(totalDistToDest * 1.05, 3000)
 		local stepSize = 35
 
-		-- 📦 Khusus Mode Auto Kurir: Jika tujuan pengantaran kurir (toPos) berada di seberang jurang (seperti Lokasi 8 Klaten):
-		-- Lokasi 8 berada melayang di atas jurang tanpa tanah alami. Lompat HANYA jika jarak masih jauh (>= 20 stud)!
-		-- Jika sudah sampai di dekat kardus (< 20 stud), JANGAN melompat lagi agar tidak loop jump!
+		-- 📦 Khusus Mode Auto Kurir: Cari TANAH NYATA di sekitar tujuan sebelum teleport.
+		-- JANGAN langsung lompat ke toPos (kardus) karena menyebabkan server kick Error 263!
+		-- Strategi: scan ground nyata dalam radius destP → teleport ke sana → drive normal sisa jarak.
 		if courierActive and totalDistToDest >= 20 and totalDistToDest <= 2500 then
-			ensureSafetyPlate(toPos, 80)
-			local landPos = Vector3.new(toPos.X + 2.5, toPos.Y + 0.5, toPos.Z)
-			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-			local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-			return landed, jumpDist
+			-- 1. Stream terrain Klaten terlebih dahulu dan tunggu 1.5 detik agar ter-load
+			requestStreamAsync(toPos)
+			task.wait(1.5)
+			requestStreamAsync(toPos) -- double request untuk memastikan
+
+			-- 2. Klaten Ground Scanner: cari titik tanah nyata paling dekat dengan toPos
+			--    Scan spiral dari radius 0 hingga 80 stud di sekitar toPos
+			local scanRadii  = { 0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 80 }
+			local scanAnglesKlaten = { 0, 45, 90, 135, 180, 225, 270, 315 }
+			local bestGroundPos = nil
+			local bestGroundDist = math.huge
+
+			-- Hitung startY dari fromPos.Y agar raycast tidak terlalu pendek
+			-- Gunakan range lebar (scan dari Y=300 ke bawah -300) untuk mencakup semua elevasi Klaten
+			local klatScanParams = RaycastParams.new()
+			klatScanParams.FilterDescendantsInstances = { car, player.Character }
+			klatScanParams.FilterType = Enum.RaycastFilterType.Exclude
+			klatScanParams.IgnoreWater = false
+
+			for _, radius in ipairs(scanRadii) do
+				local anglesForRadius = (radius == 0) and { 0 } or scanAnglesKlaten
+				for _, angDeg in ipairs(anglesForRadius) do
+					local angRad = math.rad(angDeg)
+					local testX = toPos.X + math.sin(angRad) * radius
+					local testZ = toPos.Z + math.cos(angRad) * radius
+
+					-- Tembak dari Y=300 ke bawah sejauh 400 stud agar tidak terlewat apapun
+					local klatOrigin = Vector3.new(testX, 300, testZ)
+					local klatHit = workspace:Raycast(klatOrigin, Vector3.new(0, -400, 0), klatScanParams)
+
+					if klatHit then
+						local hitMat = klatHit.Material
+						local hitName = klatHit.Instance.Name:upper()
+						local isWaterHit = (hitMat == Enum.Material.Water)
+							or hitName:find("AIR") or hitName:find("SUNGAI")
+							or hitName:find("RIVER") or hitName:find("DANAU")
+
+						if not isWaterHit and klatHit.Position.Y > -50 then
+							-- Tanah solid ditemukan! Hitung jarak ke toPos (flat)
+							local gDist = Vector3.new(testX - toPos.X, 0, testZ - toPos.Z).Magnitude
+							if gDist < bestGroundDist then
+								bestGroundDist = gDist
+								bestGroundPos = Vector3.new(testX, klatHit.Position.Y + 0.4, testZ)
+							end
+						end
+					end
+				end
+				-- Jika sudah ada tanah di radius kecil, stop scan lebih jauh
+				if bestGroundPos and bestGroundDist <= 15 then break end
+			end
+
+			-- 3. Keputusan teleport berdasarkan hasil scan
+			if bestGroundPos then
+				-- Tanah nyata ditemukan di sekitar tujuan → teleport ke sana
+				local jumpDist = (Vector3.new(bestGroundPos.X, 0, bestGroundPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+				UI.Notify("📦 Klaten Landing", string.format("Tanah Klaten ditemukan (%.0f stud dari kardus). Mendarat di sana!", bestGroundDist), 2, "success")
+				local landed = teleportVehicleAcrossVoid(car, bestGroundPos, baseDir, jumpDist)
+				return landed, jumpDist
+			else
+				-- Tidak ada tanah sama sekali (truly isolated) → last resort: buat plate di atas toPos
+				-- Tapi landing di atas toPos + 1.5 stud bukan tepat di kardus agar server tidak curiga
+				UI.Notify("📦 Klaten Floating", "Tidak ada tanah, mendarat di atas safety plate dekat tujuan.", 2, "warning")
+				local safeLandPos = Vector3.new(toPos.X, toPos.Y + 1.5, toPos.Z)
+				ensureSafetyPlate(safeLandPos, 80)
+				local jumpDist = (Vector3.new(safeLandPos.X, 0, safeLandPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+				local landed = teleportVehicleAcrossVoid(car, safeLandPos, baseDir, jumpDist)
+				return landed, jumpDist
+			end
 		end
 
 		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
@@ -1344,7 +1407,18 @@ local success, err = pcall(function()
 			destroySafetyPlate()
 		end
 
+		-- 🗺️ Pre-stream terrain tujuan agar probeGround tidak salah deteksi void
 		requestStreamAsync(targetPos)
+		-- Khusus mode Kurir: jika jarak jauh (>200 stud), beri waktu lebih agar terrain Klaten ter-load
+		-- sebelum void scanner mulai scan. Tanpa ini, jalan Klaten dianggap void → teleport → kick!
+		if courierActive then
+			local distToTarget = (car:GetPivot().Position - targetPos).Magnitude
+			if distToTarget > 200 then
+				task.wait(2.0) -- Beri waktu 2 detik untuk streaming terrain jauh (Klaten dll)
+			else
+				task.wait(0.3)
+			end
+		end
 
 		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
 		local startCF = car:GetPivot()
@@ -1391,7 +1465,8 @@ local success, err = pcall(function()
 			if isSasanaKridaTrip() then
 				startY = (refY or 0) + 7
 			else
-				startY = math.max((refY or 0) + 45, 60)
+				-- ⬆️ Naikkan startY agar bisa scan elevasi Klaten yang jauh lebih rendah dari tepi jurang
+				startY = math.max((refY or 0) + 60, 80)
 			end
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
@@ -1405,7 +1480,7 @@ local success, err = pcall(function()
 				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
 				for attempt = 1, 6 do
 					localParams.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -110, 0), localParams)
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -200, 0), localParams)
 					if not hit then break end
 
 					local inst = hit.Instance
@@ -1431,7 +1506,7 @@ local success, err = pcall(function()
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
-						if hit.Position.Y >= -38 and hit.Position.Y <= (startY + 5) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+						if hit.Position.Y >= -38 and hit.Position.Y <= (startY + 20) and (not hit.Normal or hit.Normal.Y >= 0.10) then
 							return hit.Position.Y + 0.3
 						end
 						break
