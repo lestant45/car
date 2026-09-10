@@ -2760,12 +2760,12 @@ local success, err = pcall(function()
 
 	local activeGlideTween = nil
 	local activeGlideThread = nil
+	local origWorkspaceGravity = workspace.Gravity > 0 and workspace.Gravity or 196.2
 
-	local function removeGlideVelocity(hrp)
-		if hrp then
-			local bv = hrp:FindFirstChild("__GlideVelocity")
-			if bv then pcall(function() bv:Destroy() end) end
-		end
+	local function restoreGlideGravity()
+		pcall(function()
+			workspace.Gravity = origWorkspaceGravity
+		end)
 	end
 
 	local function cancelActiveGlide()
@@ -2777,11 +2777,11 @@ local success, err = pcall(function()
 			pcall(function() task.cancel(activeGlideThread) end)
 			activeGlideThread = nil
 		end
+		restoreGlideGravity()
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if hrp then
-			removeGlideVelocity(hrp)
 			hrp.Anchored = false
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
@@ -2792,9 +2792,9 @@ local success, err = pcall(function()
 	end
 
 	-- 🕊️ DIRECT CHARACTER AIR-GLIDE ENGINE:
-	-- Menggunakan BodyVelocity (anti-gravitasi PGS) dengan hrp.Anchored = FALSE!
-	-- Karakter tetap mereplikasi paket physics 60Hz ke server sehingga koneksi TIDAK AKAN PERNAH timeout / DC 267!
-	-- BodyVelocity menahan gravitasi sepenuhnya sehingga tween meluncur mulus tanpa ngadat/jitter.
+	-- Menggunakan workspace.Gravity = 0 (Lokal) TANPA BodyVelocity/BodyMover (100% Anti-Kick Anticheat!)
+	-- hrp.Anchored tetap FALSE sehingga client terus mereplikasi data physics 60Hz ke server (Anti-Timeout 267)
+	-- Gravitasi 0 membuat karakter melayang bebas bobot sehingga TweenService bergerak mulus seperti kaca tanpa ngadat
 	local FIXED_CRUISE_Y = 135
 
 	local function glideCharacterTo(targetPos, speed, stopDist)
@@ -2816,19 +2816,15 @@ local success, err = pcall(function()
 			return true
 		end
 
-		-- WAJIB: hrp.Anchored = false agar client tetap mereplikasi paket posisi ke server (ANTI DC 267)
+		-- WAJIB: hrp.Anchored = false (Replikasi physics aman ke server)
 		hrp.Anchored = false
 		hum.PlatformStand = true
 
-		-- BodyVelocity menahan gaya gravitasi agar tween 100% mulus tanpa ngadat
-		local bv = hrp:FindFirstChild("__GlideVelocity")
-		if not bv then
-			bv = Instance.new("BodyVelocity")
-			bv.Name = "__GlideVelocity"
-			bv.Velocity = Vector3.zero
-			bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-			bv.Parent = hrp
+		-- Matikan gravitasi secara lokal (Bebas bobot & tanpa BodyVelocity)
+		if workspace.Gravity > 0 then
+			origWorkspaceGravity = workspace.Gravity
 		end
+		workspace.Gravity = 0
 
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
@@ -2844,7 +2840,7 @@ local success, err = pcall(function()
 			tw:Play()
 			tw.Completed:Wait()
 			activeGlideTween = nil
-			removeGlideVelocity(hrp)
+			restoreGlideGravity()
 			hum.PlatformStand = false
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
@@ -2898,7 +2894,7 @@ local success, err = pcall(function()
 		twDrop.Completed:Wait()
 
 		activeGlideTween = nil
-		removeGlideVelocity(hrp)
+		restoreGlideGravity()
 		hum.PlatformStand = false
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		hrp.AssemblyAngularVelocity = Vector3.zero
