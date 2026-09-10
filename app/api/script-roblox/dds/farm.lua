@@ -1062,30 +1062,38 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 6. ⏱️ DIRECT SYNCHRONOUS LANDING HOLD (Menahan posisi 100% diam sesuai durasi kalkulasi jarak)
+		-- 6. ⏱️ LANDING STABILIZATION & INSTANT RESUME
 		local distVal = tonumber(jumpDist) or 0
-		local holdDuration = math.max(1.0, (distVal / 100.0) * 0.5 + 0.5)
-		UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(distVal), holdDuration), math.min(holdDuration, 5), "success")
 
-		local holdEnd = os.clock() + holdDuration
-		while os.clock() < holdEnd and isDrivingActive do
-			car:PivotTo(targetCF)
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity  = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
+		if courierActive then
+			-- 📦 Mode Kurir: Langsung tancap gas tanpa jeda diam!
+			UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Langsung tancap gas!", math.floor(distVal)), 1.5, "info")
+			task.wait(0.03)
+		else
+			-- 🚖 RideGO Taxi: Hold sesaat agar NPC penumpang tersinkronisasi
+			local holdDuration = math.max(0.8, (distVal / 120.0) * 0.4 + 0.4)
+			UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(distVal), holdDuration), math.min(holdDuration, 5), "success")
+
+			local holdEnd = os.clock() + holdDuration
+			while os.clock() < holdEnd and isDrivingActive do
+				car:PivotTo(targetCF)
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity  = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
 				end
-			end
-			if seat then
-				seat.Throttle = 0
-				seat.ThrottleFloat = 0
-				seat.AssemblyLinearVelocity = Vector3.zero
-				seat.AssemblyAngularVelocity = Vector3.zero
-				if hum and hum.SeatPart ~= seat then
-					pcall(function() seat:Sit(hum) end)
+				if seat then
+					seat.Throttle = 0
+					seat.ThrottleFloat = 0
+					seat.AssemblyLinearVelocity = Vector3.zero
+					seat.AssemblyAngularVelocity = Vector3.zero
+					if hum and hum.SeatPart ~= seat then
+						pcall(function() seat:Sit(hum) end)
+					end
 				end
+				task.wait(0.05)
 			end
-			task.wait(0.05)
 		end
 
 		-- 7. Nol-kan kembali seluruh kecepatan di posisi baru
@@ -2551,9 +2559,10 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Motorcycle Navigation)
 	------------------------------------------------
-	local courierActive          = false
-	local activeCourierDestId    = nil
-	local courierLoopThread      = nil
+	local courierActive               = false
+	local activeCourierDestId         = nil
+	local courierLoopThread           = nil
+	local hasTakenInitialDepotPackage = false
 
 	-- Listener untuk ServiceEvent dari Delivery System
 	local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
@@ -2685,6 +2694,10 @@ local success, err = pcall(function()
 		end
 
 		if state then
+			if hasCourierPackage() then
+				hasTakenInitialDepotPackage = true
+			end
+
 			-- Mutual exclusion: matikan RideGO jika sedang aktif
 			if autoRideGoToggle and autoRideGoToggle.Set and _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO then
 				autoRideGoToggle.Set(false)
@@ -2723,15 +2736,15 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 3. Jika belum punya paket di tangan -> Kendarai motor ke Depot Take1
-						if not hasCourierPackage() then
+						-- 3. Ambil paket pertama di Depot Take1 (hanya 1x saat baru awal menjadi kurir)
+						if not hasCourierPackage() and not hasTakenInitialDepotPackage then
 							local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
-							updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
+							updateBotActivity("🛵 Ambil Paket Awal di Depot...", Color3.fromRGB(0, 212, 255))
 
 							driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
 							if not courierActive then return end
 
-							updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
+							updateBotActivity("📦 Mengambil Paket Pertama...", Color3.fromRGB(255, 200, 50))
 							local livrason = workspace:FindFirstChild("Livrason")
 							local takePrompt = livrason and livrason:FindFirstChild("Take1") 
 								and livrason.Take1:FindFirstChild("Take") 
@@ -2744,12 +2757,15 @@ local success, err = pcall(function()
 								end
 								task.wait(0.3)
 							end
+							if hasCourierPackage() then
+								hasTakenInitialDepotPackage = true
+							end
 							task.wait(0.5)
 							return
 						end
 
-						-- 4. Jika paket sudah di tangan -> kendarai motor ke titik drop-off
-						if hasCourierPackage() then
+						-- 4. Langsung antar paket (dan seterusnya tanpa kembali ke depot!)
+						if hasCourierPackage() or hasTakenInitialDepotPackage then
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
 							local dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
 
@@ -2802,7 +2818,7 @@ local success, err = pcall(function()
 							end
 
 							-- Jeda natural sebelum menyerahkan paket
-							task.wait(0.4 + (math.random(0, 4) / 10.0))
+							task.wait(0.3 + (math.random(0, 3) / 10.0))
 
 							updateBotActivity("📦 Memegang & Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
 							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
@@ -2849,10 +2865,11 @@ local success, err = pcall(function()
 								ensureDriverSeated()
 							end
 
+							hasTakenInitialDepotPackage = true
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 							local totalDone = _G.HipHubCompletedCourier
-							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar. Ambil paket berikutnya...", totalDone), 3, "success")
-							task.wait(0.8)
+							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar. Menuju penerima berikutnya...", totalDone), 2.5, "success")
+							task.wait(0.5)
 						end
 					end)
 
@@ -2863,6 +2880,7 @@ local success, err = pcall(function()
 				end
 			end)
 		else
+			hasTakenInitialDepotPackage = false
 			if cancelActiveDrive then
 				cancelActiveDrive()
 			end
