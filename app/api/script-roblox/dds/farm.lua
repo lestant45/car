@@ -155,13 +155,13 @@ local success, err = pcall(function()
 		tripPacing = true,
 		autoRejoinOrders = 30,
 		autoCourier = false,
-		courierSpeed = 100,
+		courierSpeed = 95,
 		courierPacing = true
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
-	if Config.courierSpeed == nil then Config.courierSpeed = 100 end
+	if Config.courierSpeed == nil then Config.courierSpeed = 95 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -1192,16 +1192,35 @@ local success, err = pcall(function()
 		return landPos
 	end
 
-	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (hanya sudut maju ke arah tujuan),
-	-- lalu teleport vehicle ke ground seberang dengan safety plate.
-	local function attemptVoidBridge(car, fromPos, toPos)
+	-- 🌉 Void Bridge Engine: multi-angle lateral scan ke daratan/jalur resmi game (kiri/kanan/lurus),
+	-- lalu melompati celah jurang secara bertahap (stepping-stone) mendekati arah Klaten.
+	local function attemptVoidBridge(car, fromPos, toPos, recentLandings)
 		local flatDiff = Vector3.new(toPos.X - fromPos.X, 0, toPos.Z - fromPos.Z)
 		local totalDistToDest = flatDiff.Magnitude
-		if totalDistToDest < 25 then return nil end
+		if totalDistToDest < 20 then return nil end
 		local baseDir = flatDiff.Unit
 
 		-- Pre-stream daratan tujuan di seberang
 		requestStreamAsync(toPos)
+
+		recentLandings = recentLandings or {}
+		local nowClock = os.clock()
+		-- Bersihkan riwayat pendaratan yang lebih lama dari 25 detik
+		for idx = #recentLandings, 1, -1 do
+			if (nowClock - recentLandings[idx].time) > 25 then
+				table.remove(recentLandings, idx)
+			end
+		end
+
+		local function isTooCloseToRecent(pos)
+			for _, entry in ipairs(recentLandings) do
+				local d2D = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(entry.pos.X, 0, entry.pos.Z)).Magnitude
+				if d2D < 25 then
+					return true
+				end
+			end
+			return false
+		end
 
 		local brp = RaycastParams.new()
 		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
@@ -1210,18 +1229,16 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai jarak penuh ke destination (maksimal 3000 stud)
-		local maxScan = math.min(totalDistToDest * 1.05, 3000)
-		local stepSize = 35
+		-- Batas lompatan tunggal aman: maks 260 stud (mencegah teleport liar ribuan stud yang memicu kick/strike)
+		local maxJumpRange = 260
+		local maxScan = math.min(totalDistToDest, maxJumpRange)
+		local stepSize = 25
 
-		-- 🌉 Void Bridge Scan: Cari daratan seberang celah jurang lokal.
-		-- JANGAN PERNAH teleport langsung ribuan stud ke toPos pengantaran paket (menyebabkan strike/kick)!
-		-- Semua mode (termasuk kurir) harus melompati celah jurang lokal ke daratan seberang terdekat,
-		-- lalu melanjutkan perjalanan secara mulus di atas jalan raya Klaten.
+		-- 🧭 Scan sudut multi-arah (lurus dan lateral kiri/kanan):
+		-- Disusun dari sudut terkecil (paling lurus ke Klaten) ke sudut yang lebih menyamping
+		local scanAngles = { 0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90, 105, -105, 120, -120 }
 
-		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
-		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
-		local scanAngles = { 0, 10, -10, 20, -20, 30, -30 }
+		local bestCandidate = nil
 
 		for _, ang in ipairs(scanAngles) do
 			local scanRot = CFrame.Angles(0, math.rad(ang), 0)
@@ -1231,20 +1248,22 @@ local success, err = pcall(function()
 			local inVoid = false
 			local voidEnteredAt = nil
 
-			for i = 1, math.ceil(maxScan / stepSize) do
-				local curDist = i * stepSize
+			local totalSteps = math.ceil(maxScan / stepSize)
+			for i = 1, totalSteps do
+				local curDist = math.min(i * stepSize, maxScan)
 				local px = fromPos.X + flatDir.X * curDist
 				local pz = fromPos.Z + flatDir.Z * curDist
 				local testPos = Vector3.new(px, 0, pz)
 
-				-- Request stream chunk setiap 100 stud pemindaian jurang
-				if inVoid and curDist % 100 == 0 then
+				-- Request stream chunk setiap 75 stud pemindaian jurang
+				if inVoid and curDist % 75 == 0 then
 					requestStreamAsync(testPos)
 				end
 
 				local scanStartY = isSasanaKridaTrip() and math.max(refY + 7, 10) or math.max(refY + 60, 80)
 				local origin = Vector3.new(px, scanStartY, pz)
 				local solidY = nil
+				local hitInstance = nil
 				local localBrp = RaycastParams.new()
 				local localFilter = table.clone(filter)
 				localBrp.FilterType = Enum.RaycastFilterType.Exclude
@@ -1264,8 +1283,8 @@ local success, err = pcall(function()
 
 					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
 
-					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
-					local isRoadOrTerrain = isFlyover
+					-- 1. Daratan Sah / Jalan Raya Resmi (Whitelist Mutlak)
+					local isOfficialRoad = isFlyover
 						or fullName:find("jl_klaten")
 						or fullName:find("jl_")
 						or fullName:find("jalan")
@@ -1276,7 +1295,9 @@ local success, err = pcall(function()
 						or parentName:find("sawah")
 						or grandParentName:find("sawah")
 						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
-						or inst:IsA("Terrain")
+
+					local isTerrain = inst:IsA("Terrain")
+					local isRoadOrTerrain = isOfficialRoad or isTerrain
 
 					-- 2. Air / Sungai (Bukan daratan)
 					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
@@ -1292,7 +1313,6 @@ local success, err = pcall(function()
 							or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
 							or (inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
 
-						-- Bangunan sungguhan (HANYA jika memiliki kata kunci gedung nyata, BUKAN sekadar "Model"!)
 						local hasBuildingKeyword = parentName:find("rumah") or parentName:find("house")
 							or parentName:find("gedung") or parentName:find("bangunan")
 							or parentName:find("ruko") or parentName:find("gudang")
@@ -1308,8 +1328,8 @@ local success, err = pcall(function()
 					end
 
 					if isWater then
-						-- Air sungai adalah jurang cair! Jangan pernah jadikan solidY
 						solidY = nil
+						hitInstance = nil
 						break
 					elseif isRoofOrObstacle or isBuildingModel then
 						table.insert(localFilter, inst)
@@ -1317,6 +1337,7 @@ local success, err = pcall(function()
 					else
 						if hit.Position.Y >= -30 and hit.Position.Y <= 350 and (not hit.Normal or hit.Normal.Y >= 0.12) then
 							solidY = hit.Position.Y
+							hitInstance = inst
 						end
 						break
 					end
@@ -1329,16 +1350,75 @@ local success, err = pcall(function()
 					local isVoidGap = (inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15))
 					local isElevatedLedge = (solidY >= fromPos.Y + 6 and curDist >= 15 and curDist <= 120)
 
-					if isVoidGap or isElevatedLedge then
-						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
-						-- 🛡️ Forward Progress Gate: Adaptif berdasarkan jarak total
-						-- Jarak jauh (>200): butuh maju 40 stud. Jarak dekat (<200): cukup maju 5 stud saja
-						local minProgress = totalDistToDest > 200 and 40 or 5
-						if landDistToDest < totalDistToDest - minProgress then
-							local landPos = Vector3.new(px, solidY + 0.5, pz)
-							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-							return landed, jumpDist
+					local isOfficialRoad = hitInstance and (
+						hitInstance:GetFullName():lower():find("other_flyover")
+						or hitInstance:GetFullName():lower():find("flyover")
+						or hitInstance:GetFullName():lower():find("tol")
+						or hitInstance:GetFullName():lower():find("jembatan")
+						or hitInstance:GetFullName():lower():find("jl_")
+						or hitInstance:GetFullName():lower():find("jalan")
+						or hitInstance:GetFullName():lower():find("road")
+						or hitInstance:GetFullName():lower():find("street")
+						or hitInstance:GetFullName():lower():find("aspal")
+						or hitInstance.Name:lower():find("sawah")
+						or (hitInstance.Parent and hitInstance.Parent.Name:lower():find("sawah"))
+						or (hitInstance.Parent and hitInstance.Parent.Parent and hitInstance.Parent.Parent.Name:lower():find("sawah"))
+						or (hitInstance:GetFullName():lower():find("building_klaten") and (hitInstance.Parent and hitInstance.Parent.Name:lower() == "model"))
+					)
+					local isTerrain = hitInstance and hitInstance:IsA("Terrain")
+					local isOfficialRoadHop = (isOfficialRoad and curDist >= 25)
+					local isPlainTerrainHop = (isTerrain and inVoid and curDist >= 25)
+
+					if isVoidGap or isElevatedLedge or isOfficialRoadHop or isPlainTerrainHop then
+						local landPos = Vector3.new(px, solidY + 0.5, pz)
+						local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+
+						if jumpDist >= 15 and jumpDist <= maxJumpRange then
+							if not isTooCloseToRecent(landPos) then
+								local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
+								local progress = totalDistToDest - landDistToDest
+
+								-- Jalur resmi game: boleh toleransi lateral (progress >= -10)
+								-- Daratan terrain: harus membuat kemajuan maju (progress >= 10)
+								local progressOk = false
+								if isOfficialRoad then
+									progressOk = (progress >= -10)
+								elseif isTerrain then
+									progressOk = (progress >= 10)
+								else
+									progressOk = (progress >= 15)
+								end
+
+								if progressOk then
+									local score = 0
+									if isOfficialRoad then
+										score = score + 600
+									elseif isTerrain then
+										score = score + 300
+									else
+										score = score + 100
+									end
+
+									-- 🎯 Paling dekat dengan arah lurus Klaten (|ang| kecil) diberi skor tertinggi:
+									score = score - (math.abs(ang) * 3.0)
+									-- 🚀 Kemajuan ke arah tujuan:
+									score = score + (progress * 2.0)
+									-- 🛡️ Preferensi jarak lompat yang wajar:
+									score = score - (jumpDist * 0.25)
+
+									if not bestCandidate or score > bestCandidate.score then
+										bestCandidate = {
+											pos = landPos,
+											ang = ang,
+											jumpDist = jumpDist,
+											isOfficialRoad = isOfficialRoad,
+											isTerrain = isTerrain,
+											progress = progress,
+											score = score
+										}
+									end
+								end
+							end
 						end
 					end
 				else
@@ -1350,123 +1430,16 @@ local success, err = pcall(function()
 			end
 		end
 
+		if bestCandidate then
+			table.insert(recentLandings, { pos = bestCandidate.pos, time = os.clock() })
+			local landHeadingDir = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(bestCandidate.pos.X, 0, bestCandidate.pos.Z)).Unit
+			local roadLabel = bestCandidate.isOfficialRoad and "Jalur Resmi Game" or (bestCandidate.isTerrain and "Daratan Terrain" or "Ground")
+			UI.Notify("🌉 Melompati Jurang", string.format("Lompat %.0fm (%s, sudut %d°)", bestCandidate.jumpDist, roadLabel, bestCandidate.ang), 1.5, "info")
+			local landed = teleportVehicleAcrossVoid(car, bestCandidate.pos, landHeadingDir, bestCandidate.jumpDist)
+			return landed, bestCandidate.jumpDist
+		end
+
 		return nil
-	end
-
-	-- 🛣️ Highway Waypoint Router (City / Solo <-> Klaten Continuous Road Network)
-	local function isKlatenPos(pos)
-		if not pos then return false end
-		-- Klaten terletak di area barat daya (X <= -10450 dan Z >= 1650)
-		return (pos.X < -10450) and (pos.Z > 1650)
-	end
-
-	-- 🛣️ 39 Waypoint Terverifikasi: Rute Aspal Padat 100% Kontinu (Solo Depot <-> Klaten Livrason 8)
-	-- Setiap titik berjarak hanya 150-350 stud agar selalu dalam radius StreamingEnabled dan probeGround
-	local HIGHWAY_WAYPOINTS = {
-		-- 🏙️ 1. AREA SOLO & JAJAR (Depot ke Simpang Faroka)
-		Vector3.new(-5105.6, 5.0, -3759.0),   -- 1. Depot Paket
-		Vector3.new(-5221.0, -1.0, -3000.0),  -- 2. Jl. Jajar Tengah (Utara)
-		Vector3.new(-5221.0, -1.0, -2000.0),  -- 3. Jl. Jajar Tengah (Pusat)
-		Vector3.new(-5221.0, -1.0, -820.0),   -- 4. Jl. Jajar Selatan
-		Vector3.new(-5528.0, -1.0, -566.0),   -- 5. Tikungan Jajar ke Faroka
-
-		-- 🛣️ 2. JL. FAROKA (Jajar ke Kartasura)
-		Vector3.new(-6111.0, -1.0, -572.0),   -- 6. Jl. Faroka Timur
-		Vector3.new(-6789.0, -1.0, -572.0),   -- 7. Jl. Faroka Tengah 1
-		Vector3.new(-7374.0, -1.0, -458.0),   -- 8. Jl. Faroka Tengah 2
-		Vector3.new(-7910.0, -1.0, -149.0),   -- 9. Jl. Faroka Barat 1
-		Vector3.new(-8341.0, -1.0, 173.0),    -- 10. Simpang Faroka - Kartasura
-
-		-- 🛣️ 3. JL. KARTASURA (Faroka ke Perbatasan Klaten)
-		Vector3.new(-8811.0, 0.0, 819.0),     -- 11. Jl. Kartasura Timur
-		Vector3.new(-9384.0, 0.0, 736.0),     -- 12. Jl. Kartasura Tengah 1
-		Vector3.new(-9740.0, 0.0, 1010.0),    -- 13. Jl. Kartasura Tengah 2
-		Vector3.new(-10019.0, 0.0, 1344.0),   -- 14. Jl. Kartasura Barat
-		Vector3.new(-10374.0, 0.0, 1622.0),   -- 15. Ujung Kartasura (Batas Klaten)
-
-		-- 🌄 4. JL. KLATEN JALUR UTAMA (Lembah & Tanjakan Sawah)
-		Vector3.new(-10520.0, 0.0, 1707.0),   -- 16. Gerbang Masuk Klaten
-		Vector3.new(-10778.0, 4.0, 1856.0),   -- 17. Jl. Klaten 1
-		Vector3.new(-11170.0, 0.0, 2082.0),   -- 18. Jl. Klaten 2
-		Vector3.new(-11561.0, 0.0, 2308.0),   -- 19. Jl. Klaten 3
-		Vector3.new(-11952.0, 4.0, 2533.0),   -- 20. Jl. Klaten 4
-		Vector3.new(-12345.0, 0.0, 2760.0),   -- 21. Jl. Klaten 5
-		Vector3.new(-12605.0, 4.0, 2910.0),   -- 22. Jl. Klaten 6
-		Vector3.new(-12863.0, 23.0, 3059.0),  -- 23. Awal Tanjakan Sawah
-		Vector3.new(-13242.0, 23.0, 3272.0),  -- 24. Sawah Klaten 1
-		Vector3.new(-13628.0, 23.0, 3367.0),  -- 25. Sawah Klaten 2
-		Vector3.new(-14152.0, 23.0, 3473.0),  -- 26. Sawah Klaten 3
-		Vector3.new(-14642.0, 23.0, 3732.0),  -- 27. Sawah Klaten 4
-		Vector3.new(-15034.0, 27.0, 3958.0),  -- 28. Lereng Bukit Klaten 1
-		Vector3.new(-15294.0, 55.0, 4108.0),  -- 29. Lereng Bukit Klaten 2
-		Vector3.new(-15555.0, 86.0, 4258.0),  -- 30. Tanjakan Curam Klaten
-		Vector3.new(-15830.0, 102.0, 4417.0), -- 31. Puncak Bukit Klaten
-
-		-- 🏘️ 5. PUSAT KOTA KLATEN (Puncak ke Titik Kardus Location 8)
-		Vector3.new(-16222.0, 102.0, 4644.0), -- 32. Kota Klaten 1
-		Vector3.new(-16597.0, 102.0, 4860.0), -- 33. Kota Klaten 2
-		Vector3.new(-16884.0, 102.0, 5293.0), -- 34. Kota Klaten 3
-		Vector3.new(-17083.0, 102.0, 5555.0), -- 35. Kota Klaten 4
-		Vector3.new(-17105.0, 102.0, 5829.0), -- 36. Kota Klaten 5
-		Vector3.new(-16974.0, 102.0, 6150.0), -- 37. Kota Klaten 6
-		Vector3.new(-16711.0, 102.0, 6317.0), -- 38. Tikungan Terakhir Kardus
-		Vector3.new(-17057.0, 105.0, 6568.0), -- 39. Titik Pengantaran Kardus (Livrason 8)
-	}
-
-	local function findNearestWaypointIndex(pos, minIdx, maxIdx)
-		local bestIdx = minIdx
-		local minDist = math.huge
-		for i = minIdx, maxIdx do
-			local wp = HIGHWAY_WAYPOINTS[i]
-			local d = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
-			if d < minDist then
-				minDist = d
-				bestIdx = i
-			end
-		end
-		return bestIdx, minDist
-	end
-
-	local function buildHighwayRoute(startPos, destPos)
-		local destInKlaten = isKlatenPos(destPos)
-		local directDist = (Vector3.new(startPos.X, 0, startPos.Z) - Vector3.new(destPos.X, 0, destPos.Z)).Magnitude
-
-		-- Jika jarak sangat dekat (< 200 stud) atau berada di area lokal Solo (keduanya di Solo), langsung direct
-		if not destInKlaten and not isKlatenPos(startPos) then
-			return { destPos }
-		end
-		if directDist < 200 then
-			return { destPos }
-		end
-
-		local path = {}
-
-		if destInKlaten then
-			-- 🛵 MENUJU KLATEN: Ikuti jalan raya secara berurutan maju (bestStart -> bestEnd)
-			local bestStartIdx, _ = findNearestWaypointIndex(startPos, 1, 35)
-			local bestEndIdx, _   = findNearestWaypointIndex(destPos, 16, #HIGHWAY_WAYPOINTS)
-
-			if bestStartIdx < bestEndIdx then
-				for i = bestStartIdx, bestEndIdx do
-					table.insert(path, HIGHWAY_WAYPOINTS[i])
-				end
-			end
-			table.insert(path, destPos)
-
-		else
-			-- 🛵 PULANG KE SOLO: Ikuti jalan raya secara berurutan mundur (bestStart -> bestEnd)
-			local bestStartIdx, _ = findNearestWaypointIndex(startPos, 16, #HIGHWAY_WAYPOINTS)
-			local bestEndIdx, _   = findNearestWaypointIndex(destPos, 1, 15)
-
-			if bestStartIdx > bestEndIdx then
-				for i = bestStartIdx, bestEndIdx, -1 do
-					table.insert(path, HIGHWAY_WAYPOINTS[i])
-				end
-			end
-			table.insert(path, destPos)
-		end
-
-		return path
 	end
 
 	-- 🛣️ Pure Road Navigation Engine
@@ -1502,59 +1475,29 @@ local success, err = pcall(function()
 			destroySafetyPlate()
 		end
 
+		-- 🗺️ Pre-stream terrain tujuan agar probeGround tidak salah deteksi void
+		requestStreamAsync(targetPos)
+		-- Khusus mode Kurir: jika jarak jauh (>200 stud), beri waktu lebih agar terrain Klaten ter-load
+		-- sebelum void scanner mulai scan. Tanpa ini, jalan Klaten dianggap void → teleport → kick!
+		if courierActive then
+			local distToTarget = (car:GetPivot().Position - targetPos).Magnitude
+			if distToTarget > 200 then
+				task.wait(0.5)
+			else
+				task.wait(0.2)
+			end
+		end
+
 		speed = tonumber(speed) or tonumber(Config.taxiSpeed) or 60
 		local startCF = car:GetPivot()
 		local startP  = startCF.Position
 		local destP   = targetPos
-
-		-- 🛡️ Jika kendaraan sedang berada di bawah tanah (Y < 0) di area Klaten, angkat langsung ke atas aspal jalan raya:
-		if startP.Y < 0 and (isKlatenPos(startP) or isKlatenPos(destP)) then
-			local bestIdx, _ = findNearestWaypointIndex(startP, 16, #HIGHWAY_WAYPOINTS)
-			local targetWp = HIGHWAY_WAYPOINTS[bestIdx]
-			local safeLiftPos = Vector3.new(targetWp.X, targetWp.Y + 2.0, targetWp.Z)
-			ensureSafetyPlate(safeLiftPos, 50)
-			car:PivotTo(CFrame.new(safeLiftPos))
-			for _, part in ipairs(car:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.AssemblyLinearVelocity = Vector3.zero
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
-			end
-			startCF = car:GetPivot()
-			startP  = startCF.Position
-			UI.Notify("🛣️ Kembali ke Jalan", "Mengangkat kendaraan ke atas aspal Klaten...", 2.0, "info")
-		end
 
 		if (startP - destP).Magnitude <= 6 then
 			safelySettleAndUnanchor(car, destP)
 			isDrivingActive = false
 			return true
 		end
-
-		local routePath = buildHighwayRoute(startP, destP)
-		local currentWaypointIdx = 1
-		local currentGoal = routePath[currentWaypointIdx]
-
-		-- Jika posisi awal sudah dekat dengan waypoint pertama (misal di depot), langsung target waypoint berikutnya
-		while currentWaypointIdx < #routePath and (Vector3.new(startP.X, 0, startP.Z) - Vector3.new(currentGoal.X, 0, currentGoal.Z)).Magnitude <= 32 do
-			currentWaypointIdx = currentWaypointIdx + 1
-			currentGoal = routePath[currentWaypointIdx]
-		end
-
-		if #routePath > 1 then
-			if isKlatenPos(destP) then
-				UI.Notify("🛣️ Navigasi Jalan Klaten", string.format("Menavigasi %d titik rute antar-kota...", #routePath), 3.0, "info")
-			else
-				UI.Notify("🛣️ Navigasi Pulang Kota", string.format("Menavigasi %d titik rute antar-kota...", #routePath), 3.0, "info")
-			end
-		end
-
-		-- 🗺️ Pre-stream rute jalan di depan agar terrain dan aspal siap sebelum motor lewat
-		requestStreamAsync(currentGoal)
-		if #routePath > 1 and currentWaypointIdx < #routePath then
-			requestStreamAsync(routePath[currentWaypointIdx + 1])
-		end
-		task.wait(0.25)
 
 		local rayFilter = { car, player.Character }
 		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
@@ -1588,20 +1531,19 @@ local success, err = pcall(function()
 
 			local startY
 			local rayDepth
-			local goalY = (currentGoal and currentGoal.Y) or 0
 			if isSasanaKridaTrip() then
 				startY = (refY or 0) + 7
 				rayDepth = -30
 			elseif distFromCar <= 15 then
 				-- 🛵 Langkah mengemudi jarak dekat (immediate driving step):
-				-- Mulai dari elevasi yang cukup tinggi untuk melihat tanjakan jalan raya (terutama tanjakan Klaten Y=23..102),
+				-- Mulai dari refY + 14 agar tidak menembak dari atas atap tinggi,
 				-- dan tembak ke bawah cukup dalam (-160 stud) agar tanah di bawah turunan/tebing tetap terbaca!
-				startY = math.max((refY or (carPivot and carPivot.Position.Y) or 0) + 16, goalY + 16, 25)
+				startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 14
 				rayDepth = -160
 			else
 				-- 🔭 Pemindaian jurang jarak jauh (solidAheadDist):
 				-- Adaptif naik mengikuti kemungkinan tanjakan bukit ke depan
-				startY = math.max((refY or 0) + 16 + distFromCar * 0.35, goalY + 16, 25)
+				startY = math.max((refY or 0) + 14 + distFromCar * 0.35, 25)
 				rayDepth = -math.max(distFromCar * 0.6 + 60, 160)
 			end
 
@@ -1629,11 +1571,8 @@ local success, err = pcall(function()
 
 					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
 
-					-- 🚫 Filter Plat Bawah Tanah (Subterranean Baseplate): JANGAN PERNAH dianggap daratan sah jika Y < 0!
-					local isUndergroundBaseplate = (fullName:find("baseplate") or nameLower:find("baseplate") or parentName:find("baseplate")) and (hit.Position.Y < 0)
-
 					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
-					local isRoadOrTerrain = not isUndergroundBaseplate and (isFlyover
+					local isRoadOrTerrain = isFlyover
 						or fullName:find("jl_klaten")
 						or fullName:find("jl_")
 						or fullName:find("jalan")
@@ -1644,7 +1583,7 @@ local success, err = pcall(function()
 						or parentName:find("sawah")
 						or grandParentName:find("sawah")
 						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
-						or inst:IsA("Terrain"))
+						or inst:IsA("Terrain")
 
 					-- 2. Air / Sungai (Bukan daratan)
 					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
@@ -1678,7 +1617,7 @@ local success, err = pcall(function()
 					if isWater then
 						-- Air sungai / kolam BUKAN daratan! Raycast di sini dianggap jurang hampa (void)
 						break
-					elseif isUndergroundBaseplate or isRoofOrObstacle or isBuildingModel then
+					elseif isRoofOrObstacle or isBuildingModel then
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
@@ -1686,15 +1625,11 @@ local success, err = pcall(function()
 						-- 🛡️ Validasi Daratan & Filter Objek Overhead:
 						-- 1. Jangan biarkan menembus ke atap/plafon tinggi di atas kepala jika hitY jauh di atas refY (> refY + 16)
 						-- 2. Jika hitY DI BAWAH kendaraan (turunan lereng, jalan di bawah), itu adalah DARATAN SAH!
-						-- 3. JANGAN PERNAH menerima pelat bawah tanah di Y < 0
 						local isOverheadObstacle = false
 						if refY and distFromCar <= 15 then
 							if hitY > (refY + 16) then
 								isOverheadObstacle = true
 							end
-						end
-						if hitY < -1.5 and (fullName:find("baseplate") or nameLower:find("baseplate")) then
-							isOverheadObstacle = true
 						end
 
 						if not isOverheadObstacle and hitY >= -45 and hitY <= (startY + 10) and (not hit.Normal or hit.Normal.Y >= 0.10) then
@@ -1726,20 +1661,18 @@ local success, err = pcall(function()
 		local lastTick = os.clock()
 		local lastGroundY = startP.Y
 
-		local stuckLastDist   = (currentGoal - startP).Magnitude
+		local stuckLastDist   = totalDist
 		local stuckLastTime   = os.clock()
 		local stuckNudgeCount = 0
 
 		local navHeading = nil
 		local edgeFollowSign = 1
-		local initGoalDelta = currentGoal - startP
-		local initGoalFlat = Vector3.new(initGoalDelta.X, 0, initGoalDelta.Z)
-		local initGoalDir = initGoalFlat.Magnitude > 0.1 and initGoalFlat.Unit or Vector3.new(0, 0, -1)
-		local curHeadingAngle = math.atan2(initGoalDir.X, initGoalDir.Z)
+		local curHeadingAngle = math.atan2(((destP - startP).Unit).X, ((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
+		local recentBridgeLandings = {}
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -1836,28 +1769,7 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🛡️ Anti-Subterranean Baseplate Shield (Klaten / Highway):
-			-- Jika motor berada di bawah tanah (Y < -1.5) saat berada di area Klaten atau menuju Klaten:
-			if (carPos.Y < -1.5) and (isKlatenPos(carPos) or isKlatenPos(currentGoal) or isKlatenPos(destP)) then
-				local bestIdx, _ = findNearestWaypointIndex(carPos, 16, #HIGHWAY_WAYPOINTS)
-				local targetWp = HIGHWAY_WAYPOINTS[bestIdx]
-				local safeLiftPos = Vector3.new(targetWp.X, targetWp.Y + 2.0, targetWp.Z)
-				ensureSafetyPlate(safeLiftPos, 50)
-				car:PivotTo(CFrame.new(safeLiftPos))
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-				lastGroundY = targetWp.Y
-				currentSmoothSpeed = 0
-				cliffWaitStartTime = nil
-				stuckLastTime = os.clock()
-				UI.Notify("🛣️ Kembali ke Jalan", "Mengangkat kendaraan ke atas aspal Klaten...", 1.5, "info")
-			end
-
-			local delta = currentGoal - carPos
+			local delta = destP - carPos
 			local flatDelta = Vector3.new(delta.X, 0, delta.Z)
 			local dist = flatDelta.Magnitude
 
@@ -1870,34 +1782,18 @@ local success, err = pcall(function()
 				end
 			end
 
-			local isFinalWaypoint = (currentWaypointIdx >= #routePath)
-			local arrivalDist = isFinalWaypoint and (courierActive and 7.5 or 3.5) or 32.0
-
+			local arrivalDist = (courierActive and 7.5 or 3.5)
 			if dist <= arrivalDist then
-				if isFinalWaypoint then
-					driveFinished = true
-					if currentDriveConn then currentDriveConn:Disconnect() end
-					return
-				else
-					currentWaypointIdx = currentWaypointIdx + 1
-					currentGoal = routePath[currentWaypointIdx]
-					requestStreamAsync(currentGoal)
-					if currentWaypointIdx < #routePath then
-						requestStreamAsync(routePath[currentWaypointIdx + 1])
-					end
-					stuckLastDist = (currentGoal - carPos).Magnitude
-					stuckLastTime = os.clock()
-					cliffWaitStartTime = nil
-					if #routePath > 1 then
-						updateBotActivity(string.format("🛣️ Tol: Titik %d/%d (%.0fm)...", currentWaypointIdx, #routePath, stuckLastDist), Color3.fromRGB(0, 212, 255))
-					end
-					return
-				end
+				driveFinished = true
+				if currentDriveConn then currentDriveConn:Disconnect() end
+				return
 			end
 
 			-- Stuck Recovery
 			local nowClock = os.clock()
-			if dist < stuckLastDist - 2.5 then
+			if isImmediateVoidAhead or cliffWaitStartTime ~= nil then
+				stuckLastTime = nowClock
+			elseif dist < stuckLastDist - 2.5 then
 				stuckLastDist = dist
 				stuckLastTime = nowClock
 			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 then
@@ -1947,22 +1843,23 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (HANYA AKTIF DI TITIK AKHIR):
+			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (Mulai dari 800 Studs):
+			-- Stage 1 (800 -> 50 stud): Kecepatan turun mulus dari speed (300 stud/s) ke 28 stud/s (~25 km/h)
+			-- Stage 2 (50 -> 10 stud): Kecepatan merayap pelan dari 28 stud/s ke 4.0 stud/s
+			-- Stage 3 (< 10 stud): Meluncur lembut ke 0 stud/s dan berhenti tepat di titik tujuan (dist <= 3.5)
 			local targetSpeed = speed
 
-			if isFinalWaypoint then
-				if dist < 10 then
-					local ratio = math.clamp(dist / 10, 0, 1)
-					targetSpeed = math.max(0, 4.0 * ratio)
-				elseif dist < 50 then
-					local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
-					targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
-				elseif dist < 800 then
-					local factor = math.clamp((dist - 50) / 750, 0, 1)
-					-- Smoothstep S-Curve: Transisi eksponensial sangat empuk tanpa sentakan inersia
-					local sFactor = factor * factor * (3 - 2 * factor)
-					targetSpeed = 28.0 + (speed - 28.0) * sFactor
-				end
+			if dist < 10 then
+				local ratio = math.clamp(dist / 10, 0, 1)
+				targetSpeed = math.max(0, 4.0 * ratio)
+			elseif dist < 50 then
+				local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
+				targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
+			elseif dist < 800 then
+				local factor = math.clamp((dist - 50) / 750, 0, 1)
+				-- Smoothstep S-Curve: Transisi eksponensial sangat empuk tanpa sentakan inersia
+				local sFactor = factor * factor * (3 - 2 * factor)
+				targetSpeed = 28.0 + (speed - 28.0) * sFactor
 			end
 
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
@@ -2042,12 +1939,7 @@ local success, err = pcall(function()
 
 				-- ⏱️ Timeout di Tepi Jurang:
 				local cliffWaitDuration = nowClock - cliffWaitStartTime
-				if not isFinalWaypoint and cliffWaitDuration >= 1.5 and cliffWaitDuration <= 2.0 then
-					-- Minta Roblox stream ulang jalan raya di depan tanpa melompati waypoint
-					requestStreamAsync(currentGoal)
-				end
-
-				if cliffWaitDuration >= 8.0 then
+				if cliffWaitDuration >= 12.0 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
 					if courierActive then
@@ -2063,13 +1955,13 @@ local success, err = pcall(function()
 
 				if (nowClock - lastBridgeScanTime) >= 0.15 then
 					lastBridgeScanTime = nowClock
-					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, currentGoal)
+					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP, recentBridgeLandings)
 					if bridgeLanding then
 						cliffWaitStartTime = nil
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
-						stuckLastDist = (currentGoal - bridgeLanding).Magnitude
-						local newDir = (currentGoal - bridgeLanding).Unit
+						stuckLastDist = (destP - bridgeLanding).Magnitude
+						local newDir = (destP - bridgeLanding).Unit
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
 						stuckLastTime = os.clock()
 						currentSmoothSpeed = 0
