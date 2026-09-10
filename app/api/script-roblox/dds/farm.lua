@@ -1507,6 +1507,24 @@ local success, err = pcall(function()
 		local startP  = startCF.Position
 		local destP   = targetPos
 
+		-- 🛡️ Jika kendaraan sedang berada di bawah tanah (Y < 0) di area Klaten, angkat langsung ke atas aspal jalan raya:
+		if startP.Y < 0 and (isKlatenPos(startP) or isKlatenPos(destP)) then
+			local bestIdx, _ = findNearestWaypointIndex(startP, 16, #HIGHWAY_WAYPOINTS)
+			local targetWp = HIGHWAY_WAYPOINTS[bestIdx]
+			local safeLiftPos = Vector3.new(targetWp.X, targetWp.Y + 2.0, targetWp.Z)
+			ensureSafetyPlate(safeLiftPos, 50)
+			car:PivotTo(CFrame.new(safeLiftPos))
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+			startCF = car:GetPivot()
+			startP  = startCF.Position
+			UI.Notify("🛣️ Kembali ke Jalan", "Mengangkat kendaraan ke atas aspal Klaten...", 2.0, "info")
+		end
+
 		if (startP - destP).Magnitude <= 6 then
 			safelySettleAndUnanchor(car, destP)
 			isDrivingActive = false
@@ -1524,7 +1542,7 @@ local success, err = pcall(function()
 		end
 
 		if #routePath > 1 then
-			if not isKlatenPos(startP) and isKlatenPos(destP) then
+			if isKlatenPos(destP) then
 				UI.Notify("🛣️ Navigasi Jalan Klaten", string.format("Menavigasi %d titik rute antar-kota...", #routePath), 3.0, "info")
 			else
 				UI.Notify("🛣️ Navigasi Pulang Kota", string.format("Menavigasi %d titik rute antar-kota...", #routePath), 3.0, "info")
@@ -1570,19 +1588,20 @@ local success, err = pcall(function()
 
 			local startY
 			local rayDepth
+			local goalY = (currentGoal and currentGoal.Y) or 0
 			if isSasanaKridaTrip() then
 				startY = (refY or 0) + 7
 				rayDepth = -30
 			elseif distFromCar <= 15 then
 				-- 🛵 Langkah mengemudi jarak dekat (immediate driving step):
-				-- Mulai dari refY + 14 agar tidak menembak dari atas atap tinggi,
+				-- Mulai dari elevasi yang cukup tinggi untuk melihat tanjakan jalan raya (terutama tanjakan Klaten Y=23..102),
 				-- dan tembak ke bawah cukup dalam (-160 stud) agar tanah di bawah turunan/tebing tetap terbaca!
-				startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 14
+				startY = math.max((refY or (carPivot and carPivot.Position.Y) or 0) + 16, goalY + 16, 25)
 				rayDepth = -160
 			else
 				-- 🔭 Pemindaian jurang jarak jauh (solidAheadDist):
 				-- Adaptif naik mengikuti kemungkinan tanjakan bukit ke depan
-				startY = math.max((refY or 0) + 14 + distFromCar * 0.35, 25)
+				startY = math.max((refY or 0) + 16 + distFromCar * 0.35, goalY + 16, 25)
 				rayDepth = -math.max(distFromCar * 0.6 + 60, 160)
 			end
 
@@ -1610,8 +1629,11 @@ local success, err = pcall(function()
 
 					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
 
+					-- 🚫 Filter Plat Bawah Tanah (Subterranean Baseplate): JANGAN PERNAH dianggap daratan sah jika Y < 0!
+					local isUndergroundBaseplate = (fullName:find("baseplate") or nameLower:find("baseplate") or parentName:find("baseplate")) and (hit.Position.Y < 0)
+
 					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
-					local isRoadOrTerrain = isFlyover
+					local isRoadOrTerrain = not isUndergroundBaseplate and (isFlyover
 						or fullName:find("jl_klaten")
 						or fullName:find("jl_")
 						or fullName:find("jalan")
@@ -1622,7 +1644,7 @@ local success, err = pcall(function()
 						or parentName:find("sawah")
 						or grandParentName:find("sawah")
 						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
-						or inst:IsA("Terrain")
+						or inst:IsA("Terrain"))
 
 					-- 2. Air / Sungai (Bukan daratan)
 					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
@@ -1656,7 +1678,7 @@ local success, err = pcall(function()
 					if isWater then
 						-- Air sungai / kolam BUKAN daratan! Raycast di sini dianggap jurang hampa (void)
 						break
-					elseif isRoofOrObstacle or isBuildingModel then
+					elseif isUndergroundBaseplate or isRoofOrObstacle or isBuildingModel then
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
@@ -1664,11 +1686,15 @@ local success, err = pcall(function()
 						-- 🛡️ Validasi Daratan & Filter Objek Overhead:
 						-- 1. Jangan biarkan menembus ke atap/plafon tinggi di atas kepala jika hitY jauh di atas refY (> refY + 16)
 						-- 2. Jika hitY DI BAWAH kendaraan (turunan lereng, jalan di bawah), itu adalah DARATAN SAH!
+						-- 3. JANGAN PERNAH menerima pelat bawah tanah di Y < 0
 						local isOverheadObstacle = false
 						if refY and distFromCar <= 15 then
 							if hitY > (refY + 16) then
 								isOverheadObstacle = true
 							end
+						end
+						if hitY < -1.5 and (fullName:find("baseplate") or nameLower:find("baseplate")) then
+							isOverheadObstacle = true
 						end
 
 						if not isOverheadObstacle and hitY >= -45 and hitY <= (startY + 10) and (not hit.Normal or hit.Normal.Y >= 0.10) then
@@ -1808,6 +1834,27 @@ local success, err = pcall(function()
 				if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
 					mountBike()
 				end
+			end
+
+			-- 🛡️ Anti-Subterranean Baseplate Shield (Klaten / Highway):
+			-- Jika motor berada di bawah tanah (Y < -1.5) saat berada di area Klaten atau menuju Klaten:
+			if (carPos.Y < -1.5) and (isKlatenPos(carPos) or isKlatenPos(currentGoal) or isKlatenPos(destP)) then
+				local bestIdx, _ = findNearestWaypointIndex(carPos, 16, #HIGHWAY_WAYPOINTS)
+				local targetWp = HIGHWAY_WAYPOINTS[bestIdx]
+				local safeLiftPos = Vector3.new(targetWp.X, targetWp.Y + 2.0, targetWp.Z)
+				ensureSafetyPlate(safeLiftPos, 50)
+				car:PivotTo(CFrame.new(safeLiftPos))
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+				lastGroundY = targetWp.Y
+				currentSmoothSpeed = 0
+				cliffWaitStartTime = nil
+				stuckLastTime = os.clock()
+				UI.Notify("🛣️ Kembali ke Jalan", "Mengangkat kendaraan ke atas aspal Klaten...", 1.5, "info")
 			end
 
 			local delta = currentGoal - carPos
