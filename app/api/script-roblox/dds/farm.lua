@@ -585,7 +585,6 @@ local success, err = pcall(function()
 	end
 
 	local function destroySafetyPlate()
-		if courierActive then return end -- 🛡️ Pertahankan plat pengaman di bawah kardus Klaten saat mode kurir aktif
 		pcall(function()
 			local plate = workspace:FindFirstChild("__DdsSafetyPlate")
 			if plate then
@@ -1215,79 +1214,10 @@ local success, err = pcall(function()
 		local maxScan = math.min(totalDistToDest * 1.05, 3000)
 		local stepSize = 35
 
-		-- 📦 Khusus Mode Auto Kurir: Cari TANAH NYATA di sekitar tujuan sebelum teleport.
-		-- JANGAN langsung lompat ke toPos (kardus) karena menyebabkan server kick Error 263!
-		-- Strategi: scan ground nyata dalam radius destP → teleport ke sana → drive normal sisa jarak.
-		if courierActive and totalDistToDest >= 20 and totalDistToDest <= 2500 then
-			-- 1. Stream terrain Klaten terlebih dahulu dan tunggu 1.5 detik agar ter-load
-			requestStreamAsync(toPos)
-			task.wait(1.5)
-			requestStreamAsync(toPos) -- double request untuk memastikan
-
-			-- 2. Klaten Ground Scanner: cari titik tanah nyata paling dekat dengan toPos
-			--    Scan spiral dari radius 0 hingga 80 stud di sekitar toPos
-			local scanRadii  = { 0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 80 }
-			local scanAnglesKlaten = { 0, 45, 90, 135, 180, 225, 270, 315 }
-			local bestGroundPos = nil
-			local bestGroundDist = math.huge
-
-			-- Hitung startY dari fromPos.Y agar raycast tidak terlalu pendek
-			-- Gunakan range lebar (scan dari Y=300 ke bawah -300) untuk mencakup semua elevasi Klaten
-			local klatScanParams = RaycastParams.new()
-			klatScanParams.FilterDescendantsInstances = { car, player.Character }
-			klatScanParams.FilterType = Enum.RaycastFilterType.Exclude
-			klatScanParams.IgnoreWater = false
-
-			for _, radius in ipairs(scanRadii) do
-				local anglesForRadius = (radius == 0) and { 0 } or scanAnglesKlaten
-				for _, angDeg in ipairs(anglesForRadius) do
-					local angRad = math.rad(angDeg)
-					local testX = toPos.X + math.sin(angRad) * radius
-					local testZ = toPos.Z + math.cos(angRad) * radius
-
-					-- Tembak dari Y=300 ke bawah sejauh 400 stud agar tidak terlewat apapun
-					local klatOrigin = Vector3.new(testX, 300, testZ)
-					local klatHit = workspace:Raycast(klatOrigin, Vector3.new(0, -400, 0), klatScanParams)
-
-					if klatHit then
-						local hitMat = klatHit.Material
-						local hitName = klatHit.Instance.Name:upper()
-						local isWaterHit = (hitMat == Enum.Material.Water)
-							or hitName:find("AIR") or hitName:find("SUNGAI")
-							or hitName:find("RIVER") or hitName:find("DANAU")
-
-						if not isWaterHit and klatHit.Position.Y > -50 then
-							-- Tanah solid ditemukan! Hitung jarak ke toPos (flat)
-							local gDist = Vector3.new(testX - toPos.X, 0, testZ - toPos.Z).Magnitude
-							if gDist < bestGroundDist then
-								bestGroundDist = gDist
-								bestGroundPos = Vector3.new(testX, klatHit.Position.Y + 0.4, testZ)
-							end
-						end
-					end
-				end
-				-- Jika sudah ada tanah di radius kecil, stop scan lebih jauh
-				if bestGroundPos and bestGroundDist <= 15 then break end
-			end
-
-			-- 3. Keputusan teleport berdasarkan hasil scan
-			if bestGroundPos then
-				-- Tanah nyata ditemukan di sekitar tujuan → teleport ke sana
-				local jumpDist = (Vector3.new(bestGroundPos.X, 0, bestGroundPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-				UI.Notify("📦 Klaten Landing", string.format("Tanah Klaten ditemukan (%.0f stud dari kardus). Mendarat di sana!", bestGroundDist), 2, "success")
-				local landed = teleportVehicleAcrossVoid(car, bestGroundPos, baseDir, jumpDist)
-				return landed, jumpDist
-			else
-				-- Tidak ada tanah sama sekali (truly isolated) → last resort: buat plate di atas toPos
-				-- Tapi landing di atas toPos + 1.5 stud bukan tepat di kardus agar server tidak curiga
-				UI.Notify("📦 Klaten Floating", "Tidak ada tanah, mendarat di atas safety plate dekat tujuan.", 2, "warning")
-				local safeLandPos = Vector3.new(toPos.X, toPos.Y + 1.5, toPos.Z)
-				ensureSafetyPlate(safeLandPos, 80)
-				local jumpDist = (Vector3.new(safeLandPos.X, 0, safeLandPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-				local landed = teleportVehicleAcrossVoid(car, safeLandPos, baseDir, jumpDist)
-				return landed, jumpDist
-			end
-		end
+		-- 🌉 Void Bridge Scan: Cari daratan seberang celah jurang lokal.
+		-- JANGAN PERNAH teleport langsung ribuan stud ke toPos pengantaran paket (menyebabkan strike/kick)!
+		-- Semua mode (termasuk kurir) harus melompati celah jurang lokal ke daratan seberang terdekat,
+		-- lalu melanjutkan perjalanan secara mulus di atas jalan raya Klaten.
 
 		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
 		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
@@ -1330,16 +1260,52 @@ local success, err = pcall(function()
 					local nameLower = inst.Name:lower()
 					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
 					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
-					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
+					local fullName = inst:GetFullName():lower()
 
+					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
+
+					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
+					local isRoadOrTerrain = isFlyover
+						or fullName:find("jl_klaten")
+						or fullName:find("jl_")
+						or fullName:find("jalan")
+						or fullName:find("road")
+						or fullName:find("street")
+						or fullName:find("aspal")
+						or nameLower:find("sawah")
+						or parentName:find("sawah")
+						or grandParentName:find("sawah")
+						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
+						or inst:IsA("Terrain")
+
+					-- 2. Air / Sungai (Bukan daratan)
 					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
-					local isRoofOrObstacle = (mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass)
-						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
-						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
-						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
-						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
 
-					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
+					-- 3. Atap / Rintangan Fisik / Gedung Sungguhan
+					local isRoofOrObstacle = false
+					local isBuildingModel = false
+
+					if not isRoadOrTerrain then
+						isRoofOrObstacle = (mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass)
+							or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
+							or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
+							or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
+							or (inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+
+						-- Bangunan sungguhan (HANYA jika memiliki kata kunci gedung nyata, BUKAN sekadar "Model"!)
+						local hasBuildingKeyword = parentName:find("rumah") or parentName:find("house")
+							or parentName:find("gedung") or parentName:find("bangunan")
+							or parentName:find("ruko") or parentName:find("gudang")
+							or parentName:find("indamart") or parentName:find("indahmart")
+							or parentName:find("karoseri") or parentName:find("billboard")
+							or parentName:find("excavator") or parentName:find("adiputro")
+							or grandParentName:find("ruko") or grandParentName:find("gudang")
+							or grandParentName:find("indamart") or grandParentName:find("indahmart")
+							or grandParentName:find("karoseri") or grandParentName:find("billboard")
+							or grandParentName:find("adiputro")
+
+						isBuildingModel = hasBuildingKeyword and inst.Position.Y >= 6
+					end
 
 					if isWater then
 						-- Air sungai adalah jurang cair! Jangan pernah jadikan solidY
@@ -1427,9 +1393,9 @@ local success, err = pcall(function()
 		if courierActive then
 			local distToTarget = (car:GetPivot().Position - targetPos).Magnitude
 			if distToTarget > 200 then
-				task.wait(2.0) -- Beri waktu 2 detik untuk streaming terrain jauh (Klaten dll)
+				task.wait(0.5)
 			else
-				task.wait(0.3)
+				task.wait(0.2)
 			end
 		end
 
@@ -1445,11 +1411,8 @@ local success, err = pcall(function()
 		end
 
 		local rayFilter = { car, player.Character }
-		-- Khusus mode Kurir, __DdsSafetyPlate TIDAK diexclude agar terbaca sebagai tanah kokoh di area jurang Klaten!
-		if not courierActive then
-			local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
-			if existingPlate then table.insert(rayFilter, existingPlate) end
-		end
+		local existingPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if existingPlate then table.insert(rayFilter, existingPlate) end
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = rayFilter
@@ -1473,14 +1436,28 @@ local success, err = pcall(function()
 				Vector3.new(0, 0, -2)
 			}
 
-			-- Khusus jika titik pickup / drop-off adalah Sasana Krida Building Manahan, tembak dari refY + 7 saja agar tidak mendarat di atap gedung
+			local carPivot = car and car:GetPivot()
+			local carPos2D = carPivot and Vector3.new(carPivot.Position.X, 0, carPivot.Position.Z) or Vector3.new(probePos.X, 0, probePos.Z)
+			local distFromCar = (Vector3.new(probePos.X, 0, probePos.Z) - carPos2D).Magnitude
+
 			local startY
+			local rayDepth
 			if isSasanaKridaTrip() then
 				startY = (refY or 0) + 7
+				rayDepth = -30
+			elseif distFromCar <= 15 then
+				-- 🛵 Langkah mengemudi jarak dekat (immediate driving step):
+				-- Mulai dari refY + 12 agar tidak menembak dari atas atap/sawah atas saat berada di bawah,
+				-- dan tetap cukup tinggi untuk mendaki tanjakan jalan Klaten!
+				startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 12
+				rayDepth = -35
 			else
-				-- ⬆️ Naikkan startY agar bisa scan elevasi Klaten yang jauh lebih rendah dari tepi jurang
-				startY = math.max((refY or 0) + 60, 80)
+				-- 🔭 Pemindaian jurang jarak jauh (solidAheadDist):
+				-- Adaptif naik mengikuti kemungkinan tanjakan bukit ke depan
+				startY = math.max((refY or 0) + 12 + distFromCar * 0.35, 25)
+				rayDepth = -math.max(distFromCar * 0.5 + 40, 70)
 			end
+
 			for _, off in ipairs(offsets) do
 				local pos = probePos + off
 				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
@@ -1493,7 +1470,7 @@ local success, err = pcall(function()
 				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
 				for attempt = 1, 6 do
 					localParams.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -200, 0), localParams)
+					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, rayDepth, 0), localParams)
 					if not hit then break end
 
 					local inst = hit.Instance
@@ -1501,16 +1478,52 @@ local success, err = pcall(function()
 					local nameLower = inst.Name:lower()
 					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
 					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
-					local isFlyover = inst:GetFullName():find("OTHER_FLYOVER") or inst:GetFullName():find("FLYOVER") or inst:GetFullName():find("TOL")
+					local fullName = inst:GetFullName():lower()
 
+					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
+
+					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
+					local isRoadOrTerrain = isFlyover
+						or fullName:find("jl_klaten")
+						or fullName:find("jl_")
+						or fullName:find("jalan")
+						or fullName:find("road")
+						or fullName:find("street")
+						or fullName:find("aspal")
+						or nameLower:find("sawah")
+						or parentName:find("sawah")
+						or grandParentName:find("sawah")
+						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
+						or inst:IsA("Terrain")
+
+					-- 2. Air / Sungai (Bukan daratan)
 					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
-					local isRoofOrObstacle = nonDrivableMats[mat]
-						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
-						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
-						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
-						or (not isFlyover and inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
 
-					local isBuildingModel = not isFlyover and (parentName == "model" or grandParentName == "model" or parentName:find("rumah") or parentName:find("house") or parentName:find("building") or parentName:find("bangunan") or parentName:find("gedung")) and inst.Position.Y >= 6
+					-- 3. Atap / Rintangan Fisik / Gedung Sungguhan
+					local isRoofOrObstacle = false
+					local isBuildingModel = false
+
+					if not isRoadOrTerrain then
+						isRoofOrObstacle = nonDrivableMats[mat]
+							or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
+							or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
+							or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
+							or (inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+
+						-- Bangunan sungguhan (HANYA jika memiliki kata kunci gedung nyata, BUKAN sekadar "Model"!)
+						local hasBuildingKeyword = parentName:find("rumah") or parentName:find("house")
+							or parentName:find("gedung") or parentName:find("bangunan")
+							or parentName:find("ruko") or parentName:find("gudang")
+							or parentName:find("indamart") or parentName:find("indahmart")
+							or parentName:find("karoseri") or parentName:find("billboard")
+							or parentName:find("excavator") or parentName:find("adiputro")
+							or grandParentName:find("ruko") or grandParentName:find("gudang")
+							or grandParentName:find("indamart") or grandParentName:find("indahmart")
+							or grandParentName:find("karoseri") or grandParentName:find("billboard")
+							or grandParentName:find("adiputro")
+
+						isBuildingModel = hasBuildingKeyword and inst.Position.Y >= 6
+					end
 
 					if isWater then
 						-- Air sungai / kolam BUKAN daratan! Raycast di sini dianggap jurang hampa (void)
@@ -1519,10 +1532,27 @@ local success, err = pcall(function()
 						table.insert(localFilter, inst)
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
-						if hit.Position.Y >= -38 and hit.Position.Y <= (startY + 20) and (not hit.Normal or hit.Normal.Y >= 0.10) then
-							return hit.Position.Y + 0.3
+						local hitY = hit.Position.Y
+						-- 🛡️ Pencegahan Double Ground Bouncing:
+						-- Untuk langkah jarak dekat (<= 15 stud), jika terdeteksi lompatan Y drastis (> 14 stud dari refY),
+						-- jangan biarkan player terlempar ke lapisan tanah lain (misal dari sawah atas ke tanah bawah atau sebaliknya)!
+						local isElevationConsistent = true
+						if refY and distFromCar <= 15 then
+							local yDiff = hitY - refY
+							if math.abs(yDiff) > 14 then
+								isElevationConsistent = false
+							end
 						end
-						break
+
+						if isElevationConsistent and hitY >= -38 and hitY <= (startY + 20) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+							return hitY + 0.3
+						elseif not isElevationConsistent then
+							-- Lapisan tanah tidak konsisten dengan elevasi jalan saat ini -> filter dan cari lapisan yang tepat
+							table.insert(localFilter, inst)
+							rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
+						else
+							break
+						end
 					end
 				end
 			end
@@ -3098,16 +3128,8 @@ local success, err = pcall(function()
 
 							if not courierActive then return end
 
-							-- 🛡️ Pasang Safety Plate kokoh di bawah tumpukan kardus agar motor & player tidak pernah jatuh ke void!
-							ensureSafetyPlate(dropPos, 80)
-
-							pcall(function()
-								local c, s = getPlayerVehicle()
-								if c and dropPos then
-									local groundPos = Vector3.new(dropPos.X + 2.5, dropPos.Y + 0.3, dropPos.Z)
-									c:PivotTo(CFrame.new(groundPos))
-								end
-							end)
+							-- Motor sudah tiba secara mulus di titik pengantaran melalui navigasi jalan raya.
+							-- Tidak perlu PivotTo paksa atau safety plate agar tidak memicu deteksi teleport server!
 
 							-- 🛡️ Smart Delivery Pacing (Anti-Kick)
 							if Config.courierPacing and tripDist > 120 then
