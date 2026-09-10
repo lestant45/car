@@ -1447,15 +1447,15 @@ local success, err = pcall(function()
 				rayDepth = -30
 			elseif distFromCar <= 15 then
 				-- 🛵 Langkah mengemudi jarak dekat (immediate driving step):
-				-- Mulai dari refY + 12 agar tidak menembak dari atas atap/sawah atas saat berada di bawah,
-				-- dan tetap cukup tinggi untuk mendaki tanjakan jalan Klaten!
-				startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 12
-				rayDepth = -35
+				-- Mulai dari refY + 14 agar tidak menembak dari atas atap tinggi,
+				-- dan tembak ke bawah cukup dalam (-160 stud) agar tanah di bawah turunan/tebing tetap terbaca!
+				startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 14
+				rayDepth = -160
 			else
 				-- 🔭 Pemindaian jurang jarak jauh (solidAheadDist):
 				-- Adaptif naik mengikuti kemungkinan tanjakan bukit ke depan
-				startY = math.max((refY or 0) + 12 + distFromCar * 0.35, 25)
-				rayDepth = -math.max(distFromCar * 0.5 + 40, 70)
+				startY = math.max((refY or 0) + 14 + distFromCar * 0.35, 25)
+				rayDepth = -math.max(distFromCar * 0.6 + 60, 160)
 			end
 
 			for _, off in ipairs(offsets) do
@@ -1533,21 +1533,20 @@ local success, err = pcall(function()
 						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 					else
 						local hitY = hit.Position.Y
-						-- 🛡️ Pencegahan Double Ground Bouncing:
-						-- Untuk langkah jarak dekat (<= 15 stud), jika terdeteksi lompatan Y drastis (> 14 stud dari refY),
-						-- jangan biarkan player terlempar ke lapisan tanah lain (misal dari sawah atas ke tanah bawah atau sebaliknya)!
-						local isElevationConsistent = true
+						-- 🛡️ Validasi Daratan & Filter Objek Overhead:
+						-- 1. Jangan biarkan menembus ke atap/plafon tinggi di atas kepala jika hitY jauh di atas refY (> refY + 16)
+						-- 2. Jika hitY DI BAWAH kendaraan (turunan lereng, jalan di bawah), itu adalah DARATAN SAH!
+						local isOverheadObstacle = false
 						if refY and distFromCar <= 15 then
-							local yDiff = hitY - refY
-							if math.abs(yDiff) > 14 then
-								isElevationConsistent = false
+							if hitY > (refY + 16) then
+								isOverheadObstacle = true
 							end
 						end
 
-						if isElevationConsistent and hitY >= -38 and hitY <= (startY + 20) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+						if not isOverheadObstacle and hitY >= -45 and hitY <= (startY + 10) and (not hit.Normal or hit.Normal.Y >= 0.10) then
 							return hitY + 0.3
-						elseif not isElevationConsistent then
-							-- Lapisan tanah tidak konsisten dengan elevasi jalan saat ini -> filter dan cari lapisan yang tepat
+						elseif isOverheadObstacle then
+							-- Objek menggantung di atas kepala -> filter dan tembak ke bawahnya
 							table.insert(localFilter, inst)
 							rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
 						else
@@ -1847,18 +1846,12 @@ local success, err = pcall(function()
 				cliffWaitStartTime = cliffWaitStartTime or nowClock
 
 				-- ⏱️ Timeout di Tepi Jurang:
-				if (nowClock - cliffWaitStartTime) >= 3.5 then
+				local cliffWaitDuration = nowClock - cliffWaitStartTime
+				if cliffWaitDuration >= 8.0 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
 					if courierActive then
-						-- 📦 Mode Auto Kurir: Gunakan attemptVoidBridge yang sudah memiliki Klaten Ground Scanner!
-						-- JANGAN hardcode teleport ke destP (kardus) karna menyebabkan kick Error 263.
-						task.spawn(function()
-							local bridgeLanding = attemptVoidBridge(car, carPos, destP)
-							if bridgeLanding then
-								lastGroundY = bridgeLanding.Y
-							end
-						end)
+						UI.Notify("⚠️ Jurang Terlalu Luas", "Mencoba kalkulasi ulang rute...", 2.0, "warning")
 						return
 					else
 						task.spawn(function()
@@ -3128,6 +3121,19 @@ local success, err = pcall(function()
 
 							if not courierActive then return end
 
+							-- 🛡️ Verifikasi Kedatangan: Pastikan motor BENAR-BENAR sudah tiba dekat dengan dropPos!
+							local carAfterDrive = getPlayerVehicle()
+							local curPosAfterDrive = carAfterDrive and carAfterDrive:GetPivot().Position
+							local distToDrop = (curPosAfterDrive and dropPos) and (curPosAfterDrive - dropPos).Magnitude or math.huge
+
+							if distToDrop > 25 then
+								-- Motor belum sampai di titik pengantaran (terhenti di jalan/rintangan).
+								-- JANGAN PERNAH mengklaim paket terkirim jika belum sampai!
+								UI.Notify("🛵 Melanjutkan Perjalanan", string.format("Jarak ke tujuan masih %.0fm. Menavigasi kembali...", distToDrop), 2.5, "info")
+								task.wait(0.5)
+								return
+							end
+
 							-- Motor sudah tiba secara mulus di titik pengantaran melalui navigasi jalan raya.
 							-- Tidak perlu PivotTo paksa atau safety plate agar tidak memicu deteksi teleport server!
 
@@ -3184,9 +3190,15 @@ local success, err = pcall(function()
 								ensureDriverSeated()
 							end
 
-							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
-							local totalDone = _G.HipHubCompletedCourier
-							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
+							if isHandedOver then
+								_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
+								local totalDone = _G.HipHubCompletedCourier
+								UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
+							else
+								UI.Notify("⚠️ Paket Belum Diserahkan", "Mencoba mendekat dan menyerahkan ulang...", 2.0, "warning")
+								task.wait(0.5)
+								return
+							end
 
 							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
 							-- Motor WAJIB diam total di tempat (rem aktif). JANGAN PERNAH jalan ke arah depot!
