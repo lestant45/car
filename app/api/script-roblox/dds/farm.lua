@@ -415,6 +415,69 @@ local success, err = pcall(function()
 		end
 	end)
 
+	-- 🌊 GLOBAL WATER GUARD: Heartbeat independen yang selalu aktif (bahkan di luar loop drive)
+	-- Memastikan motor & player TIDAK PERNAH menyentuh Terrain Water dalam kondisi apapun.
+	-- Ini adalah lapisan pertahanan pertama (pre-drive) untuk mencegah Error 263 Connection Timed Out.
+	if not _G.HipHubWaterGuardRunning then
+		_G.HipHubWaterGuardRunning = true
+		RunService.Heartbeat:Connect(function()
+			pcall(function()
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				-- Disable Swimming state setiap frame agar tidak ada fluid physics sama sekali
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+				end
+
+				local seat = hum and hum.SeatPart
+				local car = seat and seat:FindFirstAncestorOfClass("Model")
+				if not car or not seat then return end
+
+				local carPos = car:GetPivot().Position
+
+				-- Deteksi air di bawah motor (0 - 4 stud di bawah posisi saat ini)
+				local wpCheck = RaycastParams.new()
+				wpCheck.FilterDescendantsInstances = { car, char }
+				wpCheck.FilterType = Enum.RaycastFilterType.Exclude
+				wpCheck.IgnoreWater = false
+				local wHit = workspace:Raycast(
+					Vector3.new(carPos.X, carPos.Y + 2, carPos.Z),
+					Vector3.new(0, -6, 0),
+					wpCheck
+				)
+				if wHit and wHit.Material == Enum.Material.Water then
+					-- Air terdeteksi! Angkat motor ke atas permukaan air seketika
+					local safeY = wHit.Position.Y + 3.0
+					local safePos = Vector3.new(carPos.X, safeY, carPos.Z)
+					-- Buat safety plate agar motor tidak jatuh lagi
+					local plate = workspace:FindFirstChild("__DdsSafetyPlate")
+					if not plate then
+						plate = Instance.new("Part")
+						plate.Name = "__DdsSafetyPlate"
+						plate.Anchored = true
+						plate.CanCollide = true
+						plate.Transparency = 1
+						plate.CastShadow = false
+						plate.Material = Enum.Material.Concrete
+						pcall(function() plate.Parent = workspace end)
+					end
+					plate.Size = Vector3.new(80, 4, 80)
+					plate.CFrame = CFrame.new(carPos.X, safeY - 2, carPos.Z)
+					-- Teleport motor ke atas plate
+					pcall(function() car:PivotTo(CFrame.new(safePos)) end)
+					-- Zero semua kecepatan untuk menghindari NaN physics
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+				end
+			end)
+		end)
+	end
+
+
 	cancelActiveDrive = function()
 		if currentDriveConn then
 			pcall(function() currentDriveConn:Disconnect() end)
@@ -422,6 +485,7 @@ local success, err = pcall(function()
 		end
 		isDrivingActive = false
 	end
+
 
 	local function getRootPart()
 		local char = player.Character
@@ -1178,6 +1242,7 @@ local success, err = pcall(function()
 				local localBrp = RaycastParams.new()
 				local localFilter = table.clone(filter)
 				localBrp.FilterType = Enum.RaycastFilterType.Exclude
+				localBrp.IgnoreWater = false -- 🌊 Terrain Water harus terdeteksi agar tidak dianggap ground!
 
 				for attempt = 1, 6 do
 					localBrp.FilterDescendantsInstances = localFilter
@@ -1302,6 +1367,7 @@ local success, err = pcall(function()
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = rayFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		rayParams.IgnoreWater = false -- 🌊 Terrain Water HARUS terdeteksi sebagai solid oleh semua raycast agar motor tidak menembusnya!
 
 		local nonDrivableMats = {
 			[Enum.Material.ClayRoofTiles] = true,
@@ -1334,6 +1400,7 @@ local success, err = pcall(function()
 				local localFilter = table.clone(rayFilter)
 				local localParams = RaycastParams.new()
 				localParams.FilterType = Enum.RaycastFilterType.Exclude
+				localParams.IgnoreWater = false -- 🌊 Jangan pernah lewatkan Terrain Water!
 
 				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
 				for attempt = 1, 6 do
@@ -1418,27 +1485,66 @@ local success, err = pcall(function()
 			if hum and seat then
 				pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
 				end)
 				if not hum.SeatPart or hum.SeatPart ~= seat then
 					pcall(function() seat:Sit(hum) end)
 				end
 			end
 
+			-- 🌊 PROACTIVE FORWARD WATER SCANNER:
+			-- Sebelum motor bergerak, scan area di depan dan di bawah motor saat ini.
+			-- Jika ada Terrain Water terdeteksi dalam jarak dekat, langsung rescue & tahan posisi!
+			do
+				local fwParams = RaycastParams.new()
+				fwParams.FilterDescendantsInstances = { car, player.Character }
+				fwParams.FilterType = Enum.RaycastFilterType.Exclude
+				fwParams.IgnoreWater = false
+				-- Cek tepat di bawah posisi motor saat ini (threshold 0.5 stud)
+				local belowHit = workspace:Raycast(Vector3.new(carPos.X, carPos.Y + 1.5, carPos.Z), Vector3.new(0, -4.5, 0), fwParams)
+				if belowHit and belowHit.Material == Enum.Material.Water then
+					-- Motor sudah di atas/dalam air! Rescue SEKETIKA ke lastGroundY
+					local rescueY = math.max(lastGroundY, belowHit.Position.Y + 2.5)
+					local rescuePos = Vector3.new(carPos.X, rescueY, carPos.Z)
+					ensureSafetyPlate(rescuePos, 80)
+					pcall(function() car:PivotTo(CFrame.new(rescuePos)) end)
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+					lastGroundY = rescueY
+					UI.Notify("🌊 Water Shield", "Terdeteksi air di bawah motor, diselamatkan!", 1.5, "warning")
+				end
+			end
+
 			-- 🛡️ Anti-Water Submersion & NaN Physics Shield:
-			-- Jika motor mulai turun ke arah air sungai, otomatis tahan dan angkat ke atas Safety Plate
-			if (carPos.Y < (lastGroundY - 2.0)) then
+			-- Jika motor turun bahkan sedikit saja (0.5 stud), cek apakah itu karena air sungai!
+			if (carPos.Y < (lastGroundY - 0.5)) then
 				pcall(function()
 					local checkOrigin = Vector3.new(carPos.X, carPos.Y + 3, carPos.Z)
 					local waterParams = RaycastParams.new()
 					waterParams.FilterDescendantsInstances = { car, player.Character }
 					waterParams.FilterType = Enum.RaycastFilterType.Exclude
 					waterParams.IgnoreWater = false
-					local wHit = workspace:Raycast(checkOrigin, Vector3.new(0, -7, 0), waterParams)
-					if wHit and (wHit.Material == Enum.Material.Water or wHit.Instance.Name:upper():find("AIR") or wHit.Instance.Name:upper():find("SUNGAI")) then
-						local rescueY = math.max(lastGroundY, wHit.Position.Y + 2.0)
+					local wHit = workspace:Raycast(checkOrigin, Vector3.new(0, -8, 0), waterParams)
+					if wHit and (wHit.Material == Enum.Material.Water
+						or wHit.Instance.Name:upper():find("AIR")
+						or wHit.Instance.Name:upper():find("SUNGAI")
+						or wHit.Instance.Name:upper():find("RIVER")
+						or wHit.Instance.Name:upper():find("DANAU")
+					) then
+						local rescueY = math.max(lastGroundY, wHit.Position.Y + 2.5)
 						local rescuePos = Vector3.new(carPos.X, rescueY, carPos.Z)
 						ensureSafetyPlate(rescuePos, 80)
 						car:PivotTo(CFrame.new(rescuePos))
+						for _, part in ipairs(car:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.AssemblyLinearVelocity = Vector3.zero
+								part.AssemblyAngularVelocity = Vector3.zero
+							end
+						end
 						lastGroundY = rescueY
 					end
 				end)
@@ -2758,89 +2864,10 @@ local success, err = pcall(function()
 		return true
 	end
 
-	local activeGlideTween = nil
-	local activeNoclipConn = nil
-
-	local function cancelActiveGlide()
-		if activeGlideTween then
-			pcall(function() activeGlideTween:Cancel() end)
-			activeGlideTween = nil
-		end
-		if activeNoclipConn then
-			pcall(function() activeNoclipConn:Disconnect() end)
-			activeNoclipConn = nil
-		end
+	local function isDriverSittingOnMotor()
 		local char = player.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if hum then
-			hum.PlatformStand = false
-		end
-		if hrp then
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
-
-	-- 🚶 STRAIGHT GROUND-LEVEL CHARACTER GLIDE ENGINE:
-	-- Meluncur lurus dekat daratan langsung ke target (Bypass Anti-Fly Ketinggian Server)
-	-- Menggunakan Noclip Stepped agar menembus rintangan/gedung/pohon secara mulus
-	-- Tanpa BodyVelocity, Tanpa Anchored, Tanpa Pengubahan Gravitasi (100% Bersih & Aman)
-	local function glideCharacterTo(targetPos, speed, stopDist)
-		cancelActiveGlide()
-		local char = player.Character
-		local hrp  = char and char:FindFirstChild("HumanoidRootPart")
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		if not hrp or not hum or hum.Health <= 0 then return false end
-
-		if hum.Sit then
-			hum.Sit = false
-			task.wait(0.15)
-		end
-
-		local dist = (targetPos - hrp.Position).Magnitude
-		local stoppingDistance = stopDist or 4
-		if dist <= stoppingDistance then
-			return true
-		end
-
-		-- Pre-stream daratan tujuan & bentangkan Safety Plate
-		requestStreamAsync(targetPos)
-		ensureSafetyPlate(targetPos, 60)
-
-		-- Noclip loop agar karakter menembus semua rintangan (gedung, pohon, pagar) tanpa terhalang
-		activeNoclipConn = RunService.Stepped:Connect(function()
-			local c = player.Character
-			if c then
-				for _, p in ipairs(c:GetDescendants()) do
-					if p:IsA("BasePart") then
-						p.CanCollide = false
-					end
-				end
-			end
-		end)
-
-		hum.PlatformStand = true
-		hrp.AssemblyLinearVelocity = Vector3.zero
-		hrp.AssemblyAngularVelocity = Vector3.zero
-
-		local cruiseSpeed = math.clamp(tonumber(speed) or Config.courierSpeed or 100, 30, 180)
-		local tripTime = math.max(0.3, dist / cruiseSpeed)
-
-		-- Titik tujuan lurus pas di dekat permukaan tanah/kardus
-		local goalPos = Vector3.new(targetPos.X + 1.2, targetPos.Y + 2.0, targetPos.Z + 1.2)
-		local flatDiff = Vector3.new(goalPos.X - hrp.Position.X, 0, goalPos.Z - hrp.Position.Z)
-		local targetCFrame = flatDiff.Magnitude > 0.5 
-			and CFrame.new(goalPos, goalPos + flatDiff.Unit) 
-			or CFrame.new(goalPos)
-
-		local tw = TweenService:Create(hrp, TweenInfo.new(tripTime, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
-		activeGlideTween = tw
-		tw:Play()
-		tw.Completed:Wait()
-
-		cancelActiveGlide()
-		return true
+		return hum and hum.SeatPart ~= nil
 	end
 
 	toggleAutoCourier = function(state)
@@ -2867,15 +2894,8 @@ local success, err = pcall(function()
 				_G.HipHubSaveConfig(true)
 			end
 
-			-- Despawn motor jika ada, agar physics bebas 100% dari resiko tercebur air
-			pcall(function()
-				local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
-				local despawn = SpawnCarEvt and SpawnCarEvt:FindFirstChild("DespawnCar")
-				if despawn then despawn:FireServer() end
-			end)
-
-			updateBotActivity("🕊️ Memulai Auto Kurir (Direct Air-Glide)...", Color3.fromRGB(0, 212, 255))
-			UI.Notify("Courier Auto-Worker ON", "Direct Character Air-Glide Aktif!", 3.5, "success")
+			updateBotActivity("📦 Memulai Auto Kurir (Mode Motor)...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Courier Auto-Worker ON", "Navigasi Motor & Void Bridging Aktif!", 3.5, "success")
 
 			courierLoopThread = task.spawn(function()
 				while courierActive do
@@ -2894,46 +2914,46 @@ local success, err = pcall(function()
 							return
 						end
 
-						local char = player.Character
-						local hum  = char and char:FindFirstChildOfClass("Humanoid")
-						local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-						if not char or not hum or not hrp or hum.Health <= 0 then
-							task.wait(1.0)
+						-- 2. Pastikan Pengemudi Duduk di Motor (Bypass Anti-Speedhack 267)
+						if not isDriverSittingOnMotor() then
+							updateBotActivity("🛵 Menaiki Motor...", Color3.fromRGB(0, 212, 255))
+							local ok = ensureDriverSeated()
+							if not ok then
+								spawnTaxiBike()
+								task.wait(1.5)
+								ensureDriverSeated()
+							end
+							task.wait(0.5)
 							return
 						end
 
-						-- Turunkan jika tidak sengaja duduk di motor/kursi
-						if hum.Sit then
-							hum.Sit = false
-							task.wait(0.2)
-						end
-
-						-- 2. Jika belum punya paket di tangan/tas -> Cek dulu apakah server sedang auto-grant
+						-- 3. Jika belum punya paket di tangan/tas -> Cek lagi sebelum memutuskan ke depot
 						if not hasCourierPackage() then
+							-- Beri jeda tambahan jika server belum sempat memberikan paket baru
 							local tWaitAuto = tick()
 							while (tick() - tWaitAuto < 1.5) and courierActive do
 								if hasCourierPackage() then break end
 								task.wait(0.2)
 							end
 
-							-- HANYA jika paket BENAR-BENAR belum ada di tas:
+							-- HANYA jika setelah total waktu tunggu habis paket BENAR-BENAR belum ada di tas:
 							if not hasCourierPackage() and courierActive then
 								local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
-								updateBotActivity("🕊️ Meluncur ke Depot Paket...", Color3.fromRGB(0, 212, 255))
+								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 
-								local depotGlideThread = task.spawn(function()
-									glideCharacterTo(takePos, Config.courierSpeed or 125, 4)
+								local depotDriveThread = task.spawn(function()
+									driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
 								end)
 
-								-- Pantau saat meluncur ke depot: jika paket tiba-tiba muncul di tas -> batalkan arah depot langsung!
-								while not hasCourierPackage() and courierActive and coroutine.status(depotGlideThread) ~= "dead" do
+								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> batalkan arah depot secara mulus!
+								while not hasCourierPackage() and courierActive and coroutine.status(depotDriveThread) ~= "dead" do
 									task.wait(0.2)
 								end
 
 								if hasCourierPackage() then
-									cancelActiveGlide()
-									pcall(function() task.cancel(depotGlideThread) end)
-									task.wait(0.2)
+									cancelActiveDrive()
+									pcall(function() task.cancel(depotDriveThread) end)
+									task.wait(0.3) -- Jeda rem sesaat sebelum akselerasi ke arah tujuan baru
 								end
 
 								if not courierActive then return end
@@ -2958,7 +2978,7 @@ local success, err = pcall(function()
 							end
 						end
 
-						-- 3. Jika paket sudah di tangan/tas -> langsung meluncur ke titik pengantaran
+						-- 4. Jika paket sudah di tangan/tas -> langsung kendarai motor ke titik drop-off tanpa mampir depot
 						if hasCourierPackage() then
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
 							local dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
@@ -2970,6 +2990,7 @@ local success, err = pcall(function()
 							end
 
 							if not dropPos then
+								-- Minta update quest jika desync
 								if deliveryServiceEvent then
 									deliveryServiceEvent:FireServer("RequestJobUpdate")
 								end
@@ -2977,23 +2998,32 @@ local success, err = pcall(function()
 								return
 							end
 
-							local startPos = hrp.Position
+							local car, seat = getPlayerVehicle()
+							local startPos = car and car:GetPivot().Position or dropPos
 							local tripDist = (dropPos - startPos).Magnitude
 							local tripStartTime = tick()
 
-							updateBotActivity(string.format("🕊️ Air-Glide ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
+							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
 							
-							-- Meluncur mulus di udara langsung ke atas tumpukan kardus
-							glideCharacterTo(dropPos, Config.courierSpeed or 125, 3)
+							-- Berhenti rapat (radius 5-7 stud) agar ProximityPrompt tumpukan kardus terjangkau
+							driveVehicleTo(dropPos, Config.courierSpeed or 95, 0)
 
 							if not courierActive then return end
 
-							-- Pastikan Safety Plate kokoh di bawah tumpukan kardus
-							ensureSafetyPlate(dropPos, 60)
+							-- 🛡️ Pasang Safety Plate kokoh di bawah tumpukan kardus agar motor & player tidak pernah jatuh ke void!
+							ensureSafetyPlate(dropPos, 80)
 
-							-- Smart Delivery Pacing (Anti-Kick) jika diaktifkan
+							pcall(function()
+								local c, s = getPlayerVehicle()
+								if c and dropPos then
+									local groundPos = Vector3.new(dropPos.X + 2.5, dropPos.Y + 0.3, dropPos.Z)
+									c:PivotTo(CFrame.new(groundPos))
+								end
+							end)
+
+							-- 🛡️ Smart Delivery Pacing (Anti-Kick)
 							if Config.courierPacing and tripDist > 120 then
-								local safeSpeed = 110.0 + math.random(-5, 5)
+								local safeSpeed = 85.0 + math.random(-4, 5)
 								local minSafeTime = tripDist / safeSpeed
 								local elapsed = tick() - tripStartTime
 								if elapsed < minSafeTime then
@@ -3004,15 +3034,15 @@ local success, err = pcall(function()
 							end
 
 							-- Jeda natural sebelum menyerahkan paket
-							task.wait(0.25 + (math.random(0, 2) / 10.0))
+							task.wait(0.3 + (math.random(0, 3) / 10.0))
 
 							updateBotActivity("📦 Memegang & Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
 							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
 							local tWaitDeliver = tick()
-							local handedOver = false
+							local isHandedOver = false
 
 							while courierActive and (tick() - tWaitDeliver < 6.0) do
-								-- 1. WAJIB: Pegang paket di tangan (Equip dari Backpack ke Character)
+								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character)
 								equipCourierPackage()
 
 								-- 2. Pastikan Prompt diaktifkan & ditembak
@@ -3028,33 +3058,39 @@ local success, err = pcall(function()
 								-- 3. Cek apakah server sudah memproses serah terima paket
 								local curIdNow = tostring(player:GetAttribute("CurrentDelivery") or "")
 								if (initialDeliveryId ~= "" and curIdNow ~= initialDeliveryId) or not hasCourierPackage() then
-									handedOver = true
+									isHandedOver = true
 									break
 								end
 
-								task.wait(0.3)
-							end
-
-							if handedOver or not hasCourierPackage() then
-								_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
-								local totalDone = _G.HipHubCompletedCourier
-								UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
-
-								-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
-								-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas secara otomatis tanpa perlu ke depot
-								updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
-								local tWaitNext = tick()
-								while (tick() - tWaitNext < 3.2) and courierActive do
-									if hasCourierPackage() then
-										UI.Notify("📦 Paket Baru Diterima!", "Mempersiapkan rute ke penerima berikutnya...", 2.0, "success")
-										break
-									end
-									task.wait(0.25)
+								-- 4. Jaga agar tetap duduk di kursi motor tanpa pernah unseat
+								if not isDriverSittingOnMotor() then
+									ensureDriverSeated()
 								end
-								task.wait(0.4)
-							else
-								task.wait(0.5)
+
+								task.wait(0.35)
 							end
+
+							if not isDriverSittingOnMotor() then
+								ensureDriverSeated()
+							end
+
+							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
+							local totalDone = _G.HipHubCompletedCourier
+							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
+
+							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
+							-- Motor WAJIB diam total di tempat (rem aktif). JANGAN PERNAH jalan ke arah depot!
+							-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
+							updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
+							local tWaitNext = tick()
+							while (tick() - tWaitNext < 3.2) and courierActive do
+								if hasCourierPackage() then
+									UI.Notify("📦 Paket Baru Diterima!", "Mempersiapkan rute ke penerima berikutnya...", 2.0, "success")
+									break
+								end
+								task.wait(0.25)
+							end
+							task.wait(0.4)
 						end
 					end)
 
@@ -3065,7 +3101,9 @@ local success, err = pcall(function()
 				end
 			end)
 		else
-			cancelActiveGlide()
+			if cancelActiveDrive then
+				cancelActiveDrive()
+			end
 			if courierLoopThread then
 				pcall(function() task.cancel(courierLoopThread) end)
 				courierLoopThread = nil
@@ -3073,7 +3111,6 @@ local success, err = pcall(function()
 			if changeTeam then
 				changeTeam("Warga")
 			end
-			destroySafetyPlate()
 			updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
 			UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
 		end
@@ -3133,7 +3170,7 @@ local success, err = pcall(function()
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
 	UI.AddSection(tab, "Courier Delivery Auto-Worker")
-	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Straight Ground-Level Glide (Lurus dekat tanah & tembus rintangan)", Config.autoCourier, function(state)
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Takes packages from depot & delivers with straight-line air glide", Config.autoCourier, function(state)
 		toggleAutoCourier(state)
 	end)
 	_G.HipHubAutoCourierToggle = autoCourierToggle
@@ -3148,7 +3185,7 @@ local success, err = pcall(function()
 		end
 	end)
 
-	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 200, math.floor(Config.courierSpeed or 100), function(val)
+	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 250, math.floor(Config.courierSpeed or 95), function(val)
 		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierSpeed = val
