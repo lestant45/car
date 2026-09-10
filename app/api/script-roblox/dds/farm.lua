@@ -1084,39 +1084,10 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 6. ⏱️ LANDING STABILIZATION & INSTANT RESUME
+		-- 6. ⏱️ ZERO FREEZE LANDING: Langsung tancap gas tanpa jeda diam!
 		local distVal = tonumber(jumpDist) or 0
-
-		if courierActive then
-			-- 📦 Mode Kurir: Langsung tancap gas tanpa jeda diam!
-			UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Langsung tancap gas!", math.floor(distVal)), 1.5, "info")
-			task.wait(0.03)
-		else
-			-- 🚖 RideGO Taxi: Hold sesaat agar NPC penumpang tersinkronisasi
-			local holdDuration = math.max(0.8, (distVal / 120.0) * 0.4 + 0.4)
-			UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Diam selama %.1fs agar server aman...", math.floor(distVal), holdDuration), math.min(holdDuration, 5), "success")
-
-			local holdEnd = os.clock() + holdDuration
-			while os.clock() < holdEnd and isDrivingActive do
-				car:PivotTo(targetCF)
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity  = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-				if seat then
-					seat.Throttle = 0
-					seat.ThrottleFloat = 0
-					seat.AssemblyLinearVelocity = Vector3.zero
-					seat.AssemblyAngularVelocity = Vector3.zero
-					if hum and hum.SeatPart ~= seat then
-						pcall(function() seat:Sit(hum) end)
-					end
-				end
-				task.wait(0.05)
-			end
-		end
+		UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Langsung gas pol!", math.floor(distVal)), 1.5, "info")
+		task.wait(0.04)
 
 		-- 7. Nol-kan kembali seluruh kecepatan di posisi baru
 		for _, part in ipairs(car:GetDescendants()) do
@@ -2534,8 +2505,15 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			if autoCourierToggle and autoCourierToggle.Set and _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoCourier then
-				autoCourierToggle.Set(false)
+			Config.autoCourier = false
+			if _G.HipHubConfig and _G.HipHubConfig.farm then
+				_G.HipHubConfig.farm.autoCourier = false
+			end
+			if autoCourierToggle and autoCourierToggle.Set then
+				pcall(function() autoCourierToggle.Set(false) end)
+			end
+			if _G.HipHubSaveConfig then
+				_G.HipHubSaveConfig(true)
 			end
 			setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 
@@ -2582,10 +2560,9 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Motorcycle Navigation)
 	------------------------------------------------
-	local courierActive               = false
-	local activeCourierDestId         = nil
-	local courierLoopThread           = nil
-	local hasTakenInitialDepotPackage = false
+	local courierActive          = false
+	local activeCourierDestId    = nil
+	local courierLoopThread      = nil
 
 	-- Listener untuk ServiceEvent dari Delivery System
 	local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
@@ -2717,13 +2694,16 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			if hasCourierPackage() then
-				hasTakenInitialDepotPackage = true
+			-- Mutual exclusion: matikan RideGO dan simpan ke config agar tidak bentrok
+			Config.autoRideGO = false
+			if _G.HipHubConfig and _G.HipHubConfig.farm then
+				_G.HipHubConfig.farm.autoRideGO = false
 			end
-
-			-- Mutual exclusion: matikan RideGO jika sedang aktif
-			if autoRideGoToggle and autoRideGoToggle.Set and _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO then
-				autoRideGoToggle.Set(false)
+			if autoRideGoToggle and autoRideGoToggle.Set then
+				pcall(function() autoRideGoToggle.Set(false) end)
+			end
+			if _G.HipHubSaveConfig then
+				_G.HipHubSaveConfig(true)
 			end
 
 			updateBotActivity("📦 Memulai Auto Kurir (Mode Motor)...", Color3.fromRGB(0, 212, 255))
@@ -2759,15 +2739,15 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 3. Ambil paket pertama di Depot Take1 (hanya 1x saat baru awal menjadi kurir)
-						if not hasCourierPackage() and not hasTakenInitialDepotPackage then
+						-- 3. Jika belum punya paket di tangan/tas -> Kendarai motor ke Depot Take1 untuk ambil paket baru
+						if not hasCourierPackage() then
 							local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
-							updateBotActivity("🛵 Ambil Paket Awal di Depot...", Color3.fromRGB(0, 212, 255))
+							updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 
 							driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
 							if not courierActive then return end
 
-							updateBotActivity("📦 Mengambil Paket Pertama...", Color3.fromRGB(255, 200, 50))
+							updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
 							local livrason = workspace:FindFirstChild("Livrason")
 							local takePrompt = livrason and livrason:FindFirstChild("Take1") 
 								and livrason.Take1:FindFirstChild("Take") 
@@ -2780,15 +2760,12 @@ local success, err = pcall(function()
 								end
 								task.wait(0.3)
 							end
-							if hasCourierPackage() then
-								hasTakenInitialDepotPackage = true
-							end
 							task.wait(0.5)
 							return
 						end
 
-						-- 4. Langsung antar paket (dan seterusnya tanpa kembali ke depot!)
-						if hasCourierPackage() or hasTakenInitialDepotPackage then
+						-- 4. Jika paket sudah di tangan/tas -> langsung kendarai motor ke titik drop-off tanpa mampir depot
+						if hasCourierPackage() then
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
 							local dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
 
@@ -2883,7 +2860,6 @@ local success, err = pcall(function()
 								ensureDriverSeated()
 							end
 
-							hasTakenInitialDepotPackage = true
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 							local totalDone = _G.HipHubCompletedCourier
 							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar. Menuju penerima berikutnya...", totalDone), 2.5, "success")
@@ -2898,7 +2874,6 @@ local success, err = pcall(function()
 				end
 			end)
 		else
-			hasTakenInitialDepotPackage = false
 			if cancelActiveDrive then
 				cancelActiveDrive()
 			end
@@ -2997,17 +2972,17 @@ local success, err = pcall(function()
 	task.defer(function()
 		task.wait(1.5)
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			if _G.HipHubConfig.farm.autoRideGO then
-				if autoRideGoToggle and autoRideGoToggle.Set then
-					autoRideGoToggle.Set(true)
-				else
-					toggleAutoRideGO(true)
-				end
-			elseif _G.HipHubConfig.farm.autoCourier then
+			if _G.HipHubConfig.farm.autoCourier then
 				if autoCourierToggle and autoCourierToggle.Set then
 					autoCourierToggle.Set(true)
 				else
 					toggleAutoCourier(true)
+				end
+			elseif _G.HipHubConfig.farm.autoRideGO then
+				if autoRideGoToggle and autoRideGoToggle.Set then
+					autoRideGoToggle.Set(true)
+				else
+					toggleAutoRideGO(true)
 				end
 			end
 		end
