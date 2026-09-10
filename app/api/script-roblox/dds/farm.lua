@@ -192,6 +192,7 @@ local success, err = pcall(function()
 	local taxiDropAddr        = ""
 	local isRideGoDutyOnline  = false
 
+	local courierActive           = false
 	local autoRideGoToggle        = nil
 	local restartAutoRideGoToggle = nil
 	local autoCourierToggle       = nil
@@ -342,7 +343,7 @@ local success, err = pcall(function()
 
 	-- 🔄 Unified Toggle Restart Engine (Mematikan toggle UI -> tunggu 1.2s -> nyalakan lagi)
 	restartAutoRideGoToggle = function(reason)
-		if isResettingTaxi or courierActive then return end
+		if isResettingTaxi or courierActive or _G.HipHubCourierActive then return end
 		isResettingTaxi = true
 		UI.Notify("🔄 Resetting Duty", (reason or "Mereset status RideGO...") .. " (Mencari order baru)", 2.5, "warning")
 
@@ -361,11 +362,13 @@ local success, err = pcall(function()
 		-- 3. Jeda 1.2 detik agar server memproses dan penumpang benar-benar hilang
 		task.wait(1.2)
 
-		-- 4. Nyalakan kembali toggle di UI & mulai mencari orderan baru
-		if autoRideGoToggle and autoRideGoToggle.Set then
-			autoRideGoToggle.Set(true)
-		elseif toggleAutoRideGO then
-			toggleAutoRideGO(true)
+		-- 4. Nyalakan kembali toggle di UI HANYA jika Courier tidak sedang aktif!
+		if not courierActive and not _G.HipHubCourierActive then
+			if autoRideGoToggle and autoRideGoToggle.Set then
+				autoRideGoToggle.Set(true)
+			elseif toggleAutoRideGO then
+				toggleAutoRideGO(true)
+			end
 		end
 
 		isResettingTaxi = false
@@ -2516,6 +2519,13 @@ local success, err = pcall(function()
 	end
 
 	toggleAutoRideGO = function(state)
+		if state and (courierActive or _G.HipHubCourierActive) then
+			-- 🛡️ PROTEKSI MUTLAK: Tolak menyalakan RideGO jika Auto Courier sedang aktif!
+			if autoRideGoToggle and autoRideGoToggle.Set then
+				pcall(function() autoRideGoToggle.Set(false) end)
+			end
+			return
+		end
 		taxiActive         = state
 		taxiBusy           = false
 		taxiToken          = nil
@@ -2591,7 +2601,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Motorcycle Navigation)
 	------------------------------------------------
-	local courierActive          = false
+	courierActive                = false
 	local activeCourierDestId    = nil
 	local courierLoopThread      = nil
 
@@ -2716,6 +2726,7 @@ local success, err = pcall(function()
 
 	toggleAutoCourier = function(state)
 		courierActive = state
+		_G.HipHubCourierActive = state
 		Config.autoCourier = state
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.autoCourier = state
