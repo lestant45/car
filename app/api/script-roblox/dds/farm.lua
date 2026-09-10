@@ -1224,6 +1224,8 @@ local success, err = pcall(function()
 
 	-- 🦅 Sky Glide Engine: Fallback Kinematik Tanpa Beban Fisika Kendaraan Khusus Jurang Terlalu Luas (Klaten)
 	-- HANYA dipanggil jika motor tidak menemukan daratan seberang yang bisa dilompati.
+	-- Menggerakkan karakter player secara perlahan dan halus (smooth kinematic glide) melintasi udara/jurang.
+	-- DIJAMIN tidak ada teleportasi instan yang memicu deteksi exploit server (Kode Eror 267).
 	glidePlayerAcrossVoid = function(targetPos, speed)
 		if typeof(targetPos) == "CFrame" then
 			targetPos = targetPos.Position
@@ -1236,20 +1238,22 @@ local success, err = pcall(function()
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return false end
 
-		speed = speed or 130
+		-- Kecepatan stabil di udara (default 100 stud/s sesuai preferensi user)
+		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 100, 70, 120)
 
-		UI.Notify("🦅 Sky Glide Aktif", "Meluncur di udara menyeberangi jurang laut...", 3.0, "info")
-		updateBotActivity("🦅 Sky Glide: Meluncur ke Seberang...", Color3.fromRGB(0, 230, 255))
+		UI.Notify("🦅 Sky Glide Aktif", string.format("Meluncur perlahan di udara (%.0f stud/s)...", effectiveSpeed), 3.0, "info")
+		updateBotActivity("🦅 Sky Glide: Memulai Luncuran...", Color3.fromRGB(0, 230, 255))
 
 		-- 1. Unseat pengemudi dari motor
 		hum.Sit = false
-		task.wait(0.1)
+		task.wait(0.15)
 
 		-- 2. Aktifkan Mode Kinematik Melayang (Bypass Anticheat & Void Fall)
 		hum.PlatformStand = true
 		hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 		hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+		hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
 
 		-- 3. NoClip pada seluruh part tubuh player selama penerbangan
 		local noclipConn = RunService.Stepped:Connect(function()
@@ -1266,44 +1270,55 @@ local success, err = pcall(function()
 		local startPos = hrp.Position
 		local cruiseY = math.max(startPos.Y, targetPos.Y, 28) + 6
 
-		local lastStreamPos = startPos
-		local glideDone = false
 		local curPos = startPos
+		local lastStreamPos = startPos
+		local lastNotifyTime = 0
 		local startTime = os.clock()
+
+		local totalEstDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+		local maxWait = (totalEstDist / math.max(effectiveSpeed, 50)) + 20.0
 
 		-- Pre-stream titik awal & tujuan
 		requestStreamAsync(startPos)
 		requestStreamAsync(targetPos)
 
-		-- Heartbeat Glide Loop
-		local heartbeatConn
-		heartbeatConn = RunService.Heartbeat:Connect(function(dt)
-			if not char or not char.Parent or not hrp or not hrp.Parent or not isFarmRunning or (courierToggle and not courierActive) then
-				glideDone = true
-				return
+		-- 4. Sinkron Meluncur Frame demi Frame (Menggunakan Heartbeat:Wait secara deterministik)
+		-- Loop ini BERJALAN HALUS dan TIDAK MUNGKIN dibatalkan prematur oleh variabel sembarangan!
+		while (courierActive or _G.HipHubCourierActive) do
+			local dt = RunService.Heartbeat:Wait()
+
+			-- Validasi karakter masih hidup & ada di workspace
+			if not (char and char.Parent and hrp and hrp.Parent and hum and hum.Parent) then
+				break
+			end
+
+			-- Safety timeout
+			if (os.clock() - startTime) > maxWait then
+				warn("[HipHub DDS Sky Glide] Timeout tercapai, menyelesaikan luncuran...")
+				break
 			end
 
 			local flatDelta = Vector3.new(targetPos.X - curPos.X, 0, targetPos.Z - curPos.Z)
 			local flatDist = flatDelta.Magnitude
 
-			if flatDist <= 5.0 then
-				glideDone = true
-				return
+			-- Tiba di radius sangat dekat (<= 4 stud) dari target di Klaten
+			if flatDist <= 4.0 then
+				break
 			end
 
 			-- Tentukan elevasi Y adaptif:
-			-- Saat jauh (>120 stud), melayang di cruiseY agar tidak menyentuh air laut.
-			-- Saat mendekat (<=120 stud), turun mulus ke targetPos.Y + 2.5.
+			-- Saat jauh (>100 stud), melayang di cruiseY agar aman di atas air laut.
+			-- Saat mendekat (<=100 stud), turun mulus ke targetPos.Y + 2.0.
 			local desiredY
-			if flatDist > 120 then
+			if flatDist > 100 then
 				desiredY = cruiseY
 			else
-				local blend = math.clamp((120 - flatDist) / 120, 0, 1)
-				desiredY = cruiseY + ((targetPos.Y + 2.5) - cruiseY) * blend
+				local blend = math.clamp((100 - flatDist) / 100, 0, 1)
+				desiredY = cruiseY + ((targetPos.Y + 2.0) - cruiseY) * blend
 			end
 
 			local moveDir = flatDelta.Unit
-			local stepDist = math.min(speed * dt, flatDist)
+			local stepDist = math.min(effectiveSpeed * dt, flatDist)
 
 			local nextX = curPos.X + moveDir.X * stepDist
 			local nextZ = curPos.Z + moveDir.Z * stepDist
@@ -1315,8 +1330,8 @@ local success, err = pcall(function()
 			local lookAt = Vector3.new(targetPos.X, nextY, targetPos.Z)
 			hrp.CFrame = CFrame.new(curPos, lookAt)
 
-			-- Nol-kan velocity tubuh agar server tidak mendeteksi speedhack physics
-			hrp.AssemblyLinearVelocity = Vector3.zero
+			-- Sinkronkan velocity tubuh dengan arah terbang agar momentum fisik valid
+			hrp.AssemblyLinearVelocity = moveDir * effectiveSpeed
 			hrp.AssemblyAngularVelocity = Vector3.zero
 
 			-- Pre-stream chunk secara berkala setiap 120 stud perjalanan
@@ -1325,28 +1340,23 @@ local success, err = pcall(function()
 				requestStreamAsync(curPos)
 				requestStreamAsync(curPos + moveDir * 250)
 			end
-		end)
 
-		-- Tunggu hingga mendarat atau timeout wajar
-		local totalEstDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-		local maxWait = math.max((totalEstDist / speed) + 10.0, 15.0)
-
-		while not glideDone and (os.clock() - startTime < maxWait) do
-			task.wait(0.05)
+			-- Update status UI setiap 0.5 detik agar user dapat memantau pergerakan perlahan di layar
+			local now = os.clock()
+			if now - lastNotifyTime >= 0.5 then
+				lastNotifyTime = now
+				updateBotActivity(string.format("🦅 Sky Glide ke Klaten: %.0fm lagi...", flatDist), Color3.fromRGB(0, 230, 255))
+			end
 		end
 
-		if heartbeatConn then
-			heartbeatConn:Disconnect()
-			heartbeatConn = nil
-		end
 		if noclipConn then
-			noclipConn:Disconnect()
+			pcall(function() noclipConn:Disconnect() end)
 			noclipConn = nil
 		end
 
-		-- 4. Pendaratan Aman di Titik Tujuan
+		-- 5. Pendaratan Halus di Titik Tujuan (Posisi curPos SUDAH berada di target <= 4 stud)
 		pcall(function()
-			local landPos = Vector3.new(targetPos.X, targetPos.Y + 2.5, targetPos.Z)
+			local landPos = Vector3.new(curPos.X, targetPos.Y + 2.0, curPos.Z)
 			ensureSafetyPlate(landPos, 35)
 			hrp.CFrame = CFrame.new(landPos)
 			hrp.AssemblyLinearVelocity = Vector3.zero
@@ -1362,7 +1372,7 @@ local success, err = pcall(function()
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end)
 
-		UI.Notify("✅ Mendarat Aman", "Tiba di area seberang jurang!", 2.0, "success")
+		UI.Notify("✅ Mendarat Aman", "Tiba di Klaten seberang jurang!", 2.5, "success")
 		task.wait(0.3)
 		return true
 	end
@@ -2044,7 +2054,8 @@ local success, err = pcall(function()
 						currentDriveConn = nil
 					end
 					task.spawn(function()
-						glidePlayerAcrossVoid(destP, 130)
+						local glideSpeed = Config.courierSpeed or 100
+						glidePlayerAcrossVoid(destP, glideSpeed)
 						driveFinished = true
 					end)
 					return
@@ -2202,7 +2213,8 @@ local success, err = pcall(function()
 		end)
 
 		isDrivingActive = false
-		return (car:GetPivot().Position - destP).Magnitude <= 15
+		local endPos = (player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart.Position) or (car and car:GetPivot().Position) or Vector3.zero
+		return (endPos - destP).Magnitude <= 25
 	end
 
 	local function resolveTeamName(targetName)
