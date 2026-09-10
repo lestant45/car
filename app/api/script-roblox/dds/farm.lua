@@ -864,31 +864,18 @@ local success, err = pcall(function()
 		-- JIKA nama atau induknya mengandung unsur rintangan / gedung / pohon, BUKAN JALAN!
 		if isObstacleName(name) then return false end
 
+		local cur = obj.Parent
+		while cur and cur ~= workspace and cur ~= game do
+			if isObstacleName(cur.Name) then
+				return false
+			end
+			cur = cur.Parent
+		end
+
 		-- 🚫 AIR / SUNGAI / DANAU BUKAN JALAN! Jangan pernah dianggap sebagai tanah pijakan!
 		if obj:IsA("BasePart") and obj.Material == Enum.Material.Water then return false end
 		if name:find("AIR") or name:find("WATER") or name:find("SUNGAI") or name:find("RIVER") or name:find("DANAU") or name:find("KOLAM") then
 			return false
-		end
-
-		-- 🛣️ Whitelist Mutlak Semua Folder Jalan & Daratan Peta (Cek Ancestors):
-		local cur = obj
-		while cur and cur ~= workspace and cur ~= game do
-			local n = cur.Name:upper()
-			if isObstacleName(n) then
-				return false
-			end
-			if n:sub(1, 3) == "JL_" or n:find("ROAD") or n:find("JALAN") or n:find("TOL")
-				or n:find("FLYOVER") or n:find("BRIDGE") or n:find("JEMBATAN") or n:find("SAWAH")
-				or n:find("KLATEN") or n:find("KARTASURA") or n:find("PURWOSARI") or n:find("SLAMET_RIYADI")
-				or n:find("MANAHAN") or n:find("PAJANG") or n:find("KARANGASEM") or n:find("JAJAR")
-				or n:find("KERTEN") or n:find("BLULUKAN") or n:find("SUMBER") or n:find("FAJAR INDAH")
-				or n == "BASEPLATE" or n == "OTHER_GRASS" or n == "ROADSNEW" or n == "TROTOARNEW"
-				or n == "ZEBRA_CROSS" or n:find("GROUND") or n:find("TERRAIN") or n:find("ASPHALT")
-				or n:find("ASPAL") or n:find("LANTAI") or n:find("FLOOR")
-			then
-				return true
-			end
-			cur = cur.Parent
 		end
 
 		if name == "BASEPLATE" or name == "OTHER_GRASS" or name == "ROADSNEW" or name == "TROTOARNEW"
@@ -965,25 +952,6 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 🛡️ PROTEKSI TOTAL SEMUA JALAN & MAP ASLI (JANGAN PERNAH DIHANCURKAN!):
-		-- Folder JL_*, RoadsNew, TrotoarNew, Sawah, dsb adalah jalan resmi game, BUKAN rintangan!
-		local cur = obj
-		while cur and cur ~= workspace and cur ~= game do
-			local n = cur.Name:upper()
-			if n:sub(1, 3) == "JL_" or n:find("ROAD") or n:find("JALAN") or n:find("TOL")
-				or n:find("FLYOVER") or n:find("BRIDGE") or n:find("JEMBATAN") or n:find("SAWAH")
-				or n:find("KLATEN") or n:find("KARTASURA") or n:find("PURWOSARI") or n:find("SLAMET_RIYADI")
-				or n:find("MANAHAN") or n:find("PAJANG") or n:find("KARANGASEM") or n:find("JAJAR")
-				or n:find("KERTEN") or n:find("BLULUKAN") or n:find("SUMBER") or n:find("FAJAR INDAH")
-				or n == "BASEPLATE" or n == "OTHER_GRASS" or n == "ROADSNEW" or n == "TROTOARNEW"
-				or n == "ZEBRA_CROSS" or n:find("GROUND") or n:find("TERRAIN") or n:find("ASPHALT")
-				or n:find("ASPAL") or n:find("LANTAI") or n:find("FLOOR")
-			then
-				return false
-			end
-			cur = cur.Parent
-		end
-
 		local name = obj.Name:upper()
 		if name:find("LANTAI") or name:find("FLOOR") or name:find("GROUND") or name:find("BASE") or name:find("SEMEN") then
 			return false
@@ -995,7 +963,7 @@ local success, err = pcall(function()
 		end
 
 		-- Check if inside any obstacle folder/model (e.g. BangunanAfterFlyover, harrizon, etc.)
-		cur = obj.Parent
+		local cur = obj.Parent
 		while cur and cur ~= workspace and cur ~= game do
 			if isObstacleName(cur.Name) then
 				return true
@@ -1004,6 +972,11 @@ local success, err = pcall(function()
 		end
 
 		if isRoadOrGround(obj) then return false end
+
+		-- Models inside road folders (JL_* / MANAHAN) that are building / prop models
+		if obj:IsA("Model") and obj.Parent and (obj.Parent.Name:sub(1, 3) == "JL_" or obj.Parent.Name:find("MANAHAN")) then
+			return true
+		end
 
 		-- Roof and wall parts
 		if obj:IsA("BasePart") then
@@ -1364,14 +1337,8 @@ local success, err = pcall(function()
 						if landDistToDest < totalDistToDest - minProgress then
 							local landPos = Vector3.new(px, solidY + 0.5, pz)
 							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-							-- 🛑 ANTI-KICK SAFETY: Dilarang keras melompat instan jarak jauh (> 75 stud)!
-							-- Melompat ratusan stud memicu strike dan kick server (Error 267).
-							-- Melompat hanya diizinkan untuk celah sambungan aspal/tanjakan lokal pendek (<= 75 stud).
-							local maxSafeJump = courierActive and 75 or 120
-							if jumpDist <= maxSafeJump then
-								local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-								return landed, jumpDist
-							end
+							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+							return landed, jumpDist
 						end
 					end
 				else
@@ -3014,87 +2981,6 @@ local success, err = pcall(function()
 		return hum and hum.SeatPart ~= nil
 	end
 
-	-- 🛣️ Navigasi Jalur Darat Antar-Kota Khusus Kurir (Solo <-> Kartasura <-> Klaten):
-	-- Mencegah bot memotong kompas ke laut/tebing pantai saat pengantaran ke Klaten.
-	local function driveAlongCourierRoute(targetPos, speed, stopRadius, isReturningToDepot)
-		if typeof(targetPos) == "CFrame" then
-			targetPos = targetPos.Position
-		end
-		if typeof(targetPos) ~= "Vector3" then return false end
-
-		local car, seat = getPlayerVehicle()
-		local startPos = car and car:GetPivot().Position or targetPos
-		local isTargetKlaten = (targetPos.X < -11500 and targetPos.Z > 1200)
-		local isStartKlaten = (startPos.X < -11500 and startPos.Z > 1200)
-
-		if isTargetKlaten or isStartKlaten then
-			-- 🛣️ Koridor Jalan Aspal Antar-Kota (Solo <-> Kartasura <-> Klaten):
-			-- Mengikuti jalan raya beraspal asli yang terdaftar di map DDS.
-			local klatenCorridorWaypoints = {
-				Vector3.new(-4500, 5, -3759),  -- 1. Jalur keluar Depot (Jalan Raya Utara)
-				Vector3.new(-3350, 5, -2800),  -- 2. Persimpangan jalan arteri menuju Kota
-				Vector3.new(-2500, 10, -1000), -- 3. Koridor Flyover Purwosari / Solo Center
-				Vector3.new(-4500, 5, -550),   -- 4. Jalan Slamet Riyadi Barat
-				Vector3.new(-6800, 4, -450),   -- 5. Menuju Kartasura (melalui dekat Titik 1)
-				Vector3.new(-8773, 4, 643),    -- 6. Gerbang Masuk Kartasura (Titik 3 / JL_KARTASURA)
-				Vector3.new(-11500, 15, 1800), -- 7. Jalan Raya Antar Kota Kartasura - Klaten
-				Vector3.new(-13800, 20, 2600), -- 8. Memasuki Gerbang Jalan Raya Klaten
-				Vector3.new(-14800, 25, 3200), -- 9. Wilayah Klaten (JL_KLATEN & Sawah)
-			}
-
-			if isTargetKlaten then
-				-- Menuju Klaten: Cari waypoint terdekat dari posisi saat ini agar tidak berbalik arah
-				local startIndex = 1
-				local bestDist = (startPos - klatenCorridorWaypoints[1]).Magnitude
-				for idx = 2, #klatenCorridorWaypoints do
-					local d = (startPos - klatenCorridorWaypoints[idx]).Magnitude
-					if d < bestDist then
-						bestDist = d
-						startIndex = idx
-					end
-				end
-
-				for i = startIndex, #klatenCorridorWaypoints do
-					if not courierActive then break end
-					local wp = klatenCorridorWaypoints[i]
-					updateBotActivity(string.format("🛣️ Mengikuti Jalan Aspal Klaten (#%d/%d)...", i, #klatenCorridorWaypoints), Color3.fromRGB(0, 212, 255))
-					driveVehicleTo(wp, speed, 25)
-				end
-				-- Terakhir, jalan ke titik dropPos paket
-				if courierActive then
-					updateBotActivity("🛵 Menuju Titik Pengantaran Paket...", Color3.fromRGB(0, 212, 255))
-					driveVehicleTo(targetPos, speed, stopRadius or 0)
-				end
-			elseif isStartKlaten then
-				-- Pulang dari Klaten ke Depot: Cari waypoint terdekat dari posisi motor di Klaten lalu mundur ke #1
-				local startIndex = #klatenCorridorWaypoints
-				local bestDist = (startPos - klatenCorridorWaypoints[#klatenCorridorWaypoints]).Magnitude
-				for idx = #klatenCorridorWaypoints - 1, 1, -1 do
-					local d = (startPos - klatenCorridorWaypoints[idx]).Magnitude
-					if d < bestDist then
-						bestDist = d
-						startIndex = idx
-					end
-				end
-
-				for i = startIndex, 1, -1 do
-					if not courierActive then break end
-					local wp = klatenCorridorWaypoints[i]
-					updateBotActivity(string.format("🛣️ Mengikuti Jalan Aspal Pulang (#%d)...", i), Color3.fromRGB(0, 212, 255))
-					driveVehicleTo(wp, speed, 25)
-				end
-				-- Terakhir, tiba di depot
-				if courierActive then
-					updateBotActivity("🛵 Memasuki Area Depot Paket...", Color3.fromRGB(0, 212, 255))
-					driveVehicleTo(targetPos, speed, stopRadius or 6)
-				end
-			end
-		else
-			-- Rute dalam kota biasa: langsung navigasi jalan raya ke target
-			driveVehicleTo(targetPos, speed, stopRadius or 0)
-		end
-	end
-
 	toggleAutoCourier = function(state)
 		courierActive = state
 		_G.HipHubCourierActive = state
@@ -3167,7 +3053,7 @@ local success, err = pcall(function()
 								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 
 								local depotDriveThread = task.spawn(function()
-									driveAlongCourierRoute(takePos, Config.courierSpeed or 95, 6, true)
+									driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
 								end)
 
 								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> batalkan arah depot secara mulus!
@@ -3231,7 +3117,7 @@ local success, err = pcall(function()
 							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
 							
 							-- Berhenti rapat (radius 5-7 stud) agar ProximityPrompt tumpukan kardus terjangkau
-							driveAlongCourierRoute(dropPos, Config.courierSpeed or 95, 0, false)
+							driveVehicleTo(dropPos, Config.courierSpeed or 95, 0)
 
 							if not courierActive then return end
 
