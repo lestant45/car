@@ -772,7 +772,7 @@ local success, err = pcall(function()
 			or n:find("TOWN") or n:find("SQUARE") or n:find("MOLDING") or n:find("MEJA")
 			or n:find("KURSI") or n:find("TABLE") or n:find("GATE") or n:find("GARAGE")
 			or n:find("DEALER") or n:find("PAGAR") or n:find("FENCE") or n:find("BARRIER")
-			or n:find("LANTAI") or n:find("WALL") or n:find("DINDING") or n:find("ROOF")
+			or n:find("WALL") or n:find("DINDING") or n:find("ROOF")
 			or n:find("ATAP") or n:find("TV") or n:find("COMPUTER") or n:find("PENJUAL")
 			or n:find("SATLANTAS") or n == "RS" or n:find("INDOMART") or n:find("PLATINUM")
 			or n:find("GATAU") or n:find("PJL") or n:find("STOPPER") or n:find("MACHINE")
@@ -809,7 +809,7 @@ local success, err = pcall(function()
 			or name:find("GRASS") or name == "FLYOVER" or name:find("JEMBATAN") or name:find("BRIDGE")
 			or name:find("OVERPASS") or name:find("RAMP") or name:find("HIGHWAY") or name:find("TOLL")
 			or name:find("TROTO") or name:find("ROAD") or name:find("JALAN") or name:find("ASPHALT")
-			or name:find("ASPAL")
+			or name:find("ASPAL") or name:find("LANTAI") or name:find("FLOOR") or name:find("SEMEN")
 		then
 			return true
 		end
@@ -859,7 +859,29 @@ local success, err = pcall(function()
 		if obj.Name == "__DdsSafetyPlate" then return false end
 		if isVehicleOrSeatOrPlayer(obj) then return false end
 
+		-- 🛡️ PROTEKSI TOTAL TITIK PENGANTARAN KURIR:
+		-- JANGAN PERNAH destroy apapun di dalam folder Livrason atau dalam radius 75 stud dari semua titik delivery!
+		local liv = workspace:FindFirstChild("Livrason")
+		if liv and (obj == liv or obj:IsDescendantOf(liv)) then
+			return false
+		end
+
+		if liv and liv:FindFirstChild("Location") then
+			local objPos = obj:IsA("BasePart") and obj.Position or (obj:IsA("Model") and obj:GetPivot().Position)
+			if objPos then
+				for _, loc in ipairs(liv.Location:GetChildren()) do
+					local blk = loc:FindFirstChild("Block")
+					if blk and (objPos - blk.Position).Magnitude <= 75 then
+						return false
+					end
+				end
+			end
+		end
+
 		local name = obj.Name:upper()
+		if name:find("LANTAI") or name:find("FLOOR") or name:find("GROUND") or name:find("BASE") or name:find("SEMEN") then
+			return false
+		end
 
 		-- Explicit non-road obstacle keywords
 		if isObstacleName(name) then
@@ -1390,12 +1412,13 @@ local success, err = pcall(function()
 				pcall(function() seat:Sit(hum) end)
 			end
 
-			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas di bawah Y < -45 (ruang hampa luar map)
-			if carPos.Y < -45 then
-				local rescuePos = Vector3.new(carPos.X, math.max(lastGroundY, 5), carPos.Z)
+			-- 🦺 Emergency Void Fall Recovery: Jaring pengaman jika jatuh bebas (sebelum mencapai ketinggian kick server)
+			if carPos.Y < (lastGroundY - 18) or carPos.Y < -15 then
+				local rescueY = math.max(lastGroundY, 5)
+				local rescuePos = Vector3.new(carPos.X, rescueY, carPos.Z)
 				ensureSafetyPlate(rescuePos, 80)
 				car:PivotTo(CFrame.new(rescuePos))
-				lastGroundY = rescuePos.Y
+				lastGroundY = rescueY
 				if hum and seat and (not hum.SeatPart or hum.SeatPart ~= seat) then
 					mountBike()
 				end
@@ -2796,11 +2819,13 @@ local success, err = pcall(function()
 
 							if not courierActive then return end
 
-							-- Pastikan motor parkir rapat dan stabil di samping tumpukan kardus
+							-- 🛡️ Pasang Safety Plate kokoh di bawah tumpukan kardus agar motor & player tidak pernah jatuh ke void!
+							ensureSafetyPlate(dropPos, 80)
+
 							pcall(function()
 								local c, s = getPlayerVehicle()
 								if c and dropPos then
-									local groundPos = Vector3.new(dropPos.X + 3.0, dropPos.Y + 0.5, dropPos.Z)
+									local groundPos = Vector3.new(dropPos.X + 2.5, dropPos.Y + 0.3, dropPos.Z)
 									c:PivotTo(CFrame.new(groundPos))
 								end
 							end)
@@ -2846,21 +2871,14 @@ local success, err = pcall(function()
 									break
 								end
 
-								-- 4. Jika setelah 2.5s belum terpicu saat duduk di motor, sentuh daratan sesaat
-								if (tick() - tWaitDeliver > 2.5) and isDriverSittingOnMotor() then
-									pcall(function()
-										local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-										if hum then hum.Sit = false end
-										task.wait(0.15)
-										equipCourierPackage()
-										if dropPrompt then triggerCourierPrompt(dropPrompt, 0.5) end
-									end)
+								-- 4. Jaga agar tetap duduk di kursi motor tanpa pernah unseat
+								if not isDriverSittingOnMotor() then
+									ensureDriverSeated()
 								end
 
 								task.wait(0.35)
 							end
 
-							-- Jika sempat berdiri sesaat, pastikan duduk kembali ke motor
 							if not isDriverSittingOnMotor() then
 								ensureDriverSeated()
 							end
