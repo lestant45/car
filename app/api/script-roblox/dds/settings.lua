@@ -32,6 +32,7 @@ local success, err = pcall(function()
 			autoRejoinOrders = 30,
 			autoCourier = false,
 			courierSpeed = 95,
+			courierPacing = true,
 			autoDragRace = false,
 			dragTargetTime = 6.5,
 			autoDailyQuests = false,

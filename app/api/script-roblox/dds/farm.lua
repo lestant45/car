@@ -153,10 +153,15 @@ local success, err = pcall(function()
 		taxiSpeed = 90,
 		passengerBoardDelay = 3,
 		tripPacing = true,
-		autoRejoinOrders = 30
+		autoRejoinOrders = 30,
+		autoCourier = false,
+		courierSpeed = 95,
+		courierPacing = true
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
+	if Config.courierPacing == nil then Config.courierPacing = true end
+	if Config.courierSpeed == nil then Config.courierSpeed = 95 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -189,6 +194,8 @@ local success, err = pcall(function()
 
 	local autoRideGoToggle        = nil
 	local restartAutoRideGoToggle = nil
+	local autoCourierToggle       = nil
+	local toggleAutoCourier       = nil
 
 	local changeTeam          = nil
 	local mountBike           = nil
@@ -2486,6 +2493,9 @@ local success, err = pcall(function()
 		end
 
 		if state then
+			if autoCourierToggle and autoCourierToggle.Set and _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoCourier then
+				autoCourierToggle.Set(false)
+			end
 			setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 
 			if startPhoneOverlayPoller then
@@ -2525,6 +2535,364 @@ local success, err = pcall(function()
 				if pNpc then pNpc:Destroy() end
 			end)
 			UI.Notify("RideGO Auto-Farm OFF", "Driver offline & order reset.", 2, "warning")
+		end
+	end
+
+	------------------------------------------------
+	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Straight-Line Air Glide)
+	------------------------------------------------
+	local courierActive          = false
+	local courierGlideConn       = nil
+	local isCourierGliding       = false
+	local activeCourierDestId    = nil
+	local courierLoopThread      = nil
+
+	-- Listener untuk ServiceEvent dari Delivery System
+	local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
+	local deliverySettingsFolder = deliverySys and deliverySys:FindFirstChild("Settings")
+	local deliveryServiceEvent = deliverySettingsFolder and deliverySettingsFolder:FindFirstChild("ServiceEvent")
+
+	if deliveryServiceEvent then
+		deliveryServiceEvent.OnClientEvent:Connect(function(action, eventType, locId)
+			if action == "ServiceEvent" and eventType == "Create" then
+				activeCourierDestId = tostring(locId)
+			elseif eventType ~= "Create" then
+				activeCourierDestId = nil
+			end
+		end)
+	end
+
+	local function hasCourierPackage()
+		local char = player.Character
+		if char then
+			if char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool") then
+				return true
+			end
+		end
+		local bp = player:FindFirstChild("Backpack")
+		if bp and (bp:FindFirstChild("Package") or bp:FindFirstChildWhichIsA("Tool")) then
+			return true
+		end
+		return false
+	end
+
+	local function getCourierDestination()
+		local livrason = workspace:FindFirstChild("Livrason")
+		local locFolder = livrason and livrason:FindFirstChild("Location")
+		if not locFolder then return nil, nil, nil end
+
+		-- 1. Berdasarkan activeCourierDestId dari RemoteEvent
+		if activeCourierDestId then
+			local child = locFolder:FindFirstChild(activeCourierDestId)
+			local block = child and child:FindFirstChild("Block")
+			local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
+			if block then
+				return block.Position, prompt, block
+			end
+		end
+
+		-- 2. Scan lokasi yang memiliki ProximityPrompt atau POINT aktif
+		for _, child in ipairs(locFolder:GetChildren()) do
+			local block = child:FindFirstChild("Block")
+			local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
+			local point = child:FindFirstChild("POINT")
+			local bg = point and point:FindFirstChildOfClass("BillboardGui")
+
+			if (prompt and prompt.Enabled) or (bg and bg.Enabled) then
+				return block and block.Position, prompt, block
+			end
+		end
+
+		-- 3. Cek Indicateur beam target
+		local indicateur = workspace:FindFirstChild("Indicateur")
+		if indicateur and indicateur:IsA("Beam") and indicateur.Enabled and indicateur.Attachment0 then
+			local parentPart = indicateur.Attachment0.Parent
+			if parentPart and parentPart:IsA("BasePart") then
+				local prompt = parentPart:FindFirstChildOfClass("ProximityPrompt")
+				return parentPart.Position, prompt, parentPart
+			end
+		end
+
+		return nil, nil, nil
+	end
+
+	local function triggerCourierPrompt(prompt, holdDuration)
+		if not prompt then return false end
+		local duration = holdDuration or prompt.HoldDuration or 1.0
+		pcall(function()
+			if fireproximityprompt then
+				fireproximityprompt(prompt, duration + 0.15)
+			elseif prompt.InputHoldBegin then
+				prompt:InputHoldBegin()
+				task.wait(duration + 0.05)
+				prompt:InputHoldEnd()
+			end
+		end)
+		return true
+	end
+
+	local function cancelCourierGlide()
+		if courierGlideConn then
+			pcall(function() courierGlideConn:Disconnect() end)
+			courierGlideConn = nil
+		end
+		isCourierGliding = false
+		local char = player.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			pcall(function()
+				hum.PlatformStanding = false
+			end)
+		end
+	end
+
+	local function glideCharacterTo(targetPos, speed, arriveRadius)
+		cancelCourierGlide()
+		if typeof(targetPos) == "CFrame" then targetPos = targetPos.Position end
+		if typeof(targetPos) ~= "Vector3" then return false end
+
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if not char or not root or not hum then return false end
+
+		isCourierGliding = true
+		arriveRadius = arriveRadius or 3.5
+		speed = tonumber(speed) or tonumber(Config.courierSpeed) or 95
+
+		-- Matikan ragdoll & pastikan noclip
+		pcall(function()
+			hum.PlatformStanding = true
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+		end)
+
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.CanCollide = false
+			end
+		end
+
+		local startP = root.Position
+		local destP = targetPos
+		local distTotal = (destP - startP).Magnitude
+		if distTotal <= arriveRadius then
+			isCourierGliding = false
+			return true
+		end
+
+		local glideFinished = false
+		local lastT = os.clock()
+
+		courierGlideConn = RunService.Heartbeat:Connect(function()
+			if not courierActive or not isCourierGliding then
+				if courierGlideConn then courierGlideConn:Disconnect() end
+				glideFinished = true
+				return
+			end
+
+			local now = os.clock()
+			local dt = math.clamp(now - lastT, 0.001, 0.1)
+			lastT = now
+
+			local cPos = root.Position
+			local delta = destP - cPos
+			local curDist = delta.Magnitude
+
+			if curDist <= arriveRadius then
+				glideFinished = true
+				if courierGlideConn then courierGlideConn:Disconnect() end
+				return
+			end
+
+			-- Pengereman halus mendekati target agar presisi
+			local curTargetSpeed = speed
+			if curDist < 12 then
+				curTargetSpeed = math.max(15, speed * (curDist / 12))
+			elseif curDist < 30 then
+				curTargetSpeed = math.max(25, speed * (curDist / 30))
+			end
+
+			local moveDir = delta.Unit
+			local stepDist = curTargetSpeed * dt
+			local newPos = cPos + moveDir * stepDist
+
+			pcall(function()
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") then
+						p.CanCollide = false
+					end
+				end
+
+				root.CFrame = CFrame.new(newPos, newPos + moveDir)
+				root.AssemblyLinearVelocity = moveDir * curTargetSpeed
+				root.AssemblyAngularVelocity = Vector3.zero
+			end)
+		end)
+
+		while not glideFinished and courierActive and isCourierGliding do
+			task.wait(0.05)
+		end
+
+		cancelCourierGlide()
+		pcall(function()
+			if root then
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+			if hum then
+				hum.PlatformStanding = false
+			end
+		end)
+
+		return (root.Position - destP).Magnitude <= (arriveRadius + 2.5)
+	end
+
+	toggleAutoCourier = function(state)
+		courierActive = state
+		Config.autoCourier = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.autoCourier = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+
+		if state then
+			-- Mutual exclusion: matikan RideGO jika sedang aktif
+			if autoRideGoToggle and autoRideGoToggle.Set and _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO then
+				autoRideGoToggle.Set(false)
+			end
+
+			updateBotActivity("📦 Memulai Auto Kurir...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Courier Auto-Worker ON", "Straight-Line Air Glide Aktif (Bisa lewati jurang)!", 3.5, "success")
+
+			courierLoopThread = task.spawn(function()
+				while courierActive do
+					task.wait(0.25)
+					if not courierActive then break end
+
+					local cycleOk, cycleErr = pcall(function()
+						-- 1. Pastikan Tim adalah "Courier"
+						local curTeam = player.Team and player.Team.Name or ""
+						if not curTeam:lower():find("courier") then
+							updateBotActivity("📦 Ganti Tim ke Kurir...", Color3.fromRGB(0, 212, 255))
+							if changeTeam then
+								changeTeam("Courier")
+							end
+							task.wait(1.2)
+							return
+						end
+
+						-- 2. Jika belum punya paket di tangan -> melayang ke Depot Take1
+						if not hasCourierPackage() then
+							local takePos = Vector3.new(-5105.6, 5.5, -3759.0)
+							updateBotActivity("📦 Melayang ke Depot Paket...", Color3.fromRGB(0, 212, 255))
+
+							local arrived = glideCharacterTo(takePos, Config.courierSpeed or 95, 3.5)
+							if not arrived or not courierActive then return end
+
+							updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
+							local livrason = workspace:FindFirstChild("Livrason")
+							local takePrompt = livrason and livrason:FindFirstChild("Take1") 
+								and livrason.Take1:FindFirstChild("Take") 
+								and livrason.Take1.Take:FindFirstChildOfClass("ProximityPrompt")
+
+							local tStartTake = tick()
+							while not hasCourierPackage() and courierActive and (tick() - tStartTake < 5.0) do
+								if takePrompt then
+									triggerCourierPrompt(takePrompt, 1.0)
+								end
+								task.wait(0.4)
+							end
+							task.wait(0.5)
+							return
+						end
+
+						-- 3. Jika paket sudah di tangan -> cari titik drop-off
+						if hasCourierPackage() then
+							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
+							local dropPos, dropPrompt, dropBlock = getCourierDestination()
+
+							local tWaitDest = tick()
+							while not dropPos and courierActive and (tick() - tWaitDest < 4.0) do
+								task.wait(0.3)
+								dropPos, dropPrompt, dropBlock = getCourierDestination()
+							end
+
+							if not dropPos then
+								-- Minta update quest jika desync
+								if deliveryServiceEvent then
+									deliveryServiceEvent:FireServer("RequestJobUpdate")
+								end
+								task.wait(1.0)
+								return
+							end
+
+							local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+							local startPos = root and root.Position or dropPos
+							local tripDist = (dropPos - startPos).Magnitude
+							local tripStartTime = tick()
+
+							updateBotActivity("📦 Mengantar Paket ke Tujuan...", Color3.fromRGB(0, 212, 255))
+							local dropDestPos = dropPos + Vector3.new(0, 2.5, 0)
+							glideCharacterTo(dropDestPos, Config.courierSpeed or 95, 3.5)
+
+							if not courierActive then return end
+
+							-- 🛡️ Smart Delivery Pacing (Anti-Kick)
+							if Config.courierPacing and tripDist > 120 then
+								local safeSpeed = 85.0 + math.random(-4, 5)
+								local minSafeTime = tripDist / safeSpeed
+								local elapsed = tick() - tripStartTime
+								if elapsed < minSafeTime then
+									local waitTime = minSafeTime - elapsed
+									updateBotActivity(string.format("⏱️ Pacing Kurir (%.1fs)...", waitTime), Color3.fromRGB(255, 180, 50))
+									task.wait(waitTime)
+								end
+							end
+
+							-- Jeda natural sebelum menyerahkan paket
+							task.wait(0.5 + (math.random(0, 5) / 10.0))
+
+							updateBotActivity("📦 Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
+							local tWaitDeliver = tick()
+							while hasCourierPackage() and courierActive and (tick() - tWaitDeliver < 5.0) do
+								if not dropPrompt then
+									local _, np, _ = getCourierDestination()
+									dropPrompt = np
+								end
+								if dropPrompt then
+									triggerCourierPrompt(dropPrompt, 1.0)
+								end
+								task.wait(0.4)
+							end
+
+							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
+							local totalDone = _G.HipHubCompletedCourier
+							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar. Ambil paket berikutnya...", totalDone), 3, "success")
+							task.wait(0.8)
+						end
+					end)
+
+					if not cycleOk then
+						warn("[HipHub DDS Courier Error]:", cycleErr)
+						task.wait(1.5)
+					end
+				end
+			end)
+		else
+			cancelCourierGlide()
+			if courierLoopThread then
+				pcall(function() task.cancel(courierLoopThread) end)
+				courierLoopThread = nil
+			end
+			if changeTeam then
+				changeTeam("Warga")
+			end
+			updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+			UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
 		end
 	end
 
@@ -2577,14 +2945,51 @@ local success, err = pcall(function()
 		end
 	end)
 
-	-- 🚀 Auto-resume Auto RideGO jika aktif pada config tersimpan
+	------------------------------------------------
+	-- 📦 COURIER DELIVERY UI SECTION
+	------------------------------------------------
+	UI.AddSection(tab, "Courier Delivery Auto-Worker")
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Takes packages from depot & delivers with straight-line air glide", Config.autoCourier, function(state)
+		toggleAutoCourier(state)
+	end)
+	_G.HipHubAutoCourierToggle = autoCourierToggle
+
+	UI.AddToggle(tab, "Smart Delivery Pacing (Anti-Kick)", "Menahan waktu antar pas di server agar tidak terdeteksi. Matikan untuk Turbo.", Config.courierPacing, function(state)
+		Config.courierPacing = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierPacing = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 250, math.floor(Config.courierSpeed or 95), function(val)
+		Config.courierSpeed = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierSpeed = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	-- 🚀 Auto-resume Auto RideGO / Courier jika aktif pada config tersimpan
 	task.defer(function()
 		task.wait(1.5)
-		if _G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO then
-			if autoRideGoToggle and autoRideGoToggle.Set then
-				autoRideGoToggle.Set(true)
-			else
-				toggleAutoRideGO(true)
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			if _G.HipHubConfig.farm.autoRideGO then
+				if autoRideGoToggle and autoRideGoToggle.Set then
+					autoRideGoToggle.Set(true)
+				else
+					toggleAutoRideGO(true)
+				end
+			elseif _G.HipHubConfig.farm.autoCourier then
+				if autoCourierToggle and autoCourierToggle.Set then
+					autoCourierToggle.Set(true)
+				else
+					toggleAutoCourier(true)
+				end
 			end
 		end
 	end)
