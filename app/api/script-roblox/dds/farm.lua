@@ -203,6 +203,7 @@ local success, err = pcall(function()
 	local ensureDriverSeated  = nil
 	local recoverRideGoDuty   = nil
 	local cancelActiveDrive   = nil
+	local glidePlayerAcrossVoid = nil
 	local startPhoneOverlayPoller = nil
 
 	local function updateBotActivity(statusText, customColor)
@@ -549,13 +550,17 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 1. Cari motor yang sah milik player di workspace
+		-- 1. Cari motor yang sah milik player di workspace (dalam radius wajar <= 150 studs)
+		local hrp = char:FindFirstChild("HumanoidRootPart")
 		for _, c in ipairs(workspace:GetChildren()) do
 			if c:IsA("Model") and c ~= char and isMotorcycle(c) then
-				-- 🎯 Prioritaskan DriveSeat sebelum VehicleSeat agar tidak menduduki kursi penumpang!
-				local seat = c:FindFirstChild("DriveSeat", true)
-					or c:FindFirstChildWhichIsA("VehicleSeat", true)
-				if seat then return c, seat end
+				local dist = hrp and (c:GetPivot().Position - hrp.Position).Magnitude or 0
+				if dist <= 150 then
+					-- 🎯 Prioritaskan DriveSeat sebelum VehicleSeat agar tidak menduduki kursi penumpang!
+					local seat = c:FindFirstChild("DriveSeat", true)
+						or c:FindFirstChildWhichIsA("VehicleSeat", true)
+					if seat then return c, seat end
+				end
 			elseif c:IsA("Model") and c ~= char and isUnwantedVehicle(c) and c.Name:find(player.Name) then
 				-- Jika ada truk/bus milik player yang masih tersisa di workspace -> despawn
 				despawnUnwantedVehicle(c)
@@ -612,11 +617,15 @@ local success, err = pcall(function()
 	local function findRidePrompt()
 		local car, seat = getPlayerVehicle()
 		if not car or not seat or isUnwantedVehicle(car) then
+			local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 			for _, c in ipairs(workspace:GetChildren()) do
 				if c:IsA("Model") and c ~= player.Character and isMotorcycle(c) then
-					car = c
-					seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
-					if seat then break end
+					local dist = hrp and (c:GetPivot().Position - hrp.Position).Magnitude or 0
+					if dist <= 150 then
+						car = c
+						seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
+						if seat then break end
+					end
 				end
 			end
 		end
@@ -1190,6 +1199,151 @@ local success, err = pcall(function()
 		end
 
 		return landPos
+	end
+
+	-- 🦅 Sky Glide Engine: Fallback Kinematik Tanpa Beban Fisika Kendaraan Khusus Jurang Terlalu Luas (Klaten)
+	-- HANYA dipanggil jika motor tidak menemukan daratan seberang yang bisa dilompati.
+	glidePlayerAcrossVoid = function(targetPos, speed)
+		if typeof(targetPos) == "CFrame" then
+			targetPos = targetPos.Position
+		end
+		if typeof(targetPos) ~= "Vector3" then return false end
+
+		local char = player.Character
+		if not char then return false end
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not hrp then return false end
+
+		speed = speed or 130
+
+		UI.Notify("🦅 Sky Glide Aktif", "Meluncur di udara menyeberangi jurang laut...", 3.0, "info")
+		updateBotActivity("🦅 Sky Glide: Meluncur ke Seberang...", Color3.fromRGB(0, 230, 255))
+
+		-- 1. Unseat pengemudi dari motor
+		hum.Sit = false
+		task.wait(0.1)
+
+		-- 2. Aktifkan Mode Kinematik Melayang (Bypass Anticheat & Void Fall)
+		hum.PlatformStand = true
+		hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+		hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+
+		-- 3. NoClip pada seluruh part tubuh player selama penerbangan
+		local noclipConn = RunService.Stepped:Connect(function()
+			if char and char.Parent then
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") then
+						p.CanCollide = false
+					end
+				end
+			end
+		end)
+
+		-- Ketinggian jelajah yang aman di atas air laut & bukit
+		local startPos = hrp.Position
+		local cruiseY = math.max(startPos.Y, targetPos.Y, 28) + 6
+
+		local lastStreamPos = startPos
+		local glideDone = false
+		local curPos = startPos
+		local startTime = os.clock()
+
+		-- Pre-stream titik awal & tujuan
+		requestStreamAsync(startPos)
+		requestStreamAsync(targetPos)
+
+		-- Heartbeat Glide Loop
+		local heartbeatConn
+		heartbeatConn = RunService.Heartbeat:Connect(function(dt)
+			if not char or not char.Parent or not hrp or not hrp.Parent or not isFarmRunning or (courierToggle and not courierActive) then
+				glideDone = true
+				return
+			end
+
+			local flatDelta = Vector3.new(targetPos.X - curPos.X, 0, targetPos.Z - curPos.Z)
+			local flatDist = flatDelta.Magnitude
+
+			if flatDist <= 5.0 then
+				glideDone = true
+				return
+			end
+
+			-- Tentukan elevasi Y adaptif:
+			-- Saat jauh (>120 stud), melayang di cruiseY agar tidak menyentuh air laut.
+			-- Saat mendekat (<=120 stud), turun mulus ke targetPos.Y + 2.5.
+			local desiredY
+			if flatDist > 120 then
+				desiredY = cruiseY
+			else
+				local blend = math.clamp((120 - flatDist) / 120, 0, 1)
+				desiredY = cruiseY + ((targetPos.Y + 2.5) - cruiseY) * blend
+			end
+
+			local moveDir = flatDelta.Unit
+			local stepDist = math.min(speed * dt, flatDist)
+
+			local nextX = curPos.X + moveDir.X * stepDist
+			local nextZ = curPos.Z + moveDir.Z * stepDist
+			local nextY = desiredY
+
+			curPos = Vector3.new(nextX, nextY, nextZ)
+
+			-- Orientasi hadap ke arah terbang
+			local lookAt = Vector3.new(targetPos.X, nextY, targetPos.Z)
+			hrp.CFrame = CFrame.new(curPos, lookAt)
+
+			-- Nol-kan velocity tubuh agar server tidak mendeteksi speedhack physics
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+
+			-- Pre-stream chunk secara berkala setiap 120 stud perjalanan
+			if (curPos - lastStreamPos).Magnitude >= 120 then
+				lastStreamPos = curPos
+				requestStreamAsync(curPos)
+				requestStreamAsync(curPos + moveDir * 250)
+			end
+		end)
+
+		-- Tunggu hingga mendarat atau timeout wajar
+		local totalEstDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+		local maxWait = math.max((totalEstDist / speed) + 10.0, 15.0)
+
+		while not glideDone and (os.clock() - startTime < maxWait) do
+			task.wait(0.05)
+		end
+
+		if heartbeatConn then
+			heartbeatConn:Disconnect()
+			heartbeatConn = nil
+		end
+		if noclipConn then
+			noclipConn:Disconnect()
+			noclipConn = nil
+		end
+
+		-- 4. Pendaratan Aman di Titik Tujuan
+		pcall(function()
+			local landPos = Vector3.new(targetPos.X, targetPos.Y + 2.5, targetPos.Z)
+			ensureSafetyPlate(landPos, 35)
+			hrp.CFrame = CFrame.new(landPos)
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.CanCollide = (p.Name == "HumanoidRootPart" or p.Name:find("Torso") or p.Name:find("Leg"))
+				end
+			end
+
+			hum.PlatformStand = false
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+
+		UI.Notify("✅ Mendarat Aman", "Tiba di area seberang jurang!", 2.0, "success")
+		task.wait(0.3)
+		return true
 	end
 
 	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (hanya sudut maju ke arah tujuan),
@@ -1859,6 +2013,20 @@ local success, err = pcall(function()
 						end)
 						return
 					end
+				end
+
+				-- 🦅 Fallback Sky Glide: HANYA jika jurang TIDAK BISA DILOMPATI motor (seperti jurang Klaten 3.600 stud)
+				if courierActive and cliffWaitDuration >= 3.0 and (destP - carPos).Magnitude > 200 then
+					cliffWaitStartTime = nil
+					if currentDriveConn then
+						pcall(function() currentDriveConn:Disconnect() end)
+						currentDriveConn = nil
+					end
+					task.spawn(function()
+						glidePlayerAcrossVoid(destP, 130)
+						driveFinished = true
+					end)
+					return
 				end
 
 				if (nowClock - lastBridgeScanTime) >= 0.15 then
@@ -3121,13 +3289,15 @@ local success, err = pcall(function()
 
 							if not courierActive then return end
 
-							-- 🛡️ Verifikasi Kedatangan: Pastikan motor BENAR-BENAR sudah tiba dekat dengan dropPos!
+							-- 🛡️ Verifikasi Kedatangan: Pastikan player atau motor BENAR-BENAR sudah tiba dekat dengan dropPos!
+							local charAfterDrive = player.Character
+							local hrpAfterDrive = charAfterDrive and charAfterDrive:FindFirstChild("HumanoidRootPart")
 							local carAfterDrive = getPlayerVehicle()
-							local curPosAfterDrive = carAfterDrive and carAfterDrive:GetPivot().Position
+							local curPosAfterDrive = (hrpAfterDrive and hrpAfterDrive.Position) or (carAfterDrive and carAfterDrive:GetPivot().Position)
 							local distToDrop = (curPosAfterDrive and dropPos) and (curPosAfterDrive - dropPos).Magnitude or math.huge
 
 							if distToDrop > 25 then
-								-- Motor belum sampai di titik pengantaran (terhenti di jalan/rintangan).
+								-- Belum sampai di titik pengantaran (terhenti di jalan/rintangan).
 								-- JANGAN PERNAH mengklaim paket terkirim jika belum sampai!
 								UI.Notify("🛵 Melanjutkan Perjalanan", string.format("Jarak ke tujuan masih %.0fm. Menavigasi kembali...", distToDrop), 2.5, "info")
 								task.wait(0.5)
@@ -3178,16 +3348,24 @@ local success, err = pcall(function()
 									break
 								end
 
-								-- 4. Jaga agar tetap duduk di kursi motor tanpa pernah unseat
+								-- 4. Jaga agar tetap duduk di kursi motor HANYA jika motor berada dekat (<= 30 stud)
 								if not isDriverSittingOnMotor() then
-									ensureDriverSeated()
+									local car = getPlayerVehicle()
+									local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+									if car and hrp and (car:GetPivot().Position - hrp.Position).Magnitude <= 30 then
+										ensureDriverSeated()
+									end
 								end
 
 								task.wait(0.35)
 							end
 
 							if not isDriverSittingOnMotor() then
-								ensureDriverSeated()
+								local car = getPlayerVehicle()
+								local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+								if car and hrp and (car:GetPivot().Position - hrp.Position).Magnitude <= 30 then
+									ensureDriverSeated()
+								end
 							end
 
 							if isHandedOver then
