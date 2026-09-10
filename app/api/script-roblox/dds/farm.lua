@@ -1356,96 +1356,112 @@ local success, err = pcall(function()
 	-- 🛣️ Highway Waypoint Router (City / Solo <-> Klaten Continuous Road Network)
 	local function isKlatenPos(pos)
 		if not pos then return false end
-		return (pos.X < -10400) and (pos.Z > 1650)
+		-- Klaten terletak di area barat daya (X <= -10450 dan Z >= 1650)
+		return (pos.X < -10450) and (pos.Z > 1650)
 	end
 
+	-- 🛣️ 39 Waypoint Terverifikasi: Rute Aspal Padat 100% Kontinu (Solo Depot <-> Klaten Livrason 8)
+	-- Setiap titik berjarak hanya 150-350 stud agar selalu dalam radius StreamingEnabled dan probeGround
 	local HIGHWAY_WAYPOINTS = {
-		Vector3.new(-5105.6, 5.0, -3759.0),   -- 1. Depot Paket (Jajar Utara)
+		-- 🏙️ 1. AREA SOLO & JAJAR (Depot ke Simpang Faroka)
+		Vector3.new(-5105.6, 5.0, -3759.0),   -- 1. Depot Paket
 		Vector3.new(-5221.0, -1.0, -3000.0),  -- 2. Jl. Jajar Tengah (Utara)
 		Vector3.new(-5221.0, -1.0, -2000.0),  -- 3. Jl. Jajar Tengah (Pusat)
-		Vector3.new(-5221.0, -1.0, -820.0),   -- 4. Jl. Jajar Selatan (Simpang Faroka)
-		Vector3.new(-5528.0, -1.0, -566.0),   -- 5. Belokan Jajar Selatan ke Faroka
-		Vector3.new(-6471.0, -1.0, -572.0),   -- 6. Jl. Faroka Timur
-		Vector3.new(-7374.0, -1.0, -458.0),   -- 7. Jl. Faroka Tengah
-		Vector3.new(-8341.0, -1.0, 173.0),    -- 8. Jl. Faroka Barat (Simpang Kartasura)
-		Vector3.new(-8811.0, 0.0, 819.0),     -- 9. Jl. Kartasura Timur
-		Vector3.new(-9522.0, 0.0, 825.0),     -- 10. Jl. Kartasura Tengah
-		Vector3.new(-10019.0, 0.0, 1344.0),   -- 11. Jl. Kartasura Barat
-		Vector3.new(-10374.0, 0.0, 1622.0),   -- 12. Ujung Kartasura (Perbatasan Klaten)
-		Vector3.new(-10778.0, 4.0, 1856.0),   -- 13. Jl. Klaten Gerbang Masuk
-		Vector3.new(-11561.0, 0.0, 2308.0),   -- 14. Jl. Klaten Timur
-		Vector3.new(-12605.0, 4.0, 2910.0),   -- 15. Jl. Klaten Tengah
-		Vector3.new(-13628.0, 23.0, 3367.0),  -- 16. Jl. Klaten Tanjakan Sawah
-		Vector3.new(-15294.0, 55.0, 4108.0),  -- 17. Jl. Klaten Puncak Tanjakan
-		Vector3.new(-15961.0, 102.0, 4493.0), -- 18. Jl. Klaten Barat / Pusat Kota Klaten
+		Vector3.new(-5221.0, -1.0, -820.0),   -- 4. Jl. Jajar Selatan
+		Vector3.new(-5528.0, -1.0, -566.0),   -- 5. Tikungan Jajar ke Faroka
+
+		-- 🛣️ 2. JL. FAROKA (Jajar ke Kartasura)
+		Vector3.new(-6111.0, -1.0, -572.0),   -- 6. Jl. Faroka Timur
+		Vector3.new(-6789.0, -1.0, -572.0),   -- 7. Jl. Faroka Tengah 1
+		Vector3.new(-7374.0, -1.0, -458.0),   -- 8. Jl. Faroka Tengah 2
+		Vector3.new(-7910.0, -1.0, -149.0),   -- 9. Jl. Faroka Barat 1
+		Vector3.new(-8341.0, -1.0, 173.0),    -- 10. Simpang Faroka - Kartasura
+
+		-- 🛣️ 3. JL. KARTASURA (Faroka ke Perbatasan Klaten)
+		Vector3.new(-8811.0, 0.0, 819.0),     -- 11. Jl. Kartasura Timur
+		Vector3.new(-9384.0, 0.0, 736.0),     -- 12. Jl. Kartasura Tengah 1
+		Vector3.new(-9740.0, 0.0, 1010.0),    -- 13. Jl. Kartasura Tengah 2
+		Vector3.new(-10019.0, 0.0, 1344.0),   -- 14. Jl. Kartasura Barat
+		Vector3.new(-10374.0, 0.0, 1622.0),   -- 15. Ujung Kartasura (Batas Klaten)
+
+		-- 🌄 4. JL. KLATEN JALUR UTAMA (Lembah & Tanjakan Sawah)
+		Vector3.new(-10520.0, 0.0, 1707.0),   -- 16. Gerbang Masuk Klaten
+		Vector3.new(-10778.0, 4.0, 1856.0),   -- 17. Jl. Klaten 1
+		Vector3.new(-11170.0, 0.0, 2082.0),   -- 18. Jl. Klaten 2
+		Vector3.new(-11561.0, 0.0, 2308.0),   -- 19. Jl. Klaten 3
+		Vector3.new(-11952.0, 4.0, 2533.0),   -- 20. Jl. Klaten 4
+		Vector3.new(-12345.0, 0.0, 2760.0),   -- 21. Jl. Klaten 5
+		Vector3.new(-12605.0, 4.0, 2910.0),   -- 22. Jl. Klaten 6
+		Vector3.new(-12863.0, 23.0, 3059.0),  -- 23. Awal Tanjakan Sawah
+		Vector3.new(-13242.0, 23.0, 3272.0),  -- 24. Sawah Klaten 1
+		Vector3.new(-13628.0, 23.0, 3367.0),  -- 25. Sawah Klaten 2
+		Vector3.new(-14152.0, 23.0, 3473.0),  -- 26. Sawah Klaten 3
+		Vector3.new(-14642.0, 23.0, 3732.0),  -- 27. Sawah Klaten 4
+		Vector3.new(-15034.0, 27.0, 3958.0),  -- 28. Lereng Bukit Klaten 1
+		Vector3.new(-15294.0, 55.0, 4108.0),  -- 29. Lereng Bukit Klaten 2
+		Vector3.new(-15555.0, 86.0, 4258.0),  -- 30. Tanjakan Curam Klaten
+		Vector3.new(-15830.0, 102.0, 4417.0), -- 31. Puncak Bukit Klaten
+
+		-- 🏘️ 5. PUSAT KOTA KLATEN (Puncak ke Titik Kardus Location 8)
+		Vector3.new(-16222.0, 102.0, 4644.0), -- 32. Kota Klaten 1
+		Vector3.new(-16597.0, 102.0, 4860.0), -- 33. Kota Klaten 2
+		Vector3.new(-16884.0, 102.0, 5293.0), -- 34. Kota Klaten 3
+		Vector3.new(-17083.0, 102.0, 5555.0), -- 35. Kota Klaten 4
+		Vector3.new(-17105.0, 102.0, 5829.0), -- 36. Kota Klaten 5
+		Vector3.new(-16974.0, 102.0, 6150.0), -- 37. Kota Klaten 6
+		Vector3.new(-16711.0, 102.0, 6317.0), -- 38. Tikungan Terakhir Kardus
+		Vector3.new(-17057.0, 105.0, 6568.0), -- 39. Titik Pengantaran Kardus (Livrason 8)
 	}
 
-	local function buildHighwayRoute(startPos, destPos)
-		local startInKlaten = isKlatenPos(startPos)
-		local destInKlaten = isKlatenPos(destPos)
+	local function findNearestWaypointIndex(pos, minIdx, maxIdx)
+		local bestIdx = minIdx
+		local minDist = math.huge
+		for i = minIdx, maxIdx do
+			local wp = HIGHWAY_WAYPOINTS[i]
+			local d = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
+			if d < minDist then
+				minDist = d
+				bestIdx = i
+			end
+		end
+		return bestIdx, minDist
+	end
 
-		-- Jika berada di zona yang sama (Klaten -> Klaten atau City -> City), langsung direct navigation
-		if startInKlaten == destInKlaten then
+	local function buildHighwayRoute(startPos, destPos)
+		local destInKlaten = isKlatenPos(destPos)
+		local directDist = (Vector3.new(startPos.X, 0, startPos.Z) - Vector3.new(destPos.X, 0, destPos.Z)).Magnitude
+
+		-- Jika jarak sangat dekat (< 200 stud) atau berada di area lokal Solo (keduanya di Solo), langsung direct
+		if not destInKlaten and not isKlatenPos(startPos) then
+			return { destPos }
+		end
+		if directDist < 200 then
 			return { destPos }
 		end
 
 		local path = {}
 
-		if not startInKlaten and destInKlaten then
-			-- Perjalanan dari Kota Solo / Depot menuju ke Klaten (Arah maju 1 -> 18)
-			local bestStartIdx = 1
-			local minDist = math.huge
-			for i = 1, 12 do
-				local wp = HIGHWAY_WAYPOINTS[i]
-				local d = (Vector3.new(startPos.X, 0, startPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
-				if d < minDist then
-					minDist = d
-					bestStartIdx = i
-				end
-			end
+		if destInKlaten then
+			-- 🛵 MENUJU KLATEN: Ikuti jalan raya secara berurutan maju (bestStart -> bestEnd)
+			local bestStartIdx, _ = findNearestWaypointIndex(startPos, 1, 35)
+			local bestEndIdx, _   = findNearestWaypointIndex(destPos, 16, #HIGHWAY_WAYPOINTS)
 
-			local bestEndIdx = 18
-			local minEndDist = math.huge
-			for i = 13, #HIGHWAY_WAYPOINTS do
-				local wp = HIGHWAY_WAYPOINTS[i]
-				local d = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
-				if d < minEndDist then
-					minEndDist = d
-					bestEndIdx = i
+			if bestStartIdx < bestEndIdx then
+				for i = bestStartIdx, bestEndIdx do
+					table.insert(path, HIGHWAY_WAYPOINTS[i])
 				end
-			end
-
-			for i = bestStartIdx, bestEndIdx do
-				table.insert(path, HIGHWAY_WAYPOINTS[i])
 			end
 			table.insert(path, destPos)
 
-		elseif startInKlaten and not destInKlaten then
-			-- Perjalanan dari Klaten pulang ke Kota Solo / Depot (Arah mundur 18 -> 1)
-			local bestStartIdx = 18
-			local minDist = math.huge
-			for i = #HIGHWAY_WAYPOINTS, 13, -1 do
-				local wp = HIGHWAY_WAYPOINTS[i]
-				local d = (Vector3.new(startPos.X, 0, startPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
-				if d < minDist then
-					minDist = d
-					bestStartIdx = i
-				end
-			end
+		else
+			-- 🛵 PULANG KE SOLO: Ikuti jalan raya secara berurutan mundur (bestStart -> bestEnd)
+			local bestStartIdx, _ = findNearestWaypointIndex(startPos, 16, #HIGHWAY_WAYPOINTS)
+			local bestEndIdx, _   = findNearestWaypointIndex(destPos, 1, 15)
 
-			local bestEndIdx = 1
-			local minEndDist = math.huge
-			for i = 12, 1, -1 do
-				local wp = HIGHWAY_WAYPOINTS[i]
-				local d = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(wp.X, 0, wp.Z)).Magnitude
-				if d < minEndDist then
-					minEndDist = d
-					bestEndIdx = i
+			if bestStartIdx > bestEndIdx then
+				for i = bestStartIdx, bestEndIdx, -1 do
+					table.insert(path, HIGHWAY_WAYPOINTS[i])
 				end
-			end
-
-			for i = bestStartIdx, bestEndIdx, -1 do
-				table.insert(path, HIGHWAY_WAYPOINTS[i])
 			end
 			table.insert(path, destPos)
 		end
@@ -1979,19 +1995,12 @@ local success, err = pcall(function()
 
 				-- ⏱️ Timeout di Tepi Jurang:
 				local cliffWaitDuration = nowClock - cliffWaitStartTime
-				if not isFinalWaypoint and cliffWaitDuration >= 3.0 then
-					-- Jika tertahan di waypoint perantara, lanjutkan ke waypoint berikutnya
-					cliffWaitStartTime = nil
-					currentWaypointIdx = currentWaypointIdx + 1
-					currentGoal = routePath[currentWaypointIdx]
+				if not isFinalWaypoint and cliffWaitDuration >= 1.5 and cliffWaitDuration <= 2.0 then
+					-- Minta Roblox stream ulang jalan raya di depan tanpa melompati waypoint
 					requestStreamAsync(currentGoal)
-					if currentWaypointIdx < #routePath then
-						requestStreamAsync(routePath[currentWaypointIdx + 1])
-					end
-					stuckLastDist = (currentGoal - carPos).Magnitude
-					stuckLastTime = os.clock()
-					return
-				elseif cliffWaitDuration >= 8.0 then
+				end
+
+				if cliffWaitDuration >= 8.0 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
 					if courierActive then
