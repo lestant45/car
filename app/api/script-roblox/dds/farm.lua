@@ -3298,50 +3298,12 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Deteksi Shift Limit via NotifEvent & NOTIF text
+	-- Deteksi Shift Limit via NotifEvent & NOTIF text (Otomatis Auto-Rejoin di belakang layar)
 	local function handleCourierShiftLimit()
 		if courierShiftLimit then return end
 		courierShiftLimit = true
 
-		if Config.courierRejoinOnLimit then
-			rejoinCourierServer("Batas Shift Kurir Server Tercapai")
-			return
-		end
-
-		UI.Notify("Courier Shift Limit", "Limit shift tercapai! Me-refresh session...", 3, "warning")
-		updateBotActivity("🔄 Courier Shift Limit (Refreshing)...", Color3.fromRGB(255, 180, 50))
-
-		activeCourierDestId = nil
-		courierResetFlag = false
-
-		pcall(function()
-			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
-			if teamReq then
-				teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
-			end
-		end)
-
-		task.wait(3)
-
-		pcall(function()
-			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
-			if teamReq then
-				teamReq:FireServer("Courier", 11378976, 1, 0, "Detector")
-			end
-		end)
-
-		local char = player.Character
-		if not char or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then
-			player.CharacterAdded:Wait()
-		end
-
-		task.wait(2)
-		courierResetFlag = true
-		activeCourierDestId = nil
-		courierLastJobTime = os.clock()
-		courierShiftLimit = false
+		rejoinCourierServer("Batas Shift Kurir Server Tercapai")
 	end
 
 	pcall(function()
@@ -3394,21 +3356,21 @@ local success, err = pcall(function()
 		end)
 	end)
 
-	-- Supervisor loop untuk memeriksa batas 3 jam & batas pendapatan ~79jt
+	-- Supervisor loop untuk memeriksa batas 3 jam & batas pendapatan ~79jt (Permanen di belakang layar)
 	task.spawn(function()
 		while true do
 			task.wait(2)
-			if (courierActive or _G.HipHubCourierActive) and not courierRejoinPending and Config.courierAutoRejoin then
+			if (courierActive or _G.HipHubCourierActive) and not courierRejoinPending then
 				local elapsed = os.clock() - courierStartTime
-				local maxHours = tonumber(Config.courierRejoinHours) or 3
-				local limitSec = maxHours * 3600
-				local maxEarn = (tonumber(Config.courierMaxEarnM) or 79) * 1000000
+				local maxHours = 3
+				local limitSec = maxHours * 3600 -- 3 Jam sejak menyalakan toggle kurir
+				local maxEarn = 79 * 1000000     -- 79 Juta Rupiah
 
 				if elapsed >= limitSec then
-					rejoinCourierServer(string.format("Batas Sesi %d Jam Tercapai (%s)", maxHours, formatCourierTime(elapsed)))
+					rejoinCourierServer(string.format("Batas Waktu Sesi 3 Jam Tercapai (%s)", formatCourierTime(elapsed)))
 					break
 				elseif courierTotalEarn >= maxEarn then
-					rejoinCourierServer(string.format("Target Pendapatan %s Tercapai", formatRupiah(courierTotalEarn)))
+					rejoinCourierServer(string.format("Batas Pendapatan 79 Juta Tercapai (%s)", formatRupiah(courierTotalEarn)))
 					break
 				end
 			end
@@ -3919,38 +3881,6 @@ local success, err = pcall(function()
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
 		end
-	end)
-
-	UI.AddToggle(tab, "Auto Rejoin on Session Cap", "Otomatis reconnect server saat mencapai batas 3 jam atau ~79jt untuk membersihkan cache & anti-cheat", Config.courierAutoRejoin, function(state)
-		Config.courierAutoRejoin = state
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.courierAutoRejoin = state
-		end
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
-	end)
-
-	UI.AddSlider(tab, "Rejoin Max Hours", 1, 6, math.floor(Config.courierRejoinHours or 3), function(val)
-		Config.courierRejoinHours = val
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.courierRejoinHours = val
-		end
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
-	end)
-
-	UI.AddSlider(tab, "Max Earnings Cap (Juta)", 10, 150, math.floor(Config.courierMaxEarnM or 79), function(val)
-		Config.courierMaxEarnM = val
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.courierMaxEarnM = val
-		end
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
-	end)
-
-	UI.AddToggle(tab, "Rejoin on Shift Limit", "Langsung reconnect server saat batas shift kurir DDS tercapai (bukan sekadar ganti tim)", Config.courierRejoinOnLimit, function(state)
-		Config.courierRejoinOnLimit = state
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.courierRejoinOnLimit = state
-		end
-		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
 	end)
 
 	-- 🚀 Auto-resume Auto RideGO / Courier jika aktif pada config tersimpan atau dari queue_on_teleport
