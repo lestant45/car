@@ -3302,7 +3302,7 @@ local success, err = pcall(function()
 	end
 
 	-- 🪑 Pure Unanchored Seat Physics Flight (Teman Pattern)
-	local function courierFlyTo(targetCF, speed)
+	local function courierFlyTo(targetCF, speed, abortCheck)
 		local char = player.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -3340,9 +3340,11 @@ local success, err = pcall(function()
 
 		-- 4. Stepped Enforcers: Sit Lock & NoClip
 		local seatConn = RunService.Stepped:Connect(function()
-			if hum and hum.Parent and hum.SeatPart ~= seat then
-				hum.Sit = true
-				seat:Sit(hum)
+			if hum and hum.Parent and hum.Health > 0 and seat and seat.Parent and hum.SeatPart ~= seat then
+				pcall(function()
+					hum.Sit = true
+					seat:Sit(hum)
+				end)
 			end
 		end)
 
@@ -3383,6 +3385,7 @@ local success, err = pcall(function()
 
 			if dist <= arrivalDist then break end
 			if (os.clock() - startTime) > 180 then break end
+			if abortCheck and abortCheck() then break end
 
 			bv.Velocity = delta.Unit * flySpeed
 			gyro.CFrame = CFrame.lookAt(cur, targetPos)
@@ -3416,13 +3419,20 @@ local success, err = pcall(function()
 		return true
 	end
 
+	local function getActiveCourierTarget()
+		local curDeliveryAttr = player:GetAttribute("CurrentDelivery")
+		if curDeliveryAttr and tostring(curDeliveryAttr) ~= "" and tostring(curDeliveryAttr) ~= "0" then
+			return tostring(curDeliveryAttr)
+		end
+		return activeCourierDestId
+	end
+
 	local function getCourierDestination()
 		local livrason = workspace:FindFirstChild("Livrason")
 		local locFolder = livrason and livrason:FindFirstChild("Location")
 		if not locFolder then return nil, nil, nil end
 
-		local curDeliveryAttr = player:GetAttribute("CurrentDelivery")
-		local targetId = (curDeliveryAttr and tostring(curDeliveryAttr) ~= "" and tostring(curDeliveryAttr) ~= "0") and tostring(curDeliveryAttr) or activeCourierDestId
+		local targetId = getActiveCourierTarget()
 
 		if targetId then
 			local child = locFolder:FindFirstChild(targetId)
@@ -3529,13 +3539,24 @@ local success, err = pcall(function()
 						end
 
 						-- 2. Jika Belum Ada Job / Paket -> Ambil di Depot
-						if not activeCourierDestId and not hasCourierPackage() then
+						local currentTarget = getActiveCourierTarget()
+						if not currentTarget and not hasCourierPackage() then
 							if not restarting then
 								local takeCF = CFrame.new(-5108, 5, -3759)
 								updateBotActivity("🛫 Terbang ke Depot Paket...", Color3.fromRGB(0, 212, 255))
-								courierFlyTo(takeCF, Config.courierSpeed or 200)
+								
+								-- Batalkan jika paket atau pesanan baru terdeteksi saat menuju depot
+								courierFlyTo(takeCF, Config.courierSpeed or 200, function()
+									return getActiveCourierTarget() ~= nil or hasCourierPackage()
+								end)
 
 								if not courierActive or courierShiftLimit then return end
+
+								-- Jika sudah mendapat pesanan/paket di perjalanan, lewati interaksi depot
+								if getActiveCourierTarget() or hasCourierPackage() then
+									restarting = false
+									return
+								end
 
 								task.wait(0.5)
 								pcall(function()
@@ -3549,16 +3570,16 @@ local success, err = pcall(function()
 							end
 
 							local waited = 0
-							while courierActive and not activeCourierDestId and not hasCourierPackage() and not courierShiftLimit and waited < 6 do
+							while courierActive and not getActiveCourierTarget() and not hasCourierPackage() and not courierShiftLimit and waited < 6 do
 								task.wait(0.5)
 								waited = waited + 0.5
 							end
 
-							if courierActive and not activeCourierDestId and not hasCourierPackage() and not courierShiftLimit then
+							if courierActive and not getActiveCourierTarget() and not hasCourierPackage() and not courierShiftLimit then
 								restarting = false
 							end
 
-							if courierActive and not activeCourierDestId and not hasCourierPackage() then
+							if courierActive and not getActiveCourierTarget() and not hasCourierPackage() then
 								local idle = os.clock() - courierLastJobTime
 								if idle > 15 and not courierResetFlag then
 									courierResetFlag = true
@@ -3616,14 +3637,30 @@ local success, err = pcall(function()
 								triggerCourierPrompt(dropPrompt)
 							end
 
-							task.wait(1.0)
+							task.wait(0.8)
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", _G.HipHubCompletedCourier), 2.5, "success")
 							updateBotActivity("✅ Paket Sukses Diserahkan!", Color3.fromRGB(80, 255, 120))
 
-							activeCourierDestId = nil
+							-- Menunggu server menetapkan order berikutnya (1-3.5s) agar langsung lanjut tanpa pulang ke depot
+							local lastCompletedId = tostring(destId or "")
+							updateBotActivity("⏳ Menunggu Pesanan Paket Berikutnya...", Color3.fromRGB(255, 200, 50))
+							local tWaitNext = os.clock()
+							local nextFound = false
+							while (os.clock() - tWaitNext < 3.5) and courierActive and not courierShiftLimit do
+								local curTarget = getActiveCourierTarget()
+								if (curTarget and curTarget ~= lastCompletedId) or hasCourierPackage() then
+									activeCourierDestId = curTarget
+									nextFound = true
+									break
+								end
+								task.wait(0.25)
+							end
+
+							if not nextFound then
+								activeCourierDestId = nil
+							end
 							restarting = false
-							task.wait(0.5)
 						end
 					end)
 
