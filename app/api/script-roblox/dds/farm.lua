@@ -14,58 +14,9 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE ENGINE IDLE PROTECTOR & ANTI-AFK
+	-- 🛡️ ADONIS-SAFE HARDWARE & INPUT HEARTBEAT
+	-- 100% Bebas Disallowed Services (Tanpa VirtualUser/VirtualInputManager/Hooking)
 	------------------------------------------------
-	if not _G.HipHubServiceMasked then
-		_G.HipHubServiceMasked = true
-		pcall(function()
-			if hookfunction and checkcaller then
-				local oldFindService
-				oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
-					local sName = tostring(serviceName or "")
-					if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
-						if not checkcaller() then
-							return nil
-						end
-					end
-					return oldFindService(self, serviceName, ...)
-				end))
-			end
-		end)
-	end
-
-	local function resetEngineIdleTimer()
-		pcall(function()
-			local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
-			if vu then
-				vu:CaptureController()
-				vu:ClickButton2(Vector2.zero)
-			end
-		end)
-	end
-
-	if not _G.HipHubAntiAfkConnected then
-		_G.HipHubAntiAfkConnected = true
-		pcall(function()
-			player.Idled:Connect(function()
-				resetEngineIdleTimer()
-			end)
-		end)
-	end
-
-	-- Periodic C++ Engine Inactivity Timer Reset (Setiap 30 Detik)
-	if not _G.HipHubEngineIdleResetRunning then
-		_G.HipHubEngineIdleResetRunning = true
-		task.spawn(function()
-			while true do
-				task.wait(30)
-				resetEngineIdleTimer()
-			end
-		end)
-	end
-
-	-- 🕹️ Universal Hardware & Touch Input Heartbeat (100% Cross-Platform: PC, Mobile, Redfinger)
-	-- Mengirimkan sinyal fisik pergerakan kursor/layar sentuh secara berkala agar Roblox & Server mendeteksi player aktif
 	if not _G.HipHubNativeInputHeartbeatRunning then
 		_G.HipHubNativeInputHeartbeatRunning = true
 		task.spawn(function()
@@ -78,7 +29,6 @@ local success, err = pcall(function()
 						task.wait(0.02)
 						touchrelease(Vector2.new(120, 120), 1)
 					elseif mouse1click then
-						-- Di executor Android (Delta/Codex/Redfinger), mouse1click diterjemahkan sebagai tap layar
 						mouse1click()
 					end
 
@@ -96,49 +46,7 @@ local success, err = pcall(function()
 						keyrelease(0x10)
 					end
 
-					-- 4. Universal Camera Replication Packet
-					local cam = workspace.CurrentCamera
-					if cam then
-						cam.CFrame = cam.CFrame * CFrame.Angles(0, 0.0001, 0)
-					end
-				end)
-			end
-		end)
-	end
-
-	-- 🕹️ Universal Hardware & Touch Input Heartbeat (100% Cross-Platform: PC, Mobile, Redfinger)
-	-- Mengirimkan sinyal fisik pergerakan kursor/layar sentuh secara berkala agar Roblox & Server mendeteksi player aktif
-	if not _G.HipHubNativeInputHeartbeatRunning then
-		_G.HipHubNativeInputHeartbeatRunning = true
-		task.spawn(function()
-			while true do
-				task.wait(25)
-				pcall(function()
-					-- 1. Mobile & Redfinger Touch Tap Simulation
-					if touchpress and touchrelease then
-						touchpress(Vector2.new(120, 120), 1)
-						task.wait(0.02)
-						touchrelease(Vector2.new(120, 120), 1)
-					elseif mouse1click then
-						-- Di executor Android (Delta/Codex/Redfinger), mouse1click diterjemahkan sebagai tap layar
-						mouse1click()
-					end
-
-					-- 2. PC Native Mouse Nudge (Tingkat OS C++)
-					if mousemoverel then
-						mousemoverel(1, 1)
-						task.wait(0.02)
-						mousemoverel(-1, -1)
-					end
-
-					-- 3. PC Native Micro Keyclick (Shift key)
-					if keypress and keyrelease then
-						keypress(0x10)
-						task.wait(0.03)
-						keyrelease(0x10)
-					end
-
-					-- 4. Universal Camera Replication Packet (Bekerja di SEMUA Device: PC, Android, Redfinger)
+					-- 4. Universal Camera Packet (Reset Engine Idle Timer di Semua Platform)
 					local cam = workspace.CurrentCamera
 					if cam then
 						cam.CFrame = cam.CFrame * CFrame.Angles(0, 0.00005, 0)
@@ -1171,9 +1079,26 @@ local success, err = pcall(function()
 			passRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		-- 4. Atomic Leap: Pindahkan motor & penumpang ke daratan seberang
-		-- Karena driver & passenger terhubung ke kursi, mereka akan ikut berpindah secara seamless tanpa lepas
+		-- 4. Smooth Kinematic Bridge Leap (0 Strike - Bebas Anti-Teleport Server)
+		-- Meluncur halus frame-by-frame (100 stud/s) sehingga tidak ada anomali kecepatan fisik
+		local startCF = car:GetPivot()
+		local dist = (targetCF.Position - startCF.Position).Magnitude
+		local leapSpeed = 100.0
+		local leapDuration = math.clamp(dist / leapSpeed, 0.15, 2.0)
+		local leapStart = os.clock()
+
+		while (os.clock() - leapStart) < leapDuration do
+			local dt = RunService.Heartbeat:Wait()
+			local elapsed = os.clock() - leapStart
+			local alpha = math.clamp(elapsed / leapDuration, 0, 1)
+			local curPos = startCF.Position:Lerp(targetCF.Position, alpha)
+			car:PivotTo(CFrame.new(curPos) * targetRot)
+			if hum and seat and hum.SeatPart ~= seat then
+				pcall(function() seat:Sit(hum) end)
+			end
+		end
 		car:PivotTo(targetCF)
+
 		local pSeat = getPassengerSeat(car)
 		if passRoot and (pSeat or seat) then
 			passRoot.CFrame = (pSeat and pSeat.CFrame or seat.CFrame) + Vector3.new(0, 0.3, 0)
@@ -2118,8 +2043,10 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- 🪑 Fallback Seat Carrier: HANYA jika jurang TIDAK BISA DILOMPATI motor (seperti jurang Klaten 3.600 stud)
-				if courierActive and cliffWaitDuration >= 3.0 and (destP - carPos).Magnitude > 200 then
+				-- 🪑 Seat Carrier Murni (Khusus Kurir Bebas Strike 100%):
+				-- Begitu menemui jurang/celah air, langsung gunakan Seat Carrier halus ke tujuan.
+				-- JANGAN gunakan attemptVoidBridge yang memicu strike teleportasi server!
+				if courierActive and cliffWaitDuration >= 0.8 and (destP - carPos).Magnitude > 35 then
 					cliffWaitStartTime = nil
 					if currentDriveConn then
 						pcall(function() currentDriveConn:Disconnect() end)
@@ -2136,7 +2063,8 @@ local success, err = pcall(function()
 					return
 				end
 
-				if (nowClock - lastBridgeScanTime) >= 0.15 then
+				-- Mode Selain Kurir (Taxi RideGO): Bridge leap dengan smooth kinematic glide
+				if not courierActive and (nowClock - lastBridgeScanTime) >= 0.15 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
