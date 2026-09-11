@@ -23,7 +23,7 @@ local success, err = pcall(function()
 
 	-- State Riset
 	local isTesting = false
-	local currentMode = "PlateCarrier" -- "PlateCarrier", "SeatCarrier", "MotorTween", "CFrameTween", "KinematicStealth"
+	local currentMode = "MoveTo" -- "MoveTo", "IncrementalCFrame", "LinearVelocity", "DirectTween"
 	local testSpeed = 95
 	local activeThreads = {}
 	local activeConnections = {}
@@ -135,7 +135,8 @@ local success, err = pcall(function()
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 5
 	scroll.ScrollBarImageColor3 = Color3.fromRGB(0, 212, 255)
-	scroll.CanvasSize = UDim2.new(0, 0, 0, 880)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.Parent = mainFrame
 
 	local layout = Instance.new("UIListLayout")
@@ -196,24 +197,84 @@ local success, err = pcall(function()
 	createSection("⚙️ PILIH METODE BYPASS VOID", 3)
 
 	local modeContainer = Instance.new("Frame")
-	modeContainer.Size = UDim2.new(1, 0, 0, 145)
+	modeContainer.Size = UDim2.new(1, 0, 0, 116)
 	modeContainer.BackgroundTransparency = 1
 	modeContainer.LayoutOrder = 4
 	modeContainer.Parent = scroll
 
 	local modeLayout = Instance.new("UIGridLayout")
-	modeLayout.CellSize = UDim2.new(0.485, 0, 0, 42)
+	modeLayout.CellSize = UDim2.new(0.485, 0, 0, 52)
 	modeLayout.CellPadding = UDim2.new(0.03, 0, 0, 6)
 	modeLayout.Parent = modeContainer
 
 	local modeButtons = {}
 	local MODES = {
-		{ id = "PlateCarrier", name = "🛡️ Plate Carrier (Rekomendasi)", desc = "Plat menempel di bawah kaki sesuai tanah (Floor = Plastic)" },
-		{ id = "SeatCarrier", name = "🪑 Seat Carrier (Kursi Valid)", desc = "Duduk di kursi dengan collision & weld aktif (hum.SeatPart != nil)" },
-		{ id = "MotorTween", name = "🏍️ Motor Tween (Kendaraan)", desc = "Naik motor asli meluncur menyusuri tanah & jurang" },
-		{ id = "CFrameTween", name = "⚡ CFrame Ground-Glide", desc = "Meluncur setara tanah tanpa naik ke langit tinggi" },
-		{ id = "KinematicStealth", name = "🚶 Stealth Walk (35s/s)", desc = "Langkah santai di atas plat jembatan ground-level" },
+		{
+			id = "MoveTo",
+			name = "🥈 Waypoint + Humanoid:MoveTo()",
+			desc = "Lebih mendekati movement normal karakter.\nLayak diuji untuk melihat apakah server lebih konsisten menerima pergerakannya.\nKekurangannya: kalau benar-benar melewati void tanpa permukaan, MoveTo() sendiri tidak menjamin karakter bisa sampai."
+		},
+		{
+			id = "IncrementalCFrame",
+			name = "🥉 Heartbeat + incremental CFrame",
+			desc = "Posisi diperbarui sedikit demi sedikit setiap frame.\nBagus sebagai baseline untuk membandingkan metode transform langsung.\nTetap termasuk manipulasi posisi, jadi bukan berarti otomatis aman dari validasi server."
+		},
+		{
+			id = "LinearVelocity",
+			name = "AssemblyLinearVelocity / LinearVelocity",
+			desc = "Menarik untuk diuji karena berbasis physics.\nHasilnya sangat bergantung pada network ownership dan sistem movement DDS."
+		},
+		{
+			id = "DirectTween",
+			name = "TweenService → CFrame langsung",
+			desc = "Mudah dan smooth.\nTapi untuk pengujian crossing jurang, aku justru tidak menjadikannya pilihan pertama karena secara konsep masih merupakan perpindahan CFrame langsung."
+		},
 	}
+
+	-- Kartu Info Karakteristik & Analisis Metode Terpilih
+	local descCard = Instance.new("Frame")
+	descCard.Name = "ModeDescCard"
+	descCard.Size = UDim2.new(1, 0, 0, 88)
+	descCard.BackgroundColor3 = Color3.fromRGB(22, 25, 34)
+	descCard.BorderSizePixel = 0
+	descCard.LayoutOrder = 5
+	descCard.Parent = scroll
+	Instance.new("UICorner", descCard).CornerRadius = UDim.new(0, 8)
+	local descStroke = Instance.new("UIStroke", descCard)
+	descStroke.Color = Color3.fromRGB(45, 55, 75)
+	descStroke.Thickness = 1
+
+	local descTitle = Instance.new("TextLabel")
+	descTitle.Size = UDim2.new(1, -20, 0, 20)
+	descTitle.Position = UDim2.new(0, 10, 0, 6)
+	descTitle.BackgroundTransparency = 1
+	descTitle.TextColor3 = Color3.fromRGB(0, 212, 255)
+	descTitle.Font = Enum.Font.GothamBold
+	descTitle.TextSize = 11
+	descTitle.TextXAlignment = Enum.TextXAlignment.Left
+	descTitle.Parent = descCard
+
+	local descBody = Instance.new("TextLabel")
+	descBody.Size = UDim2.new(1, -20, 1, -28)
+	descBody.Position = UDim2.new(0, 10, 0, 25)
+	descBody.BackgroundTransparency = 1
+	descBody.TextColor3 = Color3.fromRGB(210, 215, 225)
+	descBody.Font = Enum.Font.Gotham
+	descBody.TextSize = 10
+	descBody.TextXAlignment = Enum.TextXAlignment.Left
+	descBody.TextYAlignment = Enum.TextYAlignment.Top
+	descBody.TextWrapped = true
+	descBody.Parent = descCard
+
+	local function updateModeInfo()
+		for _, m in ipairs(MODES) do
+			if m.id == currentMode then
+				descTitle.Text = "ℹ️ " .. m.name
+				descBody.Text = m.desc
+				break
+			end
+		end
+	end
 
 	local function updateModeButtons()
 		for id, btn in pairs(modeButtons) do
@@ -225,6 +286,7 @@ local success, err = pcall(function()
 				btn.TextColor3 = Color3.fromRGB(180, 180, 180)
 			end
 		end
+		updateModeInfo()
 	end
 
 	for _, m in ipairs(MODES) do
@@ -234,7 +296,8 @@ local success, err = pcall(function()
 		btn.Text = m.name
 		btn.TextColor3 = Color3.fromRGB(180, 180, 180)
 		btn.Font = Enum.Font.GothamMedium
-		btn.TextSize = 11
+		btn.TextSize = 10.5
+		btn.TextWrapped = true
 		btn.BorderSizePixel = 0
 		btn.Parent = modeContainer
 		Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
@@ -262,7 +325,7 @@ local success, err = pcall(function()
 	speedLayout.Parent = speedContainer
 
 	local speedButtons = {}
-	local SPEEDS = { 30, 60, 85, 95, 120, 150 }
+	local SPEEDS = { 35, 60, 95, 150, 200, 230 }
 	local function updateSpeedButtons()
 		for spd, btn in pairs(speedButtons) do
 			if spd == testSpeed then
@@ -299,7 +362,7 @@ local success, err = pcall(function()
 	createSection("📍 TITIK TUJUAN PENYEBERANGAN", 7)
 
 	local presetContainer = Instance.new("Frame")
-	presetContainer.Size = UDim2.new(1, 0, 0, 75)
+	presetContainer.Size = UDim2.new(1, 0, 0, 115)
 	presetContainer.BackgroundTransparency = 1
 	presetContainer.LayoutOrder = 8
 	presetContainer.Parent = scroll
@@ -453,9 +516,15 @@ local success, err = pcall(function()
 				local distToTarget = (hrp and targetPosition) and math.floor((Vector3.new(targetPosition.X, 0, targetPosition.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude) or 0
 				local velStr = hrp and string.format("%.1f stud/s", hrp.AssemblyLinearVelocity.Magnitude) or "0"
 
+				local activeModeName = currentMode
+				for _, m in ipairs(MODES) do
+					if m.id == currentMode then activeModeName = m.name break end
+				end
+
 				telemText.Text = string.format(
 					"Status Uji      : %s\n" ..
-					"Metode Aktif    : %s (Speed: %d stud/s)\n" ..
+					"Metode Aktif    : %s\n" ..
+					"Kecepatan Uji   : %d stud/detik\n" ..
 					"Posisi Karakter : %s\n" ..
 					"Humanoid State  : %s\n" ..
 					"Floor Material  : %s  (Kunci Anti-Fly!)\n" ..
@@ -463,7 +532,8 @@ local success, err = pcall(function()
 					"Kecepatan Fisik : %s\n" ..
 					"Jarak ke Target : %d stud (%s)",
 					isTesting and "🟢 SEDANG BERJALAN..." or "⚪ IDLE",
-					currentMode, testSpeed,
+					activeModeName,
+					testSpeed,
 					posStr,
 					stateStr,
 					floorStr,
@@ -679,220 +749,128 @@ local success, err = pcall(function()
 	end)
 
 	-- =========================================================================
-	-- 🧪 IMPLEMENTASI 5 METODE RISET (SEMUA MENGIKUTI KONTUR TANAH)
+	-- 🧪 IMPLEMENTASI 4 METODE RISET PERGERAKAN
 	-- =========================================================================
 
-	-- METODE 1: 🛡️ Moving Ground Plate Carrier (Grounded Plastic Platform)
-	-- Plat bergerak di bawah kaki, ketinggian menempel di tanah (tidak loncat ke langit)
-	local function runPlateCarrier(destPos, speed)
+	-- =========================================================================
+	-- 🥈 METODE 1: Waypoint + Humanoid:MoveTo()
+	-- =========================================================================
+	-- Lebih mendekati movement normal karakter.
+	-- Layak diuji untuk melihat apakah server lebih konsisten menerima pergerakannya.
+	-- Kekurangannya: kalau benar-benar melewati void tanpa permukaan, MoveTo() sendiri tidak menjamin karakter bisa sampai.
+	local function runMoveTo(destPos, speed)
 		local char = player.Character
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return end
 
 		hum.Sit = false
 		hum.PlatformStand = false
-		task.wait(0.05)
+		local oldWalkSpeed = hum.WalkSpeed
+		hum.WalkSpeed = speed
+
+		addLog("🥈 Menjalankan Waypoint + Humanoid:MoveTo() (Speed: " .. speed .. " stud/s)...", Color3.fromRGB(0, 212, 255))
+		addLog("ℹ️ Lebih mendekati movement normal karakter. Menguji konsistensi server.", Color3.fromRGB(180, 200, 220))
+		addLog("⚠️ Catatan: Jika melewati void tanpa permukaan, MoveTo() tidak menjamin karakter bisa sampai.", Color3.fromRGB(255, 200, 80))
 
 		local startPos = hrp.Position
-		local curPos = startPos
 		local totalDist = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
 
-		-- Buat Carrier Plate tepat di bawah telapak kaki
-		if plateInstance and plateInstance.Parent then plateInstance:Destroy() end
-		plateInstance = Instance.new("Part")
-		plateInstance.Name = "__DdsCarrierPlate"
-		plateInstance.Size = Vector3.new(12, 1.5, 12)
-		plateInstance.Anchored = true
-		plateInstance.CanCollide = true
-		plateInstance.Transparency = 0.4
-		plateInstance.BrickColor = BrickColor.new("Bright blue")
-		plateInstance.Material = Enum.Material.Plastic
-		plateInstance.CFrame = CFrame.new(curPos.X, curPos.Y - 3.1, curPos.Z)
-		plateInstance.Parent = Workspace
-
-		addLog("🚀 Plate Carrier meluncur menyusuri tanah...", Color3.fromRGB(0, 212, 255))
-
+		-- Bagi rute menjadi beberapa waypoint bertahap (setiap 100 stud) agar MoveTo() tidak timeout
+		local segmentDist = 100
+		local numWaypoints = math.max(1, math.ceil(totalDist / segmentDist))
 		local lastLogTime = 0
-		while isTesting do
-			local dt = RunService.Heartbeat:Wait()
+
+		for i = 1, numWaypoints do
+			if not isTesting then break end
 			if not (char and char.Parent and hrp and hrp.Parent and hum) then break end
 
-			local flatDelta = Vector3.new(destPos.X - curPos.X, 0, destPos.Z - curPos.Z)
-			local flatDist = flatDelta.Magnitude
-			if flatDist <= 4.0 then
-				addLog("✅ Sampai di tujuan dengan Plate Carrier!", Color3.fromRGB(0, 255, 120))
-				break
+			local alpha = i / numWaypoints
+			local targetWP = startPos:Lerp(destPos, alpha)
+
+			-- Cari elevasi tanah jika ada
+			local hit = Workspace:Raycast(Vector3.new(targetWP.X, 500, targetWP.Z), Vector3.new(0, -1000, 0))
+			if hit and hit.Instance and hit.Material ~= Enum.Material.Water then
+				targetWP = Vector3.new(targetWP.X, hit.Position.Y + 3.0, targetWP.Z)
 			end
 
-			local moveDir = flatDelta.Unit
-			local stepDist = math.min(speed * dt, flatDist)
+			-- Kirim perintah MoveTo ke waypoint
+			hum:MoveTo(targetWP)
 
-			local nextX = curPos.X + moveDir.X * stepDist
-			local nextZ = curPos.Z + moveDir.Z * stepDist
+			local wpStart = os.clock()
+			while isTesting do
+				RunService.Heartbeat:Wait()
+				if not (char and char.Parent and hrp and hrp.Parent and hum) then break end
 
-			-- Hitung ketinggian tanah secara adaptif tanpa loncat ke atas
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, destPos, flatDist, totalDist, char, { plateInstance }, dt)
-			curPos = Vector3.new(nextX, nextY, nextZ)
+				local distToWp = (Vector3.new(targetWP.X, 0, targetWP.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
+				if distToWp <= 6.0 then
+					break
+				end
 
-			-- Pindahkan plate tepat di bawah kaki (Y - 3.1)
-			plateInstance.CFrame = CFrame.new(nextX, nextY - 3.1, nextZ)
-			hrp.CFrame = CFrame.new(curPos, Vector3.new(destPos.X, nextY, destPos.Z))
-			hrp.AssemblyLinearVelocity = moveDir * speed
+				-- Deteksi jika karakter berada di atas void tanpa pijakan
+				if hum.FloorMaterial == Enum.Material.Air and hrp.Position.Y < 15 then
+					addLog("⚠️ Karakter airborne di atas void (MoveTo() kehilangan pijakan permukaan).", Color3.fromRGB(255, 120, 50))
+				end
 
-			if os.clock() - lastLogTime >= 2.0 then
-				lastLogTime = os.clock()
-				addLog(string.format("Plat: sisa %d stud | Y: %.1f (%s) | Floor: %s", math.floor(flatDist), nextY, isGround and "Tanah" or "Jurang", hum.FloorMaterial.Name), Color3.fromRGB(150, 220, 255))
+				-- Refresh MoveTo setiap 3.5 detik (timeout default Roblox = 8s)
+				if (os.clock() - wpStart) > 3.5 then
+					hum:MoveTo(targetWP)
+					wpStart = os.clock()
+				end
+
+				if os.clock() - lastLogTime >= 2.0 then
+					lastLogTime = os.clock()
+					local remaining = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
+					addLog(string.format("MoveTo: WP %d/%d | Sisa: %d stud | Floor: %s | State: %s", i, numWaypoints, math.floor(remaining), hum.FloorMaterial.Name, hum:GetState().Name), Color3.fromRGB(180, 220, 255))
+				end
 			end
 		end
 
-		haltTest("Plate Carrier Selesai")
+		hum.WalkSpeed = oldWalkSpeed or 16
+		haltTest("MoveTo Selesai")
 	end
 
-	-- METODE 2: 🪑 Invisible Magic Seat Carrier (SeatPart Bypass)
-	-- Duduk di kursi dan meluncur setara tanah/jurang
-	local function runSeatCarrier(destPos, speed)
+	-- =========================================================================
+	-- 🥉 METODE 2: Heartbeat + incremental CFrame
+	-- =========================================================================
+	-- Posisi diperbarui sedikit demi sedikit setiap frame.
+	-- Bagus sebagai baseline untuk membandingkan metode transform langsung.
+	-- Tetap termasuk manipulasi posisi, jadi bukan berarti otomatis aman dari validasi server.
+	local function runIncrementalCFrame(destPos, speed)
 		local char = player.Character
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		if not hum or not hrp then return end
-
-		-- Pastikan duduk di kursi terlebih dahulu
-		forceSitOnSeat()
-		task.wait(0.2)
-
-		local startPos = hrp.Position
-		local curPos = startPos
-		local totalDist = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-
-		addLog("🚀 Seat Carrier meluncur menyusuri jalur...", Color3.fromRGB(255, 215, 0))
-
-		local lastLogTime = 0
-		while isTesting do
-			local dt = RunService.Heartbeat:Wait()
-			if not (char and char.Parent and hrp and hrp.Parent and hum) then break end
-
-			local flatDelta = Vector3.new(destPos.X - curPos.X, 0, destPos.Z - curPos.Z)
-			local flatDist = flatDelta.Magnitude
-			if flatDist <= 4.0 then
-				addLog("✅ Sampai di tujuan dengan Seat Carrier!", Color3.fromRGB(0, 255, 120))
-				break
-			end
-
-			local moveDir = flatDelta.Unit
-			local stepDist = math.min(speed * dt, flatDist)
-
-			local nextX = curPos.X + moveDir.X * stepDist
-			local nextZ = curPos.Z + moveDir.Z * stepDist
-
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, destPos, flatDist, totalDist, char, { magicSeatInstance }, dt)
-			curPos = Vector3.new(nextX, nextY, nextZ)
-
-			local lookAt = Vector3.new(destPos.X, nextY, destPos.Z)
-			if magicSeatInstance and magicSeatInstance.Parent then
-				magicSeatInstance.CFrame = CFrame.new(curPos - Vector3.new(0, 1.5, 0), lookAt)
-			end
-			hrp.CFrame = CFrame.new(curPos, lookAt)
-			hum.Sit = true
-
-			if os.clock() - lastLogTime >= 2.0 then
-				lastLogTime = os.clock()
-				addLog(string.format("Seat: sisa %d stud | Y: %.1f (%s) | Seated: %s", math.floor(flatDist), nextY, isGround and "Tanah" or "Jurang", tostring(hum.SeatPart ~= nil or hum.Sit)), Color3.fromRGB(255, 230, 100))
-			end
-		end
-
-		haltTest("Seat Carrier Selesai")
-	end
-
-	-- METODE 3: 🏍️ Motor Vehicle Tween (Duduk di Motor Asli)
-	local function runMotorTween(destPos, speed)
-		local char = player.Character
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local seat = hum and hum.SeatPart
-		local car = seat and seat:FindFirstAncestorOfClass("Model")
-
-		if not car or not seat then
-			addLog("❌ Anda harus duduk di motor terlebih dahulu untuk tes ini!", Color3.fromRGB(255, 50, 50))
-			isTesting = false
-			return
-		end
-
-		local carPos = car:GetPivot().Position
-		local startPos = carPos
-		local curPos = carPos
-		local totalDist = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-
-		addLog("🚀 Motor Tween meluncur menyusuri permukaan tanah...", Color3.fromRGB(0, 255, 200))
-
-		for _, p in ipairs(car:GetDescendants()) do
-			if p:IsA("BasePart") then p.CanCollide = false end
-		end
-
-		local lastLogTime = 0
-		while isTesting do
-			local dt = RunService.Heartbeat:Wait()
-			if not (car and car.Parent and hum and hum.SeatPart) then
-				addLog("⚠️ Pengemudi terlepas dari motor!", Color3.fromRGB(255, 100, 100))
-				break
-			end
-
-			local flatDelta = Vector3.new(destPos.X - curPos.X, 0, destPos.Z - curPos.Z)
-			local flatDist = flatDelta.Magnitude
-			if flatDist <= 6.0 then
-				addLog("✅ Motor sukses tiba di tujuan!", Color3.fromRGB(0, 255, 120))
-				break
-			end
-
-			local moveDir = flatDelta.Unit
-			local stepDist = math.min(speed * dt, flatDist)
-
-			local nextX = curPos.X + moveDir.X * stepDist
-			local nextZ = curPos.Z + moveDir.Z * stepDist
-
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, destPos, flatDist, totalDist, char, { car }, dt)
-			curPos = Vector3.new(nextX, nextY, nextZ)
-
-			local lookAt = Vector3.new(destPos.X, nextY, destPos.Z)
-			pcall(function()
-				car:PivotTo(CFrame.new(curPos, lookAt))
-				seat.AssemblyLinearVelocity = moveDir * speed
-				seat.AssemblyAngularVelocity = Vector3.zero
-			end)
-
-			if os.clock() - lastLogTime >= 2.0 then
-				lastLogTime = os.clock()
-				addLog(string.format("Motor: sisa %d stud | Y: %.1f (%s) | Speed: %.1f", math.floor(flatDist), nextY, isGround and "Tanah" or "Jurang", speed), Color3.fromRGB(150, 255, 220))
-			end
-		end
-
-		haltTest("Motor Tween Selesai")
-	end
-
-	-- METODE 4: ⚡ Pure Kinematic CFrame Ground Glide
-	local function runCFrameGlide(destPos, speed)
-		local char = player.Character
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return end
 
 		hum.Sit = false
-		task.wait(0.05)
-		hum.PlatformStand = true
+		hum.PlatformStand = false
+
+		-- BodyVelocity penahan gravitasi vertikal agar tidak jatuh ke laut selama frame-stepping
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "__ResearchIncCF_BV"
+		bv.MaxForce = Vector3.new(0, 9e9, 0)
+		bv.Velocity = Vector3.zero
+		bv.Parent = hrp
 
 		local startPos = hrp.Position
 		local curPos = startPos
 		local totalDist = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
 
-		addLog("⚠️ CFrame Glide setara tanah aktif...", Color3.fromRGB(255, 180, 50))
+		addLog("🥉 Menjalankan Heartbeat + incremental CFrame (Speed: " .. speed .. " stud/s)...", Color3.fromRGB(255, 180, 100))
+		addLog("ℹ️ Baseline transform: posisi diperbarui sedikit demi sedikit setiap frame Heartbeat.", Color3.fromRGB(210, 180, 140))
+		addLog("⚠️ Tetap manipulasi posisi langsung, bukan berarti otomatis aman dari validasi server.", Color3.fromRGB(255, 200, 80))
 
 		local lastLogTime = 0
 		while isTesting do
 			local dt = RunService.Heartbeat:Wait()
-			if not (char and char.Parent and hrp and hrp.Parent) then break end
+			if not (char and char.Parent and hrp and hrp.Parent and hum) then break end
 
 			local flatDelta = Vector3.new(destPos.X - curPos.X, 0, destPos.Z - curPos.Z)
 			local flatDist = flatDelta.Magnitude
-			if flatDist <= 4.0 then break end
+			if flatDist <= 4.0 then
+				addLog("✅ Sampai di target dengan Heartbeat + incremental CFrame!", Color3.fromRGB(0, 255, 120))
+				break
+			end
 
 			local moveDir = flatDelta.Unit
 			local stepDist = math.min(speed * dt, flatDist)
@@ -900,79 +878,171 @@ local success, err = pcall(function()
 			local nextX = curPos.X + moveDir.X * stepDist
 			local nextZ = curPos.Z + moveDir.Z * stepDist
 
+			-- Hitung ketinggian tanah secara adaptif
 			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, destPos, flatDist, totalDist, char, nil, dt)
 			curPos = Vector3.new(nextX, nextY, nextZ)
 
-			hrp.CFrame = CFrame.new(curPos, Vector3.new(destPos.X, nextY, destPos.Z))
+			local lookTarget = Vector3.new(destPos.X, nextY, destPos.Z)
+			hrp.CFrame = CFrame.new(curPos, lookTarget)
 			hrp.AssemblyLinearVelocity = moveDir * speed
 
 			if os.clock() - lastLogTime >= 2.0 then
 				lastLogTime = os.clock()
-				addLog(string.format("CFrame: %d stud | Y: %.1f (%s) | Floor: %s", math.floor(flatDist), nextY, isGround and "Tanah" or "Jurang", hum.FloorMaterial.Name), Color3.fromRGB(255, 200, 100))
+				addLog(string.format("IncCFrame: sisa %d stud | Y: %.1f (%s) | Floor: %s | Vel: %.1f", math.floor(flatDist), nextY, isGround and "Tanah" or "Jurang", hum.FloorMaterial.Name, hrp.AssemblyLinearVelocity.Magnitude), Color3.fromRGB(255, 210, 150))
 			end
 		end
 
-		haltTest("Pure CFrame Selesai")
+		if bv and bv.Parent then bv:Destroy() end
+		haltTest("Incremental CFrame Selesai")
 	end
 
-	-- METODE 5: 🚶 Stealth Walk (Plat bergerak setara tanah)
-	local function runStealthWalk(destPos, speed)
+	-- =========================================================================
+	-- ⚡ METODE 3: AssemblyLinearVelocity / LinearVelocity
+	-- =========================================================================
+	-- Menarik untuk diuji karena berbasis physics.
+	-- Hasilnya sangat bergantung pada network ownership dan sistem movement DDS.
+	local function runLinearVelocity(destPos, speed)
 		local char = player.Character
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return end
 
 		hum.Sit = false
 		hum.PlatformStand = false
-		task.wait(0.05)
+
+		-- Nonaktifkan ragdoll/jatuh agar dorongan fisika murni menggerakkan karakter
+		pcall(function()
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+		end)
+
+		-- Constraint BodyVelocity / LinearVelocity untuk menghasilkan physical velocity murni
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "__ResearchPhysVelocity"
+		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+		bv.Velocity = Vector3.zero
+		bv.Parent = hrp
+
+		addLog("⚡ Menjalankan AssemblyLinearVelocity / LinearVelocity (Speed: " .. speed .. " stud/s)...", Color3.fromRGB(0, 212, 255))
+		addLog("ℹ️ Berbasis physics murni: menggerakkan karakter via physical force & velocity.", Color3.fromRGB(150, 220, 255))
+		addLog("ℹ️ Mengandalkan Network Ownership client dan sistem movement DDS.", Color3.fromRGB(180, 220, 255))
 
 		local startPos = hrp.Position
-		local curPos = startPos
 		local totalDist = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-
-		if plateInstance and plateInstance.Parent then plateInstance:Destroy() end
-		plateInstance = Instance.new("Part")
-		plateInstance.Name = "__DdsStealthBridge"
-		plateInstance.Size = Vector3.new(16, 1.5, 16)
-		plateInstance.Anchored = true
-		plateInstance.CanCollide = true
-		plateInstance.Transparency = 0.5
-		plateInstance.Material = Enum.Material.Plastic
-		plateInstance.CFrame = CFrame.new(curPos.X, curPos.Y - 3.1, curPos.Z)
-		plateInstance.Parent = Workspace
-
-		addLog("🚶 Stealth Walk aktif: melangkah di atas plat setara tanah...", Color3.fromRGB(180, 255, 150))
-
 		local lastLogTime = 0
+
 		while isTesting do
 			local dt = RunService.Heartbeat:Wait()
 			if not (char and char.Parent and hrp and hrp.Parent and hum) then break end
 
+			local curPos = hrp.Position
 			local flatDelta = Vector3.new(destPos.X - curPos.X, 0, destPos.Z - curPos.Z)
 			local flatDist = flatDelta.Magnitude
-			if flatDist <= 4.0 then break end
+
+			if flatDist <= 6.0 then
+				addLog("✅ Sampai di target dengan LinearVelocity!", Color3.fromRGB(0, 255, 120))
+				break
+			end
 
 			local moveDir = flatDelta.Unit
-			local stepDist = math.min(math.min(speed, 35) * dt, flatDist)
 
-			local nextX = curPos.X + moveDir.X * stepDist
-			local nextZ = curPos.Z + moveDir.Z * stepDist
+			-- Posisikan arah hadap karakter ke target secara halus tanpa manipulasi posisi CFrame
+			hrp.CFrame = CFrame.new(curPos, Vector3.new(destPos.X, curPos.Y, destPos.Z))
 
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, destPos, flatDist, totalDist, char, { plateInstance }, dt)
-			curPos = Vector3.new(nextX, nextY, nextZ)
+			-- Kendalikan pergerakan murni melalui dorongan fisika (LinearVelocity)
+			local nextY, isGround = calculateAdaptiveY(curPos.Y, curPos.X, curPos.Z, startPos, destPos, flatDist, totalDist, char, nil, dt)
+			local yVel = math.clamp((nextY - curPos.Y) / math.max(dt, 0.016), -35, 35)
 
-			plateInstance.CFrame = CFrame.new(nextX, nextY - 3.1, nextZ)
-			hrp.CFrame = CFrame.new(curPos, Vector3.new(destPos.X, nextY, destPos.Z))
-
-			hum:Move(moveDir, false)
+			local targetVelocity = Vector3.new(moveDir.X * speed, yVel, moveDir.Z * speed)
+			bv.Velocity = targetVelocity
+			hrp.AssemblyLinearVelocity = targetVelocity
+			hrp.AssemblyAngularVelocity = Vector3.zero
 
 			if os.clock() - lastLogTime >= 2.0 then
 				lastLogTime = os.clock()
-				addLog(string.format("Stealth: sisa %d stud | Y: %.1f (%s) | Speed: 35s/s", math.floor(flatDist), nextY, isGround and "Tanah" or "Jurang"), Color3.fromRGB(180, 255, 180))
+				addLog(string.format("Velocity: sisa %d stud | Y: %.1f (%s) | Floor: %s | RealVel: %.1f", math.floor(flatDist), curPos.Y, isGround and "Tanah" or "Jurang", hum.FloorMaterial.Name, hrp.AssemblyLinearVelocity.Magnitude), Color3.fromRGB(150, 230, 255))
 			end
 		end
 
-		haltTest("Stealth Walk Selesai")
+		if bv and bv.Parent then bv:Destroy() end
+
+		pcall(function()
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+		end)
+
+		haltTest("LinearVelocity Selesai")
+	end
+
+	-- =========================================================================
+	-- 🎬 METODE 4: TweenService → CFrame langsung
+	-- =========================================================================
+	-- Mudah dan smooth.
+	-- Tapi untuk pengujian crossing jurang, secara konsep masih merupakan perpindahan CFrame langsung.
+	local function runDirectTween(destPos, speed)
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not hrp then return end
+
+		hum.Sit = false
+		hum.PlatformStand = false
+
+		-- BodyVelocity penahan gravitasi selama TweenService
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "__ResearchTweenBV"
+		bv.Velocity = Vector3.zero
+		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+		bv.Parent = hrp
+
+		-- NoClip agar tidak tersangkut gedung/pohon
+		local noclipConn = RunService.Stepped:Connect(function()
+			if char and char.Parent then
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") then p.CanCollide = false end
+				end
+			end
+		end)
+
+		local startPos = hrp.Position
+		local totalDist = (destPos - startPos).Magnitude
+		local duration = math.max(totalDist / math.max(speed, 30), 0.2)
+
+		addLog(string.format("🎬 Menjalankan TweenService → CFrame langsung (Dist: %d stud, Time: %.1fs, Speed: %d)...", math.floor(totalDist), duration, speed), Color3.fromRGB(220, 150, 255))
+		addLog("ℹ️ Mudah dan smooth: perpindahan CFrame langsung via Engine TweenService.", Color3.fromRGB(230, 180, 255))
+		addLog("⚠️ Secara konsep masih merupakan perpindahan CFrame langsung.", Color3.fromRGB(240, 200, 150))
+
+		local targetCF = CFrame.new(destPos + Vector3.new(0, 2.0, 0), destPos + (destPos - startPos).Unit)
+		local twInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+		local tw = TweenService:Create(hrp, twInfo, { CFrame = targetCF })
+
+		local twDone = false
+		local twConn = tw.Completed:Connect(function() twDone = true end)
+		tw:Play()
+
+		local twStart = os.clock()
+		local lastLogTime = 0
+
+		while isTesting and not twDone do
+			task.wait(0.1)
+			if not (char and char.Parent and hrp and hrp.Parent and hum) then break end
+			if os.clock() - twStart > (duration + 5.0) then break end
+
+			if os.clock() - lastLogTime >= 2.0 then
+				lastLogTime = os.clock()
+				local rem = (destPos - hrp.Position).Magnitude
+				addLog(string.format("Tween: sisa %d stud | Y: %.1f | Floor: %s | State: %s", math.floor(rem), hrp.Position.Y, hum.FloorMaterial.Name, hum:GetState().Name), Color3.fromRGB(240, 180, 255))
+			end
+		end
+
+		if twConn then twConn:Disconnect() end
+		if noclipConn then noclipConn:Disconnect() end
+		pcall(function() tw:Cancel() end)
+		if bv and bv.Parent then bv:Destroy() end
+
+		haltTest("Direct TweenService Selesai")
 	end
 
 	-- Tombol Eksekusi
@@ -983,19 +1053,21 @@ local success, err = pcall(function()
 		end
 
 		isTesting = true
-		addLog(string.format("=== MEMULAI RISET METODE: %s (Target: %.0f, %.0f, %.0f) ===", currentMode, targetPosition.X, targetPosition.Y, targetPosition.Z), Color3.fromRGB(255, 255, 255))
+		local activeModeName = currentMode
+		for _, m in ipairs(MODES) do
+			if m.id == currentMode then activeModeName = m.name break end
+		end
+		addLog(string.format("=== MEMULAI RISET METODE: %s (Speed: %d, Target: %.0f, %.0f, %.0f) ===", activeModeName, testSpeed, targetPosition.X, targetPosition.Y, targetPosition.Z), Color3.fromRGB(255, 255, 255))
 
 		local th = task.spawn(function()
-			if currentMode == "PlateCarrier" then
-				runPlateCarrier(targetPosition, testSpeed)
-			elseif currentMode == "SeatCarrier" then
-				runSeatCarrier(targetPosition, testSpeed)
-			elseif currentMode == "MotorTween" then
-				runMotorTween(targetPosition, testSpeed)
-			elseif currentMode == "CFrameTween" then
-				runCFrameGlide(targetPosition, testSpeed)
-			elseif currentMode == "KinematicStealth" then
-				runStealthWalk(targetPosition, testSpeed)
+			if currentMode == "MoveTo" then
+				runMoveTo(targetPosition, testSpeed)
+			elseif currentMode == "IncrementalCFrame" then
+				runIncrementalCFrame(targetPosition, testSpeed)
+			elseif currentMode == "LinearVelocity" then
+				runLinearVelocity(targetPosition, testSpeed)
+			elseif currentMode == "DirectTween" then
+				runDirectTween(targetPosition, testSpeed)
 			end
 		end)
 		table.insert(activeThreads, th)
