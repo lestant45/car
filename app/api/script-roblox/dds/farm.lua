@@ -3215,11 +3215,16 @@ local success, err = pcall(function()
 
 	local function triggerCourierPrompt(prompt, holdDuration)
 		if not prompt then return false end
+		local CS = game:GetService("CollectionService")
+		pcall(function()
+			CS:AddTag(prompt, "KeepPromptWhenSeated")
+			prompt.Enabled = true
+		end)
 		local duration = holdDuration or prompt.HoldDuration or 0.5
 		pcall(function()
-			prompt.Enabled = true
 			if fireproximityprompt then
-				fireproximityprompt(prompt, duration + 0.1)
+				pcall(function() fireproximityprompt(prompt, duration) end)
+				pcall(function() fireproximityprompt(prompt) end)
 			elseif prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
 				task.wait(duration + 0.15)
@@ -3272,6 +3277,20 @@ local success, err = pcall(function()
 
 			updateBotActivity("📦 Memulai Auto Kurir (Zero-Unseat Carrier)...", Color3.fromRGB(0, 212, 255))
 			UI.Notify("Courier Auto-Worker ON", "Navigasi Murni Kursi Permanen (Anti-Kick Aktif)!", 3.5, "success")
+
+			-- 🛡️ Whitelist semua ProximityPrompt Kurir agar tidak disembunyikan oleh PromptVisibilityManager saat duduk
+			pcall(function()
+				local CS = game:GetService("CollectionService")
+				local livrason = workspace:FindFirstChild("Livrason")
+				if livrason then
+					for _, p in ipairs(livrason:GetDescendants()) do
+						if p:IsA("ProximityPrompt") then
+							CS:AddTag(p, "KeepPromptWhenSeated")
+							p.Enabled = true
+						end
+					end
+				end
+			end)
 
 			courierLoopThread = task.spawn(function()
 				while courierActive do
@@ -3348,17 +3367,43 @@ local success, err = pcall(function()
 								-- Ambil paket dari depot via ProximityPrompt (TETAP DUDUK DI KURSI)
 								updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
 								local tStartTake = tick()
-								while not hasCourierPackage() and courierActive and (tick() - tStartTake < 6.0) do
+								local takeAttempts = 0
+								while not hasCourierPackage() and courierActive and (tick() - tStartTake < 8.0) do
+									takeAttempts = takeAttempts + 1
 									if not takePrompt or not takePrompt.Parent then
 										livrason = workspace:FindFirstChild("Livrason")
 										takePart = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take")
 										takePrompt = takePart and takePart:FindFirstChildOfClass("ProximityPrompt")
 									end
 									if takePrompt then
-										takePrompt.Enabled = true
-										triggerCourierPrompt(takePrompt, takePrompt.HoldDuration or 0.5)
+										local CS = game:GetService("CollectionService")
+										pcall(function()
+											CS:AddTag(takePrompt, "KeepPromptWhenSeated")
+											takePrompt.Enabled = true
+										end)
+										local holdTime = takePrompt.HoldDuration or 0.5
+
+										-- Fallback jika server DDS mewajibkan berdiri sesaat untuk ambil paket
+										local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+										local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+										if takeAttempts >= 3 and hum and hrp then
+											hrp.AssemblyLinearVelocity = Vector3.zero
+											hum.Sit = false
+											task.wait(0.08)
+										end
+
+										triggerCourierPrompt(takePrompt, holdTime)
+										-- Beri waktu hold selesai penuh (holdTime + 0.35s), JANGAN diinterupsi tiap 0.35s!
+										task.wait(holdTime + 0.35)
+
+										-- Duduk kembali di kursi carrier dengan aman
+										if hum and not hum.Sit then
+											hum.Sit = true
+											task.wait(0.05)
+										end
+									else
+										task.wait(0.4)
 									end
-									task.wait(0.35)
 								end
 								task.wait(0.3)
 								return
@@ -3439,23 +3484,46 @@ local success, err = pcall(function()
 							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
 							local tWaitDeliver = tick()
 							local isHandedOver = false
+							local dropAttempts = 0
 
-							while courierActive and (tick() - tWaitDeliver < 7.0) do
+							while courierActive and (tick() - tWaitDeliver < 8.0) do
+								dropAttempts = dropAttempts + 1
 								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character sambil duduk)
 								equipCourierPackage()
 
-								-- 2. Pastikan Prompt diaktifkan & ditembak secara natural
+								-- 2. Pastikan Prompt diaktifkan & diberi tag KeepPromptWhenSeated
 								if not dropPrompt or not dropPrompt.Parent then
 									local _, np, _, _ = getCourierDestination()
 									dropPrompt = np
 								end
 								if dropPrompt then
-									dropPrompt.Enabled = true
+									local CS = game:GetService("CollectionService")
+									pcall(function()
+										CS:AddTag(dropPrompt, "KeepPromptWhenSeated")
+										dropPrompt.Enabled = true
+									end)
 									local holdTime = dropPrompt.HoldDuration or 0.5
+
+									-- Fallback jika server DDS mewajibkan unseat sesaat untuk menyerahkan paket
+									local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+									local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+									if dropAttempts >= 3 and hum and hrp then
+										hrp.AssemblyLinearVelocity = Vector3.zero
+										hum.Sit = false
+										task.wait(0.08)
+									end
+
 									triggerCourierPrompt(dropPrompt, holdTime)
-									task.wait(holdTime + 0.25)
+									-- Beri waktu hold selesai penuh (holdTime + 0.35s)
+									task.wait(holdTime + 0.35)
+
+									-- Duduk kembali di kursi carrier dengan aman
+									if hum and not hum.Sit then
+										hum.Sit = true
+										task.wait(0.05)
+									end
 								else
-									task.wait(0.3)
+									task.wait(0.4)
 								end
 
 								-- 3. Cek apakah server sudah memproses serah terima paket
