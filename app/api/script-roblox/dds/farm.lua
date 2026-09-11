@@ -63,13 +63,13 @@ local success, err = pcall(function()
 		tripPacing = true,
 		autoRejoinOrders = 30,
 		autoCourier = false,
-		courierSpeed = 95,
+		courierSpeed = 230,
 		courierPacing = true
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
-	if Config.courierSpeed == nil then Config.courierSpeed = 95 end
+	if Config.courierSpeed == nil then Config.courierSpeed = 230 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -1238,53 +1238,40 @@ local success, err = pcall(function()
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return false end
 
-		-- Bersihkan sisa kursi lama jika ada
+		-- Bersihkan sisa kursi & plate lama jika ada
 		destroyCarrierSeat()
-
-		-- Bersihkan sisa carrier plate lama jika ada
 		pcall(function()
 			local oldP = workspace:FindFirstChild("__DdsCarrierPlate")
 			if oldP then oldP:Destroy() end
+			local oldBv = hrp:FindFirstChild("__DdsTweenBV")
+			if oldBv then oldBv:Destroy() end
 		end)
 
-		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
-		UI.Notify("⚡ Invisible Glide Aktif", string.format("Meluncur dengan spoof grounded (%.0f stud/s)...", effectiveSpeed), 2.0, "info")
-		updateBotActivity("⚡ Meluncur (Moving Carrier Spoof)...", Color3.fromRGB(0, 212, 255))
+		local effectiveSpeed = math.clamp(tonumber(speed) or tonumber(Config.courierSpeed) or 230, 50, 350)
+		UI.Notify("⚡ Pro Tween Aktif", string.format("Meluncur via Engine TweenService (%.0f stud/s)...", effectiveSpeed), 2.0, "info")
+		updateBotActivity(string.format("⚡ Tween Karakter (%.0f stud/s)...", effectiveSpeed), Color3.fromRGB(0, 212, 255))
 
-		local startPos = hrp.Position
-		local curPos = startPos
-		local lastStreamPos = startPos
-		local lastNotifyTime = 0
-		local startTime = os.clock()
-
-		local totalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-		local maxWait = (totalDist / math.max(effectiveSpeed, 50)) + 30.0
-
-		-- 🛡️ Buat Moving Carrier Plate (100% Invisible, CanCollide = true, Material = Plastic)
-		-- Plate ini berada tepat di bawah sol sepatu, menipu engine agar hum.FloorMaterial = Plastic
-		-- Di layar mata: karakter terlihat terbang/melayang murni di atas jurang.
-		-- Di server: server mendeteksi karakter GROUNDED, timer anti-fly tidak akan aktif!
-		local carrierPlate = Instance.new("Part")
-		carrierPlate.Name = "__DdsCarrierPlate"
-		carrierPlate.Size = Vector3.new(12, 1.5, 12)
-		carrierPlate.Anchored = true
-		carrierPlate.CanCollide = true
-		carrierPlate.Transparency = 1
-		carrierPlate.Material = Enum.Material.Plastic
-		carrierPlate.CFrame = CFrame.new(startPos.X, startPos.Y - 3.1, startPos.Z)
-		carrierPlate.Parent = workspace
-
-		-- 🚶 Jaga karakter berdiri normal (JANGAN PlatformStand agar status tetap Grounded/Running)
+		-- 1. Unseat dan stabilkan karakter
 		hum.Sit = false
 		hum.PlatformStand = false
+
+		-- 2. Nonaktifkan status jatuh bebas / tersandung / berenang agar tidak glitch
 		pcall(function()
 			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
 			hum:ChangeState(Enum.HumanoidStateType.Running)
 		end)
 
-		-- NoClip pada part tubuh player selama luncuran agar tidak tersangkut bangunan
+		-- 3. BodyVelocity untuk melawan gravitasi & mengunci stabilitas fisika engine
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "__DdsTweenBV"
+		bv.Velocity = Vector3.zero
+		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+		bv.Parent = hrp
+
+		-- 4. NoClip pada seluruh bagian tubuh karakter selama tweening
 		local noclipConn = RunService.Stepped:Connect(function()
 			if char and char.Parent then
 				for _, p in ipairs(char:GetDescendants()) do
@@ -1295,100 +1282,113 @@ local success, err = pcall(function()
 			end
 		end)
 
+		local startPos = hrp.Position
+		local totalDist = (targetPos - startPos).Magnitude
+
 		-- Pre-stream titik awal & tujuan
 		requestStreamAsync(startPos)
 		requestStreamAsync(targetPos)
 
-		while (courierActive or _G.HipHubCourierActive) do
-			local dt = RunService.Heartbeat:Wait()
+		-- Helper eksekusi tween tunggal secara sinkron
+		local function playSubTween(goalCF, duration, easingStyle)
+			local twInfo = TweenInfo.new(math.max(duration, 0.08), easingStyle or Enum.EasingStyle.Linear)
+			local tw = TweenService:Create(hrp, twInfo, { CFrame = goalCF })
+			local twDone = false
+			local twConn = tw.Completed:Connect(function() twDone = true end)
 
-			if not (char and char.Parent and hrp and hrp.Parent and hum and hum.Parent) then
-				break
+			tw:Play()
+
+			local twStart = os.clock()
+			local lastStream = os.clock()
+			local lastNotify = os.clock()
+
+			while not twDone and (courierActive or _G.HipHubCourierActive) do
+				task.wait(0.1)
+				if not (char and char.Parent and hrp and hrp.Parent and hum and hum.Parent) then
+					break
+				end
+				if (os.clock() - twStart) > (duration + 4.0) then
+					break
+				end
+				local now = os.clock()
+				if now - lastStream >= 0.8 then
+					lastStream = now
+					requestStreamAsync(hrp.Position)
+					requestStreamAsync(targetPos)
+				end
+				if now - lastNotify >= 0.5 then
+					lastNotify = now
+					local remDist = (targetPos - hrp.Position).Magnitude
+					updateBotActivity(string.format("⚡ Tween: sisa %.0fm (%.0f s/s)...", remDist, effectiveSpeed), Color3.fromRGB(0, 212, 255))
+				end
 			end
 
-			if (os.clock() - startTime) > maxWait then
-				warn("[HipHub DDS Carrier Glide] Timeout tercapai, menyelesaikan luncuran...")
-				break
-			end
-
-			local flatDelta = Vector3.new(targetPos.X - curPos.X, 0, targetPos.Z - curPos.Z)
-			local flatDist = flatDelta.Magnitude
-
-			-- Tiba di radius target (<= 2.5 stud)
-			if flatDist <= 2.5 then
-				break
-			end
-
-			local moveDir = flatDelta.Unit
-			local stepDist = math.min(effectiveSpeed * dt, flatDist)
-
-			local nextX = curPos.X + moveDir.X * stepDist
-			local nextZ = curPos.Z + moveDir.Z * stepDist
-
-			-- Hitung Y adaptif: menempel tanah jika ada tanah, slope gradual di atas jurang
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, targetPos, flatDist, totalDist, char, { carrierPlate }, dt)
-			curPos = Vector3.new(nextX, nextY, nextZ)
-
-			-- Pindahkan carrier plate tepat di bawah telapak kaki
-			if carrierPlate and carrierPlate.Parent then
-				carrierPlate.CFrame = CFrame.new(nextX, nextY - 3.1, nextZ)
-			end
-
-			-- Set CFrame menghadap ke target
-			hrp.CFrame = CFrame.new(curPos, Vector3.new(targetPos.X, nextY, targetPos.Z))
-
-			-- 🛑 PENTING: Kunci physics velocity ke ZERO agar server tidak mendeteksi speed hack
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-
-			-- Pastikan tidak duduk / ragdoll di tengah jalan
-			if hum.Sit then hum.Sit = false end
-			if hum.PlatformStand then hum.PlatformStand = false end
-
-			-- Pre-stream chunk secara berkala setiap 120 stud
-			if (curPos - lastStreamPos).Magnitude >= 120 then
-				lastStreamPos = curPos
-				requestStreamAsync(curPos)
-				requestStreamAsync(curPos + moveDir * 250)
-			end
-
-			-- Update status setiap 0.5 detik
-			local now = os.clock()
-			if now - lastNotifyTime >= 0.5 then
-				lastNotifyTime = now
-				updateBotActivity(string.format("⚡ Glide: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
-			end
+			pcall(function() twConn:Disconnect() end)
+			pcall(function() tw:Cancel() end)
 		end
 
-		-- Disconnect noclip
+		local lookDir = (targetPos - startPos).Unit
+		if lookDir.Magnitude < 0.01 then lookDir = hrp.CFrame.LookVector end
+		local targetRot = CFrame.Angles(0, math.atan2(lookDir.X, lookDir.Z), 0)
+
+		-- 5. Trajektori Terbang:
+		-- Jika jarak jauh (> 250 stud, misal menyeberangi jurang Yogya-Klaten):
+		-- Gunakan Cruise Altitude di atas air laut & rintangan agar 100% bebas hambatan
+		if totalDist > 250 then
+			local cruiseY = math.max(startPos.Y, targetPos.Y, 32) + 12
+			local liftDist = math.abs(cruiseY - startPos.Y)
+			local liftTime = math.clamp(liftDist / 120, 0.15, 0.8)
+
+			-- A. Naik ke ketinggian jelajah aman (bebas air laut & pohon)
+			local liftCF = CFrame.new(startPos.X, cruiseY, startPos.Z) * targetRot
+			playSubTween(liftCF, liftTime, Enum.EasingStyle.Quad)
+
+			-- B. Meluncur horizontal dengan kecepatan penuh (230 stud/s)
+			local flatDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+			local cruiseDuration = flatDist / effectiveSpeed
+			local cruiseCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z) * targetRot
+			playSubTween(cruiseCF, cruiseDuration, Enum.EasingStyle.Linear)
+
+			-- C. Turun mulus ke koordinat tujuan persis di atas tanah (+ 1.5 stud)
+			local dropDist = math.abs(cruiseY - targetPos.Y)
+			local dropTime = math.clamp(dropDist / 120, 0.15, 0.8)
+			local finalCF = CFrame.new(targetPos + Vector3.new(0, 1.5, 0)) * targetRot
+			playSubTween(finalCF, dropTime, Enum.EasingStyle.Quad)
+		else
+			-- Jarak dekat (<= 250 stud): Langsung linear tween ke target
+			local directDuration = totalDist / effectiveSpeed
+			local finalCF = CFrame.new(targetPos + Vector3.new(0, 1.5, 0)) * targetRot
+			playSubTween(finalCF, directDuration, Enum.EasingStyle.Linear)
+		end
+
+		-- 6. Cleanup Selesai: Hapus BV & NoClip
 		if noclipConn then
 			pcall(function() noclipConn:Disconnect() end)
 			noclipConn = nil
 		end
-
-		-- 🛬 Mendarat di Tanah Asli Game: Hancurkan plate SEKETIKA (tidak ada safetyplate yang tertinggal)
-		if carrierPlate and carrierPlate.Parent then
-			pcall(function() carrierPlate:Destroy() end)
-			carrierPlate = nil
+		if bv and bv.Parent then
+			pcall(function() bv:Destroy() end)
 		end
+
+		-- Stabilkan posisi akhir di tanah
+		pcall(function()
+			hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 1.2, 0)) * targetRot
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end)
 
 		-- Kembalikan state Humanoid normal
 		pcall(function()
 			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
 			hum.PlatformStand = false
 			hum.Sit = false
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end)
 
-		-- Nol-kan velocity lalu berdiri normal di tanah game
-		pcall(function()
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end)
-
-		UI.Notify("✅ Tiba di Lokasi", "Mendarat di tanah game.", 1.5, "success")
+		UI.Notify("✅ Tiba di Lokasi", "Mendarat di tujuan.", 1.5, "success")
 		task.wait(0.15)
 		return true
 	end
@@ -3561,7 +3561,7 @@ local success, err = pcall(function()
 		end
 	end)
 
-	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 250, math.floor(Config.courierSpeed or 95), function(val)
+	UI.AddSlider(tab, "Courier Speed (Studs/s)", 50, 350, math.floor(Config.courierSpeed or 230), function(val)
 		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierSpeed = val
