@@ -13,6 +13,60 @@ while not player do
 	player = Players.LocalPlayer
 end
 
+--=====================================================================
+-- 🛡️ ADONIS & GAME ANTI-CHEAT NEUTRALIZER
+--=====================================================================
+pcall(function()
+	local function neutralizeAntiCheat()
+		if not (getreg and getgc and isfunctionhooked and hookfunction) then return end
+		
+		-- 1. Matikan thread Adonis Anti & Plugins
+		for _, thread in ipairs(getreg()) do
+			if typeof(thread) == "thread" then
+				local s, info = pcall(debug.info, thread, 1, "s")
+				if s and info and (info:match("%.Core%.Anti") or info:match("%.Plugins%.Anti_Cheat")) then
+					pcall(coroutine.close, thread)
+				end
+			end
+		end
+
+		-- 2. Lumpuhkan fungsi Detected di memori Adonis
+		local targets = {}
+		if filtergc then
+			local tables = filtergc("table", { Keys = { "Detected", "RLocked" } }, false)
+			for _, tbl in ipairs(tables or {}) do
+				if typeof(rawget(tbl, "Detected")) == "function" then
+					table.insert(targets, tbl)
+				end
+			end
+		else
+			for _, tbl in ipairs(getgc(true)) do
+				if typeof(tbl) == "table" and typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked") then
+					table.insert(targets, tbl)
+				end
+			end
+		end
+
+		for _, tbl in ipairs(targets) do
+			for k, fn in pairs(tbl) do
+				if typeof(fn) == "function" and not isfunctionhooked(fn) then
+					hookfunction(fn, function(...)
+						coroutine.yield(coroutine.running())
+						return task.wait(9000000000)
+					end)
+				end
+			end
+		end
+	end
+
+	neutralizeAntiCheat()
+	task.spawn(function()
+		while task.wait(5) do
+			pcall(neutralizeAntiCheat)
+		end
+	end)
+end)
+
 local success, err = pcall(function()
 	-- Pre-loader optimization check (Ensure 3D rendering is active)
 	pcall(function()
