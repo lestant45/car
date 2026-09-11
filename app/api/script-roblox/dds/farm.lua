@@ -124,13 +124,21 @@ local success, err = pcall(function()
 		autoCourier = false,
 		courierSpeed = 200,
 		courierDropDelay = 5,
-		courierPacing = false
+		courierPacing = false,
+		courierAutoRejoin = true,
+		courierRejoinHours = 3,
+		courierMaxEarnM = 79,
+		courierRejoinOnLimit = true
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = false end
 	if Config.courierSpeed == nil then Config.courierSpeed = 200 end
 	if Config.courierDropDelay == nil then Config.courierDropDelay = 5 end
+	if Config.courierAutoRejoin == nil then Config.courierAutoRejoin = true end
+	if Config.courierRejoinHours == nil then Config.courierRejoinHours = 3 end
+	if Config.courierMaxEarnM == nil then Config.courierMaxEarnM = 79 end
+	if Config.courierRejoinOnLimit == nil then Config.courierRejoinOnLimit = true end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -3190,6 +3198,88 @@ local success, err = pcall(function()
 	local courierShiftLimit      = false
 	local courierLastJobTime     = os.clock()
 	local courierResetFlag       = false
+	local courierStartTime       = os.clock()
+	local courierTotalEarn       = 0
+	local courierRejoinPending   = false
+
+	local function formatCourierTime(sec)
+		local h = math.floor(sec / 3600)
+		local m = math.floor((sec % 3600) / 60)
+		local s = math.floor(sec % 60)
+		return string.format("%02dh %02dm %02ds", h, m, s)
+	end
+
+	local function formatRupiah(n)
+		return "Rp. " .. tostring(math.floor(n)):reverse():gsub("%d%d%d", "%1."):reverse():gsub("^%.", "")
+	end
+
+	local function rejoinCourierServer(reason)
+		if courierRejoinPending then return end
+		courierRejoinPending = true
+
+		UI.Notify("🔁 Courier Auto-Rejoin", reason or "Batas sesi tercapai! Rejoining server...", 5, "warning")
+		updateBotActivity("🔄 " .. (reason or "Auto-Rejoining Server..."), Color3.fromRGB(255, 120, 50))
+
+		-- 1. Bersihkan kursi dummy & pindah tim civilian
+		pcall(function()
+			local s = workspace:FindFirstChild("courier_seat")
+			if s then s:Destroy() end
+			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
+			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+			if teamReq then
+				teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
+			end
+		end)
+
+		-- 2. Inject queue_on_teleport untuk Auto-Resume di server baru
+		local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+		if queueTeleport then
+			pcall(function()
+				queueTeleport([[
+					getgenv().AUTO_RESUME_COURIER = true
+					task.spawn(function()
+						pcall(function()
+							local Lighting = game:GetService("Lighting")
+							local blur = Lighting:FindFirstChild("menuBlur")
+							if blur then blur.Enabled = false blur.Size = 0 end
+							local player = game:GetService("Players").LocalPlayer
+							if player and player:FindFirstChild("PlayerGui") then
+								local mainUI = player.PlayerGui:FindFirstChild("MainUI")
+								if mainUI and mainUI:FindFirstChild("Holder") then
+									mainUI.Holder.Visible = false
+								end
+							end
+							local menuEvent = game:GetService("ReplicatedStorage"):WaitForChild("menuToggleRequest", 5)
+							if menuEvent and menuEvent:IsA("RemoteEvent") then
+								menuEvent:FireServer()
+							end
+							game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+						end)
+					end)
+				]])
+			end)
+		end
+
+		task.wait(1.5)
+
+		-- 3. Teleport Service Rejoin
+		local TeleportService = game:GetService("TeleportService")
+		local placeId = game.PlaceId
+		local jobId = game.JobId
+
+		pcall(function()
+			if #Players:GetPlayers() <= 1 then
+				TeleportService:Teleport(placeId, player)
+			else
+				TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
+			end
+		end)
+
+		task.wait(4)
+		pcall(function()
+			TeleportService:Teleport(placeId, player)
+		end)
+	end
 
 	-- Listener untuk ServiceEvent dari Delivery System
 	local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
@@ -3212,6 +3302,12 @@ local success, err = pcall(function()
 	local function handleCourierShiftLimit()
 		if courierShiftLimit then return end
 		courierShiftLimit = true
+
+		if Config.courierRejoinOnLimit then
+			rejoinCourierServer("Batas Shift Kurir Server Tercapai")
+			return
+		end
+
 		UI.Notify("Courier Shift Limit", "Limit shift tercapai! Me-refresh session...", 3, "warning")
 		updateBotActivity("🔄 Courier Shift Limit (Refreshing)...", Color3.fromRGB(255, 180, 50))
 
@@ -3253,7 +3349,7 @@ local success, err = pcall(function()
 		local notifEvt = notifFolder and notifFolder:WaitForChild("NotifEvent", 5)
 		if notifEvt then
 			notifEvt.OnClientEvent:Connect(function(k, v)
-				if not courierActive then return end
+				if not (courierActive or _G.HipHubCourierActive) then return end
 				local isLimit = false
 				if typeof(v) == "string" and (v:find("NC_SHIFT_LIMIT") or v:find("shift kurir tercapai") or v:lower():find("courier shift")) then
 					isLimit = true
@@ -3266,6 +3362,56 @@ local success, err = pcall(function()
 					task.spawn(handleCourierShiftLimit)
 				end
 			end)
+		end
+	end)
+
+	-- Monitor NOTIF UI untuk pelacakan akumulasi pendapatan real-time & shift limit
+	pcall(function()
+		local pg = player:WaitForChild("PlayerGui", 9e9)
+		local mainUI = pg:WaitForChild("MainUI", 9e9)
+		local frame4 = mainUI:WaitForChild("Frame4", 9e9)
+		local notif = frame4:WaitForChild("NOTIF", 9e9)
+
+		local lastNotifText = ""
+		notif:GetPropertyChangedSignal("Text"):Connect(function()
+			if not (courierActive or _G.HipHubCourierActive) then return end
+			local text = notif.Text
+			if text == "" or text == lastNotifText then return end
+			lastNotifText = text
+
+			if text:find("NC_SHIFT_LIMIT") or text:find("shift kurir tercapai") or text:lower():find("courier shift") then
+				task.spawn(handleCourierShiftLimit)
+				return
+			end
+
+			local digits = text:gsub("[^%d]", "")
+			if digits ~= "" then
+				local amount = tonumber(digits) or 0
+				if amount > 1000 and amount < 15000000 then
+					courierTotalEarn = courierTotalEarn + amount
+				end
+			end
+		end)
+	end)
+
+	-- Supervisor loop untuk memeriksa batas 3 jam & batas pendapatan ~79jt
+	task.spawn(function()
+		while true do
+			task.wait(2)
+			if (courierActive or _G.HipHubCourierActive) and not courierRejoinPending and Config.courierAutoRejoin then
+				local elapsed = os.clock() - courierStartTime
+				local maxHours = tonumber(Config.courierRejoinHours) or 3
+				local limitSec = maxHours * 3600
+				local maxEarn = (tonumber(Config.courierMaxEarnM) or 79) * 1000000
+
+				if elapsed >= limitSec then
+					rejoinCourierServer(string.format("Batas Sesi %d Jam Tercapai (%s)", maxHours, formatCourierTime(elapsed)))
+					break
+				elseif courierTotalEarn >= maxEarn then
+					rejoinCourierServer(string.format("Target Pendapatan %s Tercapai", formatRupiah(courierTotalEarn)))
+					break
+				end
+			end
 		end
 	end)
 
@@ -3500,6 +3646,8 @@ local success, err = pcall(function()
 				_G.HipHubSaveConfig(true)
 			end
 
+			courierStartTime = os.clock()
+			courierRejoinPending = false
 			updateBotActivity("📦 Memulai Auto Kurir (Physics Flight)...", Color3.fromRGB(0, 212, 255))
 			UI.Notify("Courier Auto-Worker ON", "Physics Seat Flight & Anti-Cheat Shield Aktif!", 3.5, "success")
 
@@ -3613,7 +3761,7 @@ local success, err = pcall(function()
 
 							local hrp = char:FindFirstChild("HumanoidRootPart")
 							local tripDist = hrp and (dropCF.Position - hrp.Position).Magnitude or 0
-							updateBotActivity(string.format("🛫 Terbang ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
+							updateBotActivity(string.format("🛫 Lokasi %s (%.0fm) • ⏱️%s • 💰%s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
 
 							courierFlyTo(dropCF, Config.courierSpeed or 200)
 
@@ -3773,11 +3921,49 @@ local success, err = pcall(function()
 		end
 	end)
 
-	-- 🚀 Auto-resume Auto RideGO / Courier jika aktif pada config tersimpan
-	task.defer(function()
-		task.wait(1.5)
+	UI.AddToggle(tab, "Auto Rejoin on Session Cap", "Otomatis reconnect server saat mencapai batas 3 jam atau ~79jt untuk membersihkan cache & anti-cheat", Config.courierAutoRejoin, function(state)
+		Config.courierAutoRejoin = state
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			if _G.HipHubConfig.farm.autoCourier then
+			_G.HipHubConfig.farm.courierAutoRejoin = state
+		end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
+	end)
+
+	UI.AddSlider(tab, "Rejoin Max Hours", 1, 6, math.floor(Config.courierRejoinHours or 3), function(val)
+		Config.courierRejoinHours = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierRejoinHours = val
+		end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
+	end)
+
+	UI.AddSlider(tab, "Max Earnings Cap (Juta)", 10, 150, math.floor(Config.courierMaxEarnM or 79), function(val)
+		Config.courierMaxEarnM = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierMaxEarnM = val
+		end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
+	end)
+
+	UI.AddToggle(tab, "Rejoin on Shift Limit", "Langsung reconnect server saat batas shift kurir DDS tercapai (bukan sekadar ganti tim)", Config.courierRejoinOnLimit, function(state)
+		Config.courierRejoinOnLimit = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierRejoinOnLimit = state
+		end
+		if _G.HipHubSaveConfig then _G.HipHubSaveConfig(true) end
+	end)
+
+	-- 🚀 Auto-resume Auto RideGO / Courier jika aktif pada config tersimpan atau dari queue_on_teleport
+	task.defer(function()
+		task.wait(2)
+		local shouldResumeCourier = (getgenv().AUTO_RESUME_COURIER == true)
+		if shouldResumeCourier then
+			getgenv().AUTO_RESUME_COURIER = false
+			UI.Notify("🔁 Auto-Resume Courier", "Melanjutkan sesi farm kurir setelah auto-rejoin...", 4, "success")
+		end
+
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			if shouldResumeCourier or _G.HipHubConfig.farm.autoCourier then
 				if autoCourierToggle and autoCourierToggle.Set then
 					autoCourierToggle.Set(true)
 				else
@@ -3789,6 +3975,12 @@ local success, err = pcall(function()
 				else
 					toggleAutoRideGO(true)
 				end
+			end
+		elseif shouldResumeCourier then
+			if autoCourierToggle and autoCourierToggle.Set then
+				autoCourierToggle.Set(true)
+			else
+				toggleAutoCourier(true)
 			end
 		end
 	end)
