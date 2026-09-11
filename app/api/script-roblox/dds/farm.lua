@@ -1571,8 +1571,14 @@ local success, err = pcall(function()
 						if landDistToDest < totalDistToDest - minProgress then
 							local landPos = Vector3.new(px, solidY + 0.5, pz)
 							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-							return landed, jumpDist
+							-- Jika jurang terlalu luas (> 220 stud), motor tidak aman melompatinya
+							-- Biarkan dianggap tidak bisa dilompati agar dialihkan ke Hybrid Seat Carrier
+							if courierActive and jumpDist > 220 then
+								-- Terlalu luas untuk dilompati motor
+							else
+								local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+								return landed, jumpDist
+							end
 						end
 					end
 				else
@@ -2079,44 +2085,11 @@ local success, err = pcall(function()
 				local nowClock = os.clock()
 				cliffWaitStartTime = cliffWaitStartTime or nowClock
 
-				-- ⏱️ Timeout di Tepi Jurang:
+				-- ⏱️ Waktu tunggu di tepi jurang:
 				local cliffWaitDuration = nowClock - cliffWaitStartTime
-				if cliffWaitDuration >= 8.0 then
-					cliffWaitStartTime = nil
-					cancelActiveDrive()
-					if courierActive then
-						UI.Notify("⚠️ Jurang Terlalu Luas", "Mencoba kalkulasi ulang rute...", 2.0, "warning")
-						return
-					else
-						task.spawn(function()
-							restartAutoRideGoToggle("Jurang Terlalu Luas")
-						end)
-						return
-					end
-				end
 
-				-- 🪑 Seat Carrier Murni (Khusus Kurir Bebas Strike 100%):
-				-- Begitu menemui jurang/celah air, langsung gunakan Seat Carrier halus ke tujuan.
-				-- JANGAN gunakan attemptVoidBridge yang memicu strike teleportasi server!
-				if courierActive and cliffWaitDuration >= 0.8 and (destP - carPos).Magnitude > 35 then
-					cliffWaitStartTime = nil
-					if currentDriveConn then
-						pcall(function() currentDriveConn:Disconnect() end)
-						currentDriveConn = nil
-					end
-					task.spawn(function()
-						local glideSpeed = Config.courierSpeed or 100
-						local ok = glidePlayerAcrossVoid(destP, glideSpeed)
-						if ok then
-							arrivedViaSeatCarrier = true
-						end
-						driveFinished = true
-					end)
-					return
-				end
-
-				-- Mode Selain Kurir (Taxi RideGO): Bridge leap dengan smooth kinematic glide
-				if not courierActive and (nowClock - lastBridgeScanTime) >= 0.15 then
+				-- 1. 🌉 Prioritas Utama: Coba lompati jurang dengan motor jika memungkinkan!
+				if (nowClock - lastBridgeScanTime) >= 0.15 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
@@ -2129,6 +2102,40 @@ local success, err = pcall(function()
 						stuckLastTime = os.clock()
 						currentSmoothSpeed = 0
 						return -- 🛑 Selesaikan frame ini setelah mendarat dan hold selesai!
+					end
+				end
+
+				-- 2. 🪑 Hybrid Seat Carrier: HANYA jika jurang terlalu luas dan TIDAK BISA dilompati motor
+				if courierActive and cliffWaitDuration >= 1.2 and (destP - carPos).Magnitude > 35 then
+					cliffWaitStartTime = nil
+					if currentDriveConn then
+						pcall(function() currentDriveConn:Disconnect() end)
+						currentDriveConn = nil
+					end
+					task.spawn(function()
+						UI.Notify("🪑 Menyeberangi Jurang Luas", "Jurang tidak bisa dilompati motor. Menggunakan Seat Carrier...", 2.5, "info")
+						local glideSpeed = Config.courierSpeed or 100
+						local ok = glidePlayerAcrossVoid(destP, glideSpeed)
+						if ok then
+							arrivedViaSeatCarrier = true
+						end
+						driveFinished = true
+					end)
+					return
+				end
+
+				-- 3. ⏱️ Timeout di Tepi Jurang (untuk mode selain Kurir atau jika jarak <= 35 stud):
+				if cliffWaitDuration >= 8.0 then
+					cliffWaitStartTime = nil
+					cancelActiveDrive()
+					if courierActive then
+						UI.Notify("⚠️ Jurang Terlalu Luas", "Mencoba kalkulasi ulang rute...", 2.0, "warning")
+						return
+					else
+						task.spawn(function()
+							restartAutoRideGoToggle("Jurang Terlalu Luas")
+						end)
+						return
 					end
 				end
 			end
