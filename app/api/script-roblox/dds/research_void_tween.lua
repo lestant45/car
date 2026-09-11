@@ -567,7 +567,7 @@ local success, err = pcall(function()
 
 		-- Raycast ke bawah untuk mendeteksi tanah di depan
 		local hit = Workspace:Raycast(
-			Vector3.new(nextX, currentY + 6, nextZ),
+			Vector3.new(nextX, currentY + 4, nextZ),
 			Vector3.new(0, -35, 0),
 			rayParams
 		)
@@ -579,7 +579,9 @@ local success, err = pcall(function()
 			local mat = hit.Material
 			local n = hit.Instance.Name:lower()
 			local isWater = (mat == Enum.Material.Water) or n:find("water") or n:find("air") or n:find("laut")
-			if not isWater then
+			-- Abaikan atap gedung / rintangan tinggi di atas kepala agar noclip menembus bangunan secara lurus
+			local isOverheadObstacle = (hit.Position.Y > currentY + 3.2)
+			if not isWater and not isOverheadObstacle then
 				isSolidGround = true
 				groundY = hit.Position.Y
 			end
@@ -626,6 +628,53 @@ local success, err = pcall(function()
 		return false, nil
 	end
 
+	-- =========================================================================
+	-- 👻 UNIVERSAL NOCLIP HELPER: MENEMBUS BANGUNAN, PAGAR, & RINTANGAN DI SEMUA METODE
+	-- =========================================================================
+	local function restoreCollision(char)
+		if char and char.Parent then
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") then
+					if p.Name == "HumanoidRootPart" then
+						p.CanCollide = false
+					elseif p.Name:find("Torso") or p.Name:find("Leg") or p.Name:find("Foot") or p.Name == "Head" then
+						p.CanCollide = true
+					end
+				end
+			end
+		end
+	end
+
+	local function startNoClip(char, keepGrounded)
+		local conn = RunService.Stepped:Connect(function()
+			if not isTesting then return end
+			if char and char.Parent then
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") then
+						p.CanCollide = false
+					end
+				end
+
+				-- Proteksi anti-fall untuk metode yang menapak di tanah (seperti MoveTo)
+				if keepGrounded and hrp then
+					local rayParams = RaycastParams.new()
+					rayParams.FilterDescendantsInstances = { char }
+					rayParams.FilterType = Enum.RaycastFilterType.Exclude
+					local hit = Workspace:Raycast(hrp.Position + Vector3.new(0, 3, 0), Vector3.new(0, -8, 0), rayParams)
+					if hit and hit.Instance and hit.Material ~= Enum.Material.Water then
+						if hrp.AssemblyLinearVelocity.Y < -5 or hrp.Position.Y < (hit.Position.Y + 1.5) then
+							hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
+							hrp.CFrame = CFrame.new(hrp.Position.X, hit.Position.Y + 3.0, hrp.Position.Z) * (hrp.CFrame - hrp.Position)
+						end
+					end
+				end
+			end
+		end)
+		table.insert(activeConnections, conn)
+		return conn
+	end
+
 	-- 🛑 Emergency Stop Helper
 	local function haltTest(reason)
 		isTesting = false
@@ -637,6 +686,8 @@ local success, err = pcall(function()
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+		if char then restoreCollision(char) end
 
 		if hrp and hum then
 			hrp.AssemblyLinearVelocity = Vector3.zero
@@ -769,8 +820,11 @@ local success, err = pcall(function()
 		local oldWalkSpeed = hum.WalkSpeed
 		hum.WalkSpeed = speed
 
+		-- Aktifkan NoClip dengan proteksi penahan tanah agar bisa menembus gedung sambil melangkah
+		local noclipConn = startNoClip(char, true)
+
 		addLog("🥈 Menjalankan Waypoint + Humanoid:MoveTo() (Speed: " .. speed .. " stud/s)...", Color3.fromRGB(0, 212, 255))
-		addLog("ℹ️ Lebih mendekati movement normal karakter. Menguji konsistensi server.", Color3.fromRGB(180, 200, 220))
+		addLog("ℹ️ NoClip aktif: karakter dapat menembus gedung & dinding saat melangkah.", Color3.fromRGB(150, 255, 200))
 		addLog("⚠️ Catatan: Jika melewati void tanpa permukaan, MoveTo() tidak menjamin karakter bisa sampai.", Color3.fromRGB(255, 200, 80))
 
 		local startPos = hrp.Position
@@ -788,9 +842,9 @@ local success, err = pcall(function()
 			local alpha = i / numWaypoints
 			local targetWP = startPos:Lerp(destPos, alpha)
 
-			-- Cari elevasi tanah jika ada
-			local hit = Workspace:Raycast(Vector3.new(targetWP.X, 500, targetWP.Z), Vector3.new(0, -1000, 0))
-			if hit and hit.Instance and hit.Material ~= Enum.Material.Water then
+			-- Cari elevasi tanah jika ada (hindari atap gedung tinggi di atas kepala)
+			local hit = Workspace:Raycast(Vector3.new(targetWP.X, hrp.Position.Y + 4.0, targetWP.Z), Vector3.new(0, -35, 0))
+			if hit and hit.Instance and hit.Material ~= Enum.Material.Water and hit.Position.Y <= (hrp.Position.Y + 3.2) then
 				targetWP = Vector3.new(targetWP.X, hit.Position.Y + 3.0, targetWP.Z)
 			end
 
@@ -826,6 +880,8 @@ local success, err = pcall(function()
 			end
 		end
 
+		if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+		restoreCollision(char)
 		hum.WalkSpeed = oldWalkSpeed or 16
 		haltTest("MoveTo Selesai")
 	end
@@ -845,6 +901,9 @@ local success, err = pcall(function()
 		hum.Sit = false
 		hum.PlatformStand = false
 
+		-- Aktifkan NoClip agar CFrame bisa menembus dinding dan gedung dengan mulus
+		local noclipConn = startNoClip(char, false)
+
 		-- BodyVelocity penahan gravitasi vertikal agar tidak jatuh ke laut selama frame-stepping
 		local bv = Instance.new("BodyVelocity")
 		bv.Name = "__ResearchIncCF_BV"
@@ -857,7 +916,7 @@ local success, err = pcall(function()
 		local totalDist = (Vector3.new(destPos.X, 0, destPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
 
 		addLog("🥉 Menjalankan Heartbeat + incremental CFrame (Speed: " .. speed .. " stud/s)...", Color3.fromRGB(255, 180, 100))
-		addLog("ℹ️ Baseline transform: posisi diperbarui sedikit demi sedikit setiap frame Heartbeat.", Color3.fromRGB(210, 180, 140))
+		addLog("ℹ️ NoClip aktif: menembus bangunan dan rintangan secara mulus.", Color3.fromRGB(150, 255, 200))
 		addLog("⚠️ Tetap manipulasi posisi langsung, bukan berarti otomatis aman dari validasi server.", Color3.fromRGB(255, 200, 80))
 
 		local lastLogTime = 0
@@ -892,7 +951,9 @@ local success, err = pcall(function()
 			end
 		end
 
+		if noclipConn then pcall(function() noclipConn:Disconnect() end) end
 		if bv and bv.Parent then bv:Destroy() end
+		restoreCollision(char)
 		haltTest("Incremental CFrame Selesai")
 	end
 
@@ -916,6 +977,9 @@ local success, err = pcall(function()
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 		end)
 
+		-- Aktifkan NoClip agar dorongan fisika velocity dapat menembus seluruh bangunan tanpa tertahan tembok
+		local noclipConn = startNoClip(char, false)
+
 		-- Constraint BodyVelocity / LinearVelocity untuk menghasilkan physical velocity murni
 		local bv = Instance.new("BodyVelocity")
 		bv.Name = "__ResearchPhysVelocity"
@@ -924,7 +988,7 @@ local success, err = pcall(function()
 		bv.Parent = hrp
 
 		addLog("⚡ Menjalankan AssemblyLinearVelocity / LinearVelocity (Speed: " .. speed .. " stud/s)...", Color3.fromRGB(0, 212, 255))
-		addLog("ℹ️ Berbasis physics murni: menggerakkan karakter via physical force & velocity.", Color3.fromRGB(150, 220, 255))
+		addLog("ℹ️ NoClip aktif: dorongan fisika menembus bangunan tanpa hambatan collision.", Color3.fromRGB(150, 255, 200))
 		addLog("ℹ️ Mengandalkan Network Ownership client dan sistem movement DDS.", Color3.fromRGB(180, 220, 255))
 
 		local startPos = hrp.Position
@@ -964,7 +1028,9 @@ local success, err = pcall(function()
 			end
 		end
 
+		if noclipConn then pcall(function() noclipConn:Disconnect() end) end
 		if bv and bv.Parent then bv:Destroy() end
+		restoreCollision(char)
 
 		pcall(function()
 			hrp.AssemblyLinearVelocity = Vector3.zero
@@ -990,6 +1056,9 @@ local success, err = pcall(function()
 		hum.Sit = false
 		hum.PlatformStand = false
 
+		-- Aktifkan NoClip agar tween menembus semua bangunan
+		local noclipConn = startNoClip(char, false)
+
 		-- BodyVelocity penahan gravitasi selama TweenService
 		local bv = Instance.new("BodyVelocity")
 		bv.Name = "__ResearchTweenBV"
@@ -997,21 +1066,12 @@ local success, err = pcall(function()
 		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
 		bv.Parent = hrp
 
-		-- NoClip agar tidak tersangkut gedung/pohon
-		local noclipConn = RunService.Stepped:Connect(function()
-			if char and char.Parent then
-				for _, p in ipairs(char:GetDescendants()) do
-					if p:IsA("BasePart") then p.CanCollide = false end
-				end
-			end
-		end)
-
 		local startPos = hrp.Position
 		local totalDist = (destPos - startPos).Magnitude
 		local duration = math.max(totalDist / math.max(speed, 30), 0.2)
 
 		addLog(string.format("🎬 Menjalankan TweenService → CFrame langsung (Dist: %d stud, Time: %.1fs, Speed: %d)...", math.floor(totalDist), duration, speed), Color3.fromRGB(220, 150, 255))
-		addLog("ℹ️ Mudah dan smooth: perpindahan CFrame langsung via Engine TweenService.", Color3.fromRGB(230, 180, 255))
+		addLog("ℹ️ NoClip aktif: menembus semua bangunan dan objek secara bebas.", Color3.fromRGB(150, 255, 200))
 		addLog("⚠️ Secara konsep masih merupakan perpindahan CFrame langsung.", Color3.fromRGB(240, 200, 150))
 
 		local targetCF = CFrame.new(destPos + Vector3.new(0, 2.0, 0), destPos + (destPos - startPos).Unit)
@@ -1038,9 +1098,10 @@ local success, err = pcall(function()
 		end
 
 		if twConn then twConn:Disconnect() end
-		if noclipConn then noclipConn:Disconnect() end
+		if noclipConn then pcall(function() noclipConn:Disconnect() end) end
 		pcall(function() tw:Cancel() end)
 		if bv and bv.Parent then bv:Destroy() end
+		restoreCollision(char)
 
 		haltTest("Direct TweenService Selesai")
 	end
