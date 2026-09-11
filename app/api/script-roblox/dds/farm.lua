@@ -1161,9 +1161,10 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		rayParams.IgnoreWater = false
 
+		local rayStartY = currentY + 10
 		local hit = workspace:Raycast(
-			Vector3.new(nextX, currentY + 6, nextZ),
-			Vector3.new(0, -35, 0),
+			Vector3.new(nextX, rayStartY, nextZ),
+			Vector3.new(0, -45, 0),
 			rayParams
 		)
 
@@ -1189,15 +1190,17 @@ local success, err = pcall(function()
 			-- Di atas jurang laut (void): slope garis lurus bertahap dari startY ke destPos.Y
 			local progress = math.clamp(1 - (flatDist / math.max(totalDist, 1)), 0, 1)
 			local slopeY = startPos.Y + (destPos.Y - startPos.Y) * progress
-			-- Pastikan tidak tenggelam ke dalam air laut (level laut DDS ~ Y = 10-14)
-			local safeVoidY = math.max(slopeY, 16.5)
+			local minVoidY = 16.5
+			if flatDist <= 50 or (totalDist - flatDist) <= 50 then
+				minVoidY = math.min(startPos.Y + 3.0, destPos.Y + 3.0)
+			end
+			local safeVoidY = math.max(slopeY, minVoidY)
 			local maxStep = math.max(50 * dt, 1.5)
 			return currentY + math.clamp(safeVoidY - currentY, -maxStep, maxStep), false
 		end
 	end
 
-	-- 🪑 Seat Carrier Engine: Fallback Menyeberang Jurang Terlalu Luas (Klaten)
-	-- HANYA dipanggil jika motor tidak menemukan daratan seberang yang bisa dilompati.
+	-- 🪑 Seat Carrier Engine: Navigasi Halus Bebas Ban & Bebas Strike 100%
 	-- Menggunakan Kursi Siluman (CanCollide=true, Weld, hum.Sit=true) sehingga 100% bypass Adonis Anti-Fly.
 	-- Ketinggian menyusuri kontur tanah dan lereng mulus di atas jurang tanpa melonjak ke langit.
 	glidePlayerAcrossVoid = function(targetPos, speed)
@@ -1212,15 +1215,21 @@ local success, err = pcall(function()
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return false end
 
-		-- Kecepatan stabil (default 100 stud/s sesuai riset empirical tanpa kick)
-		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 100, 75, 125)
+		-- Kecepatan stabil (default 95 stud/s sesuai riset empirical tanpa kick)
+		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
 
-		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 3.0, "info")
-		updateBotActivity("🪑 Melintasi Jurang...", Color3.fromRGB(0, 212, 255))
+		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 2.5, "info")
+		updateBotActivity("🪑 Meluncur (Seat Carrier)...", Color3.fromRGB(0, 212, 255))
 
-		-- 1. Unseat dari motor lama di tepi jurang
+		-- 1. Bersihkan sisa kursi lama jika ada & unseat
+		pcall(function()
+			local oldSeat = workspace:FindFirstChild("__DdsCourierSeat")
+			if oldSeat then oldSeat:Destroy() end
+			local oldWeld = workspace:FindFirstChild("__DdsSeatWeld")
+			if oldWeld then oldWeld:Destroy() end
+		end)
 		hum.Sit = false
-		task.wait(0.1)
+		task.wait(0.05)
 
 		-- 2. Buat Kursi Carrier Valid (CanCollide = true WAJIB agar Humanoid mendeteksi Seat!)
 		local carrierSeat = Instance.new("Seat")
@@ -1332,7 +1341,7 @@ local success, err = pcall(function()
 			local now = os.clock()
 			if now - lastNotifyTime >= 0.5 then
 				lastNotifyTime = now
-				updateBotActivity(string.format("🪑 Menyeberang ke Klaten: %.0fm lagi...", flatDist), Color3.fromRGB(0, 212, 255))
+				updateBotActivity(string.format("🪑 Seat Carrier: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
 			end
 		end
 
@@ -1351,7 +1360,7 @@ local success, err = pcall(function()
 			carrierSeat = nil
 		end
 
-		-- 5. Pendaratan Halus di Titik Tujuan (Karakter Berdiri di Tanah Klaten)
+		-- 5. Pendaratan Halus di Titik Tujuan (Karakter Berdiri di Tanah Asli Server)
 		pcall(function()
 			local landPos = Vector3.new(curPos.X, targetPos.Y + 1.8, curPos.Z)
 			hrp.CFrame = CFrame.new(landPos, Vector3.new(targetPos.X, landPos.Y, targetPos.Z))
@@ -1369,7 +1378,7 @@ local success, err = pcall(function()
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end)
 
-		UI.Notify("✅ Mendarat Aman", "Tiba di Klaten seberang jurang!", 2.5, "success")
+		UI.Notify("✅ Mendarat Aman", "Tiba di titik tujuan!", 2.5, "success")
 		task.wait(0.3)
 		return true
 	end
@@ -3207,8 +3216,19 @@ local success, err = pcall(function()
 				_G.HipHubSaveConfig(true)
 			end
 
-			updateBotActivity("📦 Memulai Auto Kurir (Mode Motor)...", Color3.fromRGB(0, 212, 255))
-			UI.Notify("Courier Auto-Worker ON", "Navigasi Motor & Void Bridging Aktif!", 3.5, "success")
+			-- Despawn kendaraan apapun dan pastikan berdiri bebas (Murni Seat Carrier)
+			pcall(function()
+				local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum.Sit = false
+				end
+				local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+				local despawn = SpawnCarEvt and SpawnCarEvt:FindFirstChild("DespawnCar")
+				if despawn then despawn:FireServer() end
+			end)
+
+			updateBotActivity("📦 Memulai Auto Kurir (Direct Seat Carrier)...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Courier Auto-Worker ON", "Navigasi Murni Seat Carrier (Tanpa Motor) Aktif!", 3.5, "success")
 
 			courierLoopThread = task.spawn(function()
 				while courierActive do
@@ -3227,78 +3247,69 @@ local success, err = pcall(function()
 							return
 						end
 
-						-- 2. Pastikan Pengemudi Duduk di Motor (Bypass Anti-Speedhack 267)
-						if not isDriverSittingOnMotor() then
-							-- Jika baru saja tiba lewat Seat Carrier dan sedang memegang paket yang harus diantar:
-							-- Prioritaskan antar paket terlebih dahulu tanpa spawn motor sekarang
-							if arrivedViaSeatCarrier and hasCourierPackage() then
-								-- Biarkan alur berlanjut ke penyerahan paket
-							else
-								updateBotActivity("🛵 Menaiki Motor...", Color3.fromRGB(0, 212, 255))
-								local ok = ensureDriverSeated()
-								if not ok then
-									spawnTaxiBike()
-									task.wait(1.5)
-									ensureDriverSeated()
-								end
-								task.wait(0.5)
-								return
-							end
+						-- Karakter & Humanoid check
+						local char = player.Character
+						local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+						local hum  = char and char:FindFirstChildOfClass("Humanoid")
+						if not (char and hrp and hum) then
+							task.wait(0.5)
+							return
 						end
 
-						-- 3. Jika belum punya paket di tangan/tas -> Cek lagi sebelum memutuskan ke depot
+						-- Jika tidak sengaja duduk di kendaraan biasa, unseat
+						if hum.SeatPart and hum.SeatPart.Name ~= "__DdsCourierSeat" then
+							hum.Sit = false
+							task.wait(0.1)
+						end
+
+						-- 2. Jika belum punya paket di tangan/tas -> Ambil paket dari depot via Seat Carrier
 						if not hasCourierPackage() then
-							-- Beri jeda tambahan jika server belum sempat memberikan paket baru
+							-- Beri toleransi sejenak barangkali server sedang memproses order berikutnya
 							local tWaitAuto = tick()
 							while (tick() - tWaitAuto < 1.5) and courierActive do
 								if hasCourierPackage() then break end
 								task.wait(0.2)
 							end
 
-							-- HANYA jika setelah total waktu tunggu habis paket BENAR-BENAR belum ada di tas:
 							if not hasCourierPackage() and courierActive then
-								local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
-								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
+								local livrason = workspace:FindFirstChild("Livrason")
+								local takePart = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take")
+								local takePrompt = takePart and takePart:FindFirstChildOfClass("ProximityPrompt")
+								local takePos = (takePart and takePart.Position) or Vector3.new(-5105.6, 5.0, -3759.0)
 
-								local depotDriveThread = task.spawn(function()
-									driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
-								end)
+								local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+								local distToDepot = hrpNow and (takePos - hrpNow.Position).Magnitude or 999
 
-								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> batalkan arah depot secara mulus!
-								while not hasCourierPackage() and courierActive and coroutine.status(depotDriveThread) ~= "dead" do
-									task.wait(0.2)
+								-- Meluncur ke depot jika belum berada di depot (jarak > 8 stud)
+								if distToDepot > 8 then
+									updateBotActivity("🪑 Meluncur ke Depot Paket...", Color3.fromRGB(0, 212, 255))
+									glidePlayerAcrossVoid(takePos, Config.courierSpeed or 95)
+									if not courierActive then return end
+									task.wait(0.3)
 								end
 
-								if hasCourierPackage() then
-									cancelActiveDrive()
-									pcall(function() task.cancel(depotDriveThread) end)
-									task.wait(0.3) -- Jeda rem sesaat sebelum akselerasi ke arah tujuan baru
-								end
-
-								if not courierActive then return end
-
-								if not hasCourierPackage() then
-									updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
-									local livrason = workspace:FindFirstChild("Livrason")
-									local takePrompt = livrason and livrason:FindFirstChild("Take1") 
-										and livrason.Take1:FindFirstChild("Take") 
-										and livrason.Take1.Take:FindFirstChildOfClass("ProximityPrompt")
-
-									local tStartTake = tick()
-									while not hasCourierPackage() and courierActive and (tick() - tStartTake < 5.0) do
-										if takePrompt then
-											triggerCourierPrompt(takePrompt, 0.5)
-										end
-										task.wait(0.3)
+								-- Ambil paket dari depot via ProximityPrompt
+								updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
+								local tStartTake = tick()
+								while not hasCourierPackage() and courierActive and (tick() - tStartTake < 6.0) do
+									if not takePrompt or not takePrompt.Parent then
+										livrason = workspace:FindFirstChild("Livrason")
+										takePart = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take")
+										takePrompt = takePart and takePart:FindFirstChildOfClass("ProximityPrompt")
 									end
-									task.wait(0.5)
-									return
+									if takePrompt then
+										takePrompt.Enabled = true
+										triggerCourierPrompt(takePrompt, takePrompt.HoldDuration or 0.5)
+									end
+									task.wait(0.35)
 								end
+								task.wait(0.4)
+								return
 							end
 						end
 
-						-- 4. Jika paket sudah di tangan/tas -> langsung kendarai motor ke titik drop-off tanpa mampir depot
-						if hasCourierPackage() then
+						-- 3. Jika paket sudah di tangan/tas -> Meluncur langsung ke titik pengantaran via Seat Carrier
+						if hasCourierPackage() and courierActive then
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
 							local dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
 
@@ -3317,35 +3328,17 @@ local success, err = pcall(function()
 								return
 							end
 
-							local car, seat = getPlayerVehicle()
-							local startPos = car and car:GetPivot().Position or dropPos
+							local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+							local startPos = hrpNow and hrpNow.Position or dropPos
 							local tripDist = (dropPos - startPos).Magnitude
 							local tripStartTime = tick()
 
-							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
-							
-							-- Berhenti rapat (radius 5-7 stud) agar ProximityPrompt tumpukan kardus terjangkau
-							driveVehicleTo(dropPos, Config.courierSpeed or 95, 0)
+							updateBotActivity(string.format("🪑 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
+
+							-- Meluncur LANGSUNG via Seat Carrier mulus (tanpa motor sama sekali)
+							glidePlayerAcrossVoid(dropPos, Config.courierSpeed or 95)
 
 							if not courierActive then return end
-
-							-- 🛡️ Verifikasi Kedatangan: Pastikan player atau motor BENAR-BENAR sudah tiba dekat dengan dropPos!
-							local charAfterDrive = player.Character
-							local hrpAfterDrive = charAfterDrive and charAfterDrive:FindFirstChild("HumanoidRootPart")
-							local carAfterDrive = getPlayerVehicle()
-							local curPosAfterDrive = (hrpAfterDrive and hrpAfterDrive.Position) or (carAfterDrive and carAfterDrive:GetPivot().Position)
-							local distToDrop = (curPosAfterDrive and dropPos) and (curPosAfterDrive - dropPos).Magnitude or math.huge
-
-							if distToDrop > 25 then
-								-- Belum sampai di titik pengantaran (terhenti di jalan/rintangan).
-								-- JANGAN PERNAH mengklaim paket terkirim jika belum sampai!
-								UI.Notify("🛵 Melanjutkan Perjalanan", string.format("Jarak ke tujuan masih %.0fm. Menavigasi kembali...", distToDrop), 2.5, "info")
-								task.wait(0.5)
-								return
-							end
-
-							-- Motor sudah tiba secara mulus di titik pengantaran melalui navigasi jalan raya.
-							-- Tidak perlu PivotTo paksa atau safety plate agar tidak memicu deteksi teleport server!
 
 							-- 🛡️ Smart Delivery Pacing (Anti-Kick)
 							if Config.courierPacing and tripDist > 120 then
@@ -3362,28 +3355,24 @@ local success, err = pcall(function()
 							-- Jeda natural sebelum menyerahkan paket
 							task.wait(0.3 + (math.random(0, 3) / 10.0))
 
-							-- 🛡️ Anti-Kick Distance Guard: Pastikan karakter berada dalam jarak aman Proximity (<= 5.5 stud 3D)
-							local char = player.Character
-							local hrp = char and char:FindFirstChild("HumanoidRootPart")
-							local hum = char and char:FindFirstChildOfClass("Humanoid")
-							if hrp and dropPos then
-								local dist3D = (hrp.Position - dropPos).Magnitude
-								if dist3D > 5.5 then
-									-- Kotak berada di teras tinggi / di atas tangga sehingga jarak motor ke kotak > 5.5 stud
-									-- Dekatkan karakter ke jarak 3.2 stud dari kotak dengan safety plate agar bebas kick server (MaxActivationDistance = 11)
-									local offsetDir = (hrp.Position - dropPos)
+							-- Pastikan karakter berada dalam jarak ProximityPrompt yang aman (<= 3.5 stud)
+							local charAtDrop = player.Character
+							local hrpAtDrop = charAtDrop and charAtDrop:FindFirstChild("HumanoidRootPart")
+							local humAtDrop = charAtDrop and charAtDrop:FindFirstChildOfClass("Humanoid")
+							if hrpAtDrop and dropPos then
+								local dist3D = (hrpAtDrop.Position - dropPos).Magnitude
+								if dist3D > 4.5 then
+									local offsetDir = (hrpAtDrop.Position - dropPos)
 									local flatOffset = Vector3.new(offsetDir.X, 0, offsetDir.Z)
 									local unitOffset = flatOffset.Magnitude > 0.1 and flatOffset.Unit or Vector3.new(0, 0, 1)
-									local standPos = dropPos + unitOffset * 3.2
-									local standGroundY = dropPos.Y - 1.5
-									local standFinal = Vector3.new(standPos.X, standGroundY, standPos.Z)
+									local standPos = dropPos + unitOffset * 2.8
+									local standFinal = Vector3.new(standPos.X, dropPos.Y + 0.5, standPos.Z)
 
-									ensureSafetyPlate(standFinal, 15)
-									if hum then hum.Sit = false end
-									hrp.CFrame = CFrame.new(standFinal, dropPos)
-									hrp.AssemblyLinearVelocity = Vector3.zero
-									hrp.AssemblyAngularVelocity = Vector3.zero
-									task.wait(0.2)
+									if humAtDrop then humAtDrop.Sit = false end
+									hrpAtDrop.CFrame = CFrame.new(standFinal, dropPos)
+									hrpAtDrop.AssemblyLinearVelocity = Vector3.zero
+									hrpAtDrop.AssemblyAngularVelocity = Vector3.zero
+									task.wait(0.1)
 								end
 							end
 
@@ -3416,40 +3405,12 @@ local success, err = pcall(function()
 									isHandedOver = true
 									break
 								end
-
-								-- 4. Jaga agar tetap duduk di kursi motor HANYA jika motor berada dekat (<= 30 stud)
-								if not isDriverSittingOnMotor() then
-									local car = getPlayerVehicle()
-									local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-									if car and hrpNow and (car:GetPivot().Position - hrpNow.Position).Magnitude <= 30 then
-										ensureDriverSeated()
-									end
-								end
-							end
-
-							if not isDriverSittingOnMotor() then
-								local car = getPlayerVehicle()
-								local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-								if car and hrpNow and (car:GetPivot().Position - hrpNow.Position).Magnitude <= 30 then
-									ensureDriverSeated()
-								end
 							end
 
 							if isHandedOver then
 								_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 								local totalDone = _G.HipHubCompletedCourier
 								UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
-
-								-- 🛵 Spawn Motor Baru di Titik Pengantaran:
-								-- Jika tadi baru saja menyeberangi jurang via Seat Carrier (atau saat ini belum duduk di motor):
-								-- Spawn motor baru tepat di lokasi pengantaran dan dudukkan pengemudi kembali
-								if (arrivedViaSeatCarrier or not isDriverSittingOnMotor()) and courierActive then
-									arrivedViaSeatCarrier = false
-									updateBotActivity("🛵 Memunculkan Motor Baru...", Color3.fromRGB(0, 212, 255))
-									spawnTaxiBike()
-									task.wait(1.5)
-									ensureDriverSeated()
-								end
 							else
 								UI.Notify("⚠️ Paket Belum Diserahkan", "Mencoba mendekat dan menyerahkan ulang...", 2.0, "warning")
 								task.wait(0.5)
@@ -3457,8 +3418,7 @@ local success, err = pcall(function()
 							end
 
 							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
-							-- Motor WAJIB diam total di tempat (rem aktif). JANGAN PERNAH jalan ke arah depot!
-							-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
+							-- Karakter diam di tempat, menunggu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
 							updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
 							local tWaitNext = tick()
 							while (tick() - tWaitNext < 3.2) and courierActive do
@@ -3486,6 +3446,19 @@ local success, err = pcall(function()
 				pcall(function() task.cancel(courierLoopThread) end)
 				courierLoopThread = nil
 			end
+			-- Bersihkan kursi atau weld jika dimatikan di tengah jalan
+			pcall(function()
+				local s = workspace:FindFirstChild("__DdsCourierSeat")
+				if s then s:Destroy() end
+				local w = workspace:FindFirstChild("__DdsSeatWeld")
+				if w then w:Destroy() end
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum.Sit = false
+					hum.PlatformStand = false
+				end
+			end)
 			if changeTeam then
 				changeTeam("Warga")
 			end
@@ -3548,7 +3521,7 @@ local success, err = pcall(function()
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
 	UI.AddSection(tab, "Courier Delivery Auto-Worker")
-	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Takes packages from depot & delivers with straight-line air glide", Config.autoCourier, function(state)
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Antar & ambil paket langsung via Seat Carrier (Zero Motor / Anti-Kick)", Config.autoCourier, function(state)
 		toggleAutoCourier(state)
 	end)
 	_G.HipHubAutoCourierToggle = autoCourierToggle
