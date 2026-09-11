@@ -2787,7 +2787,7 @@ local success, err = pcall(function()
 				task.wait(1.5)
 				pcall(function()
 					local TeleportService = game:GetService("TeleportService")
-					TeleportService:Teleport(game.PlaceId, player)
+					TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
 				end)
 				return
 			end
@@ -3262,22 +3262,30 @@ local success, err = pcall(function()
 
 		task.wait(1.5)
 
-		-- 3. Teleport Service Rejoin
+		-- 3. Teleport Service Rejoin (Kembali ke Server / Private Server saat ini via JobId)
 		local TeleportService = game:GetService("TeleportService")
 		local placeId = game.PlaceId
 		local jobId = game.JobId
 
-		pcall(function()
-			if #Players:GetPlayers() <= 1 then
-				TeleportService:Teleport(placeId, player)
-			else
-				TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
+		-- Listener fail-safe agar retry ke JobId yang sama jika ada antrean/delay
+		local failConn
+		failConn = TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
+			if failedPlayer == player or failedPlayer == nil then
+				task.wait(2)
+				pcall(function()
+					TeleportService:TeleportToPlaceInstance(placeId, jobId)
+				end)
 			end
+		end)
+
+		-- Langsung reconnect ke server saat ini (JobId sama persis, menjamin tetap di Private Server)
+		pcall(function()
+			TeleportService:TeleportToPlaceInstance(placeId, jobId)
 		end)
 
 		task.wait(4)
 		pcall(function()
-			TeleportService:Teleport(placeId, player)
+			TeleportService:TeleportToPlaceInstance(placeId, jobId)
 		end)
 	end
 
