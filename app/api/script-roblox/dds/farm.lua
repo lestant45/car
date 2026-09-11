@@ -1204,98 +1204,25 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- 🪑 Seat Carrier Engine: Navigasi Halus Bebas Ban & Bebas Strike 100%
-	-- Solusi 1: Murni Duduk Permanen (Zero-Unseat)
-	-- Karakter selalu duduk di kursi sepanjang sesi kurir, sehingga server tidak pernah
-	-- memicu modul deteksi pejalan kaki (Anti-Speed/Anti-Fly) saat menapak!
+	-- ⚡ CFrame Ground Glide Engine (Pengganti Seat Carrier)
+	-- Meluncur setara tanah tanpa kursi, tanpa safety plate.
+	-- Mendarat langsung di tanah asli game tanpa transisi duduk→berdiri yang memicu kick.
 
+	-- ensureCarrierSeat / destroyCarrierSeat dijadikan no-op agar call site lama tidak error
 	ensureCarrierSeat = function()
-		local char = player.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if not (char and hum and hrp) then return nil end
-
-		if persistentCarrierSeat and persistentCarrierSeat.Parent == workspace 
-			and persistentCarrierWeld and persistentCarrierWeld.Parent == persistentCarrierSeat 
-			and persistentCarrierWeld.Part1 == hrp then
-			if not hum.Sit or hum.SeatPart ~= persistentCarrierSeat then
-				hum.Sit = true
-				pcall(function() persistentCarrierSeat:Sit(hum) end)
-			end
-			return persistentCarrierSeat
-		end
-
-		-- Bersihkan jika ada kursi lama tidak sinkron
-		pcall(function()
-			if persistentCarrierWeld then persistentCarrierWeld:Destroy() end
-			if persistentCarrierSeat then persistentCarrierSeat:Destroy() end
-			local oldSeat = workspace:FindFirstChild("__DdsCourierSeat")
-			if oldSeat then oldSeat:Destroy() end
-			local oldWeld = workspace:FindFirstChild("__DdsSeatWeld")
-			if oldWeld then oldWeld:Destroy() end
-		end)
-		persistentCarrierWeld = nil
-		persistentCarrierSeat = nil
-
-		local carrierSeat = Instance.new("Seat")
-		carrierSeat.Name = "__DdsCourierSeat"
-		carrierSeat.Size = Vector3.new(2.5, 0.6, 2.5)
-		carrierSeat.CanCollide = true
-		carrierSeat.Anchored = true
-		carrierSeat.Disabled = false
-		carrierSeat.Transparency = 1
-		carrierSeat.Material = Enum.Material.Plastic
-		carrierSeat.CFrame = hrp.CFrame - Vector3.new(0, 1.5, 0)
-		carrierSeat.Parent = workspace
-
-		hum.Sit = false
-		hum.PlatformStand = false
-		task.wait(0.04)
-
-		hrp.CFrame = carrierSeat.CFrame + Vector3.new(0, 0.4, 0)
-		task.wait(0.04)
-		pcall(function() carrierSeat:Sit(hum) end)
-		task.wait(0.1)
-
-		local carrierWeld = Instance.new("WeldConstraint")
-		carrierWeld.Name = "__DdsSeatWeld"
-		carrierWeld.Part0 = carrierSeat
-		carrierWeld.Part1 = hrp
-		carrierWeld.Parent = carrierSeat
-
-		hum.Sit = true
-
-		persistentCarrierSeat = carrierSeat
-		persistentCarrierWeld = carrierWeld
-		return carrierSeat
+		-- tidak lagi diperlukan — CFrame Glide tidak pakai kursi
+		return nil
 	end
 
 	destroyCarrierSeat = function()
-		if persistentCarrierWeld and persistentCarrierWeld.Parent then
-			pcall(function() persistentCarrierWeld:Destroy() end)
-			persistentCarrierWeld = nil
-		end
-		if persistentCarrierSeat and persistentCarrierSeat.Parent then
-			pcall(function() persistentCarrierSeat:Destroy() end)
-			persistentCarrierSeat = nil
-		end
+		-- bersihkan sisa kursi lama jika ada dari sesi sebelumnya
 		pcall(function()
 			local s = workspace:FindFirstChild("__DdsCourierSeat")
 			if s then s:Destroy() end
 			local w = workspace:FindFirstChild("__DdsSeatWeld")
 			if w then w:Destroy() end
-			local char = player.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			local hrp = char and char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				hrp.AssemblyLinearVelocity = Vector3.zero
-				hrp.AssemblyAngularVelocity = Vector3.zero
-			end
-			if hum then
-				hum.Sit = false
-				hum.PlatformStand = false
-				hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-			end
+			persistentCarrierSeat = nil
+			persistentCarrierWeld = nil
 		end)
 	end
 
@@ -1307,23 +1234,27 @@ local success, err = pcall(function()
 
 		local char = player.Character
 		if not char then return false end
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return false end
 
-		local carrierSeat = ensureCarrierSeat()
-		if not carrierSeat then return false end
+		-- Bersihkan kursi sisa lama jika ada
+		destroyCarrierSeat()
+
+		-- Aktifkan PlatformStand agar karakter tidak "berlari" saat di-CFrame
+		hum.Sit = false
+		task.wait(0.03)
+		hum.PlatformStand = true
 
 		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
+		UI.Notify("⚡ CFrame Glide Aktif", string.format("Meluncur menyusuri tanah (%.0f stud/s)...", effectiveSpeed), 2.0, "info")
+		updateBotActivity("⚡ Meluncur (CFrame Ground Glide)...", Color3.fromRGB(0, 212, 255))
 
-		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 2.5, "info")
-		updateBotActivity("🪑 Meluncur (Permanent Seat)...", Color3.fromRGB(0, 212, 255))
-
-		-- NoClip pada part tubuh player selama penerbangan (selain kursi)
+		-- NoClip pada part tubuh player selama luncuran agar tidak tersangkut bangunan
 		local noclipConn = RunService.Stepped:Connect(function()
 			if char and char.Parent then
 				for _, p in ipairs(char:GetDescendants()) do
-					if p:IsA("BasePart") and p ~= carrierSeat then
+					if p:IsA("BasePart") then
 						p.CanCollide = false
 					end
 				end
@@ -1343,25 +1274,22 @@ local success, err = pcall(function()
 		requestStreamAsync(startPos)
 		requestStreamAsync(targetPos)
 
-		-- Meluncur Frame demi Frame dengan Ketinggian Adaptif (Tanpa Terbang ke Langit)
 		while (courierActive or _G.HipHubCourierActive) do
 			local dt = RunService.Heartbeat:Wait()
 
-			-- Validasi karakter masih hidup & ada di workspace
 			if not (char and char.Parent and hrp and hrp.Parent and hum and hum.Parent) then
 				break
 			end
 
-			-- Safety timeout
 			if (os.clock() - startTime) > maxWait then
-				warn("[HipHub DDS Seat Carrier] Timeout tercapai, menyelesaikan luncuran...")
+				warn("[HipHub DDS CFrame Glide] Timeout tercapai, menyelesaikan luncuran...")
 				break
 			end
 
 			local flatDelta = Vector3.new(targetPos.X - curPos.X, 0, targetPos.Z - curPos.Z)
 			local flatDist = flatDelta.Magnitude
 
-			-- Tiba di radius rapat (<= 2.5 stud) dari target
+			-- Tiba di radius target (<= 2.5 stud)
 			if flatDist <= 2.5 then
 				break
 			end
@@ -1372,57 +1300,49 @@ local success, err = pcall(function()
 			local nextX = curPos.X + moveDir.X * stepDist
 			local nextZ = curPos.Z + moveDir.Z * stepDist
 
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, targetPos, flatDist, totalDist, char, { carrierSeat }, dt)
+			-- Hitung Y adaptif: menempel tanah jika ada tanah, slope gradual di atas jurang
+			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, targetPos, flatDist, totalDist, char, nil, dt)
 			curPos = Vector3.new(nextX, nextY, nextZ)
 
-			-- Orientasi hadap ke arah tujuan
-			local lookAt = Vector3.new(targetPos.X, nextY, targetPos.Z)
-			if carrierSeat and carrierSeat.Parent then
-				carrierSeat.CFrame = CFrame.new(curPos - Vector3.new(0, 1.5, 0), lookAt)
-			end
-			hrp.CFrame = CFrame.new(curPos, lookAt)
-			hum.Sit = true
-
-			-- Sinkronkan velocity tubuh dengan arah meluncur
+			-- Set CFrame + velocity
+			hrp.CFrame = CFrame.new(curPos, Vector3.new(targetPos.X, nextY, targetPos.Z))
 			hrp.AssemblyLinearVelocity = moveDir * effectiveSpeed
 			hrp.AssemblyAngularVelocity = Vector3.zero
 
-			-- Pre-stream chunk secara berkala setiap 120 stud perjalanan
+			-- Pre-stream chunk secara berkala setiap 120 stud
 			if (curPos - lastStreamPos).Magnitude >= 120 then
 				lastStreamPos = curPos
 				requestStreamAsync(curPos)
 				requestStreamAsync(curPos + moveDir * 250)
 			end
 
-			-- Update status UI setiap 0.5 detik
+			-- Update status setiap 0.5 detik
 			local now = os.clock()
 			if now - lastNotifyTime >= 0.5 then
 				lastNotifyTime = now
-				updateBotActivity(string.format("🪑 Seat Carrier: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
+				updateBotActivity(string.format("⚡ CFrame Glide: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
 			end
 		end
 
+		-- Disconnect noclip
 		if noclipConn then
 			pcall(function() noclipConn:Disconnect() end)
 			noclipConn = nil
 		end
 
-		-- 🛑 ZERO-UNSEAT ARRIVAL (Solusi 1: TETAP DUDUK DI KURSI):
-		-- Nol-kan kecepatan dan pertahankan posisi duduk di atas kursi rapat di target.
-		-- JANGAN PERNAH unseat! JANGAN hancurkan kursi! JANGAN ubah state ke GettingUp!
+		-- Nol-kan velocity lalu berdiri normal di tanah game
 		pcall(function()
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
-			local lookAtTarget = Vector3.new(targetPos.X, curPos.Y, targetPos.Z)
-			if carrierSeat and carrierSeat.Parent then
-				carrierSeat.CFrame = CFrame.new(curPos - Vector3.new(0, 1.5, 0), lookAtTarget)
-			end
-			hrp.CFrame = CFrame.new(curPos, lookAtTarget)
-			hum.Sit = true
 		end)
 
-		UI.Notify("✅ Tiba di Lokasi", "Posisi duduk stabil (Anti-Kick Aktif)!", 2.0, "success")
-		task.wait(0.2)
+		-- Matikan PlatformStand → karakter berdiri normal di tanah game
+		hum.PlatformStand = false
+		task.wait(0.05)
+		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+
+		UI.Notify("✅ Tiba di Lokasi", "Mendarat di tanah game.", 1.5, "success")
+		task.wait(0.15)
 		return true
 	end
 
@@ -3372,8 +3292,6 @@ local success, err = pcall(function()
 									if takePrompt then
 										local holdTime = takePrompt.HoldDuration or 0.5
 										-- Hancurkan kursi siluman sementara agar server bisa validasi prompt
-										if destroyCarrierSeat then destroyCarrierSeat() end
-										task.wait(0.05)
 										triggerCourierPrompt(takePrompt, holdTime)
 										task.wait(holdTime + 0.35)
 									else
@@ -3410,9 +3328,9 @@ local success, err = pcall(function()
 							local tripDist = (dropPos - startPos).Magnitude
 							local tripStartTime = tick()
 
-							updateBotActivity(string.format("🪑 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
+						updateBotActivity(string.format("⚡ Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
 
-							-- Meluncur LANGSUNG via Seat Carrier mulus (tanpa motor sama sekali)
+							-- Meluncur LANGSUNG via CFrame Ground Glide (tanpa kursi, tanpa motor)
 							glidePlayerAcrossVoid(dropPos, Config.courierSpeed or 95)
 
 							if not courierActive then return end
@@ -3432,9 +3350,8 @@ local success, err = pcall(function()
 							-- Jeda natural sebelum menyerahkan paket
 							task.wait(0.3 + (math.random(0, 3) / 10.0))
 
-							-- Pastikan kursi berada rapat di depan kardus tujuan (<= 3.0 stud) menghadap dropPos (TETAP DUDUK)
+							-- Pastikan berdiri rapat di depan kardus tujuan (<= 3.0 stud) menghadap dropPos
 							local hrpAtDrop = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-							local humAtDrop = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 							if hrpAtDrop and dropPos then
 								local dist3D = (hrpAtDrop.Position - dropPos).Magnitude
 								if dist3D > 3.0 then
@@ -3443,14 +3360,9 @@ local success, err = pcall(function()
 									local unitOffset = flatOffset.Magnitude > 0.1 and flatOffset.Unit or Vector3.new(0, 0, 1)
 									local seatTarget = dropPos + unitOffset * 2.2
 									local lookAt = Vector3.new(dropPos.X, seatTarget.Y, dropPos.Z)
-
-									if persistentCarrierSeat and persistentCarrierSeat.Parent then
-										persistentCarrierSeat.CFrame = CFrame.new(seatTarget - Vector3.new(0, 1.5, 0), lookAt)
-									end
 									hrpAtDrop.CFrame = CFrame.new(seatTarget, lookAt)
 									hrpAtDrop.AssemblyLinearVelocity = Vector3.zero
 									hrpAtDrop.AssemblyAngularVelocity = Vector3.zero
-									if humAtDrop then humAtDrop.Sit = true end
 									task.wait(0.1)
 								end
 							end
@@ -3471,9 +3383,6 @@ local success, err = pcall(function()
 								end
 								if dropPrompt then
 									local holdTime = dropPrompt.HoldDuration or 0.5
-									-- Hancurkan kursi siluman sementara agar server bisa validasi prompt
-									if destroyCarrierSeat then destroyCarrierSeat() end
-									task.wait(0.05)
 									triggerCourierPrompt(dropPrompt, holdTime)
 									task.wait(holdTime + 0.35)
 								else
