@@ -112,6 +112,10 @@ local success, err = pcall(function()
 	local recoverRideGoDuty   = nil
 	local cancelActiveDrive   = nil
 	local glidePlayerAcrossVoid = nil
+	local ensureCarrierSeat     = nil
+	local destroyCarrierSeat    = nil
+	local persistentCarrierSeat = nil
+	local persistentCarrierWeld = nil
 	local arrivedViaSeatCarrier = false
 	local startPhoneOverlayPoller = nil
 
@@ -1201,37 +1205,38 @@ local success, err = pcall(function()
 	end
 
 	-- 🪑 Seat Carrier Engine: Navigasi Halus Bebas Ban & Bebas Strike 100%
-	-- Menggunakan Kursi Siluman (CanCollide=true, Weld, hum.Sit=true) sehingga 100% bypass Adonis Anti-Fly.
-	-- Ketinggian menyusuri kontur tanah dan lereng mulus di atas jurang tanpa melonjak ke langit.
-	glidePlayerAcrossVoid = function(targetPos, speed)
-		if typeof(targetPos) == "CFrame" then
-			targetPos = targetPos.Position
-		end
-		if typeof(targetPos) ~= "Vector3" then return false end
+	-- Solusi 1: Murni Duduk Permanen (Zero-Unseat)
+	-- Karakter selalu duduk di kursi sepanjang sesi kurir, sehingga server tidak pernah
+	-- memicu modul deteksi pejalan kaki (Anti-Speed/Anti-Fly) saat menapak!
 
+	ensureCarrierSeat = function()
 		local char = player.Character
-		if not char then return false end
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if not hum or not hrp then return false end
+		if not (char and hum and hrp) then return nil end
 
-		-- Kecepatan stabil (default 95 stud/s sesuai riset empirical tanpa kick)
-		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
+		if persistentCarrierSeat and persistentCarrierSeat.Parent == workspace 
+			and persistentCarrierWeld and persistentCarrierWeld.Parent == persistentCarrierSeat 
+			and persistentCarrierWeld.Part1 == hrp then
+			if not hum.Sit or hum.SeatPart ~= persistentCarrierSeat then
+				hum.Sit = true
+				pcall(function() persistentCarrierSeat:Sit(hum) end)
+			end
+			return persistentCarrierSeat
+		end
 
-		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 2.5, "info")
-		updateBotActivity("🪑 Meluncur (Seat Carrier)...", Color3.fromRGB(0, 212, 255))
-
-		-- 1. Bersihkan sisa kursi lama jika ada & unseat
+		-- Bersihkan jika ada kursi lama tidak sinkron
 		pcall(function()
+			if persistentCarrierWeld then persistentCarrierWeld:Destroy() end
+			if persistentCarrierSeat then persistentCarrierSeat:Destroy() end
 			local oldSeat = workspace:FindFirstChild("__DdsCourierSeat")
 			if oldSeat then oldSeat:Destroy() end
 			local oldWeld = workspace:FindFirstChild("__DdsSeatWeld")
 			if oldWeld then oldWeld:Destroy() end
 		end)
-		hum.Sit = false
-		task.wait(0.05)
+		persistentCarrierWeld = nil
+		persistentCarrierSeat = nil
 
-		-- 2. Buat Kursi Carrier Valid (CanCollide = true WAJIB agar Humanoid mendeteksi Seat!)
 		local carrierSeat = Instance.new("Seat")
 		carrierSeat.Name = "__DdsCourierSeat"
 		carrierSeat.Size = Vector3.new(2.5, 0.6, 2.5)
@@ -1245,15 +1250,13 @@ local success, err = pcall(function()
 
 		hum.Sit = false
 		hum.PlatformStand = false
-		task.wait(0.05)
+		task.wait(0.04)
 
-		-- Posisikan HRP rapat di atas kursi & dudukkan
 		hrp.CFrame = carrierSeat.CFrame + Vector3.new(0, 0.4, 0)
-		task.wait(0.05)
+		task.wait(0.04)
 		pcall(function() carrierSeat:Sit(hum) end)
-		task.wait(0.12)
+		task.wait(0.1)
 
-		-- Buat WeldConstraint agar karakter dijamin 100% menempel di kursi saat meluncur
 		local carrierWeld = Instance.new("WeldConstraint")
 		carrierWeld.Name = "__DdsSeatWeld"
 		carrierWeld.Part0 = carrierSeat
@@ -1261,6 +1264,60 @@ local success, err = pcall(function()
 		carrierWeld.Parent = carrierSeat
 
 		hum.Sit = true
+
+		persistentCarrierSeat = carrierSeat
+		persistentCarrierWeld = carrierWeld
+		return carrierSeat
+	end
+
+	destroyCarrierSeat = function()
+		if persistentCarrierWeld and persistentCarrierWeld.Parent then
+			pcall(function() persistentCarrierWeld:Destroy() end)
+			persistentCarrierWeld = nil
+		end
+		if persistentCarrierSeat and persistentCarrierSeat.Parent then
+			pcall(function() persistentCarrierSeat:Destroy() end)
+			persistentCarrierSeat = nil
+		end
+		pcall(function()
+			local s = workspace:FindFirstChild("__DdsCourierSeat")
+			if s then s:Destroy() end
+			local w = workspace:FindFirstChild("__DdsSeatWeld")
+			if w then w:Destroy() end
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				hrp.AssemblyAngularVelocity = Vector3.zero
+			end
+			if hum then
+				hum.Sit = false
+				hum.PlatformStand = false
+				hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end
+		end)
+	end
+
+	glidePlayerAcrossVoid = function(targetPos, speed)
+		if typeof(targetPos) == "CFrame" then
+			targetPos = targetPos.Position
+		end
+		if typeof(targetPos) ~= "Vector3" then return false end
+
+		local char = player.Character
+		if not char then return false end
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not hrp then return false end
+
+		local carrierSeat = ensureCarrierSeat()
+		if not carrierSeat then return false end
+
+		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
+
+		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 2.5, "info")
+		updateBotActivity("🪑 Meluncur (Permanent Seat)...", Color3.fromRGB(0, 212, 255))
 
 		-- NoClip pada part tubuh player selama penerbangan (selain kursi)
 		local noclipConn = RunService.Stepped:Connect(function()
@@ -1286,7 +1343,7 @@ local success, err = pcall(function()
 		requestStreamAsync(startPos)
 		requestStreamAsync(targetPos)
 
-		-- 3. Meluncur Frame demi Frame dengan Ketinggian Adaptif (Tanpa Terbang ke Langit)
+		-- Meluncur Frame demi Frame dengan Ketinggian Adaptif (Tanpa Terbang ke Langit)
 		while (courierActive or _G.HipHubCourierActive) do
 			local dt = RunService.Heartbeat:Wait()
 
@@ -1304,8 +1361,8 @@ local success, err = pcall(function()
 			local flatDelta = Vector3.new(targetPos.X - curPos.X, 0, targetPos.Z - curPos.Z)
 			local flatDist = flatDelta.Magnitude
 
-			-- Tiba di radius sangat dekat (<= 3.5 stud) dari target di Klaten
-			if flatDist <= 3.5 then
+			-- Tiba di radius rapat (<= 2.5 stud) dari target
+			if flatDist <= 2.5 then
 				break
 			end
 
@@ -1350,36 +1407,22 @@ local success, err = pcall(function()
 			noclipConn = nil
 		end
 
-		-- 4. Hapus Kursi & Weld Siluman
-		if carrierWeld and carrierWeld.Parent then
-			pcall(function() carrierWeld:Destroy() end)
-			carrierWeld = nil
-		end
-		if carrierSeat and carrierSeat.Parent then
-			pcall(function() carrierSeat:Destroy() end)
-			carrierSeat = nil
-		end
-
-		-- 5. Pendaratan Halus di Titik Tujuan (Karakter Berdiri di Tanah Asli Server)
+		-- 🛑 ZERO-UNSEAT ARRIVAL (Solusi 1: TETAP DUDUK DI KURSI):
+		-- Nol-kan kecepatan dan pertahankan posisi duduk di atas kursi rapat di target.
+		-- JANGAN PERNAH unseat! JANGAN hancurkan kursi! JANGAN ubah state ke GettingUp!
 		pcall(function()
-			local landPos = Vector3.new(curPos.X, targetPos.Y + 1.8, curPos.Z)
-			hrp.CFrame = CFrame.new(landPos, Vector3.new(targetPos.X, landPos.Y, targetPos.Z))
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
-
-			for _, p in ipairs(char:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.CanCollide = (p.Name == "HumanoidRootPart" or p.Name:find("Torso") or p.Name:find("Leg"))
-				end
+			local lookAtTarget = Vector3.new(targetPos.X, curPos.Y, targetPos.Z)
+			if carrierSeat and carrierSeat.Parent then
+				carrierSeat.CFrame = CFrame.new(curPos - Vector3.new(0, 1.5, 0), lookAtTarget)
 			end
-
-			hum.Sit = false
-			hum.PlatformStand = false
-			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+			hrp.CFrame = CFrame.new(curPos, lookAtTarget)
+			hum.Sit = true
 		end)
 
-		UI.Notify("✅ Mendarat Aman", "Tiba di titik tujuan!", 2.5, "success")
-		task.wait(0.3)
+		UI.Notify("✅ Tiba di Lokasi", "Posisi duduk stabil (Anti-Kick Aktif)!", 2.0, "success")
+		task.wait(0.2)
 		return true
 	end
 
@@ -3227,8 +3270,8 @@ local success, err = pcall(function()
 				if despawn then despawn:FireServer() end
 			end)
 
-			updateBotActivity("📦 Memulai Auto Kurir (Direct Seat Carrier)...", Color3.fromRGB(0, 212, 255))
-			UI.Notify("Courier Auto-Worker ON", "Navigasi Murni Seat Carrier (Tanpa Motor) Aktif!", 3.5, "success")
+			updateBotActivity("📦 Memulai Auto Kurir (Zero-Unseat Carrier)...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Courier Auto-Worker ON", "Navigasi Murni Kursi Permanen (Anti-Kick Aktif)!", 3.5, "success")
 
 			courierLoopThread = task.spawn(function()
 				while courierActive do
@@ -3280,15 +3323,29 @@ local success, err = pcall(function()
 								local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 								local distToDepot = hrpNow and (takePos - hrpNow.Position).Magnitude or 999
 
-								-- Meluncur ke depot jika belum berada di depot (jarak > 8 stud)
-								if distToDepot > 8 then
+								-- Meluncur ke depot jika belum berada di depot (jarak > 6 stud)
+								if distToDepot > 6 then
 									updateBotActivity("🪑 Meluncur ke Depot Paket...", Color3.fromRGB(0, 212, 255))
 									glidePlayerAcrossVoid(takePos, Config.courierSpeed or 95)
 									if not courierActive then return end
-									task.wait(0.3)
+									task.wait(0.2)
 								end
 
-								-- Ambil paket dari depot via ProximityPrompt
+								-- Posisikan kursi rapat di depan meja depot (<= 3.0 stud) menghadap takePos
+								local hrpDepot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+								local humDepot = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+								if hrpDepot and (takePos - hrpDepot.Position).Magnitude > 3.0 then
+									local seatTarget = takePos + Vector3.new(0, 1.2, 2.0)
+									local lookAt = Vector3.new(takePos.X, seatTarget.Y, takePos.Z)
+									if persistentCarrierSeat and persistentCarrierSeat.Parent then
+										persistentCarrierSeat.CFrame = CFrame.new(seatTarget - Vector3.new(0, 1.5, 0), lookAt)
+									end
+									hrpDepot.CFrame = CFrame.new(seatTarget, lookAt)
+									if humDepot then humDepot.Sit = true end
+									task.wait(0.1)
+								end
+
+								-- Ambil paket dari depot via ProximityPrompt (TETAP DUDUK DI KURSI)
 								updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
 								local tStartTake = tick()
 								while not hasCourierPackage() and courierActive and (tick() - tStartTake < 6.0) do
@@ -3303,7 +3360,7 @@ local success, err = pcall(function()
 									end
 									task.wait(0.35)
 								end
-								task.wait(0.4)
+								task.wait(0.3)
 								return
 							end
 						end
@@ -3355,23 +3412,25 @@ local success, err = pcall(function()
 							-- Jeda natural sebelum menyerahkan paket
 							task.wait(0.3 + (math.random(0, 3) / 10.0))
 
-							-- Pastikan karakter berada dalam jarak ProximityPrompt yang aman (<= 3.5 stud)
-							local charAtDrop = player.Character
-							local hrpAtDrop = charAtDrop and charAtDrop:FindFirstChild("HumanoidRootPart")
-							local humAtDrop = charAtDrop and charAtDrop:FindFirstChildOfClass("Humanoid")
+							-- Pastikan kursi berada rapat di depan kardus tujuan (<= 3.0 stud) menghadap dropPos (TETAP DUDUK)
+							local hrpAtDrop = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+							local humAtDrop = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 							if hrpAtDrop and dropPos then
 								local dist3D = (hrpAtDrop.Position - dropPos).Magnitude
-								if dist3D > 4.5 then
+								if dist3D > 3.0 then
 									local offsetDir = (hrpAtDrop.Position - dropPos)
 									local flatOffset = Vector3.new(offsetDir.X, 0, offsetDir.Z)
 									local unitOffset = flatOffset.Magnitude > 0.1 and flatOffset.Unit or Vector3.new(0, 0, 1)
-									local standPos = dropPos + unitOffset * 2.8
-									local standFinal = Vector3.new(standPos.X, dropPos.Y + 0.5, standPos.Z)
+									local seatTarget = dropPos + unitOffset * 2.2
+									local lookAt = Vector3.new(dropPos.X, seatTarget.Y, dropPos.Z)
 
-									if humAtDrop then humAtDrop.Sit = false end
-									hrpAtDrop.CFrame = CFrame.new(standFinal, dropPos)
+									if persistentCarrierSeat and persistentCarrierSeat.Parent then
+										persistentCarrierSeat.CFrame = CFrame.new(seatTarget - Vector3.new(0, 1.5, 0), lookAt)
+									end
+									hrpAtDrop.CFrame = CFrame.new(seatTarget, lookAt)
 									hrpAtDrop.AssemblyLinearVelocity = Vector3.zero
 									hrpAtDrop.AssemblyAngularVelocity = Vector3.zero
+									if humAtDrop then humAtDrop.Sit = true end
 									task.wait(0.1)
 								end
 							end
@@ -3382,7 +3441,7 @@ local success, err = pcall(function()
 							local isHandedOver = false
 
 							while courierActive and (tick() - tWaitDeliver < 7.0) do
-								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character)
+								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character sambil duduk)
 								equipCourierPackage()
 
 								-- 2. Pastikan Prompt diaktifkan & ditembak secara natural
@@ -3417,8 +3476,8 @@ local success, err = pcall(function()
 								return
 							end
 
-							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
-							-- Karakter diam di tempat, menunggu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
+							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET (TETAP DUDUK DI KURSI):
+							-- Karakter diam di tempat di atas kursi, menunggu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
 							updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
 							local tWaitNext = tick()
 							while (tick() - tWaitNext < 3.2) and courierActive do
@@ -3446,19 +3505,10 @@ local success, err = pcall(function()
 				pcall(function() task.cancel(courierLoopThread) end)
 				courierLoopThread = nil
 			end
-			-- Bersihkan kursi atau weld jika dimatikan di tengah jalan
-			pcall(function()
-				local s = workspace:FindFirstChild("__DdsCourierSeat")
-				if s then s:Destroy() end
-				local w = workspace:FindFirstChild("__DdsSeatWeld")
-				if w then w:Destroy() end
-				local char = player.Character
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				if hum then
-					hum.Sit = false
-					hum.PlatformStand = false
-				end
-			end)
+			-- Bersihkan kursi secara aman saat user mematikan fitur
+			if destroyCarrierSeat then
+				destroyCarrierSeat()
+			end
 			if changeTeam then
 				changeTeam("Warga")
 			end
