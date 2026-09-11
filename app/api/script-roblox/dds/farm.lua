@@ -14,8 +14,67 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
+	-- 🛡️ ADONIS & CLIENT ANTI-CHEAT MEMORY NEUTRALIZER
+	-- Deteksi thread .Core.Anti & .Plugins.Anti_Cheat, tutup coroutine,
+	-- dan pasang hookfunction pada callback 'Detected' agar anti-cheat lumpuh total.
+	------------------------------------------------
+	local function neutralizeAdonisAntiCheat()
+		local hookedThreads = {}
+		if getreg then
+			for _, thread in getreg() do
+				if typeof(thread) == "thread" then
+					local info = debug.info(thread, 1, "s")
+					if info and (info:match("%.Core%.Anti") or info:match("%.Plugins%.Anti_Cheat")) then
+						table.insert(hookedThreads, thread)
+					end
+				end
+			end
+		end
+
+		for _, thread in ipairs(hookedThreads) do
+			pcall(coroutine.close, thread)
+		end
+
+		local targets = {}
+		if getgc then
+			for _, tbl in getgc(true) do
+				if typeof(tbl) == "table" then
+					local isTarget = typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked")
+					if isTarget then
+						table.insert(targets, tbl)
+					end
+				end
+			end
+		end
+
+		local count = 0
+		if hookfunction then
+			for _, tbl in ipairs(targets) do
+				for k, fn in pairs(tbl) do
+					if typeof(fn) == "function" and (not isfunctionhooked or not isfunctionhooked(fn)) then
+						pcall(hookfunction, fn, function(...)
+							coroutine.yield(coroutine.running())
+							return task.wait(9000000000)
+						end)
+						count = count + 1
+					end
+				end
+			end
+		end
+
+		return #hookedThreads > 0 or count > 0
+	end
+
+	pcall(neutralizeAdonisAntiCheat)
+	task.spawn(function()
+		while task.wait(3) do
+			pcall(neutralizeAdonisAntiCheat)
+		end
+	end)
+
+	------------------------------------------------
 	-- 🛡️ ADONIS-SAFE HARDWARE & INPUT HEARTBEAT
-	-- 100% Bebas Disallowed Services (Tanpa VirtualUser/VirtualInputManager/Hooking)
+	-- Native Mouse & Touch Nudge untuk anti-idle
 	------------------------------------------------
 	if not _G.HipHubNativeInputHeartbeatRunning then
 		_G.HipHubNativeInputHeartbeatRunning = true
@@ -63,13 +122,15 @@ local success, err = pcall(function()
 		tripPacing = true,
 		autoRejoinOrders = 30,
 		autoCourier = false,
-		courierSpeed = 95,
-		courierPacing = true
+		courierSpeed = 200,
+		courierDropDelay = 5,
+		courierPacing = false
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
-	if Config.courierPacing == nil then Config.courierPacing = true end
-	if Config.courierSpeed == nil then Config.courierSpeed = 95 end
+	if Config.courierPacing == nil then Config.courierPacing = false end
+	if Config.courierSpeed == nil then Config.courierSpeed = 200 end
+	if Config.courierDropDelay == nil then Config.courierDropDelay = 5 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -3119,11 +3180,16 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Motorcycle Navigation)
+	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Physics Seat Flight)
+	-- Mengadopsi sistem teman: Unanchored Seat + BodyVelocity + BodyGyro
+	-- Karakter terbang garis lurus 3D tanpa motor darat, 100% bebas kick & crash
 	------------------------------------------------
 	courierActive                = false
 	local activeCourierDestId    = nil
 	local courierLoopThread      = nil
+	local courierShiftLimit      = false
+	local courierLastJobTime     = os.clock()
+	local courierResetFlag       = false
 
 	-- Listener untuk ServiceEvent dari Delivery System
 	local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
@@ -3132,13 +3198,76 @@ local success, err = pcall(function()
 
 	if deliveryServiceEvent then
 		deliveryServiceEvent.OnClientEvent:Connect(function(action, eventType, locId)
-			if action == "ServiceEvent" and eventType == "Create" then
+			if action == "ServiceEvent" and eventType == "Create" and locId then
 				activeCourierDestId = tostring(locId)
-			elseif eventType ~= "Create" then
+				courierLastJobTime = os.clock()
+				courierResetFlag = false
+			elseif eventType ~= "Create" and eventType ~= "ServiceEvent" then
 				activeCourierDestId = nil
 			end
 		end)
 	end
+
+	-- Deteksi Shift Limit via NotifEvent & NOTIF text
+	local function handleCourierShiftLimit()
+		if courierShiftLimit then return end
+		courierShiftLimit = true
+		UI.Notify("Courier Shift Limit", "Limit shift tercapai! Me-refresh session...", 3, "warning")
+		updateBotActivity("🔄 Courier Shift Limit (Refreshing)...", Color3.fromRGB(255, 180, 50))
+
+		activeCourierDestId = nil
+		courierResetFlag = false
+
+		pcall(function()
+			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
+			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+			if teamReq then
+				teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
+			end
+		end)
+
+		task.wait(3)
+
+		pcall(function()
+			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
+			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+			if teamReq then
+				teamReq:FireServer("Courier", 11378976, 1, 0, "Detector")
+			end
+		end)
+
+		local char = player.Character
+		if not char or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then
+			player.CharacterAdded:Wait()
+		end
+
+		task.wait(2)
+		courierResetFlag = true
+		activeCourierDestId = nil
+		courierLastJobTime = os.clock()
+		courierShiftLimit = false
+	end
+
+	pcall(function()
+		local notifFolder = ReplicatedStorage:WaitForChild("Notification", 5)
+		local notifEvt = notifFolder and notifFolder:WaitForChild("NotifEvent", 5)
+		if notifEvt then
+			notifEvt.OnClientEvent:Connect(function(k, v)
+				if not courierActive then return end
+				local isLimit = false
+				if typeof(v) == "string" and (v:find("NC_SHIFT_LIMIT") or v:find("shift kurir tercapai") or v:lower():find("courier shift")) then
+					isLimit = true
+				elseif typeof(v) == "table" and (v.k == "NC_SHIFT_LIMIT" or (v.a and tostring(v.a):find("NC_SHIFT_LIMIT"))) then
+					isLimit = true
+				elseif typeof(k) == "string" and (k:find("NC_SHIFT_LIMIT") or k:lower():find("courier shift")) then
+					isLimit = true
+				end
+				if isLimit then
+					task.spawn(handleCourierShiftLimit)
+				end
+			end)
+		end
+	end)
 
 	local function getCourierPackageTool()
 		local char = player.Character
@@ -3172,28 +3301,140 @@ local success, err = pcall(function()
 		return char and (char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool"))
 	end
 
+	-- 🪑 Pure Unanchored Seat Physics Flight (Teman Pattern)
+	local function courierFlyTo(targetCF, speed)
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+		if not hrp or not hum or hum.Health <= 0 then return false end
+
+		hum.AutoRotate = false
+
+		-- 1. Temporary Unanchored Dummy Seat
+		local seat = Instance.new("Seat")
+		seat.Name = "courier_seat"
+		seat.Size = Vector3.new(1, 1, 1)
+		seat.Transparency = 1
+		seat.CanCollide = false
+		seat.Anchored = false
+		seat.CFrame = hrp.CFrame
+		seat.Parent = workspace
+
+		-- 2. Rigid Weld to Character
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = seat
+		weld.Part1 = hrp
+		weld.Parent = seat
+
+		-- 3. Physics Movers on Seat
+		local bv = Instance.new("BodyVelocity")
+		bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+		bv.Velocity = Vector3.zero
+		bv.Parent = seat
+
+		local gyro = Instance.new("BodyGyro")
+		gyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+		gyro.CFrame = hrp.CFrame
+		gyro.Parent = seat
+
+		-- 4. Stepped Enforcers: Sit Lock & NoClip
+		local seatConn = RunService.Stepped:Connect(function()
+			if hum and hum.Parent and hum.SeatPart ~= seat then
+				hum.Sit = true
+				seat:Sit(hum)
+			end
+		end)
+
+		local origCollide = {}
+		local collideConn = RunService.Stepped:Connect(function()
+			if char and char.Parent then
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") and p.CanCollide then
+						p.CanCollide = false
+						origCollide[p] = true
+					end
+				end
+			end
+		end)
+
+		-- 5. Seated Animation
+		local animator = hum:FindFirstChildOfClass("Animator")
+		local animTrack = nil
+		if animator then
+			pcall(function()
+				local anim = Instance.new("Animation")
+				anim.AnimationId = "rbxassetid://507766388"
+				animTrack = animator:LoadAnimation(anim)
+				animTrack.Priority = Enum.AnimationPriority.Action
+				animTrack:Play()
+			end)
+		end
+
+		local targetPos = typeof(targetCF) == "CFrame" and targetCF.Position or targetCF
+		local flySpeed = tonumber(speed) or tonumber(Config.courierSpeed) or 200
+		local startTime = os.clock()
+		local arrivalDist = 8
+
+		while (courierActive or _G.HipHubCourierActive) and hrp and char.Parent and hum.Health > 0 and not courierShiftLimit do
+			local cur = hrp.Position
+			local delta = targetPos - cur
+			local dist = delta.Magnitude
+
+			if dist <= arrivalDist then break end
+			if (os.clock() - startTime) > 180 then break end
+
+			bv.Velocity = delta.Unit * flySpeed
+			gyro.CFrame = CFrame.lookAt(cur, targetPos)
+			task.wait()
+		end
+
+		-- 6. Cleanup Flight
+		if seatConn then seatConn:Disconnect() end
+		if collideConn then collideConn:Disconnect() end
+
+		for part, _ in pairs(origCollide) do
+			if typeof(part) == "Instance" and part:IsA("BasePart") and part.Parent then
+				part.CanCollide = true
+			end
+		end
+
+		if bv and bv.Parent then bv.Velocity = Vector3.zero end
+		if hrp and hrp.Parent then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end
+
+		task.wait(0.1)
+		hum.Sit = false
+		if seat and seat.Parent then seat:Destroy() end
+		if animTrack then pcall(function() animTrack:Stop() end) end
+
+		hum.AutoRotate = true
+		hum:ChangeState(Enum.HumanoidStateType.Running)
+
+		return true
+	end
+
 	local function getCourierDestination()
 		local livrason = workspace:FindFirstChild("Livrason")
 		local locFolder = livrason and livrason:FindFirstChild("Location")
-		if not locFolder then return nil, nil, nil, nil end
+		if not locFolder then return nil, nil, nil end
 
-		-- 1. Berdasarkan attribute CurrentDelivery pada player (paling akurat dari server!)
 		local curDeliveryAttr = player:GetAttribute("CurrentDelivery")
 		local targetId = (curDeliveryAttr and tostring(curDeliveryAttr) ~= "" and tostring(curDeliveryAttr) ~= "0") and tostring(curDeliveryAttr) or activeCourierDestId
 
 		if targetId then
 			local child = locFolder:FindFirstChild(targetId)
 			local block = child and child:FindFirstChild("Block")
-			local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
-			if prompt then
-				prompt.Enabled = true
-			end
 			if block then
-				return block.Position, prompt, block, targetId
+				local crate = block:FindFirstChild("Dust Food Crates 56") or block:FindFirstChild("Meshes/Rac1ks_Cylinder.023")
+				local dropCF = crate and crate.CFrame or block.CFrame
+				local prompt = block:FindFirstChildOfClass("ProximityPrompt")
+				return dropCF, prompt, targetId
 			end
 		end
 
-		-- 2. Fallback scan lokasi yang memiliki POINT aktif atau prompt aktif
 		for _, child in ipairs(locFolder:GetChildren()) do
 			local block = child:FindFirstChild("Block")
 			local prompt = block and block:FindFirstChildOfClass("ProximityPrompt")
@@ -3201,50 +3442,28 @@ local success, err = pcall(function()
 			local bg = point and point:FindFirstChildOfClass("BillboardGui")
 
 			if (prompt and prompt.Enabled) or (bg and bg.Enabled) then
-				if prompt then prompt.Enabled = true end
-				return block and block.Position, prompt, block, child.Name
+				local crate = block and (block:FindFirstChild("Dust Food Crates 56") or block:FindFirstChild("Meshes/Rac1ks_Cylinder.023"))
+				local dropCF = crate and crate.CFrame or (block and block.CFrame)
+				return dropCF, prompt, child.Name
 			end
 		end
 
-		-- 3. Cek Indicateur beam target
-		local indicateur = workspace:FindFirstChild("Indicateur")
-		if indicateur and indicateur:IsA("Beam") and indicateur.Enabled and indicateur.Attachment0 then
-			local parentPart = indicateur.Attachment0.Parent
-			if parentPart and parentPart:IsA("BasePart") then
-				local prompt = parentPart:FindFirstChildOfClass("ProximityPrompt")
-				if prompt then prompt.Enabled = true end
-				return parentPart.Position, prompt, parentPart, parentPart.Parent and parentPart.Parent.Name or "Beam"
-			end
-		end
-
-		return nil, nil, nil, nil
+		return nil, nil, nil
 	end
 
-	local function triggerCourierPrompt(prompt, holdDuration)
+	local function triggerCourierPrompt(prompt)
 		if not prompt then return false end
-		local CS = game:GetService("CollectionService")
 		pcall(function()
-			CS:AddTag(prompt, "KeepPromptWhenSeated")
-			prompt.Enabled = true
-		end)
-		local duration = holdDuration or prompt.HoldDuration or 0.5
-		pcall(function()
+			prompt.HoldDuration = 0
 			if fireproximityprompt then
-				pcall(function() fireproximityprompt(prompt, duration) end)
-				pcall(function() fireproximityprompt(prompt) end)
+				fireproximityprompt(prompt)
 			elseif prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
-				task.wait(duration + 0.15)
+				task.wait(0.1)
 				prompt:InputHoldEnd()
 			end
 		end)
 		return true
-	end
-
-	local function isDriverSittingOnMotor()
-		local char = player.Character
-		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		return hum and hum.SeatPart ~= nil
 	end
 
 	toggleAutoCourier = function(state)
@@ -3259,7 +3478,7 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			-- Mutual exclusion: matikan RideGO dan simpan ke config agar tidak bentrok
+			-- Mutual exclusion: matikan RideGO
 			Config.autoRideGO = false
 			if _G.HipHubConfig and _G.HipHubConfig.farm then
 				_G.HipHubConfig.farm.autoRideGO = false
@@ -3271,294 +3490,140 @@ local success, err = pcall(function()
 				_G.HipHubSaveConfig(true)
 			end
 
-			updateBotActivity("📦 Memulai Auto Kurir (Mode Motor)...", Color3.fromRGB(0, 212, 255))
-			UI.Notify("Courier Auto-Worker ON", "Navigasi Motor & Void Bridging Aktif!", 3.5, "success")
-
-			-- 🛡️ Whitelist semua ProximityPrompt Kurir agar tidak disembunyikan oleh PromptVisibilityManager saat duduk di motor
-			pcall(function()
-				local CS = game:GetService("CollectionService")
-				local livrason = workspace:FindFirstChild("Livrason")
-				if livrason then
-					for _, p in ipairs(livrason:GetDescendants()) do
-						if p:IsA("ProximityPrompt") then
-							CS:AddTag(p, "KeepPromptWhenSeated")
-							p.Enabled = true
-						end
-					end
-				end
-			end)
+			updateBotActivity("📦 Memulai Auto Kurir (Physics Flight)...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Courier Auto-Worker ON", "Physics Seat Flight & Anti-Cheat Shield Aktif!", 3.5, "success")
 
 			courierLoopThread = task.spawn(function()
+				local restarting = false
 				while courierActive do
-					task.wait(0.25)
+					task.wait(0.5)
 					if not courierActive then break end
+
+					if courierResetFlag then
+						task.wait(2)
+						courierResetFlag = false
+						restarting = false
+						activeCourierDestId = nil
+					end
+
+					local char = player.Character
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					if not char or not hum or hum.Health <= 0 or courierShiftLimit then
+						continue
+					end
 
 					local cycleOk, cycleErr = pcall(function()
 						-- 1. Pastikan Tim adalah "Courier"
 						local curTeam = player.Team and player.Team.Name or ""
 						if not curTeam:lower():find("courier") then
 							updateBotActivity("📦 Ganti Tim ke Kurir...", Color3.fromRGB(0, 212, 255))
-							if changeTeam then
-								changeTeam("Courier")
-							end
-							task.wait(1.2)
+							pcall(function()
+								local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
+								local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+								if teamReq then
+									teamReq:FireServer("Courier", 11378976, 0, 0, "Detector")
+								end
+							end)
+							task.wait(1.5)
 							return
 						end
 
-						-- 2. Pastikan Pengemudi Duduk di Motor (Bypass Anti-Speedhack 267)
-						if not isDriverSittingOnMotor() then
-							-- Jika baru saja tiba lewat Seat Carrier dan sedang memegang paket yang harus diantar:
-							-- Prioritaskan antar paket terlebih dahulu tanpa spawn motor sekarang
-							if arrivedViaSeatCarrier and hasCourierPackage() then
-								-- Biarkan alur berlanjut ke penyerahan paket
-							else
-								updateBotActivity("🛵 Menaiki Motor...", Color3.fromRGB(0, 212, 255))
-								local ok = ensureDriverSeated()
-								if not ok then
-									spawnTaxiBike()
-									task.wait(1.5)
-									ensureDriverSeated()
-								end
+						-- 2. Jika Belum Ada Job / Paket -> Ambil di Depot
+						if not activeCourierDestId and not hasCourierPackage() then
+							if not restarting then
+								local takeCF = CFrame.new(-5108, 5, -3759)
+								updateBotActivity("🛫 Terbang ke Depot Paket...", Color3.fromRGB(0, 212, 255))
+								courierFlyTo(takeCF, Config.courierSpeed or 200)
+
+								if not courierActive or courierShiftLimit then return end
+
 								task.wait(0.5)
-								return
-							end
-						end
-
-						-- 3. Jika belum punya paket di tangan/tas -> Cek lagi sebelum memutuskan ke depot
-						if not hasCourierPackage() then
-							-- Beri jeda tambahan jika server belum sempat memberikan paket baru
-							local tWaitAuto = tick()
-							while (tick() - tWaitAuto < 1.5) and courierActive do
-								if hasCourierPackage() then break end
-								task.wait(0.2)
-							end
-
-							-- HANYA jika setelah total waktu tunggu habis paket BENAR-BENAR belum ada di tas:
-							if not hasCourierPackage() and courierActive then
-								local takePos = Vector3.new(-5105.6, 5.0, -3759.0)
-								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
-
-								local depotDriveThread = task.spawn(function()
-									driveVehicleTo(takePos, Config.courierSpeed or 95, 6)
-								end)
-
-								-- Pantau saat perjalanan ke depot: jika paket tiba-tiba muncul di tas -> batalkan arah depot secara mulus!
-								while not hasCourierPackage() and courierActive and coroutine.status(depotDriveThread) ~= "dead" do
-									task.wait(0.2)
-								end
-
-								if hasCourierPackage() then
-									cancelActiveDrive()
-									pcall(function() task.cancel(depotDriveThread) end)
-									task.wait(0.3) -- Jeda rem sesaat sebelum akselerasi ke arah tujuan baru
-								end
-
-								if not courierActive then return end
-
-								if not hasCourierPackage() then
-									updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
+								pcall(function()
 									local livrason = workspace:FindFirstChild("Livrason")
-									local takePart = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take")
-									local takePrompt = takePart and takePart:FindFirstChildOfClass("ProximityPrompt")
-
-									local tStartTake = tick()
-									while not hasCourierPackage() and courierActive and (tick() - tStartTake < 6.0) do
-										if not takePrompt or not takePrompt.Parent then
-											livrason = workspace:FindFirstChild("Livrason")
-											takePart = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take")
-											takePrompt = takePart and takePart:FindFirstChildOfClass("ProximityPrompt")
-										end
-										if takePrompt then
-											local CS = game:GetService("CollectionService")
-											pcall(function()
-												CS:AddTag(takePrompt, "KeepPromptWhenSeated")
-												takePrompt.Enabled = true
-											end)
-											local holdTime = takePrompt.HoldDuration or 0.5
-											triggerCourierPrompt(takePrompt, holdTime)
-											task.wait(holdTime + 0.35)
-										else
-											task.wait(0.4)
-										end
+									local takePrompt = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take") and livrason.Take1.Take:FindFirstChildOfClass("ProximityPrompt")
+									if takePrompt then
+										triggerCourierPrompt(takePrompt)
 									end
-									task.wait(0.5)
-									return
+								end)
+								restarting = true
+							end
+
+							local waited = 0
+							while courierActive and not activeCourierDestId and not hasCourierPackage() and not courierShiftLimit and waited < 6 do
+								task.wait(0.5)
+								waited = waited + 0.5
+							end
+
+							if courierActive and not activeCourierDestId and not hasCourierPackage() and not courierShiftLimit then
+								restarting = false
+							end
+
+							if courierActive and not activeCourierDestId and not hasCourierPackage() then
+								local idle = os.clock() - courierLastJobTime
+								if idle > 15 and not courierResetFlag then
+									courierResetFlag = true
+								end
+								if idle > 30 then
+									if deliveryServiceEvent then
+										deliveryServiceEvent:FireServer("RequestJobUpdate")
+									end
+									courierLastJobTime = os.clock()
 								end
 							end
-						end
-
-						-- 4. Jika paket sudah di tangan/tas -> langsung kendarai motor ke titik drop-off tanpa mampir depot
-						if hasCourierPackage() then
+						else
+							-- 3. Antar Paket ke Titik Pengantaran
 							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
-							local dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
+							local dropCF, dropPrompt, destId = getCourierDestination()
 
 							local tWaitDest = tick()
-							while not dropPos and courierActive and (tick() - tWaitDest < 4.0) do
+							while not dropCF and courierActive and (tick() - tWaitDest < 4.0) do
 								task.wait(0.3)
-								dropPos, dropPrompt, dropBlock, destId = getCourierDestination()
+								dropCF, dropPrompt, destId = getCourierDestination()
 							end
 
-							if not dropPos then
-								-- Minta update quest jika desync
+							if not dropCF then
 								if deliveryServiceEvent then
 									deliveryServiceEvent:FireServer("RequestJobUpdate")
 								end
 								task.wait(1.0)
+								activeCourierDestId = nil
 								return
 							end
 
-							local car, seat = getPlayerVehicle()
-							local startPos = car and car:GetPivot().Position or dropPos
-							local tripDist = (dropPos - startPos).Magnitude
-							local tripStartTime = tick()
+							local hrp = char:FindFirstChild("HumanoidRootPart")
+							local tripDist = hrp and (dropCF.Position - hrp.Position).Magnitude or 0
+							updateBotActivity(string.format("🛫 Terbang ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
 
-							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm)...", tostring(destId or "?"), tripDist), Color3.fromRGB(0, 212, 255))
+							courierFlyTo(dropCF, Config.courierSpeed or 200)
 
-							-- Berhenti rapat (radius 5-7 stud) agar ProximityPrompt tumpukan kardus terjangkau
-							driveVehicleTo(dropPos, Config.courierSpeed or 95, 0)
+							if not courierActive or courierShiftLimit then return end
 
-							if not courierActive then return end
+							-- Jeda dropoff alami
+							local dropDelay = tonumber(Config.courierDropDelay) or 5
+							updateBotActivity(string.format("⏱️ Jeda Dropoff (%ds)...", dropDelay), Color3.fromRGB(255, 200, 50))
+							task.wait(dropDelay)
 
-							-- 🛡️ Verifikasi Kedatangan: Pastikan player atau motor BENAR-BENAR sudah tiba dekat dengan dropPos!
-							local charAfterDrive = player.Character
-							local hrpAfterDrive = charAfterDrive and charAfterDrive:FindFirstChild("HumanoidRootPart")
-							local carAfterDrive = getPlayerVehicle()
-							local curPosAfterDrive = (hrpAfterDrive and hrpAfterDrive.Position) or (carAfterDrive and carAfterDrive:GetPivot().Position)
-							local distToDrop = (curPosAfterDrive and dropPos) and (curPosAfterDrive - dropPos).Magnitude or math.huge
+							-- Pegang paket (Equip Box Tool)
+							equipCourierPackage()
+							task.wait(0.5)
 
-							if distToDrop > 25 and not arrivedViaSeatCarrier then
-								-- Belum sampai di titik pengantaran (terhenti di jalan/rintangan).
-								UI.Notify("🛵 Melanjutkan Perjalanan", string.format("Jarak ke tujuan masih %.0fm. Menavigasi kembali...", distToDrop), 2.5, "info")
-								task.wait(0.5)
-								return
+							-- Tembak Prompt Pengantaran
+							if not dropPrompt or not dropPrompt.Parent then
+								local _, np, _ = getCourierDestination()
+								dropPrompt = np
+							end
+							if dropPrompt then
+								triggerCourierPrompt(dropPrompt)
 							end
 
-							-- 🛡️ Smart Delivery Pacing (Anti-Kick)
-							if Config.courierPacing and tripDist > 120 then
-								local safeSpeed = 85.0 + math.random(-4, 5)
-								local minSafeTime = tripDist / safeSpeed
-								local elapsed = tick() - tripStartTime
-								if elapsed < minSafeTime then
-									local waitTime = minSafeTime - elapsed
-									updateBotActivity(string.format("⏱️ Pacing Kurir (%.1fs)...", waitTime), Color3.fromRGB(255, 180, 50))
-									task.wait(waitTime)
-								end
-							end
+							task.wait(1.0)
+							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
+							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", _G.HipHubCompletedCourier), 2.5, "success")
+							updateBotActivity("✅ Paket Sukses Diserahkan!", Color3.fromRGB(80, 255, 120))
 
-							-- Jeda natural sebelum menyerahkan paket
-							task.wait(0.3 + (math.random(0, 3) / 10.0))
-
-							-- 🛡️ Anti-Kick Distance Guard: Pastikan karakter berada dalam jarak aman Proximity (<= 5.5 stud 3D)
-							local char = player.Character
-							local hrp = char and char:FindFirstChild("HumanoidRootPart")
-							local hum = char and char:FindFirstChildOfClass("Humanoid")
-							if hrp and dropPos then
-								local dist3D = (hrp.Position - dropPos).Magnitude
-								if dist3D > 5.5 then
-									-- Kotak berada di teras tinggi / di atas tangga sehingga jarak motor ke kotak > 5.5 stud
-									-- Dekatkan karakter ke jarak 3.2 stud dari kotak dengan safety plate agar bebas kick server (MaxActivationDistance = 11)
-									local offsetDir = (hrp.Position - dropPos)
-									local flatOffset = Vector3.new(offsetDir.X, 0, offsetDir.Z)
-									local unitOffset = flatOffset.Magnitude > 0.1 and flatOffset.Unit or Vector3.new(0, 0, 1)
-									local standPos = dropPos + unitOffset * 3.2
-									local standGroundY = dropPos.Y - 1.5
-									local standFinal = Vector3.new(standPos.X, standGroundY, standPos.Z)
-
-									ensureSafetyPlate(standFinal, 15)
-									if hum then hum.Sit = false end
-									hrp.CFrame = CFrame.new(standFinal, dropPos)
-									hrp.AssemblyLinearVelocity = Vector3.zero
-									hrp.AssemblyAngularVelocity = Vector3.zero
-									task.wait(0.2)
-								end
-							end
-
-							updateBotActivity("📦 Memegang & Menyerahkan Paket...", Color3.fromRGB(150, 110, 255))
-							local initialDeliveryId = tostring(player:GetAttribute("CurrentDelivery") or destId or "")
-							local tWaitDeliver = tick()
-							local isHandedOver = false
-
-							while courierActive and (tick() - tWaitDeliver < 8.0) do
-								-- 1. WAJIB: Pegang paket di kedua tangan (Equip dari Backpack ke Character)
-								equipCourierPackage()
-
-								-- 2. Pastikan Prompt diaktifkan & ditembak secara natural
-								if not dropPrompt or not dropPrompt.Parent then
-									local _, np, _, _ = getCourierDestination()
-									dropPrompt = np
-								end
-								if dropPrompt then
-									local CS = game:GetService("CollectionService")
-									pcall(function()
-										CS:AddTag(dropPrompt, "KeepPromptWhenSeated")
-										dropPrompt.Enabled = true
-									end)
-									local holdTime = dropPrompt.HoldDuration or 0.5
-									triggerCourierPrompt(dropPrompt, holdTime)
-									task.wait(holdTime + 0.35)
-								else
-									task.wait(0.4)
-								end
-
-								-- 3. Cek apakah server sudah memproses serah terima paket
-								local curIdNow = tostring(player:GetAttribute("CurrentDelivery") or "")
-								if (initialDeliveryId ~= "" and curIdNow ~= initialDeliveryId) or not hasCourierPackage() then
-									isHandedOver = true
-									break
-								end
-
-								-- 4. Jaga agar tetap duduk di kursi motor HANYA jika motor berada dekat (<= 30 stud)
-								if not isDriverSittingOnMotor() then
-									local car = getPlayerVehicle()
-									local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-									if car and hrpNow and (car:GetPivot().Position - hrpNow.Position).Magnitude <= 30 then
-										ensureDriverSeated()
-									end
-								end
-							end
-
-							if not isDriverSittingOnMotor() then
-								local car = getPlayerVehicle()
-								local hrpNow = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-								if car and hrpNow and (car:GetPivot().Position - hrpNow.Position).Magnitude <= 30 then
-									ensureDriverSeated()
-								end
-							end
-
-							if isHandedOver then
-								_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
-								local totalDone = _G.HipHubCompletedCourier
-								UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDone), 2.5, "success")
-
-								-- 🛵 Spawn Motor Baru di Titik Pengantaran:
-								-- Jika tadi baru saja menyeberangi jurang via Seat Carrier (atau saat ini belum duduk di motor):
-								-- Spawn motor baru tepat di lokasi pengantaran dan dudukkan pengemudi kembali
-								if (arrivedViaSeatCarrier or not isDriverSittingOnMotor()) and courierActive then
-									arrivedViaSeatCarrier = false
-									updateBotActivity("🛵 Memunculkan Motor Baru...", Color3.fromRGB(0, 212, 255))
-									spawnTaxiBike()
-									task.wait(1.5)
-									ensureDriverSeated()
-								end
-							else
-								UI.Notify("⚠️ Paket Belum Diserahkan", "Mencoba mendekat dan menyerahkan ulang...", 2.0, "warning")
-								task.wait(0.5)
-								return
-							end
-
-							-- 🛑 JEDA RESMI SETELAH ANTAR PAKET:
-							-- Motor WAJIB diam total di tempat (rem aktif). JANGAN PERNAH jalan ke arah depot!
-							-- Berikan waktu 3.2 detik agar server DDS memasukkan paket berikutnya ke tas.
-							updateBotActivity("⏳ Menunggu Paket Berikutnya dari Server...", Color3.fromRGB(0, 212, 255))
-							local tWaitNext = tick()
-							while (tick() - tWaitNext < 3.2) and courierActive do
-								if hasCourierPackage() then
-									UI.Notify("📦 Paket Baru Diterima!", "Mempersiapkan rute ke penerima berikutnya...", 2.0, "success")
-									break
-								end
-								task.wait(0.25)
-							end
-							task.wait(0.4)
+							activeCourierDestId = nil
+							restarting = false
+							task.wait(0.5)
 						end
 					end)
 
@@ -3569,20 +3634,24 @@ local success, err = pcall(function()
 				end
 			end)
 		else
-			if cancelActiveDrive then
-				cancelActiveDrive()
-			end
 			if courierLoopThread then
 				pcall(function() task.cancel(courierLoopThread) end)
 				courierLoopThread = nil
 			end
-			-- Bersihkan kursi secara aman saat user mematikan fitur
-			if destroyCarrierSeat then
-				destroyCarrierSeat()
-			end
-			if changeTeam then
-				changeTeam("Warga")
-			end
+			-- Bersihkan dummy seat jika tertinggal
+			pcall(function()
+				local s = workspace:FindFirstChild("courier_seat")
+				if s then s:Destroy() end
+				local s2 = workspace:FindFirstChild("__HipHubCourierSeat")
+				if s2 then s2:Destroy() end
+			end)
+			pcall(function()
+				local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
+				local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+				if teamReq then
+					teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
+				end
+			end)
 			updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
 			UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
 		end
@@ -3642,25 +3711,25 @@ local success, err = pcall(function()
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
 	UI.AddSection(tab, "Courier Delivery Auto-Worker")
-	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Takes packages from depot & delivers with motorcycle & void bridging", Config.autoCourier, function(state)
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Takes packages from depot & delivers directly via Unanchored Physics Flight", Config.autoCourier, function(state)
 		toggleAutoCourier(state)
 	end)
 	_G.HipHubAutoCourierToggle = autoCourierToggle
 
-	UI.AddToggle(tab, "Smart Delivery Pacing (Anti-Kick)", "Menahan waktu antar pas di server agar tidak terdeteksi. Matikan untuk Turbo.", Config.courierPacing, function(state)
-		Config.courierPacing = state
+	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 300, math.floor(Config.courierSpeed or 200), function(val)
+		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.courierPacing = state
+			_G.HipHubConfig.farm.courierSpeed = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
 		end
 	end)
 
-	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 250, math.floor(Config.courierSpeed or 95), function(val)
-		Config.courierSpeed = val
+	UI.AddSlider(tab, "Dropoff Delay (s)", 1, 10, math.floor(Config.courierDropDelay or 5), function(val)
+		Config.courierDropDelay = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.courierSpeed = val
+			_G.HipHubConfig.farm.courierDropDelay = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
