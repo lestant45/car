@@ -3360,7 +3360,7 @@ local success, err = pcall(function()
 									task.wait(0.1)
 								end
 
-								-- Ambil paket dari depot via ProximityPrompt (TETAP DUDUK DI KURSI)
+								-- Ambil paket dari depot via ProximityPrompt
 								updateBotActivity("📦 Mengambil Paket dari Depot...", Color3.fromRGB(255, 200, 50))
 								local tStartTake = tick()
 								while not hasCourierPackage() and courierActive and (tick() - tStartTake < 8.0) do
@@ -3371,6 +3371,9 @@ local success, err = pcall(function()
 									end
 									if takePrompt then
 										local holdTime = takePrompt.HoldDuration or 0.5
+										-- Hancurkan kursi siluman sementara agar server bisa validasi prompt
+										if destroyCarrierSeat then destroyCarrierSeat() end
+										task.wait(0.05)
 										triggerCourierPrompt(takePrompt, holdTime)
 										task.wait(holdTime + 0.35)
 									else
@@ -3468,6 +3471,9 @@ local success, err = pcall(function()
 								end
 								if dropPrompt then
 									local holdTime = dropPrompt.HoldDuration or 0.5
+									-- Hancurkan kursi siluman sementara agar server bisa validasi prompt
+									if destroyCarrierSeat then destroyCarrierSeat() end
+									task.wait(0.05)
 									triggerCourierPrompt(dropPrompt, holdTime)
 									task.wait(holdTime + 0.35)
 								else
