@@ -1238,17 +1238,51 @@ local success, err = pcall(function()
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hum or not hrp then return false end
 
-		-- Bersihkan kursi sisa lama jika ada
+		-- Bersihkan sisa kursi lama jika ada
 		destroyCarrierSeat()
 
-		-- Aktifkan PlatformStand agar karakter tidak "berlari" saat di-CFrame
-		hum.Sit = false
-		task.wait(0.03)
-		hum.PlatformStand = true
+		-- Bersihkan sisa carrier plate lama jika ada
+		pcall(function()
+			local oldP = workspace:FindFirstChild("__DdsCarrierPlate")
+			if oldP then oldP:Destroy() end
+		end)
 
 		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
-		UI.Notify("⚡ CFrame Glide Aktif", string.format("Meluncur menyusuri tanah (%.0f stud/s)...", effectiveSpeed), 2.0, "info")
-		updateBotActivity("⚡ Meluncur (CFrame Ground Glide)...", Color3.fromRGB(0, 212, 255))
+		UI.Notify("⚡ Invisible Glide Aktif", string.format("Meluncur dengan spoof grounded (%.0f stud/s)...", effectiveSpeed), 2.0, "info")
+		updateBotActivity("⚡ Meluncur (Moving Carrier Spoof)...", Color3.fromRGB(0, 212, 255))
+
+		local startPos = hrp.Position
+		local curPos = startPos
+		local lastStreamPos = startPos
+		local lastNotifyTime = 0
+		local startTime = os.clock()
+
+		local totalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+		local maxWait = (totalDist / math.max(effectiveSpeed, 50)) + 30.0
+
+		-- 🛡️ Buat Moving Carrier Plate (100% Invisible, CanCollide = true, Material = Plastic)
+		-- Plate ini berada tepat di bawah sol sepatu, menipu engine agar hum.FloorMaterial = Plastic
+		-- Di layar mata: karakter terlihat terbang/melayang murni di atas jurang.
+		-- Di server: server mendeteksi karakter GROUNDED, timer anti-fly tidak akan aktif!
+		local carrierPlate = Instance.new("Part")
+		carrierPlate.Name = "__DdsCarrierPlate"
+		carrierPlate.Size = Vector3.new(12, 1.5, 12)
+		carrierPlate.Anchored = true
+		carrierPlate.CanCollide = true
+		carrierPlate.Transparency = 1
+		carrierPlate.Material = Enum.Material.Plastic
+		carrierPlate.CFrame = CFrame.new(startPos.X, startPos.Y - 3.1, startPos.Z)
+		carrierPlate.Parent = workspace
+
+		-- 🚶 Jaga karakter berdiri normal (JANGAN PlatformStand agar status tetap Grounded/Running)
+		hum.Sit = false
+		hum.PlatformStand = false
+		pcall(function()
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:ChangeState(Enum.HumanoidStateType.Running)
+		end)
 
 		-- NoClip pada part tubuh player selama luncuran agar tidak tersangkut bangunan
 		local noclipConn = RunService.Stepped:Connect(function()
@@ -1260,15 +1294,6 @@ local success, err = pcall(function()
 				end
 			end
 		end)
-
-		local startPos = hrp.Position
-		local curPos = startPos
-		local lastStreamPos = startPos
-		local lastNotifyTime = 0
-		local startTime = os.clock()
-
-		local totalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-		local maxWait = (totalDist / math.max(effectiveSpeed, 50)) + 30.0
 
 		-- Pre-stream titik awal & tujuan
 		requestStreamAsync(startPos)
@@ -1282,7 +1307,7 @@ local success, err = pcall(function()
 			end
 
 			if (os.clock() - startTime) > maxWait then
-				warn("[HipHub DDS CFrame Glide] Timeout tercapai, menyelesaikan luncuran...")
+				warn("[HipHub DDS Carrier Glide] Timeout tercapai, menyelesaikan luncuran...")
 				break
 			end
 
@@ -1301,13 +1326,24 @@ local success, err = pcall(function()
 			local nextZ = curPos.Z + moveDir.Z * stepDist
 
 			-- Hitung Y adaptif: menempel tanah jika ada tanah, slope gradual di atas jurang
-			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, targetPos, flatDist, totalDist, char, nil, dt)
+			local nextY, isGround = calculateAdaptiveY(curPos.Y, nextX, nextZ, startPos, targetPos, flatDist, totalDist, char, { carrierPlate }, dt)
 			curPos = Vector3.new(nextX, nextY, nextZ)
 
-			-- Set CFrame + velocity
+			-- Pindahkan carrier plate tepat di bawah telapak kaki
+			if carrierPlate and carrierPlate.Parent then
+				carrierPlate.CFrame = CFrame.new(nextX, nextY - 3.1, nextZ)
+			end
+
+			-- Set CFrame menghadap ke target
 			hrp.CFrame = CFrame.new(curPos, Vector3.new(targetPos.X, nextY, targetPos.Z))
-			hrp.AssemblyLinearVelocity = moveDir * effectiveSpeed
+
+			-- 🛑 PENTING: Kunci physics velocity ke ZERO agar server tidak mendeteksi speed hack
+			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
+
+			-- Pastikan tidak duduk / ragdoll di tengah jalan
+			if hum.Sit then hum.Sit = false end
+			if hum.PlatformStand then hum.PlatformStand = false end
 
 			-- Pre-stream chunk secara berkala setiap 120 stud
 			if (curPos - lastStreamPos).Magnitude >= 120 then
@@ -1320,7 +1356,7 @@ local success, err = pcall(function()
 			local now = os.clock()
 			if now - lastNotifyTime >= 0.5 then
 				lastNotifyTime = now
-				updateBotActivity(string.format("⚡ CFrame Glide: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
+				updateBotActivity(string.format("⚡ Glide: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
 			end
 		end
 
@@ -1330,16 +1366,27 @@ local success, err = pcall(function()
 			noclipConn = nil
 		end
 
+		-- 🛬 Mendarat di Tanah Asli Game: Hancurkan plate SEKETIKA (tidak ada safetyplate yang tertinggal)
+		if carrierPlate and carrierPlate.Parent then
+			pcall(function() carrierPlate:Destroy() end)
+			carrierPlate = nil
+		end
+
+		-- Kembalikan state Humanoid normal
+		pcall(function()
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+			hum.PlatformStand = false
+			hum.Sit = false
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+
 		-- Nol-kan velocity lalu berdiri normal di tanah game
 		pcall(function()
 			hrp.AssemblyLinearVelocity = Vector3.zero
 			hrp.AssemblyAngularVelocity = Vector3.zero
 		end)
-
-		-- Matikan PlatformStand → karakter berdiri normal di tanah game
-		hum.PlatformStand = false
-		task.wait(0.05)
-		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 
 		UI.Notify("✅ Tiba di Lokasi", "Mendarat di tanah game.", 1.5, "success")
 		task.wait(0.15)
@@ -3266,17 +3313,14 @@ local success, err = pcall(function()
 									task.wait(0.2)
 								end
 
-								-- Posisikan kursi rapat di depan meja depot (<= 3.0 stud) menghadap takePos
+								-- Posisikan karakter berdiri rapat di depan meja depot (<= 3.0 stud) menghadap takePos
 								local hrpDepot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 								local humDepot = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 								if hrpDepot and (takePos - hrpDepot.Position).Magnitude > 3.0 then
-									local seatTarget = takePos + Vector3.new(0, 1.2, 2.0)
-									local lookAt = Vector3.new(takePos.X, seatTarget.Y, takePos.Z)
-									if persistentCarrierSeat and persistentCarrierSeat.Parent then
-										persistentCarrierSeat.CFrame = CFrame.new(seatTarget - Vector3.new(0, 1.5, 0), lookAt)
-									end
-									hrpDepot.CFrame = CFrame.new(seatTarget, lookAt)
-									if humDepot then humDepot.Sit = true end
+									local standTarget = takePos + Vector3.new(0, 1.2, 2.0)
+									local lookAt = Vector3.new(takePos.X, standTarget.Y, takePos.Z)
+									hrpDepot.CFrame = CFrame.new(standTarget, lookAt)
+									if humDepot then humDepot.Sit = false end
 									task.wait(0.1)
 								end
 
