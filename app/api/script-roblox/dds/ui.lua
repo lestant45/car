@@ -701,6 +701,7 @@ local success, err = pcall(function()
 		local state = defaultState or false
 
 		local function setState(newState)
+			if state == newState then return end
 			state = newState
 			local targetKnobPos = state and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
 			local targetBgColor = state and COLORS.toggleOn or COLORS.toggleOff

@@ -778,10 +778,31 @@ local success, err = pcall(function()
 			-- 1. Pastikan Tim adalah "RideGO Driver"
 			local curTeam = player.Team and player.Team.Name or ""
 			if not curTeam:lower():find("ridego") then
+				updateBotActivity("🚕 Bergabung ke Tim RideGO...", Color3.fromRGB(0, 212, 255))
 				if changeTeam then
 					changeTeam("RideGO Driver")
-					task.wait(0.8)
 				end
+				-- Tunggu konfirmasi server bahwa player.Team benar-benar sudah menjadi RideGO Driver
+				local waitStart = os.clock()
+				while taxiActive and (os.clock() - waitStart < 4.5) do
+					local tName = player.Team and player.Team.Name or ""
+					if tName:lower():find("ridego") then
+						break
+					end
+					task.wait(0.25)
+				end
+			end
+
+			-- 🛡️ Verifikasi Mutlak: Jika masih belum berada di tim RideGO Driver, JANGAN tembak GoOnline!
+			local verifyTeam = player.Team and player.Team.Name or ""
+			if not verifyTeam:lower():find("ridego") then
+				updateBotActivity("⏳ Menunggu Cooldown Tim RideGO...", Color3.fromRGB(255, 180, 50))
+				task.delay(2.0, function()
+					if taxiActive and not taxiBusy and recoverRideGoDuty then
+						recoverRideGoDuty()
+					end
+				end)
+				return
 			end
 
 			-- 2. Pastikan Motor Ada & Pengemudi Duduk di Kursi
@@ -798,12 +819,26 @@ local success, err = pcall(function()
 				task.wait(0.5)
 			end
 
+			-- Verifikasi duduk: pastikan player benar-benar duduk sebelum mengaktifkan duty
+			char = player.Character
+			hum  = char and char:FindFirstChildOfClass("Humanoid")
+			if not (hum and hum.SeatPart) then
+				task.delay(1.5, function()
+					if taxiActive and not taxiBusy and recoverRideGoDuty then
+						recoverRideGoDuty()
+					end
+				end)
+				return
+			end
+
 			-- 3. Kirim Remote Duty Activation
 			local ev = getTaxiEvent()
 			if ev then
 				ev:FireServer("DismissIntro")
-				task.wait(0.3)
+				task.wait(0.4)
 				ev:FireServer("GoOnline")
+				isRideGoDutyOnline = true
+				updateBotActivity("🚕 RideGO Online (Menunggu Order)", Color3.fromRGB(0, 255, 140))
 			end
 		end)
 	end
@@ -2349,19 +2384,32 @@ local success, err = pcall(function()
 
 	changeTeam = function(teamName)
 		pcall(function()
-			local actualTeamName = resolveTeamName(teamName)
+			local actualTeamName = resolveTeamName(teamName) or teamName
 			if not actualTeamName then
-				-- Jika nama team tidak ada di game, jangan tembak remote agar tidak memicu error "Team not found"
 				return
 			end
 
-			local teamChangeRequest = ReplicatedStorage:FindFirstChild("teamChangeRequest")
-			if teamChangeRequest then
-				teamChangeRequest:FireServer(actualTeamName)
-			end
+			local nameLower = actualTeamName:lower()
 			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-			if jobEvents and jobEvents:FindFirstChild("TeamChangeRequest") then
-				jobEvents.TeamChangeRequest:FireServer(actualTeamName)
+			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
+
+			if teamReq then
+				if nameLower:find("ridego") or nameLower:find("taxi") then
+					teamReq:FireServer("RideGO Driver", 11378976, 1, 0, "Detector")
+				elseif nameLower:find("courier") or nameLower:find("kurir") then
+					teamReq:FireServer("Courier", 11378976, 0, 0, "Detector")
+				elseif nameLower:find("barista") then
+					teamReq:FireServer("Barista", 11378976, 1, 0, "Detector")
+				elseif nameLower:find("civil") or nameLower:find("warga") or nameLower:find("masyarakat") then
+					teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
+				else
+					teamReq:FireServer(actualTeamName, 11378976, 1, 0, "Detector")
+				end
+			end
+
+			local legacyTeamChange = ReplicatedStorage:FindFirstChild("teamChangeRequest")
+			if legacyTeamChange then
+				legacyTeamChange:FireServer(actualTeamName)
 			end
 		end)
 	end
@@ -2914,7 +2962,10 @@ local success, err = pcall(function()
 						if recoverRideGoDuty then
 							recoverRideGoDuty()
 						else
-							TaxiEvent:FireServer("GoOnline")
+							local curT = player.Team and player.Team.Name or ""
+							if curT:lower():find("ridego") and TaxiEvent then
+								TaxiEvent:FireServer("GoOnline")
+							end
 						end
 					end
 				end
@@ -2937,7 +2988,10 @@ local success, err = pcall(function()
 					if recoverRideGoDuty then
 						recoverRideGoDuty()
 					else
-						TaxiEvent:FireServer("GoOnline")
+						local curT = player.Team and player.Team.Name or ""
+						if curT:lower():find("ridego") and TaxiEvent then
+							TaxiEvent:FireServer("GoOnline")
+						end
 					end
 				end
 			end
@@ -3028,13 +3082,14 @@ local success, err = pcall(function()
 							local char = player.Character
 							local hum  = char and char:FindFirstChildOfClass("Humanoid")
 							local isSeated = (hum and hum.SeatPart ~= nil)
+							local curT = player.Team and player.Team.Name or ""
 
-							if not isSeated or not isRideGoDutyOnline then
+							if not isSeated or not isRideGoDutyOnline or not curT:lower():find("ridego") then
 								if recoverRideGoDuty then
 									recoverRideGoDuty()
 								end
 							else
-								-- Jika sudah duduk & online, kirim keep-alive santai ke server
+								-- Jika sudah duduk & online di tim RideGO, kirim keep-alive santai ke server
 								if TaxiEvent then
 									TaxiEvent:FireServer("GoOnline")
 								end
@@ -3077,14 +3132,8 @@ local success, err = pcall(function()
 	end
 
 	toggleAutoRideGO = function(state)
-		if state and (courierActive or _G.HipHubCourierActive) then
-			-- 🛡️ PROTEKSI MUTLAK: Tolak menyalakan RideGO jika Auto Courier sedang aktif!
-			if autoRideGoToggle and autoRideGoToggle.Set then
-				pcall(function() autoRideGoToggle.Set(false) end)
-			end
-			return
-		end
 		taxiActive         = state
+		_G.HipHubTaxiActive = state
 		taxiBusy           = false
 		taxiToken          = nil
 		lastCompletedToken = nil
@@ -3104,11 +3153,14 @@ local success, err = pcall(function()
 		end
 
 		if state then
+			-- Mutual exclusion: matikan Auto Courier jika sedang aktif
 			Config.autoCourier = false
+			courierActive = false
+			_G.HipHubCourierActive = false
 			if _G.HipHubConfig and _G.HipHubConfig.farm then
 				_G.HipHubConfig.farm.autoCourier = false
 			end
-			if autoCourierToggle and autoCourierToggle.Set then
+			if autoCourierToggle and autoCourierToggle.Get and autoCourierToggle.Get() then
 				pcall(function() autoCourierToggle.Set(false) end)
 			end
 			if _G.HipHubSaveConfig then
@@ -3143,16 +3195,16 @@ local success, err = pcall(function()
 				ev:FireServer("CancelOrder")
 				ev:FireServer("GoOffline")
 			end
-			if changeTeam then
-				changeTeam("Warga")
-			end
 			-- Hapus model NPC penumpang dari workspace agar tidak tersangkut di motor
 			pcall(function()
 				local activeMissions = workspace:FindFirstChild("ActiveMissions")
 				local pNpc = (activeMissions and activeMissions:FindFirstChild("RideGO_Passenger")) or workspace:FindFirstChild("RideGO_Passenger")
 				if pNpc then pNpc:Destroy() end
 			end)
-			UI.Notify("RideGO Auto-Farm OFF", "Driver offline & order reset.", 2, "warning")
+			if not courierActive and not Config.autoCourier then
+				updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+				UI.Notify("RideGO Auto-Farm OFF", "Driver offline & order reset.", 2, "warning")
+			end
 		end
 	end
 
@@ -3480,12 +3532,14 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			-- Mutual exclusion: matikan RideGO
+			-- Mutual exclusion: matikan RideGO jika sedang aktif
 			Config.autoRideGO = false
+			taxiActive = false
+			_G.HipHubTaxiActive = false
 			if _G.HipHubConfig and _G.HipHubConfig.farm then
 				_G.HipHubConfig.farm.autoRideGO = false
 			end
-			if autoRideGoToggle and autoRideGoToggle.Set then
+			if autoRideGoToggle and autoRideGoToggle.Get and autoRideGoToggle.Get() then
 				pcall(function() autoRideGoToggle.Set(false) end)
 			end
 			if _G.HipHubSaveConfig then
@@ -3725,15 +3779,10 @@ local success, err = pcall(function()
 				local s2 = workspace:FindFirstChild("__HipHubCourierSeat")
 				if s2 then s2:Destroy() end
 			end)
-			pcall(function()
-				local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-				local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
-				if teamReq then
-					teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
-				end
-			end)
-			updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
-			UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
+			if not taxiActive and not Config.autoRideGO then
+				updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+				UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
+			end
 		end
 	end
 
