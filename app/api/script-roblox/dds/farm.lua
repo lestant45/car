@@ -1536,7 +1536,7 @@ local success, err = pcall(function()
 
 		-- Scan sampai jarak penuh ke destination (maksimal 3000 stud)
 		local maxScan = math.min(totalDistToDest * 1.05, 3000)
-		local stepSize = 35
+		local stepSize = 25
 
 		-- 🌉 Void Bridge Scan: Cari daratan seberang celah jurang lokal.
 		-- JANGAN PERNAH teleport langsung ribuan stud ke toPos pengantaran paket (menyebabkan strike/kick)!
@@ -1566,7 +1566,8 @@ local success, err = pcall(function()
 					requestStreamAsync(testPos)
 				end
 
-				local scanStartY = isSasanaKridaTrip() and math.max(refY + 7, 10) or math.max(refY + 60, 80)
+				local scanStartY = isSasanaKridaTrip() and math.max(refY + 7, 10) or math.max(refY + 85, 120)
+				local rayDepth = -math.max(scanStartY + 40, 350)
 				local origin = Vector3.new(px, scanStartY, pz)
 				local solidY = nil
 				local localBrp = RaycastParams.new()
@@ -1576,7 +1577,7 @@ local success, err = pcall(function()
 
 				for attempt = 1, 6 do
 					localBrp.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(origin, Vector3.new(0, -220, 0), localBrp)
+					local hit = workspace:Raycast(origin, Vector3.new(0, rayDepth, 0), localBrp)
 					if not hit then break end
 
 					local inst = hit.Instance
@@ -1671,6 +1672,21 @@ local success, err = pcall(function()
 						voidEnteredAt = curDist
 					end
 				end
+			end
+		end
+
+		-- 🌉 Fallback untuk Jurang Samudra Sangat Luas (Ocean / Chasm Crossing):
+		-- Jika jurang membentang luas tanpa daratan perantara hingga ke daratan pulau tujuan:
+		if totalDistToDest >= 60 then
+			local approachDist = math.max(15, math.min(35, totalDistToDest * 0.1))
+			local nearDestPos = toPos - baseDir * approachDist
+			requestStreamAsync(nearDestPos)
+			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y)
+			if destGroundY then
+				local landPos = Vector3.new(nearDestPos.X, destGroundY + 0.5, nearDestPos.Z)
+				local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+				local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+				return landed, jumpDist
 			end
 		end
 
@@ -2105,7 +2121,7 @@ local success, err = pcall(function()
 			-- 🛑 STRICT VOID SAFETY SCANNER:
 			-- Memindai kesinambungan daratan di depan hingga jarak 800 studs untuk kecepatan 300 stud/s
 			local solidAheadDist = 800
-			local checkSteps = { 3, 6, 9, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800 }
+			local checkSteps = { 2, 3, 5, 8, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800 }
 			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
@@ -2117,22 +2133,26 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
-			-- Mengikuti kurva yang sama agar pengereman tepi jurang 100% empuk
-			local isImmediateVoidAhead = (solidAheadDist <= 16) and (dist > solidAheadDist)
+			-- 🛑 Pengereman Menjelang Tepi Jurang (Berhenti di solidAheadDist <= 3):
+			-- Kendaraan merayap mendekati tepi hingga jarak 3 stud (tepat di ujung aspal),
+			-- ban depan tetap 100% menapak di daratan asal tanpa menggantung di ruang hampa.
+			local isImmediateVoidAhead = (solidAheadDist <= 3) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
 				currentSmoothSpeed = 0
 			elseif solidAheadDist < 600 and solidAheadDist < dist then
 				local cliffTargetSpeed = speed
-				if solidAheadDist < 10 then
+				if solidAheadDist <= 3 then
 					cliffTargetSpeed = 0
-				elseif solidAheadDist < 50 then
-					local creepRatio = math.clamp((solidAheadDist - 10) / 40, 0, 1)
-					cliffTargetSpeed = 4.0 + (28.0 - 4.0) * creepRatio
+				elseif solidAheadDist < 8 then
+					local creepRatio = math.clamp((solidAheadDist - 3) / 5, 0, 1)
+					cliffTargetSpeed = 3.5 + (10.0 - 3.5) * creepRatio
+				elseif solidAheadDist < 25 then
+					local ratio = math.clamp((solidAheadDist - 8) / 17, 0, 1)
+					cliffTargetSpeed = 10.0 + (28.0 - 10.0) * ratio
 				else
-					local factor = math.clamp((solidAheadDist - 50) / 550, 0, 1)
+					local factor = math.clamp((solidAheadDist - 25) / 575, 0, 1)
 					local sFactor = factor * factor * (3 - 2 * factor)
 					cliffTargetSpeed = 28.0 + (speed - 28.0) * sFactor
 				end
@@ -3594,7 +3614,7 @@ local success, err = pcall(function()
 								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 								
 								-- Berkendara motor ke Depot
-								driveCourierTo(takeCF, Config.courierSpeed or 85, 14, function()
+								local takeArrived = driveCourierTo(takeCF, Config.courierSpeed or 85, 14, function()
 									return getActiveCourierTarget() ~= nil or hasCourierPackage()
 								end)
 
@@ -3603,6 +3623,12 @@ local success, err = pcall(function()
 								-- Jika sudah mendapat pesanan/paket di perjalanan, lewati interaksi depot
 								if getActiveCourierTarget() or hasCourierPackage() then
 									restarting = false
+									return
+								end
+
+								if not takeArrived then
+									warn("[HipHub DDS Courier] Belum sampai di depot, mencoba kembali...")
+									task.wait(1.0)
 									return
 								end
 
@@ -3684,9 +3710,15 @@ local success, err = pcall(function()
 							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm) • ⏱️%s • 💰%s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
 
 							-- Berkendara motor ke titik dropoff
-							driveCourierTo(dropCF, Config.courierSpeed or 85, 14)
+							local dropArrived = driveCourierTo(dropCF, Config.courierSpeed or 85, 14)
 
 							if not courierActive or courierShiftLimit then return end
+
+							if not dropArrived then
+								warn("[HipHub DDS Courier] Belum sampai di lokasi pengantaran, membatalkan serah terima paket.")
+								task.wait(1.0)
+								return
+							end
 
 							-- Tahan di luar lingkaran jika waktu tempuh organik belum terpenuhi (Smart Pacing)
 							if Config.courierPacing then
