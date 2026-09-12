@@ -122,9 +122,9 @@ local success, err = pcall(function()
 		tripPacing = true,
 		autoRejoinOrders = 30,
 		autoCourier = false,
-		courierSpeed = 200,
-		courierDropDelay = 5,
-		courierPacing = false,
+		courierSpeed = 85,
+		courierDropDelay = 4,
+		courierPacing = true,
 		courierAutoRejoin = true,
 		courierRejoinHours = 3,
 		courierMaxEarnM = 79,
@@ -132,9 +132,9 @@ local success, err = pcall(function()
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
-	if Config.courierPacing == nil then Config.courierPacing = false end
-	if Config.courierSpeed == nil then Config.courierSpeed = 200 end
-	if Config.courierDropDelay == nil then Config.courierDropDelay = 5 end
+	if Config.courierPacing == nil then Config.courierPacing = true end
+	if Config.courierSpeed == nil then Config.courierSpeed = 85 end
+	if Config.courierDropDelay == nil then Config.courierDropDelay = 4 end
 	if Config.courierAutoRejoin == nil then Config.courierAutoRejoin = true end
 	if Config.courierRejoinHours == nil then Config.courierRejoinHours = 3 end
 	if Config.courierMaxEarnM == nil then Config.courierMaxEarnM = 79 end
@@ -1152,24 +1152,10 @@ local success, err = pcall(function()
 			passRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		-- 4. Smooth Kinematic Bridge Leap (0 Strike - Bebas Anti-Teleport Server)
-		-- Meluncur halus frame-by-frame (100 stud/s) sehingga tidak ada anomali kecepatan fisik
-		local startCF = car:GetPivot()
-		local dist = (targetCF.Position - startCF.Position).Magnitude
-		local leapSpeed = 100.0
-		local leapDuration = math.clamp(dist / leapSpeed, 0.15, 2.0)
-		local leapStart = os.clock()
-
-		while (os.clock() - leapStart) < leapDuration do
-			local dt = RunService.Heartbeat:Wait()
-			local elapsed = os.clock() - leapStart
-			local alpha = math.clamp(elapsed / leapDuration, 0, 1)
-			local curPos = startCF.Position:Lerp(targetCF.Position, alpha)
-			car:PivotTo(CFrame.new(curPos) * targetRot)
-			if hum and seat and hum.SeatPart ~= seat then
-				pcall(function() seat:Sit(hum) end)
-			end
-		end
+		-- 4. Instant Ground-to-Ground Leap (0 Frame di atas jurang / void)
+		-- Mendarat langsung di atas aspal/tanah seberang tanpa pernah meluncur/berjalan di udara kosong!
+		car:PivotTo(targetCF)
+		RunService.Heartbeat:Wait()
 		car:PivotTo(targetCF)
 
 		local pSeat = getPassengerSeat(car)
@@ -1640,14 +1626,8 @@ local success, err = pcall(function()
 						if landDistToDest < totalDistToDest - minProgress then
 							local landPos = Vector3.new(px, solidY + 0.5, pz)
 							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-							-- Jika jurang terlalu luas (> 220 stud), motor tidak aman melompatinya
-							-- Biarkan dianggap tidak bisa dilompati agar dialihkan ke Hybrid Seat Carrier
-							if courierActive and jumpDist > 220 then
-								-- Terlalu luas untuk dilompati motor
-							else
-								local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-								return landed, jumpDist
-							end
+							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+							return landed, jumpDist
 						end
 					end
 				else
@@ -1663,7 +1643,7 @@ local success, err = pcall(function()
 	end
 
 	-- 🛣️ Pure Road Navigation Engine
-	local function driveVehicleTo(targetPos, speed, destroyPlateAfterStuds)
+	local function driveVehicleTo(targetPos, speed, stopRadius, destroyPlateAfterStuds, abortCheck)
 		if typeof(targetPos) == "CFrame" then
 			targetPos = targetPos.Position
 		end
@@ -2001,7 +1981,13 @@ local success, err = pcall(function()
 				end
 			end
 
-			local arrivalDist = (courierActive and 4.5 or 3.5)
+			if abortCheck and abortCheck() then
+				driveFinished = true
+				if currentDriveConn then currentDriveConn:Disconnect() end
+				return
+			end
+
+			local arrivalDist = tonumber(stopRadius) or (courierActive and 4.5 or 3.5)
 			if dist <= arrivalDist then
 				driveFinished = true
 				if currentDriveConn then currentDriveConn:Disconnect() end
@@ -2098,10 +2084,11 @@ local success, err = pcall(function()
 
 			-- 🛑 Pengereman Halus Menjelang Tepi Jurang:
 			-- Mengikuti kurva yang sama agar pengereman tepi jurang 100% empuk
-			local isImmediateVoidAhead = (solidAheadDist <= 10) and (dist > solidAheadDist)
+			local isImmediateVoidAhead = (solidAheadDist <= 16) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
+				currentSmoothSpeed = 0
 			elseif solidAheadDist < 600 and solidAheadDist < dist then
 				local cliffTargetSpeed = speed
 				if solidAheadDist < 10 then
@@ -2174,24 +2161,6 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- 2. 🪑 Hybrid Seat Carrier: HANYA jika jurang terlalu luas dan TIDAK BISA dilompati motor
-				if courierActive and cliffWaitDuration >= 1.2 and (destP - carPos).Magnitude > 35 then
-					cliffWaitStartTime = nil
-					if currentDriveConn then
-						pcall(function() currentDriveConn:Disconnect() end)
-						currentDriveConn = nil
-					end
-					task.spawn(function()
-						UI.Notify("🪑 Menyeberangi Jurang Luas", "Jurang tidak bisa dilompati motor. Menggunakan Seat Carrier...", 2.5, "info")
-						local glideSpeed = Config.courierSpeed or 100
-						local ok = glidePlayerAcrossVoid(destP, glideSpeed)
-						if ok then
-							arrivedViaSeatCarrier = true
-						end
-						driveFinished = true
-					end)
-					return
-				end
 
 				-- 3. ⏱️ Timeout di Tepi Jurang (untuk mode selain Kurir atau jika jarak <= 35 stud):
 				if cliffWaitDuration >= 8.0 then
@@ -3417,122 +3386,29 @@ local success, err = pcall(function()
 		return char and (char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool"))
 	end
 
-	-- 🪑 Pure Unanchored Seat Physics Flight (Teman Pattern)
-	local function courierFlyTo(targetCF, speed, abortCheck)
+	-- 🛵 Official Vehicle Courier Navigation (Ground-to-Ground & Road Driving)
+	local function driveCourierTo(targetCF, speed, stopRadius, abortCheck)
 		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if not char or not hum or hum.Health <= 0 then return false end
 
-		if not hrp or not hum or hum.Health <= 0 then return false end
-
-		hum.AutoRotate = false
-
-		-- 1. Temporary Unanchored Dummy Seat
-		local seat = Instance.new("Seat")
-		seat.Name = "courier_seat"
-		seat.Size = Vector3.new(1, 1, 1)
-		seat.Transparency = 1
-		seat.CanCollide = false
-		seat.Anchored = false
-		seat.CFrame = hrp.CFrame
-		seat.Parent = workspace
-
-		-- 2. Rigid Weld to Character
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = seat
-		weld.Part1 = hrp
-		weld.Parent = seat
-
-		-- 3. Physics Movers on Seat
-		local bv = Instance.new("BodyVelocity")
-		bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-		bv.Velocity = Vector3.zero
-		bv.Parent = seat
-
-		local gyro = Instance.new("BodyGyro")
-		gyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-		gyro.CFrame = hrp.CFrame
-		gyro.Parent = seat
-
-		-- 4. Stepped Enforcers: Sit Lock & NoClip
-		local seatConn = RunService.Stepped:Connect(function()
-			if hum and hum.Parent and hum.Health > 0 and seat and seat.Parent and hum.SeatPart ~= seat then
-				pcall(function()
-					hum.Sit = true
-					seat:Sit(hum)
-				end)
+		local car, seat = getPlayerVehicle()
+		if not (car and seat and hum.SeatPart == seat) then
+			local ok = ensureDriverSeated()
+			if not ok then
+				spawnTaxiBike()
+				task.wait(1.5)
+				ensureDriverSeated()
 			end
-		end)
-
-		local origCollide = {}
-		local collideConn = RunService.Stepped:Connect(function()
-			if char and char.Parent then
-				for _, p in ipairs(char:GetDescendants()) do
-					if p:IsA("BasePart") and p.CanCollide then
-						p.CanCollide = false
-						origCollide[p] = true
-					end
-				end
-			end
-		end)
-
-		-- 5. Seated Animation
-		local animator = hum:FindFirstChildOfClass("Animator")
-		local animTrack = nil
-		if animator then
-			pcall(function()
-				local anim = Instance.new("Animation")
-				anim.AnimationId = "rbxassetid://507766388"
-				animTrack = animator:LoadAnimation(anim)
-				animTrack.Priority = Enum.AnimationPriority.Action
-				animTrack:Play()
-			end)
+			car, seat = getPlayerVehicle()
 		end
 
 		local targetPos = typeof(targetCF) == "CFrame" and targetCF.Position or targetCF
-		local flySpeed = tonumber(speed) or tonumber(Config.courierSpeed) or 200
-		local startTime = os.clock()
-		local arrivalDist = 8
+		local driveSpeed = tonumber(speed) or tonumber(Config.courierSpeed) or 85.0
+		driveSpeed = math.clamp(driveSpeed, 60.0, 95.0)
 
-		while (courierActive or _G.HipHubCourierActive) and hrp and char.Parent and hum.Health > 0 and not courierShiftLimit do
-			local cur = hrp.Position
-			local delta = targetPos - cur
-			local dist = delta.Magnitude
-
-			if dist <= arrivalDist then break end
-			if (os.clock() - startTime) > 180 then break end
-			if abortCheck and abortCheck() then break end
-
-			bv.Velocity = delta.Unit * flySpeed
-			gyro.CFrame = CFrame.lookAt(cur, targetPos)
-			task.wait()
-		end
-
-		-- 6. Cleanup Flight
-		if seatConn then seatConn:Disconnect() end
-		if collideConn then collideConn:Disconnect() end
-
-		for part, _ in pairs(origCollide) do
-			if typeof(part) == "Instance" and part:IsA("BasePart") and part.Parent then
-				part.CanCollide = true
-			end
-		end
-
-		if bv and bv.Parent then bv.Velocity = Vector3.zero end
-		if hrp and hrp.Parent then
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end
-
-		task.wait(0.1)
-		hum.Sit = false
-		if seat and seat.Parent then seat:Destroy() end
-		if animTrack then pcall(function() animTrack:Stop() end) end
-
-		hum.AutoRotate = true
-		hum:ChangeState(Enum.HumanoidStateType.Running)
-
-		return true
+		local radius = tonumber(stopRadius) or 15.0
+		return driveVehicleTo(targetPos, driveSpeed, radius, nil, abortCheck)
 	end
 
 	local function getActiveCourierTarget()
@@ -3661,10 +3537,10 @@ local success, err = pcall(function()
 						if not currentTarget and not hasCourierPackage() then
 							if not restarting then
 								local takeCF = CFrame.new(-5108, 5, -3759)
-								updateBotActivity("🛫 Terbang ke Depot Paket...", Color3.fromRGB(0, 212, 255))
+								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 								
-								-- Batalkan jika paket atau pesanan baru terdeteksi saat menuju depot
-								courierFlyTo(takeCF, Config.courierSpeed or 200, function()
+								-- Berkendara motor ke Depot
+								driveCourierTo(takeCF, Config.courierSpeed or 85, 14, function()
 									return getActiveCourierTarget() ~= nil or hasCourierPackage()
 								end)
 
@@ -3676,7 +3552,14 @@ local success, err = pcall(function()
 									return
 								end
 
-								task.wait(0.5)
+								-- Turun motor sejenak untuk mengambil paket di Depot
+								local curChar = player.Character
+								local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+								if curHum and curHum.SeatPart then
+									curHum.Sit = false
+									task.wait(0.3)
+								end
+
 								pcall(function()
 									local livrason = workspace:FindFirstChild("Livrason")
 									local takePrompt = livrason and livrason:FindFirstChild("Take1") and livrason.Take1:FindFirstChild("Take") and livrason.Take1.Take:FindFirstChildOfClass("ProximityPrompt")
@@ -3685,6 +3568,10 @@ local success, err = pcall(function()
 									end
 								end)
 								restarting = true
+
+								-- Naik kembali ke motor
+								task.wait(0.5)
+								mountBike()
 							end
 
 							local waited = 0
@@ -3731,15 +3618,49 @@ local success, err = pcall(function()
 
 							local hrp = char:FindFirstChild("HumanoidRootPart")
 							local tripDist = hrp and (dropCF.Position - hrp.Position).Magnitude or 0
-							updateBotActivity(string.format("🛫 Lokasi %s (%.0fm) • ⏱️%s • 💰%s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
+							local courierTripStartTime = tick()
 
-							courierFlyTo(dropCF, Config.courierSpeed or 200)
+							-- 🛡️ Smart Adaptive Pre-Arrival Pacing Guard untuk Kurir:
+							-- Pacing aman motor (~80 km/h) agar waktu tempuh 1.5 - 2.5 menit organik
+							local baseSafeSpeed = 86.0
+							local randomJitter = math.random(-50, 40) / 10.0
+							local safeSpeed = math.clamp(baseSafeSpeed + randomJitter, 75.0, 92.0)
+							local minSafeTime = math.clamp(tripDist / safeSpeed, 45.0, 150.0)
+
+							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm) • ⏱️%s • 💰%s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
+
+							-- Berkendara motor ke titik dropoff
+							driveCourierTo(dropCF, Config.courierSpeed or 85, 14)
 
 							if not courierActive or courierShiftLimit then return end
 
+							-- Tahan di luar lingkaran jika waktu tempuh organik belum terpenuhi (Smart Pacing)
+							if Config.courierPacing then
+								local elapsed = tick() - courierTripStartTime
+								if elapsed < minSafeTime then
+									local remainingWait = minSafeTime - elapsed
+									if remainingWait > 0.5 then
+										local pacingStart = tick()
+										while (tick() - pacingStart < remainingWait) and courierActive and not courierShiftLimit do
+											local rem = math.max(0, math.floor((remainingWait - (tick() - pacingStart)) * 10) / 10)
+											updateBotActivity(string.format("⏱️ Smart Pacing Kurir (%.1fs tersisa)...", rem), Color3.fromRGB(255, 180, 50))
+											task.wait(0.25)
+										end
+									end
+								end
+							end
+
+							-- Turun motor di dekat titik pengantaran
+							local curChar = player.Character
+							local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+							if curHum and curHum.SeatPart then
+								curHum.Sit = false
+								task.wait(0.4)
+							end
+
 							-- Jeda dropoff alami
-							local dropDelay = tonumber(Config.courierDropDelay) or 5
-							updateBotActivity(string.format("⏱️ Jeda Dropoff (%ds)...", dropDelay), Color3.fromRGB(255, 200, 50))
+							local dropDelay = tonumber(Config.courierDropDelay) or 4
+							updateBotActivity(string.format("⏱️ Menyerahkan Paket (%ds)...", dropDelay), Color3.fromRGB(255, 200, 50))
 							task.wait(dropDelay)
 
 							-- Pegang paket (Equip Box Tool)
@@ -3759,6 +3680,10 @@ local success, err = pcall(function()
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", _G.HipHubCompletedCourier), 2.5, "success")
 							updateBotActivity("✅ Paket Sukses Diserahkan!", Color3.fromRGB(80, 255, 120))
+
+							-- Naik kembali ke motor untuk orderan berikutnya
+							task.wait(0.5)
+							mountBike()
 
 							-- Menunggu server menetapkan order berikutnya (1-3.5s) agar langsung lanjut tanpa pulang ke depot
 							local lastCompletedId = tostring(destId or "")
@@ -3866,12 +3791,12 @@ local success, err = pcall(function()
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
 	UI.AddSection(tab, "Courier Delivery Auto-Worker")
-	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Takes packages from depot & delivers directly via Unanchored Physics Flight", Config.autoCourier, function(state)
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Mengantar paket dengan motor/mobil di jalan raya dengan Ground-to-Ground Leap & Smart Pacing", Config.autoCourier, function(state)
 		toggleAutoCourier(state)
 	end)
 	_G.HipHubAutoCourierToggle = autoCourierToggle
 
-	UI.AddSlider(tab, "Courier Speed (Studs/s)", 30, 300, math.floor(Config.courierSpeed or 200), function(val)
+	UI.AddSlider(tab, "Courier Driving Speed (Studs/s)", 40, 120, math.floor(Config.courierSpeed or 85), function(val)
 		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierSpeed = val
@@ -3881,7 +3806,7 @@ local success, err = pcall(function()
 		end
 	end)
 
-	UI.AddSlider(tab, "Dropoff Delay (s)", 1, 10, math.floor(Config.courierDropDelay or 5), function(val)
+	UI.AddSlider(tab, "Dropoff Delay (s)", 1, 10, math.floor(Config.courierDropDelay or 4), function(val)
 		Config.courierDropDelay = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierDropDelay = val
