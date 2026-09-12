@@ -1681,13 +1681,11 @@ local success, err = pcall(function()
 			local approachDist = math.max(15, math.min(35, totalDistToDest * 0.1))
 			local nearDestPos = toPos - baseDir * approachDist
 			requestStreamAsync(nearDestPos)
-			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y)
-			if destGroundY then
-				local landPos = Vector3.new(nearDestPos.X, destGroundY + 0.5, nearDestPos.Z)
-				local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-				local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-				return landed, jumpDist
-			end
+			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y) or toPos.Y or 5
+			local landPos = Vector3.new(nearDestPos.X, destGroundY + 0.5, nearDestPos.Z)
+			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+			local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+			return landed, jumpDist
 		end
 
 		return nil
@@ -1923,6 +1921,7 @@ local success, err = pcall(function()
 		local driveStartTime = os.clock()
 		local currentSmoothSpeed = 0
 		local cliffWaitStartTime = nil
+		local lastSolidCF = startCF
 
 		currentDriveConn = RunService.Heartbeat:Connect(function()
 			if not isDrivingActive then
@@ -2160,9 +2159,9 @@ local success, err = pcall(function()
 			end
 
 			-- 🛡️ Slew-Rate Limiter (Zero-Damage Smooth Acceleration & Deceleration):
-			-- Membatasi delta perubahan kecepatan agar tidak menghasilkan gaya g-force yang merusak SeatWeld / melukai darah player!
+			-- Jika jurang dekat (< 25 stud), kurangi kecepatan secara instan agar tidak bablas ke bibir jurang!
 			local maxAccelRate = math.max(45, speed * 0.4) * dt
-			local maxDecelRate = math.max(50, speed * 0.45) * dt
+			local maxDecelRate = (solidAheadDist < 25) and 9999 or (math.max(50, speed * 0.45) * dt)
 			if currentSmoothSpeed < targetSpeed then
 				currentSmoothSpeed = math.min(targetSpeed, currentSmoothSpeed + maxAccelRate)
 			elseif currentSmoothSpeed > targetSpeed then
@@ -2184,6 +2183,7 @@ local success, err = pcall(function()
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
 				targetElevY = directHitY
+				lastSolidCF = car:GetPivot()
 			else
 				-- 🛑 TEPI JURANG / PULAU SEMPIT: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
 				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
@@ -2192,6 +2192,20 @@ local success, err = pcall(function()
 				currentSmoothSpeed = 0
 				curSpeed = 0
 				targetElevY = lastGroundY
+
+				-- 🛡️ ANTI-MELAYANG DI UDARA (Cliff Edge Snap-Back):
+				-- Jika posisi motor saat ini sudah terlanjur melewati bibir tebing,
+				-- seketika tarik kembali posisi motor ke lastSolidCF agar tetap 100% di atas daratan solid!
+				if lastSolidCF and not probeGround(carPos, lastGroundY) then
+					car:PivotTo(lastSolidCF)
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+					carPos = lastSolidCF.Position
+				end
 
 				local nowClock = os.clock()
 				cliffWaitStartTime = cliffWaitStartTime or nowClock
