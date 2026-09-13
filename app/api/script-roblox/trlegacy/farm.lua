@@ -90,8 +90,8 @@ local success, err = pcall(function()
 			rayParams.FilterDescendantsInstances = { bike, player.Character }
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
 			local curPos = primary.Position
-			local ray = workspace:Raycast(Vector3.new(curPos.X, curPos.Y + 150, curPos.Z), Vector3.new(0, -300, 0), rayParams)
-			local groundY = ray and (ray.Position.Y + 3.0) or (curPos.Y + (Config.undergroundDepth or 25) + 3.0)
+			local ray = workspace:Raycast(Vector3.new(curPos.X, 250, curPos.Z), Vector3.new(0, -500, 0), rayParams)
+			local groundY = (ray and ray.Position.Y > -5) and (ray.Position.Y + 2.5) or 2.5
 			bike:PivotTo(CFrame.new(curPos.X, groundY, curPos.Z))
 			primary.AssemblyLinearVelocity = Vector3.zero
 			primary.AssemblyAngularVelocity = Vector3.zero
@@ -432,28 +432,35 @@ local success, err = pcall(function()
 		return ray and ray.Position.Y or 0.5
 	end
 
-	-- Proactively noclip nearby obstacles (fences, buildings, barriers, bus stops, trees)
+	-- Safely noclip ONLY obstacle props (fences, walls, barriers, poles, trees, furniture, bus stops)
+	-- NEVER noclip terrain, ground, grass, floors, road, spawn, or baseplate
 	local function noclipSurroundings(bikeRef, pos, radius)
 		pcall(function()
 			local overlap = OverlapParams.new()
 			overlap.FilterDescendantsInstances = { bikeRef, player.Character, undergroundTrack }
 			overlap.FilterType = Enum.RaycastFilterType.Exclude
-			overlap.MaxParts = 60
-			local hits = workspace:GetPartBoundsInRadius(pos, radius or 30, overlap)
+			overlap.MaxParts = 50
+			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)
 			for _, hit in ipairs(hits) do
 				if hit:IsA("BasePart") and hit.CanCollide then
-					if not Config.driveUnderground and (hit.Name:lower():find("road") or hit:IsA("Terrain")) then
-						-- Preserve road surface when driving on surface
-					else
-						hit.CanCollide = false
+					local n = hit.Name:lower()
+					-- NEVER disable collision on ground/floor/terrain/road/spawn/baseplate
+					local isGround = n:find("road") or n:find("ground") or n:find("grass") or n:find("floor") or n:find("spawn") or n:find("terrain") or n:find("baseplate") or n:find("plate") or n:find("walk") or n:find("asphalt")
+					if not isGround then
+						local isObstacle = n:find("fence") or n:find("rail") or n:find("wall") or n:find("barrier") or n:find("post") or n:find("pole") or n:find("tree") or n:find("stop") or n:find("shelf") or n:find("sign") or n:find("light") or n:find("prop") or n:find("decor") or n:find("curb")
+						if isObstacle then
+							hit.CanCollide = false
+						end
 					end
 				end
 			end
 		end)
 	end
 
-	-- Noclip bike frame/body/pegs so they never catch on curbs or seams (wheels retain road grip)
+	-- Noclip bike frame/exhaust/pegs so they don't catch on curbs (wheels MUST stay collidable)
+	-- NEVER noclip the player character!
 	local function noclipBikeBody(b)
+		if not b then return end
 		pcall(function()
 			for _, desc in ipairs(b:GetDescendants()) do
 				if desc:IsA("BasePart") then
@@ -466,17 +473,50 @@ local success, err = pcall(function()
 					end
 				end
 			end
-			if player.Character then
-				for _, cp in ipairs(player.Character:GetDescendants()) do
-					if cp:IsA("BasePart") then
-						cp.CanCollide = false
-					end
-				end
-			end
 		end)
 	end
 
 	_G.HipHub_FarmCleanup = _G.HipHub_FarmCleanup or {}
+
+	-- Anti-Void Guardian: Runs continuously to protect the player from falling into the void
+	if _G.HipHub_FarmCleanup.VoidConn then
+		pcall(function() _G.HipHub_FarmCleanup.VoidConn:Disconnect() end)
+		_G.HipHub_FarmCleanup.VoidConn = nil
+	end
+
+	_G.HipHub_FarmCleanup.VoidConn = RunService.Heartbeat:Connect(function()
+		pcall(function()
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if root and hum and hum.Health > 0 then
+				local isSeated = hum.SeatPart ~= nil
+				local threshold = isSeated and -120 or -8
+				if root.Position.Y < threshold then
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.AssemblyAngularVelocity = Vector3.zero
+					char:PivotTo(CFrame.new(-93, 3.5, -43))
+					
+					_G.HipHub_IsAutoDriving = false
+					_G.HipHub_IsAutoRacing = false
+					if Config then
+						Config.autoDriveCircle = false
+						Config.autoRace = false
+					end
+					
+					local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+					if bike and primary then
+						returnBikeToSurface(bike, primary)
+					end
+					
+					if UI and UI.Notify then
+						UI.Notify("Safety", "Anti-Void Guardian: Pemain diselamatkan ke permukaan jalan!", 3, "warning")
+					end
+				end
+			end
+		end)
+	end)
+
 	if _G.HipHub_FarmCleanup.DriveConn then
 		pcall(function() _G.HipHub_FarmCleanup.DriveConn:Disconnect() end)
 		_G.HipHub_FarmCleanup.DriveConn = nil
@@ -513,8 +553,30 @@ local success, err = pcall(function()
 
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.SeatPart ~= seat then
-			driveStatusCard.Set("Mendudukkan driver...")
+		if not hum or hum.Health <= 0 then
+			if circleCenter then
+				circleCenter = nil
+				lastDrivePos = nil
+				if undergroundTrack and undergroundTrack.Parent then
+					pcall(function() undergroundTrack:Destroy() end)
+					undergroundTrack = nil
+				end
+			end
+			return
+		end
+
+		if hum.SeatPart ~= seat then
+			driveStatusCard.Set("Mendudukkan driver di permukaan...")
+			-- If bike was underground, bring it back to surface FIRST before trying to seat!
+			if circleCenter then
+				circleCenter = nil
+				lastDrivePos = nil
+				if undergroundTrack and undergroundTrack.Parent then
+					pcall(function() undergroundTrack:Destroy() end)
+					undergroundTrack = nil
+				end
+				returnBikeToSurface(bike, primary)
+			end
 			if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
 				_G.HipHubVehicle.EnsureDriverSeated(true)
 			end
