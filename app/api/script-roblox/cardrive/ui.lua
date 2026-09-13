@@ -151,6 +151,24 @@ local success, err = pcall(function()
 		return layout
 	end
 
+	local function sanitizeText(str)
+		if type(str) ~= "string" then return tostring(str or "") end
+		local s = str:gsub("[\194-\244][\128-\191]*", "")
+		s = s:gsub("%s+", " ")
+		s = s:gsub("^%s+", ""):gsub("%s+$", "")
+		return s
+	end
+
+	local function resolveLayoutOrder(parent, explicitOrder)
+		if type(explicitOrder) == "number" and explicitOrder > 0 then
+			return explicitOrder
+		end
+		if parent and typeof(parent) == "Instance" then
+			return #parent:GetChildren() + 1
+		end
+		return 0
+	end
+
 	------------------------------------------------
 	-- ROOT SCREEN GUI
 	------------------------------------------------
@@ -868,16 +886,33 @@ local success, err = pcall(function()
 	-- COMPONENT BUILDERS (Liquid Glass - Clean UI)
 	------------------------------------------------
 
-	-- Section Header
+	-- Section Header & Component Container
 	local function addSection(parent, title, layoutOrder)
-		local sectionCard = Instance.new("Frame")
-		sectionCard.Name = "Section_" .. tostring(title):gsub("%s+", "")
-		sectionCard.Size = UDim2.new(1, 0, 0, 28)
-		sectionCard.BackgroundTransparency = 1
-		sectionCard.BorderSizePixel = 0
-		sectionCard.LayoutOrder = layoutOrder or 0
-		sectionCard.ZIndex = 3
-		sectionCard.Parent = parent
+		local cleanTitle = sanitizeText(title)
+
+		local sectionContainer = Instance.new("Frame")
+		sectionContainer.Name = "Section_" .. cleanTitle:gsub("%s+", "")
+		sectionContainer.Size = UDim2.new(1, 0, 0, 0)
+		sectionContainer.AutomaticSize = Enum.AutomaticSize.Y
+		sectionContainer.BackgroundTransparency = 1
+		sectionContainer.BorderSizePixel = 0
+		sectionContainer.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
+		sectionContainer.ZIndex = 3
+		sectionContainer.Parent = parent
+
+		-- Auto-arrange all child items added to this section vertically!
+		applyListLayout(sectionContainer, 6, Enum.SortOrder.LayoutOrder)
+		applyPadding(sectionContainer, 0, 0, 2, 8)
+
+		-- Header Frame pinned at top of the section
+		local headerFrame = Instance.new("Frame")
+		headerFrame.Name = "SectionHeader"
+		headerFrame.Size = UDim2.new(1, 0, 0, 24)
+		headerFrame.BackgroundTransparency = 1
+		headerFrame.BorderSizePixel = 0
+		headerFrame.LayoutOrder = -9999
+		headerFrame.ZIndex = 4
+		headerFrame.Parent = sectionContainer
 
 		local accentBar = Instance.new("Frame")
 		accentBar.Size = UDim2.new(0, 3, 0, 14)
@@ -885,7 +920,7 @@ local success, err = pcall(function()
 		accentBar.BackgroundColor3 = COLORS.accentCyan
 		accentBar.BorderSizePixel = 0
 		accentBar.ZIndex = 4
-		accentBar.Parent = sectionCard
+		accentBar.Parent = headerFrame
 
 		local barCorner = Instance.new("UICorner")
 		barCorner.CornerRadius = UDim.new(0, 2)
@@ -895,13 +930,13 @@ local success, err = pcall(function()
 		titleLabel.Size = UDim2.new(1, -20, 1, 0)
 		titleLabel.Position = UDim2.new(0, 12, 0, 0)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = string.upper(tostring(title))
+		titleLabel.Text = string.upper(cleanTitle)
 		titleLabel.TextColor3 = COLORS.accentCyan
 		titleLabel.Font = Enum.Font.GothamBold
 		titleLabel.TextSize = 11
 		titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 		titleLabel.ZIndex = 4
-		titleLabel.Parent = sectionCard
+		titleLabel.Parent = headerFrame
 
 		local divLine = Instance.new("Frame")
 		divLine.Size = UDim2.new(1, -2, 0, 1)
@@ -910,9 +945,9 @@ local success, err = pcall(function()
 		divLine.BackgroundTransparency = 0.75
 		divLine.BorderSizePixel = 0
 		divLine.ZIndex = 4
-		divLine.Parent = sectionCard
+		divLine.Parent = headerFrame
 
-		return sectionCard
+		return sectionContainer
 	end
 
 	-- Toggle Switch Component (Flexible: 4 or 5 parameters)
@@ -929,13 +964,16 @@ local success, err = pcall(function()
 		end
 		defaultState = defaultState or false
 
+		local cleanTitle = sanitizeText(title)
+		local cleanDesc = desc and sanitizeText(desc) or nil
+
 		local card = Instance.new("Frame")
-		card.Name = "ToggleCard_" .. tostring(title)
-		card.Size = UDim2.new(1, 0, 0, desc and 48 or 36)
+		card.Name = "ToggleCard_" .. cleanTitle:gsub("%s+", "")
+		card.Size = UDim2.new(1, 0, 0, cleanDesc and 48 or 36)
 		card.BackgroundColor3 = COLORS.glassCard
 		card.BackgroundTransparency = TRANSPARENCY.glassCard
 		card.BorderSizePixel = 0
-		card.LayoutOrder = layoutOrder or 0
+		card.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		card.ZIndex = 3
 		card.Parent = parent
 
@@ -949,9 +987,9 @@ local success, err = pcall(function()
 
 		local titleLabel = Instance.new("TextLabel")
 		titleLabel.Size = UDim2.new(1, -65, 0, 18)
-		titleLabel.Position = UDim2.new(0, 12, 0, desc and 6 or 9)
+		titleLabel.Position = UDim2.new(0, 12, 0, cleanDesc and 6 or 9)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = title
+		titleLabel.Text = cleanTitle
 		titleLabel.TextColor3 = COLORS.textPrimary
 		titleLabel.Font = Enum.Font.GothamMedium
 		titleLabel.TextSize = 12
@@ -960,12 +998,12 @@ local success, err = pcall(function()
 		titleLabel.ZIndex = 4
 		titleLabel.Parent = card
 
-		if desc and desc ~= "" then
+		if cleanDesc and cleanDesc ~= "" then
 			local descLabel = Instance.new("TextLabel")
 			descLabel.Size = UDim2.new(1, -65, 0, 16)
 			descLabel.Position = UDim2.new(0, 12, 0, 26)
 			descLabel.BackgroundTransparency = 1
-			descLabel.Text = desc
+			descLabel.Text = cleanDesc
 			descLabel.TextColor3 = COLORS.textMuted
 			descLabel.Font = Enum.Font.Gotham
 			descLabel.TextSize = 10
@@ -1032,25 +1070,35 @@ local success, err = pcall(function()
 			setState(not state)
 		end)
 
-		return {
+		local proxy = setmetatable({
 			card = card,
 			Set = setState,
 			Get = function() return state end
-		}
+		}, {
+			__index = function(t, k)
+				return card[k]
+			end,
+			__newindex = function(t, k, v)
+				card[k] = v
+			end
+		})
+
+		return proxy
 	end
 
 	-- Slider Component
 	local function addSlider(parent, title, minVal, maxVal, defaultVal, callback, layoutOrder, suffix)
 		suffix = suffix or ""
 		defaultVal = defaultVal or minVal
+		local cleanTitle = sanitizeText(title)
 
 		local card = Instance.new("Frame")
-		card.Name = "SliderCard_" .. tostring(title)
+		card.Name = "SliderCard_" .. cleanTitle:gsub("%s+", "")
 		card.Size = UDim2.new(1, 0, 0, 52)
 		card.BackgroundColor3 = COLORS.glassCard
 		card.BackgroundTransparency = TRANSPARENCY.glassCard
 		card.BorderSizePixel = 0
-		card.LayoutOrder = layoutOrder or 0
+		card.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		card.ZIndex = 3
 		card.Parent = parent
 
@@ -1066,7 +1114,7 @@ local success, err = pcall(function()
 		titleLabel.Size = UDim2.new(1, -90, 0, 20)
 		titleLabel.Position = UDim2.new(0, 12, 0, 6)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = title
+		titleLabel.Text = cleanTitle
 		titleLabel.TextColor3 = COLORS.textPrimary
 		titleLabel.Font = Enum.Font.GothamMedium
 		titleLabel.TextSize = 12
@@ -1098,21 +1146,22 @@ local success, err = pcall(function()
 		local sliderTrack = Instance.new("Frame")
 		sliderTrack.Name = "Track"
 		sliderTrack.Size = UDim2.new(1, -24, 0, 6)
-		sliderTrack.Position = UDim2.new(0, 12, 0, 36)
-		sliderTrack.BackgroundColor3 = Color3.fromRGB(30, 36, 60)
+		sliderTrack.Position = UDim2.new(0, 12, 0, 34)
+		sliderTrack.BackgroundColor3 = COLORS.glassSurface
+		sliderTrack.BackgroundTransparency = 0.2
 		sliderTrack.BorderSizePixel = 0
 		sliderTrack.ZIndex = 4
 		sliderTrack.Parent = card
 
-		local trCorner = Instance.new("UICorner")
-		trCorner.CornerRadius = CORNER.pill
-		trCorner.Parent = sliderTrack
+		local trackCorner = Instance.new("UICorner")
+		trackCorner.CornerRadius = CORNER.pill
+		trackCorner.Parent = sliderTrack
 
-		local initialRatio = math.clamp((defaultVal - minVal) / math.max(1, maxVal - minVal), 0, 1)
+		local initRatio = math.clamp((defaultVal - minVal) / math.max(1, maxVal - minVal), 0, 1)
 
 		local sliderFill = Instance.new("Frame")
 		sliderFill.Name = "Fill"
-		sliderFill.Size = UDim2.new(initialRatio, 0, 1, 0)
+		sliderFill.Size = UDim2.new(initRatio, 0, 1, 0)
 		sliderFill.BackgroundColor3 = COLORS.accentCyan
 		sliderFill.BorderSizePixel = 0
 		sliderFill.ZIndex = 5
@@ -1122,26 +1171,44 @@ local success, err = pcall(function()
 		fillCorner.CornerRadius = CORNER.pill
 		fillCorner.Parent = sliderFill
 
+		local fillGrad = Instance.new("UIGradient")
+		fillGrad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, COLORS.accentCyan),
+			ColorSequenceKeypoint.new(1, COLORS.accentViolet)
+		})
+		fillGrad.Parent = sliderFill
+
 		local currentVal = defaultVal
 		local sliding = false
 
 		local function updateFromPos(posX)
-			local absWidth = sliderTrack.AbsoluteSize.X
 			local absPos = sliderTrack.AbsolutePosition.X
-			local ratio = math.clamp((posX - absPos) / absWidth, 0, 1)
-			currentVal = math.floor(minVal + (maxVal - minVal) * ratio)
-			sliderFill.Size = UDim2.new(ratio, 0, 1, 0)
-			valBadge.Text = tostring(currentVal) .. suffix
+			local absSize = sliderTrack.AbsoluteSize.X
+			local rel = math.clamp((posX - absPos) / absSize, 0, 1)
+			local rawVal = minVal + rel * (maxVal - minVal)
+			local finalVal = (maxVal - minVal > 20) and math.floor(rawVal) or (math.floor(rawVal * 10) / 10)
+			currentVal = finalVal
+
+			sliderFill.Size = UDim2.new(rel, 0, 1, 0)
+			valBadge.Text = tostring(finalVal) .. suffix
+
 			if callback then
-				pcall(callback, currentVal)
+				pcall(callback, finalVal)
 			end
 		end
 
-		sliderTrack.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				sliding = true
-				updateFromPos(input.Position.X)
-			end
+		local trackBtn = Instance.new("TextButton")
+		trackBtn.Size = UDim2.new(1, 0, 1, 14)
+		trackBtn.Position = UDim2.new(0, 0, 0, -7)
+		trackBtn.BackgroundTransparency = 1
+		trackBtn.Text = ""
+		trackBtn.ZIndex = 6
+		trackBtn.Parent = sliderTrack
+
+		trackBtn.MouseButton1Down:Connect(function()
+			sliding = true
+			local mousePos = UserInputService:GetMouseLocation()
+			updateFromPos(mousePos.X)
 		end)
 
 		UserInputService.InputEnded:Connect(function(input)
@@ -1156,7 +1223,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		return {
+		local proxy = setmetatable({
 			card = card,
 			Set = function(newVal)
 				newVal = math.clamp(newVal, minVal, maxVal)
@@ -1167,7 +1234,16 @@ local success, err = pcall(function()
 				if callback then pcall(callback, newVal) end
 			end,
 			Get = function() return currentVal end
-		}
+		}, {
+			__index = function(t, k)
+				return card[k]
+			end,
+			__newindex = function(t, k, v)
+				card[k] = v
+			end
+		})
+
+		return proxy
 	end
 
 	-- Dropdown Component (Interactive Glass Card)
@@ -1181,14 +1257,15 @@ local success, err = pcall(function()
 			defaultText = items[1]
 		end
 
+		local cleanTitle = sanitizeText(title)
 		local card = Instance.new("Frame")
-		card.Name = "DropdownCard_" .. tostring(title)
+		card.Name = "DropdownCard_" .. cleanTitle:gsub("%s+", "")
 		card.Size = UDim2.new(1, 0, 0, 38)
 		card.BackgroundColor3 = COLORS.glassCard
 		card.BackgroundTransparency = TRANSPARENCY.glassCard
 		card.BorderSizePixel = 0
 		card.ClipsDescendants = true
-		card.LayoutOrder = layoutOrder or 0
+		card.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		card.ZIndex = 3
 		card.Parent = parent
 
@@ -1204,7 +1281,7 @@ local success, err = pcall(function()
 		titleLabel.Size = UDim2.new(0, 150, 0, 38)
 		titleLabel.Position = UDim2.new(0, 12, 0, 0)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = title
+		titleLabel.Text = cleanTitle
 		titleLabel.TextColor3 = COLORS.textPrimary
 		titleLabel.Font = Enum.Font.GothamMedium
 		titleLabel.TextSize = 12
@@ -1218,7 +1295,7 @@ local success, err = pcall(function()
 		selectedBtn.Position = UDim2.new(0, 160, 0, 6)
 		selectedBtn.BackgroundColor3 = COLORS.glassSurface
 		selectedBtn.BackgroundTransparency = 0.25
-		selectedBtn.Text = defaultText
+		selectedBtn.Text = sanitizeText(defaultText)
 		selectedBtn.TextColor3 = COLORS.accentCyan
 		selectedBtn.Font = Enum.Font.GothamBold
 		selectedBtn.TextSize = 11
@@ -1272,12 +1349,13 @@ local success, err = pcall(function()
 				if child:IsA("TextButton") then child:Destroy() end
 			end
 			for i, itemText in ipairs(items) do
+				local cleanItem = sanitizeText(itemText)
 				local itemBtn = Instance.new("TextButton")
-				itemBtn.Name = "Item_" .. tostring(itemText)
+				itemBtn.Name = "Item_" .. cleanItem:gsub("%s+", "")
 				itemBtn.Size = UDim2.new(1, -6, 0, 24)
 				itemBtn.BackgroundColor3 = COLORS.glassSurface
 				itemBtn.BackgroundTransparency = 0.4
-				itemBtn.Text = "  " .. tostring(itemText)
+				itemBtn.Text = "  " .. cleanItem
 				itemBtn.TextColor3 = (tostring(itemText) == selectedItem) and COLORS.accentCyan or COLORS.textSecondary
 				itemBtn.Font = Enum.Font.Gotham
 				itemBtn.TextSize = 11
@@ -1292,7 +1370,7 @@ local success, err = pcall(function()
 
 				itemBtn.MouseButton1Click:Connect(function()
 					selectedItem = tostring(itemText)
-					selectedBtn.Text = selectedItem
+					selectedBtn.Text = cleanItem
 					toggleOpen()
 					if callback then
 						pcall(callback, selectedItem, i)
@@ -1304,13 +1382,22 @@ local success, err = pcall(function()
 
 		selectedBtn.MouseButton1Click:Connect(toggleOpen)
 
-		return {
+		local proxy = setmetatable({
 			card = card,
 			Get = function() return selectedItem end,
 			Refresh = function(newItems)
 				renderItems(newItems)
 			end
-		}
+		}, {
+			__index = function(t, k)
+				return card[k]
+			end,
+			__newindex = function(t, k, v)
+				card[k] = v
+			end
+		})
+
+		return proxy
 	end
 
 	-- Button Component (Flexible: 3 to 5 parameters)
@@ -1328,13 +1415,16 @@ local success, err = pcall(function()
 			layoutOrder = arg5
 		end
 
+		local cleanTitle = sanitizeText(title)
+		local cleanBtnText = sanitizeText(btnText)
+
 		local card = Instance.new("Frame")
-		card.Name = "ButtonCard_" .. tostring(title)
+		card.Name = "ButtonCard_" .. cleanTitle:gsub("%s+", "")
 		card.Size = UDim2.new(1, 0, 0, 36)
 		card.BackgroundColor3 = COLORS.glassCard
 		card.BackgroundTransparency = TRANSPARENCY.glassCard
 		card.BorderSizePixel = 0
-		card.LayoutOrder = layoutOrder or 0
+		card.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		card.ZIndex = 3
 		card.Parent = parent
 
@@ -1350,7 +1440,7 @@ local success, err = pcall(function()
 		titleLabel.Size = UDim2.new(1, -120, 1, 0)
 		titleLabel.Position = UDim2.new(0, 12, 0, 0)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = title
+		titleLabel.Text = cleanTitle
 		titleLabel.TextColor3 = COLORS.textPrimary
 		titleLabel.Font = Enum.Font.GothamMedium
 		titleLabel.TextSize = 12
@@ -1365,7 +1455,7 @@ local success, err = pcall(function()
 		actionBtn.Position = UDim2.new(1, -110, 0.5, -12)
 		actionBtn.BackgroundColor3 = COLORS.accentCyan
 		actionBtn.BackgroundTransparency = 0.15
-		actionBtn.Text = btnText
+		actionBtn.Text = cleanBtnText
 		actionBtn.TextColor3 = Color3.fromRGB(10, 14, 26)
 		actionBtn.Font = Enum.Font.GothamBold
 		actionBtn.TextSize = 11
@@ -1387,23 +1477,73 @@ local success, err = pcall(function()
 			end
 		end)
 
-		return card
+		local proxy = setmetatable({
+			card = card,
+			actionBtn = actionBtn,
+			titleLabel = titleLabel,
+			SetText = function(self, newText)
+				local c = sanitizeText(newText)
+				titleLabel.Text = c
+				actionBtn.Text = c
+			end
+		}, {
+			__index = function(t, k)
+				if k == "Text" then
+					return actionBtn.Text
+				end
+				return card[k]
+			end,
+			__newindex = function(t, k, v)
+				if k == "Text" then
+					local c = sanitizeText(v)
+					actionBtn.Text = c
+				else
+					card[k] = v
+				end
+			end
+		})
+
+		return proxy
 	end
 
 	-- Textbox Input Component
-	local function addTextbox(parent, title, placeholder, defaultText, callback, layoutOrder)
-		if type(defaultText) == "function" and callback == nil then
-			callback = defaultText
-			defaultText = ""
+	local function addTextbox(parent, title, arg3, arg4, arg5, arg6)
+		local placeholder = "Type here..."
+		local defaultText = ""
+		local callback = nil
+		local layoutOrder = 0
+
+		if type(arg3) == "function" then
+			callback = arg3
+			layoutOrder = arg4 or 0
+		elseif type(arg4) == "function" then
+			callback = arg4
+			layoutOrder = arg5 or 0
+			defaultText = tostring(arg3 or "")
+			if defaultText == "" then
+				placeholder = "Type here..."
+			else
+				placeholder = defaultText
+			end
+		elseif type(arg5) == "function" then
+			placeholder = tostring(arg3 or "Type here...")
+			defaultText = tostring(arg4 or "")
+			callback = arg5
+			layoutOrder = arg6 or 0
+		else
+			defaultText = tostring(arg3 or "")
+			callback = arg4
+			layoutOrder = arg5 or 0
 		end
 
+		local cleanTitle = sanitizeText(title)
 		local card = Instance.new("Frame")
-		card.Name = "TextboxCard_" .. tostring(title)
+		card.Name = "TextboxCard_" .. cleanTitle:gsub("%s+", "")
 		card.Size = UDim2.new(1, 0, 0, 36)
 		card.BackgroundColor3 = COLORS.glassCard
 		card.BackgroundTransparency = TRANSPARENCY.glassCard
 		card.BorderSizePixel = 0
-		card.LayoutOrder = layoutOrder or 0
+		card.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		card.ZIndex = 3
 		card.Parent = parent
 
@@ -1419,7 +1559,7 @@ local success, err = pcall(function()
 		titleLabel.Size = UDim2.new(0, 150, 1, 0)
 		titleLabel.Position = UDim2.new(0, 12, 0, 0)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = title
+		titleLabel.Text = cleanTitle
 		titleLabel.TextColor3 = COLORS.textPrimary
 		titleLabel.Font = Enum.Font.GothamMedium
 		titleLabel.TextSize = 12
@@ -1456,7 +1596,31 @@ local success, err = pcall(function()
 			end
 		end)
 
-		return card
+		local proxy = setmetatable({
+			card = card,
+			box = box,
+			Get = function() return box.Text end,
+			Set = function(self, newText)
+				if type(self) == "string" and newText == nil then
+					box.Text = tostring(self)
+				else
+					box.Text = tostring(newText)
+				end
+			end
+		}, {
+			__index = function(t, k)
+				return card[k]
+			end,
+			__newindex = function(t, k, v)
+				if k == "Text" then
+					box.Text = tostring(v)
+				else
+					card[k] = v
+				end
+			end
+		})
+
+		return proxy
 	end
 
 	-- Label / Status Text Component
@@ -1478,32 +1642,58 @@ local success, err = pcall(function()
 			if typeof(arg4) == "Color3" then col = arg4 end
 		end
 
+		local cleanText = sanitizeText(text)
 		local label = Instance.new("TextLabel")
 		label.Size = UDim2.new(1, 0, 0, 20)
 		label.BackgroundTransparency = 1
-		label.Text = tostring(text)
+		label.Text = cleanText
 		label.TextColor3 = col
 		label.Font = Enum.Font.Gotham
 		label.TextSize = 11
 		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.LayoutOrder = layoutOrder
+		label.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		label.ZIndex = 4
 		label.Parent = parent
 
-		return {
+		local proxy = setmetatable({
 			label = label,
-			Set = function(newText) label.Text = tostring(newText) end
-		}
+			Instance = label,
+			Set = function(self, newText)
+				if type(self) == "string" and newText == nil then
+					label.Text = sanitizeText(self)
+				else
+					label.Text = sanitizeText(newText)
+				end
+			end
+		}, {
+			__index = function(t, k)
+				return label[k]
+			end,
+			__newindex = function(t, k, v)
+				if k == "Text" then
+					label.Text = sanitizeText(v)
+				else
+					label[k] = v
+				end
+			end,
+			__tostring = function()
+				return label.Text
+			end
+		})
+
+		return proxy
 	end
 
 	-- Stats Card Component (Clean Text - No Emojis)
-	local function addStatsCard(parent, titleText, initialValue)
+	local function addStatsCard(parent, titleText, initialValue, layoutOrder)
+		local cleanTitle = sanitizeText(titleText)
 		local card = Instance.new("Frame")
-		card.Name = "Stat_" .. tostring(titleText)
+		card.Name = "Stat_" .. cleanTitle:gsub("%s+", "")
 		card.Size = UDim2.new(0.48, 0, 0, 48)
 		card.BackgroundColor3 = COLORS.glassCard
 		card.BackgroundTransparency = TRANSPARENCY.glassCard
 		card.BorderSizePixel = 0
+		card.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
 		card.ZIndex = 3
 		card.Parent = parent
 
@@ -1519,7 +1709,7 @@ local success, err = pcall(function()
 		title.Size = UDim2.new(1, -16, 0, 16)
 		title.Position = UDim2.new(0, 10, 0, 6)
 		title.BackgroundTransparency = 1
-		title.Text = string.upper(tostring(titleText))
+		title.Text = string.upper(cleanTitle)
 		title.TextColor3 = COLORS.textMuted
 		title.Font = Enum.Font.GothamBold
 		title.TextSize = 9
@@ -1531,7 +1721,7 @@ local success, err = pcall(function()
 		val.Size = UDim2.new(1, -16, 0, 20)
 		val.Position = UDim2.new(0, 10, 0, 22)
 		val.BackgroundTransparency = 1
-		val.Text = tostring(initialValue or "0")
+		val.Text = sanitizeText(tostring(initialValue or "0"))
 		val.TextColor3 = COLORS.accentCyan
 		val.Font = Enum.Font.GothamBold
 		val.TextSize = 13
@@ -1539,11 +1729,20 @@ local success, err = pcall(function()
 		val.ZIndex = 4
 		val.Parent = card
 
-		return {
+		local proxy = setmetatable({
 			card = card,
 			valueLabel = val,
-			Set = function(newVal) val.Text = tostring(newVal) end
-		}
+			Set = function(newVal) val.Text = sanitizeText(tostring(newVal)) end
+		}, {
+			__index = function(t, k)
+				return card[k]
+			end,
+			__newindex = function(t, k, v)
+				card[k] = v
+			end
+		})
+
+		return proxy
 	end
 
 	------------------------------------------------
@@ -1564,6 +1763,8 @@ local success, err = pcall(function()
 	notifLayout.Parent = notifContainer
 
 	local function notify(title, message, duration, nType)
+		title = sanitizeText(title)
+		message = sanitizeText(message)
 		duration = duration or 3
 		nType = nType or "info"
 

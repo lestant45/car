@@ -2202,15 +2202,15 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local farmFrame = UI.tabs["Farm"].Frame
 
-	-- 🏦 BCA Collaboration Event & Bank Courier
-	local bcaSec = UI.AddSection(farmFrame, "🏦 BCA Collaboration Event & Bank Courier", 1)
+	-- BCA Collaboration Event & Bank Courier
+	local bcaSec = UI.AddSection(farmFrame, "BCA Collaboration Event & Bank Courier", 1)
 
 	-- Real-Time Status & Live Stats Display
-	bcaActivityLabel = UI.AddLabel(bcaSec, "📍 Action: Idle (Toggle Auto Farm to start)", 1, UI.COLORS.accentCyan)
-	bcaProgressLabel = UI.AddLabel(bcaSec, "📦 Van Kopers: 0/0  |  🏧 ATMs Filled: 0/0", 2, UI.COLORS.textSecondary)
-	bcaTargetLabel = UI.AddLabel(bcaSec, "🎯 Target: Standby / None", 3, UI.COLORS.textMuted)
-	bcaSalaryLabel = UI.AddLabel(bcaSec, "💵 Est. Salary: Rp 0  |  Pocket: Rp 0", 4, UI.COLORS.successGreen)
-	bcaTargetEarningLabel = UI.AddLabel(bcaSec, "🎯 Target Earning: Disabled  |  Live Poket: Rp 0", 5, UI.COLORS.accentViolet)
+	bcaActivityLabel = UI.AddLabel(bcaSec, "Action: Idle (Toggle Auto Farm to start)", 1, UI.COLORS.accentCyan)
+	bcaProgressLabel = UI.AddLabel(bcaSec, "Van Kopers: 0/0  |  ATMs Filled: 0/0", 2, UI.COLORS.textSecondary)
+	bcaTargetLabel = UI.AddLabel(bcaSec, "Target: Standby / None", 3, UI.COLORS.textMuted)
+	bcaSalaryLabel = UI.AddLabel(bcaSec, "Est. Salary: Rp 0  |  Pocket: Rp 0", 4, UI.COLORS.successGreen)
+	bcaTargetEarningLabel = UI.AddLabel(bcaSec, "Target Earning: Disabled  |  Live Pocket: Rp 0", 5, UI.COLORS.accentViolet)
 
 	-- Live Stats Auto-Updater Task
 	task.spawn(function()
@@ -2230,9 +2230,9 @@ local success, err = pcall(function()
 					if bcaTargetEarning > 0 then
 						local targetCash = bcaTargetEarning * 1000000
 						local pct = math.clamp(math.floor((livePocket / targetCash) * 100), 0, 100)
-						bcaTargetEarningLabel.Text = string.format("🎯 Target: %s  |  Live Poket: %s (%d%%)", formatRupiah(targetCash), formatRupiah(livePocket), pct)
+						bcaTargetEarningLabel.Text = string.format("Target: %s  |  Live Pocket: %s (%d%%)", formatRupiah(targetCash), formatRupiah(livePocket), pct)
 					else
-						bcaTargetEarningLabel.Text = string.format("🎯 Target: Disabled  |  Live Poket: %s", formatRupiah(livePocket))
+						bcaTargetEarningLabel.Text = string.format("Target: Disabled  |  Live Pocket: %s", formatRupiah(livePocket))
 					end
 				end
 
@@ -2243,11 +2243,11 @@ local success, err = pcall(function()
 
 				if bcaCourierActive then
 					if bcaActivityLabel then
-						bcaActivityLabel.Text = "📍 Action: " .. currentBcaActivity
+						bcaActivityLabel.Text = "Action: " .. currentBcaActivity
 					end
 
 					if bcaProgressLabel then
-						bcaProgressLabel.Text = string.format("📦 Van Kopers: %d/%d  |  🏧 ATMs Filled: %d/%d", curK, totK, curA, totA)
+						bcaProgressLabel.Text = string.format("Van Kopers: %d/%d  |  ATMs Filled: %d/%d", curK, totK, curA, totA)
 					end
 
 					if bcaTargetLabel then
@@ -2266,18 +2266,18 @@ local success, err = pcall(function()
 									end
 								end
 							end
-							bcaTargetLabel.Text = string.format("🎯 Target: %s (%dm away)", matchedAtm, dist)
+							bcaTargetLabel.Text = string.format("Target: %s (%dm away)", matchedAtm, dist)
 						else
-							bcaTargetLabel.Text = hasActiveJobGui and "🎯 Target: Standby / Generating Route" or "🎯 Target: None (Starting Job...)"
+							bcaTargetLabel.Text = hasActiveJobGui and "Target: Standby / Generating Route" or "Target: None (Starting Job...)"
 						end
 					end
 
 					if bcaSalaryLabel and sText ~= "" then
-						bcaSalaryLabel.Text = string.format("💵 %s %s", sText, (pText ~= "" and (" | " .. pText) or ""))
+						bcaSalaryLabel.Text = string.format("%s %s", sText, (pText ~= "" and (" | " .. pText) or ""))
 					end
 				else
 					if bcaActivityLabel then
-						bcaActivityLabel.Text = "📍 Action: Idle (Toggle Auto Farm to start)"
+						bcaActivityLabel.Text = "Action: Idle (Toggle Auto Farm to start)"
 					end
 				end
 			end)
@@ -2296,23 +2296,23 @@ local success, err = pcall(function()
 			UI.Notify("Auto-Farm OFF", "BCA Courier Farm dinonaktifkan.", 2, "info")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 5)
+	end, 6)
 
 	UI.AddSlider(bcaSec, "Delivery Delay (Seconds)", 0.5, 5.0, bcaCourierDelay, function(v)
 		bcaCourierDelay = v
 		Config.farm.bcaCourierDelay = v
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 6, "s")
+	end, 7, "s")
 
 	UI.AddSlider(bcaSec, "Car Tween Height (studs)", 10, 80, Config.farm.bcaTweenHeight or 38, function(v)
 		Config.farm.bcaTweenHeight = v
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 7, " studs")
+	end, 8, " studs")
 
 	UI.AddSlider(bcaSec, "Arrive Distance (studs)", 15, 60, Config.farm.bcaArriveDist or 35, function(v)
 		Config.farm.bcaArriveDist = v
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 8, " studs")
+	end, 9, " studs")
 
 	local atmDropdownOptions = {
 		"Auto (Active ATM)",
@@ -2353,9 +2353,9 @@ local success, err = pcall(function()
 			UI.Notify("Target Earning", "Target dinonaktifkan.", 2, "info")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 7)
+	end, 11)
 
-	UI.AddLabel(bcaSec, "Type in millions: 1 = Rp 1.000.000, 10 = Rp 10.000.000, 68 = Rp 68.000.000 (0 = No limit)", 8, UI.COLORS.textMuted)
+	UI.AddLabel(bcaSec, "Type in millions: 1 = Rp 1.000.000, 10 = Rp 10.000.000, 68 = Rp 68.000.000 (0 = No limit)", 12, UI.COLORS.textMuted)
 
 	UI.AddToggle(bcaSec, "Anti Staff / Auto Disconnect on Player Join", Config.farm.antiStaff or false, function(v)
 		antiStaffActive = v
@@ -2374,7 +2374,7 @@ local success, err = pcall(function()
 			UI.Notify("Proteksi Server", "Proteksi server dinonaktifkan.", 2, "info")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 9)
+	end, 13)
 
 	UI.AddToggle(bcaSec, "Auto Sync myBCA App (Pocket Rupiah)", Config.farm.bcaAppSync or true, function(v)
 		bcaAppSyncActive = v
@@ -2384,7 +2384,7 @@ local success, err = pcall(function()
 			UI.Notify("myBCA", "Sinkronisasi saldo berhasil.", 2, "success")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
-	end, 7)
+	end, 14)
 
 	UI.AddButton(bcaSec, "Spawn BCA Bank Armored Van", function()
 		pcall(function()
@@ -2396,7 +2396,7 @@ local success, err = pcall(function()
 				UI.Notify("Kendaraan", "Gagal memanggil kendaraan.", 2, "warning")
 			end
 		end)
-	end, 8)
+	end, 15)
 
 	UI.AddButton(bcaSec, "Claim / Exchange BCA Event Rewards", function()
 		pcall(function()
@@ -2419,7 +2419,7 @@ local success, err = pcall(function()
 				UI.Notify("Teleport", "Tiba di BCA Depot.", 2, "success")
 			end
 		end)
-	end, 5)
+	end, 16)
 
 	-- Launch BCA Courier thread immediately if enabled in saved config
 	if bcaCourierActive then
