@@ -2969,10 +2969,20 @@ local success, err = pcall(function()
 					end)
 				end
 
-				task.wait(1.5)
+				-- Pastikan autoRejoin aktif di config agar modal disconnect memicu auto-reconnect
+				if _G.HipHubConfig and _G.HipHubConfig.misc then
+					_G.HipHubConfig.misc.autoRejoin = true
+				end
+
+				task.wait(1.0)
+				pcall(function()
+					player:Kick("Limit order sudah tercapai, Rejoin...")
+				end)
+
+				task.wait(2.5)
 				pcall(function()
 					local TeleportService = game:GetService("TeleportService")
-					TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+					TeleportService:Teleport(game.PlaceId, player)
 				end)
 				return
 			end
@@ -3458,11 +3468,20 @@ local success, err = pcall(function()
 			end)
 		end
 
-		-- 3. Jeda 1.5 detik lalu single clean call Rejoin ke Private Server yang sama (persis RideGO)
-		task.wait(1.5)
+		-- 3. Jeda 1.0 detik, pastikan autoRejoin aktif di config, lalu kick untuk memicu auto-rejoin
+		if _G.HipHubConfig and _G.HipHubConfig.misc then
+			_G.HipHubConfig.misc.autoRejoin = true
+		end
+
+		task.wait(1.0)
+		pcall(function()
+			player:Kick("Limit order sudah tercapai, Rejoin...")
+		end)
+
+		task.wait(2.5)
 		pcall(function()
 			local TeleportService = game:GetService("TeleportService")
-			TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+			TeleportService:Teleport(game.PlaceId, player)
 		end)
 	end
 

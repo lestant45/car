@@ -197,21 +197,27 @@ local success, err = pcall(function()
 			local promptGui = cGui:WaitForChild("RobloxPromptGui", 5)
 			local overlay = promptGui and promptGui:WaitForChild("promptOverlay", 5)
 			if overlay then
-				overlay.ChildAdded:Connect(function(child)
-					if _G.HipHubConfig.misc.autoRejoin and (child.Name == "ErrorPrompt" or child.Name:find("Prompt") or child.Name:find("Error")) then
-						task.wait(2.5)
+				local function onChild(child)
+					local isAutoRejoin = (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.autoRejoin)
+					if isAutoRejoin and (child.Name == "ErrorPrompt" or child.Name:find("Prompt") or child.Name:find("Error")) then
+						task.wait(2.0)
 						pcall(function()
 							TeleportService:Teleport(game.PlaceId, player)
 						end)
 					end
-				end)
+				end
+				overlay.ChildAdded:Connect(onChild)
+				for _, c in ipairs(overlay:GetChildren()) do
+					task.spawn(onChild, c)
+				end
 			end
 		end)
 
 		-- 2. Deteksi Teleport Failed
 		pcall(function()
 			player.OnTeleport:Connect(function(state)
-				if state == Enum.TeleportState.Failed and _G.HipHubConfig.misc.autoRejoin then
+				local isAutoRejoin = (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.autoRejoin)
+				if state == Enum.TeleportState.Failed and isAutoRejoin then
 					task.wait(2.5)
 					pcall(function()
 						TeleportService:Teleport(game.PlaceId, player)
