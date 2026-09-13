@@ -125,20 +125,14 @@ local success, err = pcall(function()
 		courierSpeed = 85,
 		courierDropDelay = 4,
 		courierPacing = true,
-		courierAutoRejoin = true,
-		courierRejoinHours = 3,
-		courierMaxEarnM = 79,
-		courierRejoinOnLimit = true
+		courierAutoRejoinOrders = 10
 	}
 	if Config.tripPacing == nil then Config.tripPacing = true end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
 	if Config.courierSpeed == nil then Config.courierSpeed = 85 end
 	if Config.courierDropDelay == nil then Config.courierDropDelay = 4 end
-	if Config.courierAutoRejoin == nil then Config.courierAutoRejoin = true end
-	if Config.courierRejoinHours == nil then Config.courierRejoinHours = 3 end
-	if Config.courierMaxEarnM == nil then Config.courierMaxEarnM = 79 end
-	if Config.courierRejoinOnLimit == nil then Config.courierRejoinOnLimit = true end
+	if Config.courierAutoRejoinOrders == nil then Config.courierAutoRejoinOrders = 10 end
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -3516,26 +3510,6 @@ local success, err = pcall(function()
 		end)
 	end)
 
-	-- Supervisor loop untuk memeriksa batas 3 jam & batas pendapatan ~79jt (Permanen di belakang layar)
-	task.spawn(function()
-		while true do
-			task.wait(2)
-			if (courierActive or _G.HipHubCourierActive) and not courierRejoinPending then
-				local elapsed = os.clock() - courierStartTime
-				local maxHours = 3
-				local limitSec = maxHours * 3600 -- 3 Jam sejak menyalakan toggle kurir
-				local maxEarn = 79 * 1000000     -- 79 Juta Rupiah
-
-				if elapsed >= limitSec then
-					rejoinCourierServer(string.format("Batas Waktu Sesi 3 Jam Tercapai (%s)", formatCourierTime(elapsed)))
-					break
-				elseif courierTotalEarn >= maxEarn then
-					rejoinCourierServer(string.format("Batas Pendapatan 79 Juta Tercapai (%s)", formatRupiah(courierTotalEarn)))
-					break
-				end
-			end
-		end
-	end)
 
 	local function getCourierPackageTool()
 		local char = player.Character
@@ -3879,8 +3853,16 @@ local success, err = pcall(function()
 
 							task.wait(0.8)
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
-							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", _G.HipHubCompletedCourier), 2.5, "success")
+							local totalDoneCourier = _G.HipHubCompletedCourier
+							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDoneCourier), 2.5, "success")
 							updateBotActivity("✅ Paket Sukses Diserahkan!", Color3.fromRGB(80, 255, 120))
+
+							-- 🔄 Scheduled Auto-Rejoin Cycle (Reset Strike & Session Memory di Server per Paket Selesai)
+							local autoRejoinCourierCount = tonumber(Config.courierAutoRejoinOrders) or 10
+							if autoRejoinCourierCount > 0 and totalDoneCourier > 0 and (totalDoneCourier % autoRejoinCourierCount == 0) then
+								rejoinCourierServer(string.format("Siklus Auto-Rejoin (%d Paket Selesai - Reset Strike Server)", totalDoneCourier))
+								return
+							end
 
 							-- Naik kembali ke motor untuk orderan berikutnya
 							task.wait(0.5)
@@ -3996,6 +3978,16 @@ local success, err = pcall(function()
 		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierSpeed = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Auto Rejoin Per Packages", 0, 60, math.floor(Config.courierAutoRejoinOrders or 10), function(val)
+		Config.courierAutoRejoinOrders = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierAutoRejoinOrders = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
