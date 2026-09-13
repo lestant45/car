@@ -163,6 +163,20 @@ local success, err = pcall(function()
 		Config.driveUnderground = v
 	end, 17)
 
+	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip (Tembus Rintangan)", Config.antiStuck ~= false, function(v)
+		Config.antiStuck = v
+	end, 18)
+
+	local unstuckBtn = UI.AddButton(driveSection, "🚨 Unstuck Manual (Lepaskan Motor)", function()
+		local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+		if bike and primary then
+			local look = primary.CFrame.LookVector
+			bike:PivotTo(bike:GetPivot() + Vector3.new(0, 4, 0) + (look * 10))
+			primary.AssemblyLinearVelocity = look * 120 + Vector3.new(0, 15, 0)
+			UI.Notify("Anti-Stuck", "Motor dilepaskan dari rintangan!", 2, "success")
+		end
+	end, 19)
+
 	local autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
 		_G.HipHub_IsAutoDriving = enabled
@@ -179,7 +193,7 @@ local success, err = pcall(function()
 			local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
 			returnBikeToSurface(bike, primary)
 		end
-	end, 18)
+	end, 20)
 
 	------------------------------------------------
 	-- 🏁 UNDERGROUND AUTO RACE LOGIC
@@ -405,6 +419,9 @@ local success, err = pcall(function()
 	local circleCenter = nil
 	local lastDrivePos = nil
 	local undergroundTrack = nil
+	local lastWatchdogPos = nil
+	local lastWatchdogTime = 0
+	local stuckSeconds = 0
 
 	-- Raycast surface finder
 	local function getGroundSurfaceY(posX, posZ, ignoreBike)
@@ -413,6 +430,50 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local ray = workspace:Raycast(Vector3.new(posX, 250, posZ), Vector3.new(0, -500, 0), rayParams)
 		return ray and ray.Position.Y or 0.5
+	end
+
+	-- Proactively noclip nearby obstacles (fences, buildings, barriers, bus stops, trees)
+	local function noclipSurroundings(bikeRef, pos, radius)
+		pcall(function()
+			local overlap = OverlapParams.new()
+			overlap.FilterDescendantsInstances = { bikeRef, player.Character, undergroundTrack }
+			overlap.FilterType = Enum.RaycastFilterType.Exclude
+			overlap.MaxParts = 60
+			local hits = workspace:GetPartBoundsInRadius(pos, radius or 30, overlap)
+			for _, hit in ipairs(hits) do
+				if hit:IsA("BasePart") and hit.CanCollide then
+					if not Config.driveUnderground and (hit.Name:lower():find("road") or hit:IsA("Terrain")) then
+						-- Preserve road surface when driving on surface
+					else
+						hit.CanCollide = false
+					end
+				end
+			end
+		end)
+	end
+
+	-- Noclip bike frame/body/pegs so they never catch on curbs or seams (wheels retain road grip)
+	local function noclipBikeBody(b)
+		pcall(function()
+			for _, desc in ipairs(b:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					local n = desc.Name:lower()
+					local isWheel = n:find("wheel") or n:find("tire") or desc.CollisionGroup == "BikeWheel"
+					if isWheel then
+						desc.CanCollide = true
+					else
+						desc.CanCollide = false
+					end
+				end
+			end
+			if player.Character then
+				for _, cp in ipairs(player.Character:GetDescendants()) do
+					if cp:IsA("BasePart") then
+						cp.CanCollide = false
+					end
+				end
+			end
+		end)
 	end
 
 	_G.HipHub_FarmCleanup = _G.HipHub_FarmCleanup or {}
@@ -426,6 +487,8 @@ local success, err = pcall(function()
 			if circleCenter then
 				circleCenter = nil
 				lastDrivePos = nil
+				lastWatchdogPos = nil
+				stuckSeconds = 0
 				if undergroundTrack and undergroundTrack.Parent then
 					pcall(function() undergroundTrack:Destroy() end)
 					undergroundTrack = nil
@@ -489,18 +552,19 @@ local success, err = pcall(function()
 			local initialLook = Vector3.new(0, 0, 1)
 			bike:PivotTo(CFrame.lookAt(initialPos, initialPos + initialLook))
 
-			-- Enable collisions so wheels physically grip the road
-			for _, desc in ipairs(bike:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					desc.CanCollide = true
-				end
-			end
+			noclipBikeBody(bike)
 		end
 
 		local curPos = primary.Position
 		local radius = math.max(Config.circleRadius or 65, 15)
 		local speed = math.max(Config.circleSpeed or 120, 40)
 		local baseOmega = speed / radius
+
+		-- Noclip bike body & surroundings if anti-stuck is enabled
+		if Config.antiStuck ~= false then
+			noclipBikeBody(bike)
+			noclipSurroundings(bike, curPos, 30)
+		end
 
 		-- Distance from circle center & proportional steering feedback
 		local diff = Vector3.new(curPos.X - circleCenter.X, 0, curPos.Z - circleCenter.Z)
@@ -523,11 +587,52 @@ local success, err = pcall(function()
 			vy = primary.AssemblyLinearVelocity.Y
 		end
 
-		-- Pure physics velocity along LookVector: NEVER assigns CFrame or calls PivotTo
 		local look = primary.CFrame.LookVector
+
+		-- Front obstacle / curb-hop raycast to glide smoothly over jagged terrain seams
+		local frontRayParams = RaycastParams.new()
+		frontRayParams.FilterDescendantsInstances = { bike, player.Character, undergroundTrack }
+		frontRayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local frontRay = workspace:Raycast(curPos + Vector3.new(0, 0.8, 0), look * 6, frontRayParams)
+		if frontRay and frontRay.Instance then
+			if not (not Config.driveUnderground and (frontRay.Instance.Name:lower():find("road") or frontRay.Instance:IsA("Terrain"))) then
+				frontRay.Instance.CanCollide = false
+			end
+			vy = math.max(vy, 14)
+		end
+
+		-- Pure physics velocity along LookVector: NEVER assigns CFrame or calls PivotTo
 		seat.Throttle = 1
 		primary.AssemblyLinearVelocity = Vector3.new(look.X * speed, vy, look.Z * speed)
 		primary.AssemblyAngularVelocity = Vector3.new(0, activeOmega, 0)
+
+		-- Real-time Anti-Stuck Watchdog
+		local now = os.clock()
+		if now - lastWatchdogTime >= 0.8 then
+			if lastWatchdogPos and _G.HipHub_IsAutoDriving then
+				local dist = (curPos - lastWatchdogPos).Magnitude
+				if dist < 4.0 then
+					stuckSeconds = stuckSeconds + (now - lastWatchdogTime)
+					if stuckSeconds >= 1.5 then
+						noclipSurroundings(bike, curPos, 45)
+						noclipBikeBody(bike)
+						bike:PivotTo(bike:GetPivot() + Vector3.new(0, 3.5, 0) + (look * 8))
+						primary.AssemblyLinearVelocity = look * speed + Vector3.new(0, 18, 0)
+						driveStatusCard.Set("🚨 Meloloskan dari rintangan...")
+						
+						if stuckSeconds >= 4.0 then
+							local shift = look * 35
+							circleCenter = circleCenter + Vector3.new(shift.X, 0, shift.Z)
+							stuckSeconds = 0
+						end
+					end
+				else
+					stuckSeconds = 0
+				end
+			end
+			lastWatchdogPos = curPos
+			lastWatchdogTime = now
+		end
 
 		-- Distance telemetry
 		if lastDrivePos then
