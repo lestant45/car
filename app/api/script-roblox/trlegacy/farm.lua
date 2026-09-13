@@ -19,9 +19,13 @@ local success, err = pcall(function()
 		circleRadius = 65,
 		circleSpeed = 150,
 		driveDepth = 25,
-		driveUnderground = true,
 		autoLoop = true
 	}
+
+	if Config.driveUnderground == nil then Config.driveUnderground = true end
+	if Config.driveDepth == nil then Config.driveDepth = 25 end
+	if Config.circleRadius == nil then Config.circleRadius = 65 end
+	if Config.circleSpeed == nil then Config.circleSpeed = 150 end
 
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
@@ -400,6 +404,7 @@ local success, err = pcall(function()
 
 	local circleCenter = nil
 	local lastDrivePos = nil
+	local undergroundTrack = nil
 
 	-- Raycast surface finder
 	local function getGroundSurfaceY(posX, posZ, ignoreBike)
@@ -421,6 +426,10 @@ local success, err = pcall(function()
 			if circleCenter then
 				circleCenter = nil
 				lastDrivePos = nil
+				if undergroundTrack and undergroundTrack.Parent then
+					pcall(function() undergroundTrack:Destroy() end)
+					undergroundTrack = nil
+				end
 				if Config.driveUnderground and Config.returnToSurface ~= false then
 					local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
 					returnBikeToSurface(bike, primary)
@@ -458,9 +467,34 @@ local success, err = pcall(function()
 			circleCenter = Vector3.new(curPos.X, targetY, curPos.Z)
 
 			local radius = math.max(Config.circleRadius or 65, 15)
-			local initialPos = Vector3.new(circleCenter.X + radius, targetY, circleCenter.Z)
+
+			-- Spawn massive invisible client-side road platform for realistic grounded tire traction & suspension
+			if Config.driveUnderground then
+				if undergroundTrack and undergroundTrack.Parent then
+					pcall(function() undergroundTrack:Destroy() end)
+				end
+				undergroundTrack = Instance.new("Part")
+				undergroundTrack.Name = "HipHub_UndergroundTrack"
+				undergroundTrack.Size = Vector3.new(2048, 2, 2048)
+				undergroundTrack.Position = Vector3.new(circleCenter.X, targetY - 1, circleCenter.Z)
+				undergroundTrack.Anchored = true
+				undergroundTrack.CanCollide = true
+				undergroundTrack.Transparency = 1
+				undergroundTrack.Material = Enum.Material.Asphalt
+				undergroundTrack.Friction = 0.8
+				undergroundTrack.Parent = workspace
+			end
+
+			local initialPos = Vector3.new(circleCenter.X + radius, targetY + 1.2, circleCenter.Z)
 			local initialLook = Vector3.new(0, 0, 1)
 			bike:PivotTo(CFrame.lookAt(initialPos, initialPos + initialLook))
+
+			-- Enable collisions so wheels physically grip the road
+			for _, desc in ipairs(bike:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					desc.CanCollide = true
+				end
+			end
 		end
 
 		local curPos = primary.Position
@@ -475,15 +509,15 @@ local success, err = pcall(function()
 		local steerAdj = math.clamp(-distErr * 0.05, -0.6, 0.6)
 		local activeOmega = baseOmega + steerAdj
 
-		-- Vertical height lock (underground or surface)
+		-- Vertical height lock (underground road contact or surface gravity)
 		local vy
 		if Config.driveUnderground then
-			local yErr = circleCenter.Y - curPos.Y
-			vy = math.clamp(yErr * 6.0, -25, 25)
-			for _, p in ipairs(bike:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.CanCollide = false
-				end
+			local targetSurfaceY = circleCenter.Y + 1.2
+			local yErr = targetSurfaceY - curPos.Y
+			if curPos.Y < circleCenter.Y then
+				vy = 20
+			else
+				vy = math.clamp(yErr * 6.0, -25, 25)
 			end
 		else
 			vy = primary.AssemblyLinearVelocity.Y

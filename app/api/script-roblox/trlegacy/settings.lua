@@ -25,6 +25,8 @@ local success, err = pcall(function()
             raceTrack = "1",
             raceDelay = 0.05,
             autoDrive = false,
+            driveUnderground = true,
+            driveDepth = 25,
             driveSpeed = 120,
             circleRadius = 50,
         },
