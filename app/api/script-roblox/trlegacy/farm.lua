@@ -1,5 +1,5 @@
 -- 🏁 HipHub TR Legacy — Auto Race Underground & Circular Auto Drive Suite
--- High performance farming with invisible underground racing and circular odometer automation
+-- Smooth underground flight traversal between checkpoints and circular underground odometer farm
 
 local success, err = pcall(function()
 	local UI = _G.HipHubUI
@@ -12,10 +12,13 @@ local success, err = pcall(function()
 		autoRace = false,
 		selectedRace = "Race 1 (Mountain Race - RM 53,000)",
 		undergroundDepth = 25,
-		checkpointDelay = 0.15,
+		raceFlySpeed = 260,
+		checkpointDelay = 0.02,
+		returnToSurface = true,
 		autoDriveCircle = false,
 		circleRadius = 65,
-		circleSpeed = 130,
+		circleSpeed = 150,
+		driveDepth = 25,
 		autoLoop = true
 	}
 
@@ -70,8 +73,23 @@ local success, err = pcall(function()
 	local totalRacesWon = 0
 	local totalRaceCash = 0
 	local totalDistanceTraveled = 0
-	local totalDriveCash = 0
 	local circleDriveStartTime = 0
+
+	-- Helper: Safely return bike to ground surface
+	local function returnBikeToSurface(bike, primary)
+		if not bike or not primary then return end
+		pcall(function()
+			local rayParams = RaycastParams.new()
+			rayParams.FilterDescendantsInstances = { bike, player.Character }
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			local curPos = primary.Position
+			local ray = workspace:Raycast(Vector3.new(curPos.X, curPos.Y + 150, curPos.Z), Vector3.new(0, -300, 0), rayParams)
+			local groundY = ray and (ray.Position.Y + 3.0) or (curPos.Y + (Config.undergroundDepth or 25) + 3.0)
+			bike:PivotTo(CFrame.new(curPos.X, groundY, curPos.Z))
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
+		end)
+	end
 
 	------------------------------------------------
 	-- 🎛️ UI: FARM TAB
@@ -87,50 +105,64 @@ local success, err = pcall(function()
 		Config.selectedRace = selected
 	end, 4)
 
-	local depthSlider = UI.AddSlider(raceSection, "Underground Depth", 10, 60, Config.undergroundDepth or 25, function(val)
+	local depthSlider = UI.AddSlider(raceSection, "Underground Depth", 10, 60, Config.undergroundDepth or 25, 1, function(val)
 		Config.undergroundDepth = val
-	end, 1, " studs", 5)
+	end, 5)
 
-	local delaySlider = UI.AddSlider(raceSection, "Checkpoint Delay", 0.05, 1.0, Config.checkpointDelay or 0.15, function(val)
+	local flySpeedSlider = UI.AddSlider(raceSection, "Kecepatan Fly Race", 100, 500, Config.raceFlySpeed or 260, 10, function(val)
+		Config.raceFlySpeed = val
+	end, 6)
+
+	local delaySlider = UI.AddSlider(raceSection, "Checkpoint Delay", 0.00, 0.30, Config.checkpointDelay or 0.02, 0.01, function(val)
 		Config.checkpointDelay = val
-	end, 0.05, "s", 6)
+	end, 7)
 
 	local autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race Underground", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
 		if enabled then
-			UI.Notify("Auto Race", "Started underground race farming!", 3, "success")
+			UI.Notify("Auto Race", "Memulai race bawah tanah (Fly ke tiap checkpoint)...", 3, "success")
 		else
-			UI.Notify("Auto Race", "Stopped auto race.", 2, "info")
+			UI.Notify("Auto Race", "Menghentikan auto race.", 2, "info")
 			raceStatusCard.Set("Stopped")
+			if Config.returnToSurface then
+				local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+				returnBikeToSurface(bike, primary)
+			end
 		end
-	end, 7)
+	end, 8)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION
-	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Circular Odometer Farm)", 8)
+	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Underground Odometer Farm)", 9)
 
-	local driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 9)
-	local driveDistCard = UI.AddStatsCard(driveSection, "Distance Traveled", "0.00 km", 10)
+	local driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 10)
+	local driveDistCard = UI.AddStatsCard(driveSection, "Distance Traveled", "0.00 km", 11)
 
-	local radiusSlider = UI.AddSlider(driveSection, "Ruas Lingkaran (Radius)", 15, 300, Config.circleRadius or 65, function(val)
+	local radiusSlider = UI.AddSlider(driveSection, "Ruas Lingkaran (Radius)", 15, 300, Config.circleRadius or 65, 5, function(val)
 		Config.circleRadius = val
-	end, 5, " studs", 11)
+	end, 12)
 
-	local speedSlider = UI.AddSlider(driveSection, "Kecepatan Memutar", 50, 250, Config.circleSpeed or 130, function(val)
+	local driveSpeedSlider = UI.AddSlider(driveSection, "Kecepatan Memutar", 50, 300, Config.circleSpeed or 150, 5, function(val)
 		Config.circleSpeed = val
-	end, 5, " km/h", 12)
+	end, 13)
+
+	local driveDepthSlider = UI.AddSlider(driveSection, "Drive Underground Depth", 10, 60, Config.driveDepth or 25, 1, function(val)
+		Config.driveDepth = val
+	end, 14)
 
 	local autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
 		_G.HipHub_IsAutoDriving = enabled
 		if enabled then
 			circleDriveStartTime = os.clock()
-			UI.Notify("Auto Drive", "Circular driving active (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
+			UI.Notify("Auto Drive", "Memulai circular drive bawah tanah (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
 		else
-			UI.Notify("Auto Drive", "Stopped circular drive.", 2, "info")
+			UI.Notify("Auto Drive", "Menghentikan circular drive.", 2, "info")
 			driveStatusCard.Set("Stopped")
+			local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+			returnBikeToSurface(bike, primary)
 		end
-	end, 13)
+	end, 15)
 
 	------------------------------------------------
 	-- 🏁 UNDERGROUND AUTO RACE LOGIC
@@ -160,8 +192,10 @@ local success, err = pcall(function()
 		return ordered
 	end
 
-	-- Execute one complete race cycle underground
+	-- Execute one complete race cycle with smooth underground fly traversal
 	local function runRaceCycle()
+		if not Config.autoRace then return false end
+
 		local raceData = RaceOptions[Config.selectedRace] or RaceOptions[raceDropdownList[1]]
 		local raceModel = workspace:FindFirstChild(raceData.modelName)
 		if not raceModel then
@@ -170,10 +204,10 @@ local success, err = pcall(function()
 		end
 
 		-- Step 1: Ensure Kasaki z800 2015 is spawned and player is seated
-		raceStatusCard.Set("Ensuring driver seated...")
+		raceStatusCard.Set("Memeriksa motor & driver...")
 		local seated = false
-		if _G.HipHub_EnsureSeated then
-			seated = _G.HipHub_EnsureSeated(true)
+		if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
+			seated = _G.HipHubVehicle.EnsureDriverSeated(true)
 		end
 		if not seated then
 			task.wait(1.0)
@@ -184,8 +218,8 @@ local success, err = pcall(function()
 		if _G.HipHub_GetPlayerBike then
 			bike, seat, primary = _G.HipHub_GetPlayerBike()
 		end
-		if not bike or not seat then
-			raceStatusCard.Set("Waiting for bike...")
+		if not bike or not seat or not primary then
+			raceStatusCard.Set("Menunggu motor Kasaki z800...")
 			task.wait(1.0)
 			return false
 		end
@@ -201,18 +235,32 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 3: Move bike to start area underground
+		-- Step 3: Descend underground at starting area
 		local startArea = raceModel:FindFirstChild("StartingArea")
 		local startPos = startArea and startArea.Position or raceModel:GetPivot().Position
 		local depth = Config.undergroundDepth or 25
-		local undergroundStartCF = CFrame.new(startPos.X, startPos.Y - depth, startPos.Z)
+		local undergroundStartPos = Vector3.new(startPos.X, startPos.Y - depth, startPos.Z)
 
-		raceStatusCard.Set("Positioning at " .. raceData.modelName)
-		bike:PivotTo(undergroundStartCF)
-		task.wait(0.3)
+		raceStatusCard.Set("Menyelam ke bawah tanah...")
+		
+		-- Smooth vertical descent
+		local curPos = primary.Position
+		local tDescend = 0.35
+		local t0 = os.clock()
+		while (os.clock() - t0) < tDescend and Config.autoRace do
+			local alpha = (os.clock() - t0) / tDescend
+			local interpY = curPos.Y + (undergroundStartPos.Y - curPos.Y) * alpha
+			for _, p in ipairs(bike:GetDescendants()) do
+				if p:IsA("BasePart") then p.CanCollide = false end
+			end
+			bike:PivotTo(CFrame.new(startPos.X, interpY, startPos.Z))
+			RunService.Heartbeat:Wait()
+		end
+		bike:PivotTo(CFrame.new(undergroundStartPos))
+		task.wait(0.2)
 
 		-- Step 4: Request solo race start via Warp
-		raceStatusCard.Set("Starting Solo TimeTrial...")
+		raceStatusCard.Set("Mendaftarkan Solo TimeTrial...")
 		fireWarp("RaceSessionAction", true, "create", {
 			zoneId = raceData.id,
 			config = {
@@ -222,67 +270,113 @@ local success, err = pcall(function()
 			}
 		})
 
-		-- Step 5: Wait for race active / countdown
+		-- Step 5: Wait for race countdown / active status
 		local waitStart = os.clock()
 		local started = false
-		while (os.clock() - waitStart) < 8.0 do
+		while (os.clock() - waitStart) < 7.0 do
 			if not Config.autoRace then return false end
 			local inRace = player:GetAttribute("InRace") or player:GetAttribute("lap") or player:GetAttribute("checkpoint")
 			if inRace then
 				started = true
 				break
 			end
-			task.wait(0.25)
+			-- Keep bike anchored underground during countdown
+			for _, p in ipairs(bike:GetDescendants()) do
+				if p:IsA("BasePart") then p.CanCollide = false end
+			end
+			bike:PivotTo(CFrame.new(undergroundStartPos))
+			primary.AssemblyLinearVelocity = Vector3.zero
+			task.wait(0.2)
 		end
 
-		raceStatusCard.Set("Race Active! Traversing checkpoints...")
+		raceStatusCard.Set("Race Dimulai! Terbang ke tiap checkpoint...")
 
-		-- Step 6: Traverse all checkpoints underground
+		-- Step 6: Smoothly FLY underground towards each checkpoint
 		local checkpoints = getCheckpointsForRace(raceModel)
 		if #checkpoints == 0 then
-			raceStatusCard.Set("No checkpoints found in track")
+			raceStatusCard.Set("Tidak ada checkpoint ditemukan.")
 			task.wait(2.0)
 			return false
 		end
 
+		local flySpeed = math.clamp(Config.raceFlySpeed or 260, 80, 600)
+
 		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
-			local nextCp = checkpoints[i + 1] or checkpoints[1]
 			local cpPos = cp.Position
-			local nextPos = nextCp and nextCp.Position or cpPos
+			local targetUnderground = Vector3.new(cpPos.X, cpPos.Y - depth, cpPos.Z)
 
-			-- Move bike directly beneath checkpoint
-			local undergroundPos = Vector3.new(cpPos.X, cpPos.Y - depth, cpPos.Z)
-			local lookTarget = Vector3.new(nextPos.X, nextPos.Y - depth, nextPos.Z)
-			local targetCF = CFrame.lookAt(undergroundPos, lookTarget)
+			-- Smooth fly loop towards target checkpoint
+			local arrived = false
+			local timeout = os.clock() + 15.0 -- 15s max per checkpoint safety
 
-			bike:PivotTo(targetCF)
+			while not arrived and Config.autoRace and os.clock() < timeout do
+				local dt = RunService.Heartbeat:Wait()
+				local cur = primary.Position
+				local diff = (targetUnderground - cur)
+				local dist = diff.Magnitude
 
-			-- Trigger checkpoint via touch event while maintaining underground position
+				if dist <= 12 then
+					arrived = true
+					break
+				end
+
+				-- Noclip all bike parts
+				for _, p in ipairs(bike:GetDescendants()) do
+					if p:IsA("BasePart") then p.CanCollide = false end
+				end
+
+				local dir = diff.Unit
+				local step = math.min(flySpeed * dt, dist)
+				local newPos = cur + dir * step
+
+				-- Face forward in direction of motion
+				local lookAhead = newPos + dir * 10
+				bike:PivotTo(CFrame.lookAt(newPos, lookAhead))
+
+				-- Physics forward momentum and throttle
+				primary.AssemblyLinearVelocity = dir * flySpeed
+				primary.AssemblyAngularVelocity = Vector3.zero
+				seat.Throttle = 1
+
+				-- Trigger touch trigger when near checkpoint
+				if dist < 25 then
+					pcall(function()
+						if firetouchinterest then
+							firetouchinterest(seat, cp, 0)
+							firetouchinterest(seat, cp, 1)
+						end
+					end)
+				end
+
+				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s)", i, #checkpoints, dist, flySpeed))
+			end
+
+			-- Final checkpoint touch confirmation
 			pcall(function()
 				if firetouchinterest then
 					firetouchinterest(seat, cp, 0)
-					task.wait(0.04)
+					task.wait(0.02)
 					firetouchinterest(seat, cp, 1)
 				end
 			end)
 
-			raceStatusCard.Set(string.format("Checkpoint %d / %d (Underground)", i, #checkpoints))
-
-			task.wait(Config.checkpointDelay or 0.15)
+			if Config.checkpointDelay and Config.checkpointDelay > 0 then
+				task.wait(Config.checkpointDelay)
+			end
 		end
 
 		-- Step 7: Completed race
 		totalRacesWon = totalRacesWon + 1
 		totalRaceCash = totalRaceCash + raceData.reward
 		raceEarningsCard.Set(string.format("RM %s (%d Wins)", string.format("%.0f", totalRaceCash):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""), totalRacesWon))
-		raceStatusCard.Set("Race Completed! Won RM " .. raceData.reward)
+		raceStatusCard.Set("Selesai! Menang RM " .. raceData.reward)
 
-		UI.Notify("Auto Race", string.format("Completed %s (+RM %d)", raceData.modelName, raceData.reward), 3, "success")
+		UI.Notify("Auto Race", string.format("Finish %s (+RM %d)", raceData.modelName, raceData.reward), 3, "success")
 
-		-- Wait brief pause before next loop
-		task.wait(2.5)
+		-- Brief pause before next cycle
+		task.wait(2.0)
 		return true
 	end
 
@@ -297,31 +391,19 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 🔄 CIRCULAR AUTO DRIVE (ODOMETER FARM)
+	-- 🔄 CIRCULAR UNDERGROUND AUTO DRIVE
 	------------------------------------------------
 
 	local circleCenter = nil
 	local circleAngle = 0
 	local lastDrivePos = nil
 
-	-- Safety ground platform underneath bike
-	local function ensureSafetyPlatform(pos)
-		local plat = workspace:FindFirstChild("__HipHub_RoadPlat")
-		if not plat then
-			plat = Instance.new("Part")
-			plat.Name = "__HipHub_RoadPlat"
-			plat.Anchored = true
-			plat.CanCollide = true
-			plat.Transparency = 1
-			plat.Size = Vector3.new(60, 2, 60)
-			plat.Parent = workspace
-		end
-		plat.CFrame = CFrame.new(pos.X, pos.Y - 1.5, pos.Z)
-		return plat
-	end
-
 	RunService.Heartbeat:Connect(function(dt)
-		if not Config.autoDriveCircle or Config.autoRace then return end
+		if not Config.autoDriveCircle or Config.autoRace then
+			circleCenter = nil
+			lastDrivePos = nil
+			return
+		end
 
 		local bike, seat, primary = nil, nil, nil
 		if _G.HipHub_GetPlayerBike then
@@ -329,27 +411,38 @@ local success, err = pcall(function()
 		end
 
 		if not bike or not seat or not primary then
-			driveStatusCard.Set("Waiting for Kasaki z800...")
+			driveStatusCard.Set("Menunggu Kasaki z800...")
 			return
 		end
 
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.SeatPart ~= seat then
-			driveStatusCard.Set("Mounting bike...")
-			if _G.HipHub_EnsureSeated then _G.HipHub_EnsureSeated(true) end
+			driveStatusCard.Set("Mendudukkan driver...")
+			if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
+				_G.HipHubVehicle.EnsureDriverSeated(true)
+			end
 			return
 		end
 
-		-- Set circle center upon first run
+		local driveDepth = Config.driveDepth or Config.undergroundDepth or 25
+
+		-- Set circle center underground upon first run
 		if not circleCenter then
-			circleCenter = primary.Position
+			local curPos = primary.Position
+			circleCenter = Vector3.new(curPos.X, curPos.Y - driveDepth, curPos.Z)
 			circleAngle = 0
+
+			-- Initial position at radius
+			local radius = math.max(Config.circleRadius or 65, 10)
+			local initialPos = Vector3.new(circleCenter.X + radius, circleCenter.Y, circleCenter.Z)
+			bike:PivotTo(CFrame.new(initialPos))
 		end
 
-		-- Circular motion mathematics
+		-- Circular motion parameters
 		local radius = math.max(Config.circleRadius or 65, 10)
-		local speed = math.max(Config.circleSpeed or 130, 20) -- studs/s
+		-- Convert km/h to studs/s approximation
+		local speed = math.max(Config.circleSpeed or 150, 30)
 
 		-- Angular speed omega = v / R
 		local omega = speed / radius
@@ -357,20 +450,18 @@ local success, err = pcall(function()
 
 		local targetX = circleCenter.X + radius * math.cos(circleAngle)
 		local targetZ = circleCenter.Z + radius * math.sin(circleAngle)
+		local targetPos = Vector3.new(targetX, circleCenter.Y, targetZ)
 
-		-- Raycast to align with road surface
-		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { bike, char, workspace:FindFirstChild("__HipHub_RoadPlat") }
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		-- Forward tangent along circular path
+		local tangent = Vector3.new(-math.sin(circleAngle), 0, math.cos(circleAngle)).Unit
+		local targetCF = CFrame.lookAt(targetPos, targetPos + tangent * 10)
 
-		local rayHit = workspace:Raycast(Vector3.new(targetX, circleCenter.Y + 15, targetZ), Vector3.new(0, -40, 0), rayParams)
-		local groundY = rayHit and (rayHit.Position.Y + 2.4) or circleCenter.Y
-
-		local targetPos = Vector3.new(targetX, groundY, targetZ)
-
-		-- Tangent vector for forward look orientation
-		local tangent = Vector3.new(-math.sin(circleAngle), 0, math.cos(circleAngle))
-		local targetCF = CFrame.lookAt(targetPos, targetPos + tangent)
+		-- Noclip all bike parts
+		for _, p in ipairs(bike:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.CanCollide = false
+			end
+		end
 
 		-- Apply transform and maintain active throttle for odometer accumulation
 		bike:PivotTo(targetCF)
@@ -378,27 +469,17 @@ local success, err = pcall(function()
 		primary.AssemblyLinearVelocity = tangent * speed
 		primary.AssemblyAngularVelocity = Vector3.new(0, omega, 0)
 
-		ensureSafetyPlatform(targetPos)
-
 		-- Distance telemetry
 		if lastDrivePos then
 			local d = (targetPos - lastDrivePos).Magnitude
 			totalDistanceTraveled = totalDistanceTraveled + d
-			local km = totalDistanceTraveled * 0.00028 -- Roblox studs to km
+			local km = totalDistanceTraveled * 0.00028
 			driveDistCard.Set(string.format("%.2f km", km))
 		end
 		lastDrivePos = targetPos
 
 		local elapsed = math.floor(os.clock() - circleDriveStartTime)
-		driveStatusCard.Set(string.format("Radius: %d studs | %d km/h (%02d:%02d)", radius, math.floor(speed * 1.6), math.floor(elapsed / 60), elapsed % 60))
-	end)
-
-	-- Reset center on toggle off
-	UI.tabs["Farm"].button.MouseButton1Click:Connect(function()
-		if not Config.autoDriveCircle then
-			circleCenter = nil
-			lastDrivePos = nil
-		end
+		driveStatusCard.Set(string.format("Bawah Tanah | R: %d studs | %d km/h (%02d:%02d)", radius, speed, math.floor(elapsed / 60), elapsed % 60))
 	end)
 end)
 
