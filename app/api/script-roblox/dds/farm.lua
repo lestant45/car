@@ -158,6 +158,7 @@ local success, err = pcall(function()
 	local passengerSeated     = false
 	local taxiOverlayPoller   = nil
 	local isResettingTaxi     = false
+	local isRespawning        = false
 	local dropoffStuckTime    = nil
 	local taxiPickupAddr      = ""
 	local taxiDropAddr        = ""
@@ -169,6 +170,8 @@ local success, err = pcall(function()
 	local autoCourierToggle       = nil
 	local toggleAutoCourier       = nil
 
+	local triggerSafeRespawn  = nil
+	local spawnTaxiBike       = nil
 	local changeTeam          = nil
 	local mountBike           = nil
 	local ensureDriverSeated  = nil
@@ -463,36 +466,122 @@ local success, err = pcall(function()
 		isDrivingActive = false
 	end
 
-	local triggerSafeRespawn = function(reason)
-		UI.Notify("🔄 Reset Karakter", reason or "Jurang luas / ground belum render. Respawn aman...", 3, "warning")
-		updateBotActivity("🔄 Respawn Aman (Bebas Strike)...", Color3.fromRGB(255, 180, 50))
+	triggerSafeRespawn = function(reason)
+		if isRespawning then return false end
+		isRespawning = true
 
-		-- Despawn motor lama agar tidak tertinggal di bibir jurang
+		UI.Notify("🔄 Prosedur Respawn", reason or "Jurang luas / ground belum render. Memulai reset aman...", 3.5, "warning")
+		updateBotActivity("🔄 Menunggu Respawn Karakter...", Color3.fromRGB(255, 180, 50))
+
+		-- 1. Hentikan total navigasi & gerak kendaraan lama
+		cancelActiveDrive()
 		pcall(function()
 			local car, seat = getPlayerVehicle()
 			if car then
-				local des = ReplicatedStorage:FindFirstChild("despawnCar")
-				if des then des:FireServer(car) end
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
 			end
 		end)
 
-		-- Reset karakter via Humanoid (legal native Roblox reset)
-		local currentCharacter = player.Character
+		-- 2. Despawn motor lama agar tidak tersisa di bibir jurang / void
 		pcall(function()
-			local hum = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+			local car, _ = getPlayerVehicle()
+			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
+			if despawnEvent then
+				despawnEvent:FireServer()
+			end
+			if car and car.Parent then
+				car:Destroy()
+			end
+		end)
+
+		-- 3. Reset karakter via Humanoid (legal native Roblox reset, bypass HealthGuard)
+		local oldChar = player.Character
+		pcall(function()
+			local hum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
 			if hum then
 				hum.Health = 0
 			end
+			if oldChar then
+				oldChar:BreakJoints()
+			end
 		end)
 
-		-- Tunggu hingga karakter baru respawn di daratan kota asal (timeout 8 detik)
+		-- 4. FOKUS TUNGGU RESPAWN: Tunggu hingga karakter baru benar-benar muncul dan hidup stabil
 		local t0 = os.clock()
-		while (player.Character == currentCharacter or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart")) and (os.clock() - t0 < 8.0) do
-			task.wait(0.2)
+		while true do
+			local curChar = player.Character
+			if curChar and curChar ~= oldChar and curChar.Parent then
+				local hum = curChar:FindFirstChildOfClass("Humanoid")
+				local hrp = curChar:FindFirstChild("HumanoidRootPart")
+				if hum and hrp and hum.Health > 0 then
+					break
+				end
+			end
+			if os.clock() - t0 > 12.0 then
+				warn("[HipHub DDS] triggerSafeRespawn: Timeout menunggu respawn karakter baru")
+				break
+			end
+			task.wait(0.25)
 		end
-		task.wait(1.0)
 
-		-- Jika sedang kurir, refresh job request agar server memberi target baru
+		-- Jeda 1.5 detik agar physics karakter dan streaming map kota asal stabil
+		updateBotActivity("⏳ Menstabilkan Posisi Karakter...", Color3.fromRGB(255, 200, 50))
+		task.wait(1.5)
+
+		-- 5. SPAWN MOTOR BARU: Karakter sudah respawn, panggil motor baru
+		updateBotActivity("🏍️ Memanggil Motor Baru...", Color3.fromRGB(0, 212, 255))
+		UI.Notify("🏍️ Memanggil Motor", "Karakter telah respawn, memanggil motor baru...", 2.5, "info")
+
+		local bikeSpawned = false
+		local newCar, newSeat = nil, nil
+		for spawnAttempt = 1, 3 do
+			if spawnTaxiBike then
+				spawnTaxiBike()
+			end
+			local tWaitBike = os.clock()
+			while os.clock() - tWaitBike < 3.5 do
+				task.wait(0.3)
+				newCar, newSeat = getPlayerVehicle()
+				if newCar and newSeat then
+					bikeSpawned = true
+					break
+				end
+			end
+			if bikeSpawned then break end
+			task.wait(0.5)
+		end
+
+		-- 6. DUDUK DI DRIVER SEAT MOTOR: Baru setelah motor ada, duduk di kursi pengemudi
+		if newCar and newSeat then
+			updateBotActivity("🛵 Menaiki Kursi Pengemudi...", Color3.fromRGB(0, 212, 255))
+			local seated = false
+			for sitAttempt = 1, 3 do
+				local ok = mountBike(true)
+				if ok then
+					local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+					if hum and hum.SeatPart then
+						seated = true
+						break
+					end
+				end
+				task.wait(0.5)
+			end
+			if seated then
+				UI.Notify("✅ Siap Lanjut", "Berhasil duduk di motor baru, melanjutkan tugas!", 2.0, "success")
+			else
+				UI.Notify("⚠️ Belum Duduk", "Gagal duduk otomatis, bot akan mencoba kembali saat mulai berkendara.", 2.0, "warning")
+			end
+		else
+			UI.Notify("⚠️ Motor Belum Siap", "Motor baru belum terdeteksi, mencoba kembali di cycle berikutnya.", 2.5, "warning")
+		end
+
+		-- 7. Jika sedang Kurir, refresh job request agar server memberi target baru
 		if courierActive then
 			pcall(function()
 				local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
@@ -508,6 +597,8 @@ local success, err = pcall(function()
 			end)
 		end
 
+		task.wait(0.5)
+		isRespawning = false
 		return true
 	end
 
@@ -630,7 +721,7 @@ local success, err = pcall(function()
 
 	local TAXI_BIKE_NAME = "Yamahax-MioSporty"
 
-	local function spawnTaxiBike()
+	spawnTaxiBike = function()
 		local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 		local remote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
 		if not remote then return end
@@ -720,6 +811,7 @@ local success, err = pcall(function()
 			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
 
 			hum.HealthChanged:Connect(function(newH)
+				if isRespawning then return end
 				if newH < hum.MaxHealth and (courierActive or taxiActive) then
 					pcall(function() hum.Health = hum.MaxHealth end)
 				end
@@ -735,7 +827,8 @@ local success, err = pcall(function()
 	end
 	task.spawn(initHealthGuard)
 
-	mountBike = function()
+	mountBike = function(ignoreRespawning)
+		if isRespawning and not ignoreRespawning then return false end
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -827,14 +920,15 @@ local success, err = pcall(function()
 	end
 
 	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi.
-	ensureDriverSeated = function()
+	ensureDriverSeated = function(ignoreRespawning)
+		if isRespawning and not ignoreRespawning then return false end
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		if hum and hum.SeatPart then return true end
 
 		for attempt = 1, 3 do
 			UI.Notify("⚠️ Driver Not Seated", string.format("Menaiki motor (Percobaan %d/3)...", attempt), 2, "warning")
-			local ok = mountBike()
+			local ok = mountBike(ignoreRespawning)
 			if ok then
 				task.wait(0.3)
 				local h2 = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -851,7 +945,7 @@ local success, err = pcall(function()
 
 	-- 🔄 Auto-Duty Health & Seat Recovery Engine (Anti-AFK & Redfinger Duty Reconnector)
 	recoverRideGoDuty = function()
-		if not taxiActive or taxiBusy or isResettingTaxi then return end
+		if not taxiActive or taxiBusy or isResettingTaxi or isRespawning then return end
 
 		pcall(function()
 			-- 1. Pastikan Tim adalah "RideGO Driver"
@@ -3595,6 +3689,7 @@ local success, err = pcall(function()
 
 	-- 🛵 Official Vehicle Courier Navigation (Ground-to-Ground & Road Driving)
 	local function driveCourierTo(targetCF, speed, stopRadius, abortCheck)
+		if isRespawning then return false end
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		if not char or not hum or hum.Health <= 0 then return false end
@@ -3715,6 +3810,10 @@ local success, err = pcall(function()
 				while courierActive do
 					task.wait(0.5)
 					if not courierActive then break end
+					if isRespawning then
+						task.wait(0.5)
+						continue
+					end
 
 					if courierResetFlag then
 						task.wait(2)
