@@ -1738,16 +1738,19 @@ local success, err = pcall(function()
 		end
 
 		-- 🌉 Fallback untuk Jurang Samudra Sangat Luas (Ocean / Chasm Crossing):
-		-- Jika jurang membentang luas tanpa daratan perantara hingga ke daratan pulau tujuan:
+		-- Hanya melompat jika daratan seberang BENAR-BENAR terdeteksi solid oleh probeGround!
+		-- DILARANG KERAS melompat ke ketinggian laut (Y=5) jika daratan belum render!
 		if totalDistToDest >= 60 then
 			local approachDist = math.max(15, math.min(35, totalDistToDest * 0.1))
 			local nearDestPos = toPos - baseDir * approachDist
 			requestStreamAsync(nearDestPos)
-			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y) or (toPos.Y + MOTOR_PIVOT_HEIGHT_OFFSET) or (5 + MOTOR_PIVOT_HEIGHT_OFFSET)
-			local landPos = Vector3.new(nearDestPos.X, destGroundY, nearDestPos.Z)
-			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-			local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-			return landed, jumpDist
+			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y)
+			if destGroundY then
+				local landPos = Vector3.new(nearDestPos.X, destGroundY, nearDestPos.Z)
+				local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
+				local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
+				return landed, jumpDist
+			end
 		end
 
 		return nil
@@ -1977,7 +1980,9 @@ local success, err = pcall(function()
 		local stuckNudgeCount = 0
 
 		local navHeading = nil
-		local edgeFollowSign = 1
+		local edgeFollowSign = 0
+		local edgeFollowDeadEndCount = 0
+		local edgeFollowStartTime = 0
 		local curHeadingAngle = math.atan2(((destP - startP).Unit).X, ((destP - startP).Unit).Z)
 		local lastBridgeScanTime = 0
 		local driveStartTime = os.clock()
@@ -2106,77 +2111,6 @@ local success, err = pcall(function()
 				return
 			end
 
-			-- Stuck Recovery
-			local nowClock = os.clock()
-			if dist < stuckLastDist - 2.5 then
-				stuckLastDist = dist
-				stuckLastTime = nowClock
-			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 then
-				stuckNudgeCount = stuckNudgeCount + 1
-				stuckLastTime   = nowClock
-				stuckLastDist   = dist
-
-				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
-				local nudgeDist = math.min(30, dist - 4)
-				if nudgeDist > 0 then
-					local nudgePos2D = Vector3.new(
-						carPos.X + nudgeDir.X * nudgeDist,
-						0,
-						carPos.Z + nudgeDir.Z * nudgeDist
-					)
-					local nudgeRp = RaycastParams.new()
-					nudgeRp.FilterDescendantsInstances = buildingFilter
-					nudgeRp.FilterType = Enum.RaycastFilterType.Exclude
-					local nudgeHit = workspace:Raycast(
-						Vector3.new(nudgePos2D.X, math.max(lastGroundY + 50, 70), nudgePos2D.Z),
-						Vector3.new(0, -150, 0),
-						nudgeRp
-					)
-					if nudgeHit and nudgeHit.Position.Y >= -30 and nudgeHit.Position.Y <= 300 then
-						local nudgeY = nudgeHit.Position.Y + MOTOR_PIVOT_HEIGHT_OFFSET
-						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
-
-						pcall(function()
-							ensureSafetyPlate(nudgeLand, 40)
-							local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
-							car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
-							for _, part in ipairs(car:GetDescendants()) do
-								if part:IsA("BasePart") then
-									part.AssemblyLinearVelocity  = Vector3.zero
-									part.AssemblyAngularVelocity = Vector3.zero
-								end
-							end
-							lastGroundY = nudgeY
-						end)
-
-						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
-						return -- Selesaikan frame ini agar posisi bypass tidak ter-override
-					else
-						edgeFollowSign = -edgeFollowSign
-						stuckLastTime = nowClock
-					end
-				end
-			end
-
-			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (Mulai dari 800 Studs):
-			-- Stage 1 (800 -> 50 stud): Kecepatan turun mulus dari speed (300 stud/s) ke 28 stud/s (~25 km/h)
-			-- Stage 2 (50 -> 10 stud): Kecepatan merayap pelan dari 28 stud/s ke 4.0 stud/s
-			-- Stage 3 (< 10 stud): Meluncur lembut ke 0 stud/s dan berhenti tepat di titik tujuan (dist <= 3.5)
-			local targetSpeed = speed
-
-			if dist < 10 then
-				local ratio = math.clamp(dist / 10, 0, 1)
-				targetSpeed = math.max(0, 4.0 * ratio)
-			elseif dist < 50 then
-				local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
-				targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
-			elseif dist < 800 then
-				local factor = math.clamp((dist - 50) / 750, 0, 1)
-				-- Smoothstep S-Curve: Transisi eksponensial sangat empuk tanpa sentakan inersia
-				local sFactor = factor * factor * (3 - 2 * factor)
-				targetSpeed = 28.0 + (speed - 28.0) * sFactor
-			end
-
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛑 STRICT VOID SAFETY SCANNER:
@@ -2195,9 +2129,67 @@ local success, err = pcall(function()
 			end
 
 			-- 🛑 Pengereman Menjelang Tepi Jurang (Berhenti di solidAheadDist <= 3):
-			-- Kendaraan merayap mendekati tepi hingga jarak 3 stud (tepat di ujung aspal),
-			-- ban depan tetap 100% menapak di daratan asal tanpa menggantung di ruang hampa.
 			local isImmediateVoidAhead = (solidAheadDist <= 3) and (dist > solidAheadDist)
+
+			-- Stuck Recovery (Hanya aktif jika AMAN di jalan normal, DILARANG KERAS NUDGE di bibir jurang / saat susur tebing)
+			local nowClock = os.clock()
+			if dist < stuckLastDist - 2.5 then
+				stuckLastDist = dist
+				stuckLastTime = nowClock
+			elseif (nowClock - stuckLastTime) >= 2.5 and stuckNudgeCount < 10 and not isImmediateVoidAhead and edgeFollowSign == 0 then
+				stuckNudgeCount = stuckNudgeCount + 1
+				stuckLastTime   = nowClock
+				stuckLastDist   = dist
+
+				local nudgeDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
+				local nudgeDist = math.min(30, dist - 4)
+				if nudgeDist > 0 then
+					local nudgePos2D = Vector3.new(
+						carPos.X + nudgeDir.X * nudgeDist,
+						0,
+						carPos.Z + nudgeDir.Z * nudgeDist
+					)
+					local solidHitY = probeGround(nudgePos2D, lastGroundY)
+					if solidHitY and solidHitY >= -30 and solidHitY <= 300 then
+						local nudgeY = solidHitY
+						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
+
+						pcall(function()
+							ensureSafetyPlate(nudgeLand, 40)
+							local yaw = math.atan2(nudgeDir.X, nudgeDir.Z)
+							car:PivotTo(CFrame.new(nudgeLand) * CFrame.Angles(0, yaw, 0))
+							for _, part in ipairs(car:GetDescendants()) do
+								if part:IsA("BasePart") then
+									part.AssemblyLinearVelocity  = Vector3.zero
+									part.AssemblyAngularVelocity = Vector3.zero
+								end
+							end
+							lastGroundY = nudgeY
+							lastSolidCF = car:GetPivot()
+						end)
+
+						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
+						return -- Selesaikan frame ini agar posisi bypass tidak ter-override
+					else
+						stuckLastTime = nowClock
+					end
+				end
+			end
+
+			-- 🏎️ 3-Stage Progressive Aerodynamic Braking Curve (Mulai dari 800 Studs):
+			local targetSpeed = speed
+
+			if dist < 10 then
+				local ratio = math.clamp(dist / 10, 0, 1)
+				targetSpeed = math.max(0, 4.0 * ratio)
+			elseif dist < 50 then
+				local creepFactor = math.clamp((dist - 10) / 40, 0, 1)
+				targetSpeed = 4.0 + (28.0 - 4.0) * creepFactor
+			elseif dist < 800 then
+				local factor = math.clamp((dist - 50) / 750, 0, 1)
+				local sFactor = factor * factor * (3 - 2 * factor)
+				targetSpeed = 28.0 + (speed - 28.0) * sFactor
+			end
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
@@ -2221,7 +2213,6 @@ local success, err = pcall(function()
 			end
 
 			-- 🛡️ Slew-Rate Limiter (Zero-Damage Smooth Acceleration & Deceleration):
-			-- Jika jurang dekat (< 25 stud), kurangi kecepatan secara instan agar tidak bablas ke bibir jurang!
 			local maxAccelRate = math.max(45, speed * 0.4) * dt
 			local maxDecelRate = (solidAheadDist < 25) and 9999 or (math.max(50, speed * 0.45) * dt)
 			if currentSmoothSpeed < targetSpeed then
@@ -2241,6 +2232,11 @@ local success, err = pcall(function()
 			local targetElevY = lastGroundY
 
 			if directHitY and not isImmediateVoidAhead then
+				if edgeFollowSign ~= 0 then
+					edgeFollowSign = 0
+					edgeFollowDeadEndCount = 0
+					UI.Notify("🛣️ Daratan Ditemukan", "Melanjutkan perjalanan ke tujuan...", 1.5, "success")
+				end
 				cliffWaitStartTime = nil
 				actualMoveDir = directGoalDir
 				navHeading = directGoalDir
@@ -2248,16 +2244,7 @@ local success, err = pcall(function()
 				lastSolidCF = car:GetPivot()
 			else
 				-- 🛑 TEPI JURANG / PULAU SEMPIT: DILARANG KERAS BERJALAN MAJU KE ATAS RUANG HAMPA UDARA!
-				-- Motor WAJIB diam total di atas aspal daratan asal sambil memindai daratan seberang.
-				actualMoveDir = Vector3.zero
-				stepDist = 0
-				currentSmoothSpeed = 0
-				curSpeed = 0
-				targetElevY = lastGroundY
-
 				-- 🛡️ ANTI-MELAYANG DI UDARA (Cliff Edge Snap-Back):
-				-- Jika posisi motor saat ini sudah terlanjur melewati bibir tebing,
-				-- seketika tarik kembali posisi motor ke lastSolidCF agar tetap 100% di atas daratan solid!
 				if lastSolidCF and not probeGround(carPos, lastGroundY) then
 					car:PivotTo(lastSolidCF)
 					for _, part in ipairs(car:GetDescendants()) do
@@ -2270,16 +2257,14 @@ local success, err = pcall(function()
 				end
 
 				local nowClock = os.clock()
-				cliffWaitStartTime = cliffWaitStartTime or nowClock
 
-				-- ⏱️ Waktu tunggu di tepi jurang:
-				local cliffWaitDuration = nowClock - cliffWaitStartTime
-
-				-- 1. 🌉 Prioritas Utama: Coba lompati jurang dengan motor jika memungkinkan!
-				if (nowClock - lastBridgeScanTime) >= 0.15 then
+				-- 1. 🌉 Prioritas Utama: Coba lompati jurang dengan motor jika daratan seberang solid ter-render!
+				if (nowClock - lastBridgeScanTime) >= 0.25 then
 					lastBridgeScanTime = nowClock
 					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
+						edgeFollowSign = 0
+						edgeFollowDeadEndCount = 0
 						cliffWaitStartTime = nil
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
@@ -2288,22 +2273,114 @@ local success, err = pcall(function()
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
 						stuckLastTime = os.clock()
 						currentSmoothSpeed = 0
-						return -- 🛑 Selesaikan frame ini setelah mendarat dan hold selesai!
+						return
 					end
 				end
 
+				-- 2. 🧭 CLIFF EDGE FOLLOWING ENGINE (Menyusuri Tepi Jurang)
+				local tangentRight = Vector3.new(directGoalDir.Z, 0, -directGoalDir.X)
+				local tangentLeft  = Vector3.new(-directGoalDir.Z, 0, directGoalDir.X)
 
-				-- 3. ⏱️ Timeout di Tepi Jurang (untuk mode selain Kurir atau jika jarak <= 35 stud):
-				if cliffWaitDuration >= 8.0 then
-					cliffWaitStartTime = nil
-					cancelActiveDrive()
-					if courierActive then
-						UI.Notify("⚠️ Jurang Terlalu Luas", "Mencoba kalkulasi ulang rute...", 2.0, "warning")
-						return
+				if edgeFollowSign == 0 then
+					-- Evaluasi awal: pilih arah (Kanan vs Kiri) berdasarkan daratan solid & jarak terdekat ke tujuan
+					local pRight = carPos + tangentRight * 10
+					local pLeft  = carPos + tangentLeft * 10
+					local gRight = probeGround(pRight, lastGroundY)
+					local gLeft  = probeGround(pLeft, lastGroundY)
+					local dRight = (destP - pRight).Magnitude
+					local dLeft  = (destP - pLeft).Magnitude
+
+					if gRight and gLeft then
+						edgeFollowSign = (dRight <= dLeft) and 1 or -1
+					elseif gRight then
+						edgeFollowSign = 1
+					elseif gLeft then
+						edgeFollowSign = -1
 					else
-						task.spawn(function()
-							restartAutoRideGoToggle("Jurang Terlalu Luas")
-						end)
+						local pR4 = carPos + tangentRight * 4
+						local pL4 = carPos + tangentLeft * 4
+						if probeGround(pR4, lastGroundY) then
+							edgeFollowSign = 1
+						elseif probeGround(pL4, lastGroundY) then
+							edgeFollowSign = -1
+						else
+							edgeFollowSign = 1
+						end
+					end
+
+					edgeFollowDeadEndCount = 0
+					edgeFollowStartTime = nowClock
+					cliffWaitStartTime = nowClock
+					UI.Notify("🧭 Menyusuri Tebing", string.format("Jurang terdeteksi, menyusuri tepi ke arah %s...", edgeFollowSign == 1 and "kanan" or "kiri"), 2.0, "info")
+				end
+
+				-- Tentukan arah telusur aktif di sepanjang tepi
+				local activeTangent = (edgeFollowSign == 1) and tangentRight or tangentLeft
+				local blendDir = (activeTangent * 0.85 + directGoalDir * 0.15).Unit
+				local creepSpeed = math.clamp(speed * 0.35, 18, 28)
+				local edgeStepDist = creepSpeed * dt
+				local edgeProbeDist = math.max(edgeStepDist * 2.0, 5)
+
+				local edgeProbePos = carPos + blendDir * edgeProbeDist
+				local edgeHitY = probeGround(edgeProbePos, lastGroundY)
+
+				if not edgeHitY then
+					edgeProbePos = carPos + activeTangent * edgeProbeDist
+					edgeHitY = probeGround(edgeProbePos, lastGroundY)
+					if edgeHitY then
+						blendDir = activeTangent
+					end
+				end
+
+				if not edgeHitY then
+					-- 🛑 UJUNG BUNTU (DEAD-END CORNER DETECTED)
+					edgeFollowDeadEndCount = edgeFollowDeadEndCount + 1
+					if edgeFollowDeadEndCount == 1 then
+						-- Tahap 1: Backtrack & putar balik 180° menyusuri sisi alternatif
+						edgeFollowSign = -edgeFollowSign
+						UI.Notify("🔄 Ujung Buntu", "Arah buntu terdeteksi, putar balik menyusuri sisi sebaliknya...", 2.0, "warning")
+						actualMoveDir = Vector3.zero
+						stepDist = 0
+						currentSmoothSpeed = 0
+						local newTangent = (edgeFollowSign == 1) and tangentRight or tangentLeft
+						curHeadingAngle = math.atan2(newTangent.X, newTangent.Z)
+					else
+						-- Tahap 2: KEDUA SISI BUNTU TOTAL (Pulau Terisolasi)
+						UI.Notify("⚠️ Jurang Terisolasi", "Kedua arah tebing buntu! Mereset orderan baru...", 3.0, "error")
+						actualMoveDir = Vector3.zero
+						stepDist = 0
+						currentSmoothSpeed = 0
+
+						if lastSolidCF then
+							car:PivotTo(lastSolidCF)
+						end
+						cancelActiveDrive()
+
+						if courierActive and deliveryServiceEvent then
+							deliveryServiceEvent:FireServer("RequestJobUpdate")
+						elseif not courierActive then
+							task.spawn(function()
+								restartAutoRideGoToggle("Jurang Terlalu Luas")
+							end)
+						end
+						return
+					end
+				else
+					-- Daratan tepi solid ditemukan, teruskan pergerakan merayap
+					actualMoveDir = blendDir
+					targetElevY = edgeHitY
+					currentSmoothSpeed = creepSpeed
+					stepDist = edgeStepDist
+					lastSolidCF = car:GetPivot()
+
+					-- Timeout pencegahan loop jika tebing terlalu panjang (> 25 detik)
+					if (nowClock - edgeFollowStartTime) > 25 then
+						UI.Notify("⏱️ Batas Waktu Tebing", "Menyusuri tebing melebihi batas waktu, mereset order...", 2.5, "warning")
+						if lastSolidCF then car:PivotTo(lastSolidCF) end
+						cancelActiveDrive()
+						if courierActive and deliveryServiceEvent then
+							deliveryServiceEvent:FireServer("RequestJobUpdate")
+						end
 						return
 					end
 				end
@@ -3366,14 +3443,42 @@ local success, err = pcall(function()
 		UI.Notify("🔁 Courier Auto-Rejoin", reason or "Batas sesi tercapai! Rejoining server...", 5, "warning")
 		updateBotActivity("🔄 " .. (reason or "Auto-Rejoining Server..."), Color3.fromRGB(255, 120, 50))
 
-		-- 1. Bersihkan kursi dummy & pindah tim civilian
+		-- Matikan cycle courier & toggle
+		courierActive = false
+		_G.HipHubCourierActive = false
+		if autoCourierToggle and autoCourierToggle.Set then
+			pcall(function() autoCourierToggle.Set(false) end)
+		end
+
+		-- 1. Bersihkan status kerja, turun dari motor, lepas box, & ubah tim ke Civilian
 		pcall(function()
 			local s = workspace:FindFirstChild("courier_seat")
 			if s then s:Destroy() end
+
+			local curChar = player.Character
+			local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+			if curHum then
+				curHum.Sit = false
+				task.wait(0.2)
+				curHum:UnequipTools()
+			end
+
+			local bp = player:FindFirstChild("Backpack")
+			if bp then
+				for _, t in ipairs(bp:GetChildren()) do
+					if t.Name == "Box" or t.Name == "Package" then
+						pcall(function() t:Destroy() end)
+					end
+				end
+			end
+
 			local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
 			local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
 			if teamReq then
 				teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
+			end
+			if changeTeam then
+				changeTeam("Civilian")
 			end
 		end)
 
@@ -3408,30 +3513,10 @@ local success, err = pcall(function()
 
 		task.wait(1.5)
 
-		-- 3. Teleport Service Rejoin (Kembali ke Server / Private Server saat ini via JobId)
-		local TeleportService = game:GetService("TeleportService")
-		local placeId = game.PlaceId
-		local jobId = game.JobId
-
-		-- Listener fail-safe agar retry ke JobId yang sama jika ada antrean/delay
-		local failConn
-		failConn = TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
-			if failedPlayer == player or failedPlayer == nil then
-				task.wait(2)
-				pcall(function()
-					TeleportService:TeleportToPlaceInstance(placeId, jobId)
-				end)
-			end
-		end)
-
-		-- Langsung reconnect ke server saat ini (JobId sama persis, menjamin tetap di Private Server)
+		-- 3. Teleport Service Rejoin (Single clean call, sama persis seperti RideGO yang sukses di Private Server)
 		pcall(function()
-			TeleportService:TeleportToPlaceInstance(placeId, jobId)
-		end)
-
-		task.wait(4)
-		pcall(function()
-			TeleportService:TeleportToPlaceInstance(placeId, jobId)
+			local TeleportService = game:GetService("TeleportService")
+			TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
 		end)
 	end
 
