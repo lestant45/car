@@ -552,6 +552,8 @@ local success, err = pcall(function()
 		return nil, nil
 	end
 
+	local MOTOR_PIVOT_HEIGHT_OFFSET = 2.05
+
 	-- Spawns an invisible collision safety plate underneath destination/vehicle
 	local function ensureSafetyPlate(pos, width)
 		width = width or 80
@@ -567,7 +569,11 @@ local success, err = pcall(function()
 			pcall(function() plate.Parent = workspace end)
 		end
 		plate.Size = Vector3.new(width, 4, width)
-		plate.CFrame = CFrame.new(pos.X, pos.Y - 2.0, pos.Z)
+		-- Posisikan permukaan atas safety plate tepat 0.2 stud di bawah permukaan tanah / ban motor:
+		-- pos.Y adalah target pivot motor, sehingga ground level = pos.Y - MOTOR_PIVOT_HEIGHT_OFFSET
+		local groundLevel = pos.Y - MOTOR_PIVOT_HEIGHT_OFFSET
+		local plateTopY = groundLevel - 0.2
+		plate.CFrame = CFrame.new(pos.X, plateTopY - 2.0, pos.Z)
 		return plate
 	end
 
@@ -651,10 +657,41 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+					if hum.Health < hum.MaxHealth then
+						pcall(function() hum.Health = hum.MaxHealth end)
+					end
 				end
 			end
 		end)
 	end
+
+	-- 🛡️ Anti-Death & Godmode Health Guard Engine (100% Zero-Damage Assurance)
+	local function initHealthGuard()
+		local function bindCharacter(char)
+			if not char then return end
+			local hum = char:WaitForChild("Humanoid", 5) or char:FindFirstChildOfClass("Humanoid")
+			if not hum then return end
+
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+
+			hum.HealthChanged:Connect(function(newH)
+				if newH < hum.MaxHealth and (courierActive or taxiActive) then
+					pcall(function() hum.Health = hum.MaxHealth end)
+				end
+			end)
+		end
+
+		if player.Character then
+			task.spawn(function() bindCharacter(player.Character) end)
+		end
+		player.CharacterAdded:Connect(function(char)
+			task.spawn(function() bindCharacter(char) end)
+		end)
+	end
+	task.spawn(initHealthGuard)
 
 	mountBike = function()
 		local char = player.Character
@@ -1091,13 +1128,13 @@ local success, err = pcall(function()
 				rayParams.FilterDescendantsInstances = getGroundExcludeFilter(car)
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local hit = workspace:Raycast(Vector3.new(safePos.X, safePos.Y + 30, safePos.Z), Vector3.new(0, -60, 0), rayParams)
-				local groundY = hit and (hit.Position.Y + 0.3) or safePos.Y
-				local groundPos = Vector3.new(safePos.X, groundY, safePos.Z)
+				local groundY = hit and hit.Position.Y or (safePos.Y - MOTOR_PIVOT_HEIGHT_OFFSET)
+				local bikePos = Vector3.new(safePos.X, groundY + MOTOR_PIVOT_HEIGHT_OFFSET, safePos.Z)
 
 				-- Spawn safety plate under parked bike only
-				ensureSafetyPlate(groundPos, 35)
+				ensureSafetyPlate(bikePos, 35)
 				local curPiv = car:GetPivot()
-				car:PivotTo(CFrame.new(groundPos) * (curPiv - curPiv.Position))
+				car:PivotTo(CFrame.new(bikePos) * (curPiv - curPiv.Position))
 			end
 			-- Restore collision parts on the DDS motorcycle so tires firmly touch the road trigger
 			for _, part in ipairs(car:GetDescendants()) do
@@ -1146,7 +1183,7 @@ local success, err = pcall(function()
 
 	-- 🛡️ Synchronized Atomic Pivot & Physics Stabilization Leap
 	local function teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-		-- 1. Pre-stream daratan seberang & bentangkan Safety Plate kokoh (80x80)
+		-- 1. Pre-stream daratan seberang & bentangkan Safety Plate kokoh (di bawah tanah seberang)
 		requestStreamAsync(landPos)
 		ensureSafetyPlate(landPos, 80)
 
@@ -1166,32 +1203,56 @@ local success, err = pcall(function()
 		local targetRot = CFrame.Angles(0, targetYaw, 0)
 		local targetCF  = CFrame.new(landPos) * targetRot
 
-		-- 2. Pastikan pengemudi terpasang di kursi sebelum teleport
-		if hum and seat and hum.SeatPart ~= seat then
-			pcall(function() seat:Sit(hum) end)
-		end
-
-		-- 3. Zero all velocities on car, driver, and passenger
+		-- 2. Matikan total collision pada motor dan player agar tidak terjadi ledakan impuls / unseat
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
+				part.CanCollide = false
 				part.AssemblyLinearVelocity  = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
 		end
-		if root then
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+					part.AssemblyLinearVelocity  = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
 		end
-		if passRoot then
-			passRoot.AssemblyLinearVelocity = Vector3.zero
-			passRoot.AssemblyAngularVelocity = Vector3.zero
+		if passengerNpc then
+			for _, part in ipairs(passengerNpc:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+					part.AssemblyLinearVelocity  = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
 		end
 
-		-- 4. Instant Ground-to-Ground Leap (0 Frame di atas jurang / void)
-		-- Mendarat langsung di atas aspal/tanah seberang tanpa pernah meluncur/berjalan di udara kosong!
+		-- 3. Proteksi status humanoid & anti-damage sebelum teleport
+		if hum then
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			if hum.Health < hum.MaxHealth then
+				pcall(function() hum.Health = hum.MaxHealth end)
+			end
+		end
+
+		-- 4. Pastikan pengemudi terpasang di kursi sebelum teleport
+		if hum and seat and hum.SeatPart ~= seat then
+			if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.3, 0) end
+			pcall(function() seat:Sit(hum) end)
+		end
+
+		-- 5. Instant Ground-to-Ground Leap dengan Anchor sementara untuk meniadakan impuls tumbukan
+		if prim then prim.Anchored = true end
 		car:PivotTo(targetCF)
 		RunService.Heartbeat:Wait()
 		car:PivotTo(targetCF)
+		if prim then prim.Anchored = false end
 
 		local pSeat = getPassengerSeat(car)
 		if passRoot and (pSeat or seat) then
@@ -1202,34 +1263,32 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 5. Pastikan driver tetap duduk di DriveSeat (BUKAN kursi penumpang!) setelah mendarat
+		-- 6. Pastikan driver tetap duduk di DriveSeat (BUKAN kursi penumpang!) dan pulihkan darah seketika
 		if hum and seat then
 			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-			if hum.SeatPart ~= seat then
+			if hum.Health < hum.MaxHealth then
+				pcall(function() hum.Health = hum.MaxHealth end)
+			end
+			if not hum.SeatPart or hum.SeatPart ~= seat then
+				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
 				pcall(function() seat:Sit(hum) end)
 			end
-			-- 🔍 Verifikasi: jika setelah Sit() player malah duduk di kursi penumpang, paksa ulang!
-			task.wait(0.05)
+			task.wait(0.04)
 			if hum.SeatPart and hum.SeatPart ~= seat then
-				-- Player duduk di kursi yang salah → paksa ke DriveSeat
 				hum.Sit = false
-				task.wait(0.05)
+				task.wait(0.04)
 				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
 				pcall(function() seat:Sit(hum) end)
 			end
 		end
 
-		-- 6. ⏱️ ZERO FREEZE LANDING: Langsung tancap gas tanpa jeda diam!
-		local distVal = tonumber(jumpDist) or 0
-		UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Langsung gas pol!", math.floor(distVal)), 1.5, "info")
-		task.wait(0.04)
-
 		-- 7. Nol-kan kembali seluruh kecepatan di posisi baru
 		for _, part in ipairs(car:GetDescendants()) do
 			if part:IsA("BasePart") then
+				part.CanCollide = false
 				part.AssemblyLinearVelocity  = Vector3.zero
 				part.AssemblyAngularVelocity = Vector3.zero
 			end
@@ -1238,6 +1297,14 @@ local success, err = pcall(function()
 			seat.AssemblyLinearVelocity = Vector3.zero
 			seat.AssemblyAngularVelocity = Vector3.zero
 		end
+		if root then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+
+		-- 8. ⏱️ ZERO FREEZE LANDING: Langsung tancap gas tanpa jeda diam!
+		local distVal = tonumber(jumpDist) or 0
+		UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Langsung gas pol!", math.floor(distVal)), 1.5, "info")
 
 		return landPos
 	end
@@ -1652,15 +1719,16 @@ local success, err = pcall(function()
 				if isGround then
 					refY = solidY
 					local isVoidGap = (inVoid and voidEnteredAt and (curDist - voidEnteredAt >= 15))
-					local isElevatedLedge = (solidY >= fromPos.Y + 6 and curDist >= 15 and curDist <= 120)
+					local isElevatedLedge = (solidY >= fromPos.Y + 2.5 and curDist >= 4 and curDist <= 150)
 
 					if isVoidGap or isElevatedLedge then
 						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
-						-- 🛡️ Forward Progress Gate: Adaptif berdasarkan jarak total
-						-- Jarak jauh (>200): butuh maju 40 stud. Jarak dekat (<200): cukup maju 5 stud saja
-						local minProgress = totalDistToDest > 200 and 40 or 5
+						-- 🛡️ Forward Progress Gate:
+						-- Untuk elevated ledge (tebing/tanggul): cukup maju 4 stud karena tujuan utamanya adalah naik ke daratan atas!
+						-- Untuk jurang samudra: adaptif berdasarkan jarak total
+						local minProgress = isElevatedLedge and 4 or (totalDistToDest > 200 and 35 or 5)
 						if landDistToDest < totalDistToDest - minProgress then
-							local landPos = Vector3.new(px, solidY + 0.5, pz)
+							local landPos = Vector3.new(px, solidY + MOTOR_PIVOT_HEIGHT_OFFSET, pz)
 							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
 							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
 							return landed, jumpDist
@@ -1681,8 +1749,8 @@ local success, err = pcall(function()
 			local approachDist = math.max(15, math.min(35, totalDistToDest * 0.1))
 			local nearDestPos = toPos - baseDir * approachDist
 			requestStreamAsync(nearDestPos)
-			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y) or toPos.Y or 5
-			local landPos = Vector3.new(nearDestPos.X, destGroundY + 0.5, nearDestPos.Z)
+			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y) or (toPos.Y + MOTOR_PIVOT_HEIGHT_OFFSET) or (5 + MOTOR_PIVOT_HEIGHT_OFFSET)
+			local landPos = Vector3.new(nearDestPos.X, destGroundY, nearDestPos.Z)
 			local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
 			local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
 			return landed, jumpDist
@@ -1882,7 +1950,7 @@ local success, err = pcall(function()
 						end
 
 						if not isOverheadObstacle and hitY >= -45 and hitY <= (startY + 10) and (not hit.Normal or hit.Normal.Y >= 0.10) then
-							return hitY + 0.3
+							return hitY + MOTOR_PIVOT_HEIGHT_OFFSET
 						elseif isOverheadObstacle then
 							-- Objek menggantung di atas kepala -> filter dan tembak ke bawahnya
 							table.insert(localFilter, inst)
@@ -2071,7 +2139,7 @@ local success, err = pcall(function()
 						nudgeRp
 					)
 					if nudgeHit and nudgeHit.Position.Y >= -30 and nudgeHit.Position.Y <= 300 then
-						local nudgeY = nudgeHit.Position.Y + 0.3
+						local nudgeY = nudgeHit.Position.Y + MOTOR_PIVOT_HEIGHT_OFFSET
 						local nudgeLand = Vector3.new(nudgePos2D.X, nudgeY, nudgePos2D.Z)
 
 						pcall(function()
