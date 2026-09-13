@@ -31,11 +31,12 @@ local success, err = pcall(function()
 		local playerVehicles = vFolder:FindFirstChild(player.Name)
 		if not playerVehicles then return nil end
 
-		-- Check for Kasaki z800 2015 first, or any active bike model
+		-- Check for Kasaki z800 2015 first, ensuring it has DriveSeat
 		local bike = playerVehicles:FindFirstChild("Kasaki z800 2015")
-		if not bike then
+		if not bike or not bike:FindFirstChild("DriveSeat", true) then
+			bike = nil
 			for _, child in ipairs(playerVehicles:GetChildren()) do
-				if child:IsA("Model") then
+				if child:IsA("Model") and child:FindFirstChild("DriveSeat", true) then
 					bike = child
 					break
 				end
@@ -44,9 +45,10 @@ local success, err = pcall(function()
 
 		if not bike then return nil end
 
-		local seat = bike:FindFirstChild("DriveSeat") or bike:FindFirstChildWhichIsA("VehicleSeat", true)
-		local primary = bike.PrimaryPart or seat or bike:FindFirstChildWhichIsA("BasePart")
+		local seat = bike:FindFirstChild("DriveSeat", true) or bike:FindFirstChildWhichIsA("VehicleSeat", true)
+		if not seat then return nil end
 
+		local primary = bike.PrimaryPart or seat or bike:FindFirstChildWhichIsA("BasePart")
 		return bike, seat, primary
 	end
 

@@ -827,18 +827,44 @@ local success, err = pcall(function()
 		return proxy
 	end
 
-	-- Slider Control
-	local function addSlider(parent, label, min, max, default, callback, step, unit, layoutOrder)
+	-- Slider Control (Universal Flexible Signature + Large Click/Drag Hitbox)
+	local function addSlider(parent, label, minVal, maxVal, defaultVal, arg6, arg7, arg8, arg9)
 		local cleanLabel = sanitizeText(label)
-		min = min or 0
-		max = max or 100
-		step = step or 1
-		unit = unit or ""
-		local current = math.clamp(default or min, min, max)
+		minVal = minVal or 0
+		maxVal = maxVal or 100
+
+		-- Resolve arguments flexibly:
+		local callback = nil
+		local step = 1
+		local unit = ""
+		local layoutOrder = nil
+
+		if type(arg6) == "function" then
+			callback = arg6
+			step = (type(arg7) == "number" and arg7 > 0) and arg7 or 1
+			unit = type(arg8) == "string" and arg8 or ""
+			layoutOrder = type(arg9) == "number" and arg9 or nil
+		elseif type(arg7) == "function" then
+			step = (type(arg6) == "number" and arg6 > 0) and arg6 or 1
+			callback = arg7
+			unit = type(arg8) == "string" and arg8 or ""
+			layoutOrder = type(arg9) == "number" and arg9 or nil
+		elseif type(arg8) == "function" then
+			step = (type(arg6) == "number" and arg6 > 0) and arg6 or 1
+			unit = type(arg7) == "string" and arg7 or ""
+			callback = arg8
+			layoutOrder = type(arg9) == "number" and arg9 or nil
+		else
+			step = (type(arg6) == "number" and arg6 > 0) and arg6 or 1
+			unit = type(arg7) == "string" and arg7 or ""
+			layoutOrder = type(arg8) == "number" and arg8 or nil
+		end
+
+		local current = math.clamp(defaultVal or minVal, minVal, maxVal)
 
 		local container = Instance.new("Frame")
 		container.Name = "Slider_" .. cleanLabel:gsub("%s+", "")
-		container.Size = UDim2.new(1, 0, 0, 48)
+		container.Size = UDim2.new(1, 0, 0, 50)
 		container.BackgroundColor3 = COLORS.glassCard
 		container.BackgroundTransparency = TRANSPARENCY.glassCard
 		container.BorderSizePixel = 0
@@ -855,33 +881,42 @@ local success, err = pcall(function()
 		})
 
 		local titleLabel = Instance.new("TextLabel")
-		titleLabel.Size = UDim2.new(1, -80, 0, 20)
+		titleLabel.Size = UDim2.new(1, -90, 0, 20)
 		titleLabel.Position = UDim2.new(0, 12, 0, 6)
 		titleLabel.BackgroundTransparency = 1
 		titleLabel.Text = cleanLabel
 		titleLabel.TextColor3 = COLORS.textPrimary
 		titleLabel.Font = Enum.Font.GothamMedium
-		titleLabel.TextSize = 11
+		titleLabel.TextSize = 12
 		titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 		titleLabel.ZIndex = 4
 		titleLabel.Parent = container
 
-		local valLabel = Instance.new("TextLabel")
-		valLabel.Size = UDim2.new(0, 68, 0, 20)
-		valLabel.Position = UDim2.new(1, -80, 0, 6)
-		valLabel.BackgroundTransparency = 1
-		valLabel.Text = tostring(current) .. unit
-		valLabel.TextColor3 = COLORS.accentCyan
-		valLabel.Font = Enum.Font.GothamBold
-		valLabel.TextSize = 11
-		valLabel.TextXAlignment = Enum.TextXAlignment.Right
-		valLabel.ZIndex = 4
-		valLabel.Parent = container
+		local valBadge = Instance.new("TextLabel")
+		valBadge.Size = UDim2.new(0, 76, 0, 18)
+		valBadge.Position = UDim2.new(1, -88, 0, 6)
+		valBadge.BackgroundColor3 = COLORS.glassSurface
+		valBadge.BackgroundTransparency = 0.3
+		valBadge.Text = tostring(current) .. unit
+		valBadge.TextColor3 = COLORS.accentCyan
+		valBadge.Font = Enum.Font.GothamBold
+		valBadge.TextSize = 11
+		valBadge.TextXAlignment = Enum.TextXAlignment.Center
+		valBadge.ZIndex = 4
+		valBadge.Parent = container
+
+		applyGlass(valBadge, {
+			corner = CORNER.small,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.85
+		})
 
 		local track = Instance.new("Frame")
 		track.Name = "SliderTrack"
 		track.Size = UDim2.new(1, -24, 0, 6)
-		track.Position = UDim2.new(0, 12, 0, 32)
+		track.Position = UDim2.new(0, 12, 0, 33)
 		track.BackgroundColor3 = COLORS.glassHover
 		track.BorderSizePixel = 0
 		track.ZIndex = 4
@@ -893,7 +928,7 @@ local success, err = pcall(function()
 
 		local fill = Instance.new("Frame")
 		fill.Name = "SliderFill"
-		local pct = math.clamp((current - min) / (max - min), 0, 1)
+		local pct = math.clamp((current - minVal) / math.max(1, maxVal - minVal), 0, 1)
 		fill.Size = UDim2.new(pct, 0, 1, 0)
 		fill.BackgroundColor3 = COLORS.accentCyan
 		fill.BorderSizePixel = 0
@@ -905,6 +940,7 @@ local success, err = pcall(function()
 		fillCorner.Parent = fill
 
 		local thumb = Instance.new("Frame")
+		thumb.Name = "SliderThumb"
 		thumb.Size = UDim2.new(0, 14, 0, 14)
 		thumb.Position = UDim2.new(pct, -7, 0.5, -7)
 		thumb.BackgroundColor3 = COLORS.textWhite
@@ -916,36 +952,53 @@ local success, err = pcall(function()
 		thumbCorner.CornerRadius = CORNER.pill
 		thumbCorner.Parent = thumb
 
+		-- Large interactive click/drag button across the entire track area
+		local hitButton = Instance.new("TextButton")
+		hitButton.Name = "SliderHitArea"
+		hitButton.Size = UDim2.new(1, 0, 1, 20)
+		hitButton.Position = UDim2.new(0, 0, 0, -10)
+		hitButton.BackgroundTransparency = 1
+		hitButton.Text = ""
+		hitButton.AutoButtonColor = false
+		hitButton.ZIndex = 8
+		hitButton.Active = true
+		hitButton.Parent = track
+
 		local dragging = false
-		local function updateFromInput(input)
+
+		local function updateFromPos(posX)
 			local absPos = track.AbsolutePosition.X
 			local absSize = track.AbsoluteSize.X
-			local inputPos = input.Position.X
-			local ratio = math.clamp((inputPos - absPos) / absSize, 0, 1)
-			local rawVal = min + (max - min) * ratio
-			local stepped = math.floor((rawVal / step) + 0.5) * step
-			current = math.clamp(stepped, min, max)
+			if absSize <= 0 then return end
+			local ratio = math.clamp((posX - absPos) / absSize, 0, 1)
+			local rawVal = minVal + (maxVal - minVal) * ratio
+			local stepped
+			if step and step > 0 then
+				stepped = math.floor((rawVal / step) + 0.5) * step
+			else
+				stepped = rawVal
+			end
+			current = math.clamp(stepped, minVal, maxVal)
 
-			local fillRatio = (current - min) / (max - min)
+			local fillRatio = (current - minVal) / math.max(1, maxVal - minVal)
 			fill.Size = UDim2.new(fillRatio, 0, 1, 0)
 			thumb.Position = UDim2.new(fillRatio, -7, 0.5, -7)
-			valLabel.Text = tostring(current) .. unit
+			valBadge.Text = tostring(current) .. unit
 
 			if callback then
 				pcall(callback, current)
 			end
 		end
 
-		track.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				dragging = true
-				updateFromInput(input)
-			end
+		hitButton.MouseButton1Down:Connect(function()
+			dragging = true
+			local mousePos = UserInputService:GetMouseLocation()
+			updateFromPos(mousePos.X)
 		end)
 
 		UserInputService.InputChanged:Connect(function(input)
 			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-				updateFromInput(input)
+				updateFromPos(input.Position.X)
 			end
 		end)
 
@@ -957,13 +1010,14 @@ local success, err = pcall(function()
 
 		local proxy = setmetatable({
 			container = container,
+			card = container,
 			Get = function() return current end,
 			Set = function(val)
-				current = math.clamp(val, min, max)
-				local fillRatio = (current - min) / (max - min)
+				current = math.clamp(val, minVal, maxVal)
+				local fillRatio = (current - minVal) / math.max(1, maxVal - minVal)
 				fill.Size = UDim2.new(fillRatio, 0, 1, 0)
 				thumb.Position = UDim2.new(fillRatio, -7, 0.5, -7)
-				valLabel.Text = tostring(current) .. unit
+				valBadge.Text = tostring(current) .. unit
 				if callback then pcall(callback, current) end
 			end
 		}, {
