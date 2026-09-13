@@ -2903,6 +2903,35 @@ local success, err = pcall(function()
 					end
 				end)
 
+				-- 🛡️ Inject queue_on_teleport untuk Auto-Resume RideGO di server baru
+				local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+				if queueTeleport then
+					pcall(function()
+						queueTeleport([[
+							getgenv().AUTO_RESUME_RIDEGO = true
+							task.spawn(function()
+								pcall(function()
+									local Lighting = game:GetService("Lighting")
+									local blur = Lighting:FindFirstChild("menuBlur")
+									if blur then blur.Enabled = false blur.Size = 0 end
+									local player = game:GetService("Players").LocalPlayer
+									if player and player:FindFirstChild("PlayerGui") then
+										local mainUI = player.PlayerGui:FindFirstChild("MainUI")
+										if mainUI and mainUI:FindFirstChild("Holder") then
+											mainUI.Holder.Visible = false
+										end
+									end
+									local menuEvent = game:GetService("ReplicatedStorage"):WaitForChild("menuToggleRequest", 5)
+									if menuEvent and menuEvent:IsA("RemoteEvent") then
+										menuEvent:FireServer()
+									end
+									game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+								end)
+							end)
+						]])
+					end)
+				end
+
 				task.wait(1.5)
 				pcall(function()
 					local TeleportService = game:GetService("TeleportService")
@@ -3653,6 +3682,10 @@ local success, err = pcall(function()
 			updateBotActivity("📦 Memulai Auto Kurir (Physics Flight)...", Color3.fromRGB(0, 212, 255))
 			UI.Notify("Courier Auto-Worker ON", "Physics Seat Flight & Anti-Cheat Shield Aktif!", 3.5, "success")
 
+			if courierLoopThread then
+				pcall(function() task.cancel(courierLoopThread) end)
+				courierLoopThread = nil
+			end
 			courierLoopThread = task.spawn(function()
 				local restarting = false
 				while courierActive do
@@ -3981,32 +4014,72 @@ local success, err = pcall(function()
 
 	-- 🚀 Auto-resume Auto RideGO / Courier jika aktif pada config tersimpan atau dari queue_on_teleport
 	task.defer(function()
+		-- 🛡️ Tunggu karakter dan HumanoidRootPart siap agar tidak gagal akses physics / seat
+		local char = player.Character or player.CharacterAdded:Wait()
+		if char then
+			pcall(function() char:WaitForChild("HumanoidRootPart", 10) end)
+		end
 		task.wait(2)
+
+		-- 🛡️ Dismiss Main Menu DDS jika masih ada menuBlur / Holder
+		pcall(function()
+			local Lighting = game:GetService("Lighting")
+			local blur = Lighting:FindFirstChild("menuBlur")
+			if blur then blur.Enabled = false blur.Size = 0 end
+			if player and player:FindFirstChild("PlayerGui") then
+				local mainUI = player.PlayerGui:FindFirstChild("MainUI")
+				if mainUI and mainUI:FindFirstChild("Holder") then
+					mainUI.Holder.Visible = false
+				end
+			end
+			local menuEvent = ReplicatedStorage:FindFirstChild("menuToggleRequest")
+			if menuEvent and menuEvent:IsA("RemoteEvent") then
+				menuEvent:FireServer()
+			end
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+		end)
+
 		local shouldResumeCourier = (getgenv().AUTO_RESUME_COURIER == true)
 		if shouldResumeCourier then
 			getgenv().AUTO_RESUME_COURIER = false
 			UI.Notify("🔁 Auto-Resume Courier", "Melanjutkan sesi farm kurir setelah auto-rejoin...", 4, "success")
 		end
 
+		local shouldResumeRideGO = (getgenv().AUTO_RESUME_RIDEGO == true)
+		if shouldResumeRideGO then
+			getgenv().AUTO_RESUME_RIDEGO = false
+			UI.Notify("🔁 Auto-Resume RideGO", "Melanjutkan sesi farm RideGO setelah auto-rejoin...", 4, "success")
+		end
+
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			if shouldResumeCourier or _G.HipHubConfig.farm.autoCourier then
 				if autoCourierToggle and autoCourierToggle.Set then
-					autoCourierToggle.Set(true)
-				else
+					autoCourierToggle.Set(true, true)
+				end
+				if not courierActive and toggleAutoCourier then
 					toggleAutoCourier(true)
 				end
-			elseif _G.HipHubConfig.farm.autoRideGO then
+			elseif shouldResumeRideGO or _G.HipHubConfig.farm.autoRideGO then
 				if autoRideGoToggle and autoRideGoToggle.Set then
-					autoRideGoToggle.Set(true)
-				else
+					autoRideGoToggle.Set(true, true)
+				end
+				if not taxiActive and toggleAutoRideGO then
 					toggleAutoRideGO(true)
 				end
 			end
 		elseif shouldResumeCourier then
 			if autoCourierToggle and autoCourierToggle.Set then
-				autoCourierToggle.Set(true)
-			else
+				autoCourierToggle.Set(true, true)
+			end
+			if not courierActive and toggleAutoCourier then
 				toggleAutoCourier(true)
+			end
+		elseif shouldResumeRideGO then
+			if autoRideGoToggle and autoRideGoToggle.Set then
+				autoRideGoToggle.Set(true, true)
+			end
+			if not taxiActive and toggleAutoRideGO then
+				toggleAutoRideGO(true)
 			end
 		end
 	end)
