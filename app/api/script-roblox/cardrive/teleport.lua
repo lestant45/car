@@ -109,7 +109,7 @@ local success, err = pcall(function()
 	local tpFrame = UI.tabs["Teleport"].Frame
 
 	-- Teleport Settings
-	local optSec = UI.AddSection(tpFrame, "⚙️ Teleport Options", 1)
+	local optSec = UI.AddSection(tpFrame, "Teleport Options", 1)
 	UI.AddToggle(optSec, "Teleport Vehicle with Character (if inside car)", tpWithCar, function(v)
 		tpWithCar = v
 	end, 1)
@@ -123,7 +123,7 @@ local success, err = pcall(function()
 	end, 3, " studs/s")
 
 	-- Dealerships
-	local dealerSec = UI.AddSection(tpFrame, "🏢 Dealerships & Showrooms", 2)
+	local dealerSec = UI.AddSection(tpFrame, "Dealerships & Showrooms", 2)
 	local dealerNames = {}
 	for name, _ in pairs(DealershipLocations) do table.insert(dealerNames, name) end
 	table.sort(dealerNames)
@@ -133,16 +133,16 @@ local success, err = pcall(function()
 		selectedDealer = v
 	end, 1)
 
-	UI.AddButton(dealerSec, "🚀 Teleport to Dealership", function()
+	UI.AddButton(dealerSec, "Teleport to Dealership", function()
 		local pos = DealershipLocations[selectedDealer]
 		if pos then
 			teleportTo(CFrame.new(pos + Vector3.new(0, 4, 0)))
-			UI.Notify("Teleported", "Arrived at " .. selectedDealer, 2, "success")
+			UI.Notify("Teleport", "Tiba di " .. selectedDealer, 2, "success")
 		end
 	end, 2)
 
 	-- Job Starters & HQs
-	local jobSec = UI.AddSection(tpFrame, "💼 Job HQs & Workplace Starters", 3)
+	local jobSec = UI.AddSection(tpFrame, "Job HQs & Workplace Starters", 3)
 	local jobNames = {}
 	for name, _ in pairs(JobLocations) do table.insert(jobNames, name) end
 	table.sort(jobNames)
@@ -152,16 +152,16 @@ local success, err = pcall(function()
 		selectedJob = v
 	end, 1)
 
-	UI.AddButton(jobSec, "🚀 Teleport to Job HQ", function()
+	UI.AddButton(jobSec, "Teleport to Job HQ", function()
 		local pos = JobLocations[selectedJob]
 		if pos then
 			teleportTo(CFrame.new(pos + Vector3.new(0, 4, 0)))
-			UI.Notify("Teleported", "Arrived at " .. selectedJob, 2, "success")
+			UI.Notify("Teleport", "Tiba di " .. selectedJob, 2, "success")
 		end
 	end, 2)
 
 	-- Landmarks & Cities
-	local citySec = UI.AddSection(tpFrame, "🏙️ Cities & Landmarks (Jakarta Map)", 4)
+	local citySec = UI.AddSection(tpFrame, "Cities & Landmarks (Jakarta Map)", 4)
 	local cityNames = {}
 	for name, _ in pairs(CityLandmarks) do table.insert(cityNames, name) end
 	table.sort(cityNames)
@@ -171,16 +171,16 @@ local success, err = pcall(function()
 		selectedCity = v
 	end, 1)
 
-	UI.AddButton(citySec, "🚀 Teleport to Landmark", function()
+	UI.AddButton(citySec, "Teleport to Landmark", function()
 		local pos = CityLandmarks[selectedCity]
 		if pos then
 			teleportTo(CFrame.new(pos + Vector3.new(0, 4, 0)))
-			UI.Notify("Teleported", "Arrived at " .. selectedCity, 2, "success")
+			UI.Notify("Teleport", "Tiba di " .. selectedCity, 2, "success")
 		end
 	end, 2)
 
 	-- Player Teleports
-	local plySec = UI.AddSection(tpFrame, "👤 Player Teleportation", 5)
+	local plySec = UI.AddSection(tpFrame, "Player Teleportation", 5)
 	local playerList = {}
 	for _, p in pairs(Players:GetPlayers()) do
 		if p ~= player then table.insert(playerList, p.Name) end
@@ -192,23 +192,23 @@ local success, err = pcall(function()
 		selectedPlayer = v
 	end, 1)
 
-	UI.AddButton(plySec, "🔄 Refresh Player List", function()
+	UI.AddButton(plySec, "Refresh Player List", function()
 		local updated = {}
 		for _, p in pairs(Players:GetPlayers()) do
 			if p ~= player then table.insert(updated, p.Name) end
 		end
 		if #updated == 0 then table.insert(updated, "No other players") end
 		playerDrop.Refresh(updated)
-		UI.Notify("Refreshed", "Player list updated.", 1, "success")
+		UI.Notify("Player List", "Daftar player diperbarui.", 1, "success")
 	end, 2)
 
-	UI.AddButton(plySec, "🚀 Teleport to Selected Player", function()
+	UI.AddButton(plySec, "Teleport to Selected Player", function()
 		local target = Players:FindFirstChild(selectedPlayer)
 		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
 			teleportTo(CFrame.new(target.Character.HumanoidRootPart.Position + Vector3.new(0, 3, 3)))
-			UI.Notify("Teleported", "Teleported to " .. selectedPlayer, 2, "success")
+			UI.Notify("Teleport", "Teleport ke " .. selectedPlayer, 2, "success")
 		else
-			UI.Notify("Failed", "Player character not found.", 2, "warning")
+			UI.Notify("Teleport", "Karakter player tidak ditemukan.", 2, "warning")
 		end
 	end, 3)
 

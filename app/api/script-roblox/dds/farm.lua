@@ -127,7 +127,10 @@ local success, err = pcall(function()
 		courierPacing = true,
 		courierAutoRejoinOrders = 10
 	}
-	if Config.tripPacing == nil then Config.tripPacing = true end
+	Config.tripPacing = true
+	if _G.HipHubConfig and _G.HipHubConfig.farm then
+		_G.HipHubConfig.farm.tripPacing = true
+	end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
 	if Config.courierSpeed == nil then Config.courierSpeed = 85 end
@@ -325,7 +328,6 @@ local success, err = pcall(function()
 	restartAutoRideGoToggle = function(reason)
 		if isResettingTaxi or courierActive or _G.HipHubCourierActive then return end
 		isResettingTaxi = true
-		UI.Notify("🔄 Resetting Duty", (reason or "Mereset status RideGO...") .. " (Mencari order baru)", 2.5, "warning")
 
 		-- 1. Hentikan pergerakan motor seketika
 		if cancelActiveDrive then
@@ -470,7 +472,6 @@ local success, err = pcall(function()
 		if isRespawning then return false end
 		isRespawning = true
 
-		UI.Notify("🔄 Prosedur Respawn", reason or "Jurang luas / ground belum render. Memulai reset aman...", 3.5, "warning")
 		updateBotActivity("🔄 Menunggu Respawn Karakter...", Color3.fromRGB(255, 180, 50))
 
 		-- 1. Hentikan total navigasi & gerak kendaraan lama
@@ -536,7 +537,6 @@ local success, err = pcall(function()
 
 		-- 5. SPAWN MOTOR BARU: Karakter sudah respawn, panggil motor baru
 		updateBotActivity("🏍️ Memanggil Motor Baru...", Color3.fromRGB(0, 212, 255))
-		UI.Notify("🏍️ Memanggil Motor", "Karakter telah respawn, memanggil motor baru...", 2.5, "info")
 
 		local bikeSpawned = false
 		local newCar, newSeat = nil, nil
@@ -572,13 +572,6 @@ local success, err = pcall(function()
 				end
 				task.wait(0.5)
 			end
-			if seated then
-				UI.Notify("✅ Siap Lanjut", "Berhasil duduk di motor baru, melanjutkan tugas!", 2.0, "success")
-			else
-				UI.Notify("⚠️ Belum Duduk", "Gagal duduk otomatis, bot akan mencoba kembali saat mulai berkendara.", 2.0, "warning")
-			end
-		else
-			UI.Notify("⚠️ Motor Belum Siap", "Motor baru belum terdeteksi, mencoba kembali di cycle berikutnya.", 2.5, "warning")
 		end
 
 		-- 7. Jika sedang Kurir, refresh job request agar server memberi target baru
@@ -851,7 +844,6 @@ local success, err = pcall(function()
 
 		local prompt, seatPart = findRidePrompt()
 		if not seatPart then
-			UI.Notify("🏍️ Spawning Motor", "Memanggil motor baru...", 2.5, "warning")
 			spawnTaxiBike()
 			local spawnWait = os.clock()
 			while not seatPart and (os.clock() - spawnWait < 4.0) do
@@ -910,16 +902,10 @@ local success, err = pcall(function()
 		end
 
 		local isSeated = (hum.SeatPart ~= nil)
-		if isSeated then
-			UI.Notify("✅ Driver Seated", "Motor berhasil dikendarai.", 1.5, "success")
-		else
-			UI.Notify("⚠️ Belum Duduk", "Gagal menaiki motor, mencoba kembali...", 2, "warning")
-		end
-
 		return isSeated
 	end
 
-	-- 🪑 Safety check: pastikan player duduk di kursi pengemudi.
+	-- Safety check: pastikan player duduk di kursi pengemudi.
 	ensureDriverSeated = function(ignoreRespawning)
 		if isRespawning and not ignoreRespawning then return false end
 		local char = player.Character
@@ -927,7 +913,6 @@ local success, err = pcall(function()
 		if hum and hum.SeatPart then return true end
 
 		for attempt = 1, 3 do
-			UI.Notify("⚠️ Driver Not Seated", string.format("Menaiki motor (Percobaan %d/3)...", attempt), 2, "warning")
 			local ok = mountBike(ignoreRespawning)
 			if ok then
 				task.wait(0.3)
@@ -1439,9 +1424,6 @@ local success, err = pcall(function()
 		end
 
 		-- 8. ⏱️ ZERO FREEZE LANDING: Langsung tancap gas tanpa jeda diam!
-		local distVal = tonumber(jumpDist) or 0
-		UI.Notify("🌉 Melompati Jurang", string.format("Melompati %d stud. Langsung gas pol!", math.floor(distVal)), 1.5, "info")
-
 		return landPos
 	end
 
@@ -1609,8 +1591,7 @@ local success, err = pcall(function()
 
 		local effectiveSpeed = math.clamp(speed or Config.courierSpeed or 95, 30, 200)
 
-		UI.Notify("🪑 Seat Carrier Aktif", string.format("Meluncur aman di atas kursi (%.0f stud/s)...", effectiveSpeed), 2.5, "info")
-		updateBotActivity("🪑 Meluncur (Permanent Seat)...", Color3.fromRGB(0, 212, 255))
+		updateBotActivity("Menuju Titik Tujuan...", Color3.fromRGB(0, 212, 255))
 
 		-- NoClip pada part tubuh player selama penerbangan (selain kursi)
 		local noclipConn = RunService.Stepped:Connect(function()
@@ -1714,7 +1695,6 @@ local success, err = pcall(function()
 			hum.Sit = true
 		end)
 
-		UI.Notify("✅ Tiba di Lokasi", "Posisi duduk stabil (Anti-Kick Aktif)!", 2.0, "success")
 		task.wait(0.2)
 		return true
 	end
@@ -1912,7 +1892,6 @@ local success, err = pcall(function()
 			local ok = ensureDriverSeated()
 			if not ok then
 				warn("[HipHub DDS] driveVehicleTo: Pengemudi belum duduk, membatalkan jalan untuk keselamatan player")
-				UI.Notify("⚠️ Belum Duduk", "Gagal menaiki motor, berkendara ditunda...", 2.5, "error")
 				return false
 			end
 			car, seat = getPlayerVehicle()
@@ -2177,7 +2156,6 @@ local success, err = pcall(function()
 						end
 					end
 					lastGroundY = rescueY
-					UI.Notify("🌊 Water Shield", "Terdeteksi air di bawah motor, diselamatkan!", 1.5, "warning")
 				end
 			end
 
@@ -2285,7 +2263,6 @@ local success, err = pcall(function()
 							lastGroundY = solidNudgeY
 						end)
 
-						UI.Notify("🚨 Stuck Bypass", "Menembus rintangan, melanjutkan...", 1.5, "warning")
 						return -- Selesaikan frame ini agar posisi bypass tidak ter-override
 					else
 						stuckLastTime = nowClock
@@ -2779,13 +2756,12 @@ local success, err = pcall(function()
 		-- 1. Accept Order
 		TaxiEvent:FireServer("AcceptOrder", token)
 		task.wait(0.3)
-		UI.Notify("✅ Order Accepted", "Passenger: " .. tostring(name or "Passenger"), 2, "success")
+		UI.Notify("Order Diterima", "Penumpang: " .. tostring(name or "Passenger"), 2, "info")
 
 		-- 2. Mount bike
 		local char = player.Character
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		if not (hum and hum.SeatPart) then
-			UI.Notify("🏍️ Mounting Bike", "Menaiki motor...", 2, "warning")
 			local seated = ensureDriverSeated()
 			if not seated then
 				taxiBusy = false
@@ -2805,14 +2781,12 @@ local success, err = pcall(function()
 		local tripSpeed = isAnomalyTrip and math.min(tonumber(Config.taxiSpeed) or 90, 85) or (tonumber(Config.taxiSpeed) or 90)
 
 		if taxiPickupPos and taxiActive then
-			UI.Notify("🏍️ Heading to Pickup", "Driving to passenger...", 2, "warning")
 			driveVehicleTo(taxiPickupPos, tripSpeed)
 		end
 
 		-- 5. Wait for passenger boarding
 		if taxiPickupPos and taxiActive then
-			updateBotActivity("🚶 Menunggu Penumpang Naik Motor...", Color3.fromRGB(255, 200, 50))
-			UI.Notify("Arrived at Pickup 📍", "Waiting for passenger to board...", 3, "warning")
+			updateBotActivity("Menunggu Penumpang Naik Motor...", Color3.fromRGB(255, 200, 50))
 
 			local car, seat = getPlayerVehicle()
 			if car then
@@ -2845,10 +2819,8 @@ local success, err = pcall(function()
 				end
 
 				local settleDelay = isAnomalyTrip and math.max(tonumber(Config.passengerBoardDelay) or 3, 3.5) or (tonumber(Config.passengerBoardDelay) or 3)
-				UI.Notify("Passenger Seated 🛵", string.format("Departing in %.1fs...", settleDelay), settleDelay, "success")
 				task.wait(settleDelay)
 			else
-				UI.Notify("⚠️ Boarding Timeout", "Penumpang tidak naik. Mereset status kerja...", 2.5, "warning")
 				resetTaxiDutyCycle(token, "Boarding Timeout")
 				return
 			end
@@ -2866,13 +2838,12 @@ local success, err = pcall(function()
 
 		if taxiDropPos and taxiActive then
 			if isAnomalyTrip then
-				setTaxiState("DRIVING_TO_DESTINATION", "👻 Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
+				setTaxiState("DRIVING_TO_DESTINATION", "Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
 			else
-				setTaxiState("DRIVING_TO_DESTINATION", "📍 Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
+				setTaxiState("DRIVING_TO_DESTINATION", "Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
 			end
-			UI.Notify("📍 Heading to Drop-off", isAnomalyTrip and "Mengantar Anomali ke tujuan..." or "Delivering passenger to destination...", 2, "warning")
 
-			-- 🛡️ Smart Adaptive Pre-Arrival Pacing Guard:
+			-- Smart Adaptive Pre-Arrival Pacing Guard:
 			-- Menyesuaikan kecepatan safe secara dinamis sesuai jarak order dan limit motor (Mio ~90 km/h)
 			-- Ditambah Random Human Jitter (74 - 86 km/h) agar variasi statistik di database terlihat 100% organik
 			if Config.tripPacing and tripStartTime and tripDistance and tripDistance > 150 then
@@ -2887,7 +2858,7 @@ local success, err = pcall(function()
 					baseSafeSpeed = 86.0 -- Jarak jauh (~77 km/h)
 				end
 
-				-- 🎲 Acak variasi kecepatan per-order (-6 s/d +5 stud/s) -> Range: 75 s/d 95 stud/s (74 - 86 km/h)
+				-- Acak variasi kecepatan per-order (-6 s/d +5 stud/s) -> Range: 75 s/d 95 stud/s (74 - 86 km/h)
 				local randomJitter = math.random(-60, 50) / 10.0
 				local safeSpeed = math.clamp(baseSafeSpeed + randomJitter, 75.0, 95.0)
 				_G.HipHubCurrentTripSafeSpeed = safeSpeed
@@ -2921,19 +2892,18 @@ local success, err = pcall(function()
 								seat.Throttle = 0
 								seat.ThrottleFloat = 0
 							end
-							UI.Notify("⏱️ Smart Pacing Aktif", string.format("Waktu tiba sah: %.1fs tersisa...", remainingWait), math.min(remainingWait, 3), "warning")
 							local pacingStart = tick()
 							while (tick() - pacingStart < remainingWait) and taxiActive and not isResettingTaxi do
 								local rem = math.max(0, math.floor((remainingWait - (tick() - pacingStart)) * 10) / 10)
-								updateBotActivity(string.format("⏱️ Smart Pacing (%.1fs tersisa)...", rem), Color3.fromRGB(255, 180, 50))
+								updateBotActivity(string.format("Mengantar Penumpang (%.1fs)...", rem), Color3.fromRGB(0, 212, 255))
 								task.wait(0.2)
 							end
 						end
 					end
 					if isAnomalyTrip then
-						setTaxiState("DRIVING_TO_DESTINATION", "👻 Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
+						setTaxiState("DRIVING_TO_DESTINATION", "Mengantar Penumpang Anomali...", Color3.fromRGB(255, 100, 100))
 					else
-						setTaxiState("DRIVING_TO_DESTINATION", "📍 Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
+						setTaxiState("DRIVING_TO_DESTINATION", "Mengantar Penumpang ke Titik Tujuan...", Color3.fromRGB(0, 212, 255))
 					end
 				end
 			end
@@ -2941,7 +2911,7 @@ local success, err = pcall(function()
 			-- Masuk tepat ke tengah titik tujuan utama (radius <= 4.0 studs) agar trigger penumpang turun otomatis aktif!
 			driveVehicleTo(taxiDropPos, tripSpeed, 4.0)
 
-			setTaxiState("DROPPING_OFF", "🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
+			setTaxiState("DROPPING_OFF", "Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
 			local car, seat = getPlayerVehicle()
 			if car then
 				for _, part in ipairs(car:GetDescendants()) do
@@ -2957,7 +2927,6 @@ local success, err = pcall(function()
 			end
 			ensureDriverSeated()
 
-			UI.Notify("Arrived at Destination 🏁", "Waiting for passenger disembark...", 2, "success")
 			local disembarkWait = tick()
 
 			while isPassengerOnboard() and taxiActive and not isResettingTaxi do
@@ -2965,16 +2934,14 @@ local success, err = pcall(function()
 
 				-- Deteksi notifikasi "Memverifikasi rute" / "Verifying your trip route"
 				if isRouteVerificationStuck() then
-					updateBotActivity("🔍 Server Memverifikasi Rute... Menunggu...", Color3.fromRGB(255, 180, 50))
+					updateBotActivity("Memverifikasi Rute... Menunggu...", Color3.fromRGB(255, 180, 50))
 					-- Berikan jeda waktu server menyelesaikan verifikasi tanpa melakukan pembatalan paksa
 					if (nowT - disembarkWait > 20.0) then
-						UI.Notify("🔍 Verifikasi Rute Selesai", "Menyelesaikan trip...", 2.5, "warning")
 						break
 					end
 				else
 					-- Fail-safe disembark: Beri waktu wajar (15s) agar animasi/desync server turun penumpang selesai
 					if (nowT - disembarkWait > 15.0) then
-						UI.Notify("🏁 Disembark Selesai", "Melanjutkan penyelesaian order...", 2.5, "warning")
 						break
 					end
 				end
@@ -2987,7 +2954,7 @@ local success, err = pcall(function()
 
 		-- 7. Complete Trip & Acknowledge (Dengan Pacing Kecepatan Rata-Rata Aman Server untuk SEMUA Order)
 		if taxiActive then
-			-- 🛡️ Server Average Velocity Pacing (Hanya jika Smart Pacing ON)
+			-- Server Average Velocity Pacing (Hanya jika Smart Pacing ON)
 			if Config.tripPacing and tripStartTime and tripDistance and tripDistance > 150 then
 				local safeMaxSpeed = _G.HipHubCurrentTripSafeSpeed or 88.0
 				local minSafeTripTime = tripDistance / safeMaxSpeed
@@ -3006,13 +2973,13 @@ local success, err = pcall(function()
 			TaxiEvent:FireServer("AckTripComplete")
 			_G.HipHubCompletedTrips = (_G.HipHubCompletedTrips or 0) + 1
 			local totalDone = _G.HipHubCompletedTrips
-			UI.Notify("🏆 Trip Complete!", string.format("Order #%d selesai. Siap mencari order baru!", totalDone), 3, "success")
+			UI.Notify("Trip Selesai", string.format("Order #%d selesai.", totalDone), 2.5, "success")
 
-			-- 🔄 Scheduled Auto-Rejoin Cycle (Reset Strike & Session Memory di Server)
+			-- Scheduled Auto-Rejoin Cycle (Reset Strike & Session Memory di Server)
 			local autoRejoinCount = tonumber(Config.autoRejoinOrders) or 30
 			if autoRejoinCount > 0 and totalDone > 0 and (totalDone % autoRejoinCount == 0) then
-				UI.Notify("🔄 Auto-Rejoin Siklus", string.format("Order #%d selesai! Mematikan status kerja (Offline)...", totalDone), 4, "success")
-				updateBotActivity(string.format("🔄 Offline & Rejoining (Order #%d)...", totalDone), Color3.fromRGB(0, 212, 255))
+				UI.Notify("Auto-Rejoin", "Menghubungkan ulang ke server...", 3, "info")
+				updateBotActivity("Offline & Rejoining Server...", Color3.fromRGB(0, 212, 255))
 
 				lastCompletedToken = token
 				taxiBusy = false
@@ -3081,9 +3048,9 @@ local success, err = pcall(function()
 				return
 			end
 
-			-- ☕ Cooldown Istirahat 1 Menit setiap kelipatan 10 orderan (Hanya jika pacing aktif & tidak pas saat rejoin)
+			-- Cooldown Istirahat 1 Menit setiap kelipatan 10 orderan (Hanya jika pacing aktif & tidak pas saat rejoin)
 			if Config.tripPacing and totalDone > 0 and (totalDone % 10 == 0) then
-				UI.Notify("☕ Cooldown Istirahat", string.format("Telah menyelesaikan %d orderan! Istirahat 1 menit...", totalDone), 5, "warning")
+				UI.Notify("Istirahat", "Jeda istirahat 1 menit.", 4, "info")
 				lastCompletedToken = token
 				taxiBusy = false
 				taxiToken = nil
@@ -3103,10 +3070,10 @@ local success, err = pcall(function()
 					local restStart = tick()
 					while (tick() - restStart < 60) do
 						local remSec = 60 - math.floor(tick() - restStart)
-						updateBotActivity(string.format("☕ Cooldown Istirahat (%ds tersisa)...", remSec), Color3.fromRGB(255, 170, 50))
+						updateBotActivity(string.format("Istirahat (%ds)...", remSec), Color3.fromRGB(255, 170, 50))
 						task.wait(1)
 					end
-					UI.Notify("🚀 Melanjutkan Farm", string.format("Istirahat 1 menit selesai (Total %d order). Auto-farm aktif kembali!", totalDone), 3, "success")
+					UI.Notify("Lanjut Farm", "Melanjutkan order.", 2.5, "info")
 					if autoRideGoToggle and autoRideGoToggle.Set then
 						autoRideGoToggle.Set(true)
 					elseif toggleAutoRideGO then
@@ -3126,12 +3093,12 @@ local success, err = pcall(function()
 		taxiDropAddr = ""
 		passengerSeated = false
 
-		-- 🎯 Target Earn Check: Jika target uang tercapai, otomatis matikan Auto-Farm
+		-- Target Earn Check: Jika target uang tercapai, otomatis matikan Auto-Farm
 		local targetEarn = _G.HipHubConfig and _G.HipHubConfig.misc and tonumber(_G.HipHubConfig.misc.targetEarn) or 0
 		if targetEarn > 0 then
 			local curM = getLiveMoneyRaw()
 			if curM >= targetEarn then
-				UI.Notify("🎉 Target Earn Tercapai!", string.format("Total Uang: %s (Target: %s). Auto-Farm selesai!", formatRupiah(curM), formatRupiah(targetEarn)), 5, "success")
+				UI.Notify("Target Tercapai", string.format("Total: %s. Auto-Farm selesai.", formatRupiah(curM)), 4, "success")
 				if autoRideGoToggle and autoRideGoToggle.Set then
 					autoRideGoToggle.Set(false)
 				end
@@ -3157,7 +3124,7 @@ local success, err = pcall(function()
 
 			if eventType == "DutyStarted" then
 				isRideGoDutyOnline = true
-				UI.Notify("RideGO Online ✅", "Mounted & waiting for orders...", 3, "success")
+				UI.Notify("RideGO Online", "Driver aktif & siap menerima order.", 2.5, "success")
 				if not taxiBusy then
 					setTaxiState("WAITING_FOR_NEXT_ORDER")
 				end
@@ -3174,11 +3141,7 @@ local success, err = pcall(function()
 
 				if not token or token == lastCompletedToken then return end
 
-				if isAnom then
-					UI.Notify("👻 ANOMALY ORDER!", "Rare passenger: " .. name, 4, "warning")
-				else
-					UI.Notify("🛵 New Order!", name .. " — Rp " .. tostring(fare), 3, "success")
-				end
+				UI.Notify("Order Baru", name .. " - Rp " .. tostring(fare), 2.5, "info")
 
 				task.spawn(executeTripAsync, token, name, pickPos, dropP, pickAddr, dropAddr, isAnom)
 
@@ -3193,7 +3156,7 @@ local success, err = pcall(function()
 				end
 
 			elseif eventType == "PassengerBoarding" then
-				UI.Notify("Passenger Approaching 🚶", "Passenger is walking to the bike...", 3, "warning")
+				-- Passenger boarding silently
 
 			elseif eventType == "TripStarted" or eventType == "PassengerSeated" then
 				passengerSeated = true
@@ -3202,12 +3165,11 @@ local success, err = pcall(function()
 					if drop then taxiDropPos = parsePosition(drop) end
 					if payload.DropAddr then taxiDropAddr = tostring(payload.DropAddr) end
 				end
-				UI.Notify("Trip Started! 🚀", "Passenger on board.", 2, "success")
 
 			elseif eventType == "DutyEnded" then
 				isRideGoDutyOnline = false
 				if taxiActive and not taxiBusy and not isResettingTaxi then
-					updateBotActivity("🟡 Menghubungkan Kembali ke RideGO...", Color3.fromRGB(255, 200, 50))
+					updateBotActivity("Menghubungkan Kembali ke RideGO...", Color3.fromRGB(255, 200, 50))
 					task.spawn(function()
 						task.wait(1.2)
 						if taxiActive and not taxiBusy and not isRideGoDutyOnline and not isResettingTaxi then
@@ -3220,14 +3182,14 @@ local success, err = pcall(function()
 
 			elseif eventType == "OrderCompleted" or eventType == "TripComplete" then
 				passengerSeated = false
-				UI.Notify("🏆 Order Selesai!", "Pembayaran diterima & penumpang turun.", 3, "success")
+				UI.Notify("Order Selesai", "Pembayaran diterima.", 2.5, "success")
 				task.wait(0.5)
 				TaxiEvent:FireServer("AckTripComplete")
 				if not taxiBusy then
 					if isRideGoDutyOnline then
 						setTaxiState("WAITING_FOR_NEXT_ORDER")
 					else
-						setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
+						setTaxiState("CONNECTING", "Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 					end
 					if taxiActive then
 						task.wait(1.2)
@@ -3252,9 +3214,8 @@ local success, err = pcall(function()
 				if isRideGoDutyOnline then
 					setTaxiState("WAITING_FOR_NEXT_ORDER")
 				else
-					setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
+					setTaxiState("CONNECTING", "Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 				end
-				UI.Notify("Order Reset", "Waiting for next offer...", 2, "warning")
 				if taxiActive then
 					task.wait(1.5)
 					if recoverRideGoDuty then
@@ -3450,7 +3411,7 @@ local success, err = pcall(function()
 				end
 			end)
 
-			UI.Notify("RideGO Auto-Farm ON", "Auto-Duty Health & Seat Recovery Aktif!", 3.5, "success")
+			UI.Notify("Auto-Farm ON", "RideGO Auto-Farm aktif.", 2.5, "success")
 		else
 			isRideGoDutyOnline = false
 			setTaxiState("IDLE")
@@ -3474,16 +3435,14 @@ local success, err = pcall(function()
 				if pNpc then pNpc:Destroy() end
 			end)
 			if not courierActive and not Config.autoCourier then
-				updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
-				UI.Notify("RideGO Auto-Farm OFF", "Driver offline & order reset.", 2, "warning")
+				updateBotActivity("Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+				UI.Notify("Auto-Farm OFF", "RideGO Auto-Farm dinonaktifkan.", 2, "info")
 			end
 		end
 	end
 
 	------------------------------------------------
-	-- 📦 3. AUTO COURIER DELIVERY CONTROLLER (Physics Seat Flight)
-	-- Mengadopsi sistem teman: Unanchored Seat + BodyVelocity + BodyGyro
-	-- Karakter terbang garis lurus 3D tanpa motor darat, 100% bebas kick & crash
+	-- 3. AUTO COURIER DELIVERY CONTROLLER
 	------------------------------------------------
 	courierActive                = false
 	local activeCourierDestId    = nil
@@ -3510,8 +3469,8 @@ local success, err = pcall(function()
 		if courierRejoinPending then return end
 		courierRejoinPending = true
 
-		UI.Notify("🔁 Courier Auto-Rejoin", reason or "Batas sesi tercapai! Rejoining server...", 5, "warning")
-		updateBotActivity("🔄 " .. (reason or "Auto-Rejoining Server..."), Color3.fromRGB(255, 120, 50))
+		UI.Notify("Auto-Rejoin", "Menghubungkan ulang ke server...", 3, "info")
+		updateBotActivity("Auto-Rejoining Server...", Color3.fromRGB(255, 120, 50))
 
 		-- 🛑 Matikan cycle kurir agar loop tidak mengambil pesanan baru
 		courierActive = false
@@ -3798,8 +3757,8 @@ local success, err = pcall(function()
 
 			courierStartTime = os.clock()
 			courierRejoinPending = false
-			updateBotActivity("📦 Memulai Auto Kurir (Physics Flight)...", Color3.fromRGB(0, 212, 255))
-			UI.Notify("Courier Auto-Worker ON", "Physics Seat Flight & Anti-Cheat Shield Aktif!", 3.5, "success")
+			updateBotActivity("Memulai Auto Kurir...", Color3.fromRGB(0, 212, 255))
+			UI.Notify("Auto-Courier ON", "Courier Auto-Worker aktif.", 2.5, "success")
 
 			if courierLoopThread then
 				pcall(function() task.cancel(courierLoopThread) end)
@@ -3945,7 +3904,7 @@ local success, err = pcall(function()
 							local safeSpeed = math.clamp(baseSafeSpeed + randomJitter, 75.0, 92.0)
 							local minSafeTime = math.clamp(tripDist / safeSpeed, 45.0, 150.0)
 
-							updateBotActivity(string.format("🛵 Mengantar ke Lokasi %s (%.0fm) • ⏱️%s • 💰%s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
+							updateBotActivity(string.format("Mengantar ke Lokasi %s (%.0fm) - %s - %s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
 
 							-- Berkendara motor ke titik dropoff
 							local dropArrived = driveCourierTo(dropCF, Config.courierSpeed or 85, 14)
@@ -3967,7 +3926,7 @@ local success, err = pcall(function()
 										local pacingStart = tick()
 										while (tick() - pacingStart < remainingWait) and courierActive and not courierShiftLimit do
 											local rem = math.max(0, math.floor((remainingWait - (tick() - pacingStart)) * 10) / 10)
-											updateBotActivity(string.format("⏱️ Smart Pacing Kurir (%.1fs tersisa)...", rem), Color3.fromRGB(255, 180, 50))
+											updateBotActivity(string.format("Mengantar Paket (%.1fs)...", rem), Color3.fromRGB(255, 180, 50))
 											task.wait(0.25)
 										end
 									end
@@ -3984,7 +3943,7 @@ local success, err = pcall(function()
 
 							-- Jeda dropoff alami
 							local dropDelay = tonumber(Config.courierDropDelay) or 4
-							updateBotActivity(string.format("⏱️ Menyerahkan Paket (%ds)...", dropDelay), Color3.fromRGB(255, 200, 50))
+							updateBotActivity(string.format("Menyerahkan Paket (%ds)...", dropDelay), Color3.fromRGB(255, 200, 50))
 							task.wait(dropDelay)
 
 							-- Pegang paket (Equip Box Tool)
@@ -4003,13 +3962,13 @@ local success, err = pcall(function()
 							task.wait(0.8)
 							_G.HipHubCompletedCourier = (_G.HipHubCompletedCourier or 0) + 1
 							local totalDoneCourier = _G.HipHubCompletedCourier
-							UI.Notify("🏆 Paket Terkirim!", string.format("Paket #%d sukses terantar.", totalDoneCourier), 2.5, "success")
-							updateBotActivity("✅ Paket Sukses Diserahkan!", Color3.fromRGB(80, 255, 120))
+							UI.Notify("Paket Terkirim", string.format("Paket #%d sukses terantar.", totalDoneCourier), 2.5, "success")
+							updateBotActivity("Paket Sukses Diserahkan!", Color3.fromRGB(80, 255, 120))
 
-							-- 🔄 Scheduled Auto-Rejoin Cycle (Reset Strike & Session Memory di Server per Paket Selesai)
+							-- Scheduled Auto-Rejoin Cycle (Reset Strike & Session Memory di Server per Paket Selesai)
 							local autoRejoinCourierCount = tonumber(Config.courierAutoRejoinOrders) or 10
 							if autoRejoinCourierCount > 0 and totalDoneCourier > 0 and (totalDoneCourier % autoRejoinCourierCount == 0) then
-								rejoinCourierServer(string.format("Siklus Auto-Rejoin (%d Paket Selesai - Reset Strike Server)", totalDoneCourier))
+								rejoinCourierServer(string.format("Siklus Auto-Rejoin (%d Paket Selesai)", totalDoneCourier))
 								return
 							end
 
@@ -4019,7 +3978,7 @@ local success, err = pcall(function()
 
 							-- Menunggu server menetapkan order berikutnya (1-3.5s) agar langsung lanjut tanpa pulang ke depot
 							local lastCompletedId = tostring(destId or "")
-							updateBotActivity("⏳ Menunggu Pesanan Paket Berikutnya...", Color3.fromRGB(255, 200, 50))
+							updateBotActivity("Menunggu Pesanan Paket Berikutnya...", Color3.fromRGB(255, 200, 50))
 							local tWaitNext = os.clock()
 							local nextFound = false
 							while (os.clock() - tWaitNext < 3.5) and courierActive and not courierShiftLimit do
@@ -4058,8 +4017,8 @@ local success, err = pcall(function()
 				if s2 then s2:Destroy() end
 			end)
 			if not taxiActive and not Config.autoRideGO then
-				updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
-				UI.Notify("Courier Auto-Worker OFF", "Auto Courier dihentikan.", 2, "warning")
+				updateBotActivity("Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+				UI.Notify("Auto-Courier OFF", "Auto Courier dihentikan.", 2, "info")
 			end
 		end
 	end
@@ -4073,16 +4032,6 @@ local success, err = pcall(function()
 		toggleAutoRideGO(state)
 	end)
 	_G.HipHubAutoRideGoToggle = autoRideGoToggle
-
-	UI.AddToggle(tab, "Smart Trip Pacing (Anti-Kick)", "Menahan waktu tiba pas di server agar tidak terdeteksi. Matikan jika ingin Mode Turbo (Gas Pol).", Config.tripPacing, function(state)
-		Config.tripPacing = state
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.tripPacing = state
-		end
-		if _G.HipHubSaveConfig then
-			_G.HipHubSaveConfig(true)
-		end
-	end)
 
 	UI.AddSlider(tab, "Taxi Speed (Studs/s)", 30, 300, math.floor(Config.taxiSpeed or 90), function(val)
 		Config.taxiSpeed = val
@@ -4118,7 +4067,7 @@ local success, err = pcall(function()
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
 	UI.AddSection(tab, "Courier Delivery Auto-Worker")
-	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Mengantar paket dengan motor/mobil di jalan raya dengan Ground-to-Ground Leap & Smart Pacing", Config.autoCourier, function(state)
+	autoCourierToggle = UI.AddToggle(tab, "Auto Courier Delivery", "Pengantaran paket otomatis dengan rute cerdas", Config.autoCourier, function(state)
 		toggleAutoCourier(state)
 	end)
 	_G.HipHubAutoCourierToggle = autoCourierToggle
@@ -4183,13 +4132,13 @@ local success, err = pcall(function()
 		local shouldResumeCourier = (getgenv().AUTO_RESUME_COURIER == true)
 		if shouldResumeCourier then
 			getgenv().AUTO_RESUME_COURIER = false
-			UI.Notify("🔁 Auto-Resume Courier", "Melanjutkan sesi farm kurir setelah auto-rejoin...", 4, "success")
+			UI.Notify("Auto-Resume", "Melanjutkan sesi farm kurir...", 3, "info")
 		end
 
 		local shouldResumeRideGO = (getgenv().AUTO_RESUME_RIDEGO == true)
 		if shouldResumeRideGO then
 			getgenv().AUTO_RESUME_RIDEGO = false
-			UI.Notify("🔁 Auto-Resume RideGO", "Melanjutkan sesi farm RideGO setelah auto-rejoin...", 4, "success")
+			UI.Notify("Auto-Resume", "Melanjutkan sesi farm RideGO...", 3, "info")
 		end
 
 		if _G.HipHubConfig and _G.HipHubConfig.farm then

@@ -907,8 +907,8 @@ local success, err = pcall(function()
 				local accInfo = (accDisplay and accDisplay ~= "" and accDisplay ~= accName) and (accName .. " (" .. accDisplay .. ")") or accName
 
 				local kickMsg = string.format("Auto Farm Selesai di akun %s.\nTarget: %s | Saldo: %s.", accInfo, formattedTarget, formattedCurrent)
-				updateBcaActivity("🛑 Auto Farm Selesai! Disconnecting...")
-				UI.Notify("Target Earning Reached!", kickMsg, 5, "success")
+				updateBcaActivity("Auto Farm Selesai. Disconnecting...")
+				UI.Notify("Target Tercapai", "Target saldo tercapai. Mengakhiri sesi.", 3, "success")
 				task.wait(0.5)
 				pcall(function()
 					game:GetService("Players").LocalPlayer:Kick(kickMsg)
@@ -2289,11 +2289,11 @@ local success, err = pcall(function()
 		bcaCourierActive = v
 		Config.farm.bcaCourier = v
 		if v then
-			UI.Notify("BCA Courier Farm Active", "Automating money briefcases & 10 ATMs deliveries!", 3, "success")
+			UI.Notify("Auto-Farm ON", "BCA Courier Farm aktif.", 2.5, "success")
 			runBcaCourierFarm()
 		else
 			updateBcaActivity("Paused (Toggle off)")
-			UI.Notify("BCA Courier Farm Stopped", "Bank courier paused.", 2, "warning")
+			UI.Notify("Auto-Farm OFF", "BCA Courier Farm dinonaktifkan.", 2, "info")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 5)
@@ -2334,10 +2334,10 @@ local success, err = pcall(function()
 		end
 	end
 
-	UI.AddDropdown(bcaSec, "🎯 Destination ATM (Far = 6M+)", atmDropdownOptions, currentAtmLabel, function(selectedOpt)
+	UI.AddDropdown(bcaSec, "Destination ATM (Far = 6M+)", atmDropdownOptions, currentAtmLabel, function(selectedOpt)
 		local key = ATM_OPTION_MAP[selectedOpt] or "Auto"
 		Config.farm.bcaTargetAtm = key
-		UI.Notify("Destination ATM Set", selectedOpt, 2, "info")
+		UI.Notify("Destination ATM", selectedOpt, 2, "info")
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 10)
 
@@ -2347,21 +2347,21 @@ local success, err = pcall(function()
 		Config.farm.bcaTargetEarning = num
 		if num > 0 then
 			local fullIdr = num * 1000000
-			UI.Notify("Target Earning Set", string.format("Target: %s (%d Juta). Will disconnect when reached!", formatRupiah(fullIdr), num), 3, "success")
+			UI.Notify("Target Earning", string.format("Target: %s", formatRupiah(fullIdr)), 2.5, "success")
 			checkTargetEarningAndDisconnect()
 		else
-			UI.Notify("Target Earning Disabled", "No earning limit set (runs continuously).", 2, "info")
+			UI.Notify("Target Earning", "Target dinonaktifkan.", 2, "info")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 7)
 
-	UI.AddLabel(bcaSec, "💡 Type in millions: 1 = Rp 1.000.000, 10 = Rp 10.000.000, 68 = Rp 68.000.000 (0 = No limit)", 8, UI.COLORS.textMuted)
+	UI.AddLabel(bcaSec, "Type in millions: 1 = Rp 1.000.000, 10 = Rp 10.000.000, 68 = Rp 68.000.000 (0 = No limit)", 8, UI.COLORS.textMuted)
 
 	UI.AddToggle(bcaSec, "Anti Staff / Auto Disconnect on Player Join", Config.farm.antiStaff or false, function(v)
 		antiStaffActive = v
 		Config.farm.antiStaff = v
 		if v then
-			UI.Notify("Anti Staff Active", "Will auto-disconnect if any player joins server.", 3, "warning")
+			UI.Notify("Proteksi Server", "Proteksi server aktif.", 2.5, "info")
 			for _, otherPlayer in ipairs(game:GetService("Players"):GetPlayers()) do
 				if otherPlayer ~= player then
 					pcall(function()
@@ -2371,7 +2371,7 @@ local success, err = pcall(function()
 				end
 			end
 		else
-			UI.Notify("Anti Staff Disabled", "Player join protection turned off.", 2, "info")
+			UI.Notify("Proteksi Server", "Proteksi server dinonaktifkan.", 2, "info")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 9)
@@ -2381,7 +2381,7 @@ local success, err = pcall(function()
 		Config.farm.bcaAppSync = v
 		if v then
 			fireRemote("MyBcaAppOpened")
-			UI.Notify("myBCA Synced", "Synced Pocket Rupiah & NFC status!", 2, "success")
+			UI.Notify("myBCA", "Sinkronisasi saldo berhasil.", 2, "success")
 		end
 		if _G.HipHubSaveConfig then _G.HipHubSaveConfig() end
 	end, 7)
@@ -2391,9 +2391,9 @@ local success, err = pcall(function()
 			local remotes = ReplicatedStorage:FindFirstChild("NetworkContainer")
 			if remotes and remotes:FindFirstChild("RemoteFunctions") and remotes.RemoteFunctions:FindFirstChild("Spawner") then
 				remotes.RemoteFunctions.Spawner:InvokeServer("Spawn", "2025SemeruLarasBankCar")
-				UI.Notify("BCA Van Spawned", "Spawned 2025 Semeru Laras Bank Car!", 3, "success")
+				UI.Notify("Kendaraan", "Mobil operasional berhasil dipanggil.", 2.5, "success")
 			else
-				UI.Notify("Spawn Failed", "Spawner remote unavailable.", 3, "warning")
+				UI.Notify("Kendaraan", "Gagal memanggil kendaraan.", 2, "warning")
 			end
 		end)
 	end, 8)
@@ -2413,10 +2413,10 @@ local success, err = pcall(function()
 						if fireproximityprompt then fireproximityprompt(prompt) end
 					end
 				end
-				UI.Notify("Exchange Booth", "Teleported to BCA Reward Exchange Booth!", 3, "success")
+				UI.Notify("Teleport", "Tiba di Exchange Booth.", 2, "success")
 			else
 				safeTeleport(CFrame.new(bcaDepotPos))
-				UI.Notify("Teleported", "Teleported to BCA Depot.", 3, "success")
+				UI.Notify("Teleport", "Tiba di BCA Depot.", 2, "success")
 			end
 		end)
 	end, 5)

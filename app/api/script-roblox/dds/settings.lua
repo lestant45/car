@@ -244,7 +244,7 @@ local success, err = pcall(function()
 			-- 1. Cek apakah di server sudah ada player lain saat toggle dinyalakan
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= player then
-					UI.Notify("🚨 Anti-Player Triggered", "Ada player lain (" .. p.DisplayName .. ") di server. Keluar dari server...", 3, "warning")
+					UI.Notify("Proteksi Server", "Player lain terdeteksi. Keluar dari server...", 3, "info")
 					task.wait(0.5)
 					player:Kick("\n[HipHub Anti-Player]\nAda player lain di dalam server: " .. p.DisplayName .. " (@" .. p.Name .. ").")
 					return
@@ -254,7 +254,7 @@ local success, err = pcall(function()
 			-- 2. Dengarkan player baru yang join
 			antiPlayerConn = Players.PlayerAdded:Connect(function(newPlayer)
 				if newPlayer ~= player and _G.HipHubConfig.misc.antiPlayerJoin then
-					UI.Notify("🚨 Player Masuk!", newPlayer.DisplayName .. " masuk server. Otomatis keluar...", 3, "warning")
+					UI.Notify("Proteksi Server", "Player baru bergabung. Keluar dari server...", 3, "info")
 					task.wait(0.5)
 					player:Kick("\n[HipHub Anti-Player]\nPlayer lain masuk server: " .. newPlayer.DisplayName .. " (@" .. newPlayer.Name .. ").")
 				end
