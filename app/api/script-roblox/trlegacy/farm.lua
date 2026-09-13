@@ -18,14 +18,13 @@ local success, err = pcall(function()
 		autoDriveCircle = false,
 		circleRadius = 65,
 		circleSpeed = 150,
-		driveDepth = 25,
+		antiStuck = true,
 		autoLoop = true
 	}
 
-	if Config.driveUnderground == nil then Config.driveUnderground = true end
-	if Config.driveDepth == nil then Config.driveDepth = 25 end
 	if Config.circleRadius == nil then Config.circleRadius = 65 end
 	if Config.circleSpeed == nil then Config.circleSpeed = 150 end
+	if Config.antiStuck == nil then Config.antiStuck = true end
 
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
@@ -139,8 +138,8 @@ local success, err = pcall(function()
 		end
 	end, 8)
 
-	-- 2. AUTO DRIVE MEMUTAR SECTION
-	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Odometer & Cash Farm)", 9)
+	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
+	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Khusus Di Atas Tanah)", 9)
 
 	local driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 10)
 	local driveCashCard = UI.AddStatsCard(driveSection, "Live Cash / Balance", "RM 0 (+RM 0)", 11)
@@ -155,17 +154,9 @@ local success, err = pcall(function()
 		Config.circleSpeed = val
 	end, 5, " km/h", 15)
 
-	local driveDepthSlider = UI.AddSlider(driveSection, "Drive Underground Depth", 10, 60, Config.driveDepth or 25, function(val)
-		Config.driveDepth = val
-	end, 1, " studs", 16)
-
-	local driveUgToggle = UI.AddToggle(driveSection, "Drive Underground (Sembunyi Bawah Tanah)", Config.driveUnderground ~= false, function(v)
-		Config.driveUnderground = v
-	end, 17)
-
 	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip (Tembus Rintangan)", Config.antiStuck ~= false, function(v)
 		Config.antiStuck = v
-	end, 18)
+	end, 16)
 
 	local unstuckBtn = UI.AddButton(driveSection, "🚨 Unstuck Manual (Lepaskan Motor)", function()
 		local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
@@ -175,25 +166,29 @@ local success, err = pcall(function()
 			primary.AssemblyLinearVelocity = look * 120 + Vector3.new(0, 15, 0)
 			UI.Notify("Anti-Stuck", "Motor dilepaskan dari rintangan!", 2, "success")
 		end
-	end, 19)
+	end, 17)
 
-	local autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar", Config.autoDriveCircle, function(enabled)
+	local autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar (Di Atas Tanah)", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
 		_G.HipHub_IsAutoDriving = enabled
 		if enabled then
 			circleDriveStartTime = os.clock()
 			startDriveCash = nil
 			startDriveMiles = nil
-			UI.Notify("Auto Drive", "Memulai circular drive (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
+			UI.Notify("Auto Drive", "Memulai circular drive di atas tanah (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
 		else
 			UI.Notify("Auto Drive", "Menghentikan circular drive.", 2, "info")
 			driveStatusCard.Set("Stopped")
 			startDriveCash = nil
 			startDriveMiles = nil
-			local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
-			returnBikeToSurface(bike, primary)
+			local bike, seat, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+			if bike and primary then
+				primary.AssemblyLinearVelocity = Vector3.zero
+				primary.AssemblyAngularVelocity = Vector3.zero
+				if seat then seat.Throttle = 0 end
+			end
 		end
-	end, 20)
+	end, 18)
 
 	------------------------------------------------
 	-- 🏁 UNDERGROUND AUTO RACE LOGIC
@@ -529,13 +524,11 @@ local success, err = pcall(function()
 				lastDrivePos = nil
 				lastWatchdogPos = nil
 				stuckSeconds = 0
-				if undergroundTrack and undergroundTrack.Parent then
-					pcall(function() undergroundTrack:Destroy() end)
-					undergroundTrack = nil
-				end
-				if Config.driveUnderground and Config.returnToSurface ~= false then
-					local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
-					returnBikeToSurface(bike, primary)
+				local bike, seat, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+				if bike and primary then
+					primary.AssemblyLinearVelocity = Vector3.zero
+					primary.AssemblyAngularVelocity = Vector3.zero
+					if seat then seat.Throttle = 0 end
 				end
 			end
 			return
@@ -557,25 +550,15 @@ local success, err = pcall(function()
 			if circleCenter then
 				circleCenter = nil
 				lastDrivePos = nil
-				if undergroundTrack and undergroundTrack.Parent then
-					pcall(function() undergroundTrack:Destroy() end)
-					undergroundTrack = nil
-				end
 			end
 			return
 		end
 
 		if hum.SeatPart ~= seat then
 			driveStatusCard.Set("Mendudukkan driver di permukaan...")
-			-- If bike was underground, bring it back to surface FIRST before trying to seat!
 			if circleCenter then
 				circleCenter = nil
 				lastDrivePos = nil
-				if undergroundTrack and undergroundTrack.Parent then
-					pcall(function() undergroundTrack:Destroy() end)
-					undergroundTrack = nil
-				end
-				returnBikeToSurface(bike, primary)
 			end
 			if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
 				_G.HipHubVehicle.EnsureDriverSeated(true)
@@ -583,87 +566,52 @@ local success, err = pcall(function()
 			return
 		end
 
-		-- Set circle center upon first run using surface raycast
+		local radius = math.max(Config.circleRadius or 65, 15)
+		local speed = math.max(Config.circleSpeed or 120, 40)
+
+		-- Set circle center upon first run directly relative to bike's current surface position
 		if not circleCenter then
 			local curPos = primary.Position
-			local surfaceY = getGroundSurfaceY(curPos.X, curPos.Z, bike)
-			local depth = Config.driveUnderground and (Config.driveDepth or Config.undergroundDepth or 25) or 0
-			local targetY = Config.driveUnderground and (surfaceY - depth) or (surfaceY + 1.2)
-			circleCenter = Vector3.new(curPos.X, targetY, curPos.Z)
-
-			local radius = math.max(Config.circleRadius or 65, 15)
-
-			-- Spawn massive invisible client-side road platform for realistic grounded tire traction & suspension
-			if Config.driveUnderground then
-				if undergroundTrack and undergroundTrack.Parent then
-					pcall(function() undergroundTrack:Destroy() end)
-				end
-				undergroundTrack = Instance.new("Part")
-				undergroundTrack.Name = "HipHub_UndergroundTrack"
-				undergroundTrack.Size = Vector3.new(2048, 2, 2048)
-				undergroundTrack.Position = Vector3.new(circleCenter.X, targetY - 1, circleCenter.Z)
-				undergroundTrack.Anchored = true
-				undergroundTrack.CanCollide = true
-				undergroundTrack.Transparency = 1
-				undergroundTrack.Material = Enum.Material.Asphalt
-				undergroundTrack.Friction = 0.8
-				undergroundTrack.Parent = workspace
-			end
-
-			local initialPos = Vector3.new(circleCenter.X + radius, targetY + 1.2, circleCenter.Z)
-			local initialLook = Vector3.new(0, 0, 1)
-			bike:PivotTo(CFrame.lookAt(initialPos, initialPos + initialLook))
-
+			local right = primary.CFrame.RightVector
+			circleCenter = curPos + Vector3.new(right.X, 0, right.Z).Unit * radius
 			noclipBikeBody(bike)
 		end
 
 		local curPos = primary.Position
-		local radius = math.max(Config.circleRadius or 65, 15)
-		local speed = math.max(Config.circleSpeed or 120, 40)
-		local baseOmega = speed / radius
 
-		-- Noclip bike body & surroundings if anti-stuck is enabled
+		-- Noclip bike body & obstacles if anti-stuck is enabled
 		if Config.antiStuck ~= false then
 			noclipBikeBody(bike)
-			noclipSurroundings(bike, curPos, 30)
+			noclipSurroundings(bike, curPos, 35)
 		end
 
-		-- Distance from circle center & proportional steering feedback
+		-- Distance from circle center & proportional steering
 		local diff = Vector3.new(curPos.X - circleCenter.X, 0, curPos.Z - circleCenter.Z)
 		local currentDist = diff.Magnitude
 		local distErr = radius - currentDist
-		local steerAdj = math.clamp(-distErr * 0.05, -0.6, 0.6)
-		local activeOmega = baseOmega + steerAdj
+		local baseOmega = -(speed / radius)
+		local steerAdj = math.clamp(distErr * 0.05, -0.8, 0.8)
+		local activeOmega = baseOmega - steerAdj
 
-		-- Vertical height lock (underground road contact or surface gravity)
-		local vy
-		if Config.driveUnderground then
-			local targetSurfaceY = circleCenter.Y + 1.2
-			local yErr = targetSurfaceY - curPos.Y
-			if curPos.Y < circleCenter.Y then
-				vy = 20
-			else
-				vy = math.clamp(yErr * 6.0, -25, 25)
-			end
-		else
-			vy = primary.AssemblyLinearVelocity.Y
-		end
-
+		-- Forward velocity along LookVector with natural surface gravity
 		local look = primary.CFrame.LookVector
+		local vy = primary.AssemblyLinearVelocity.Y
 
-		-- Front obstacle / curb-hop raycast to glide smoothly over jagged terrain seams
+		-- Front obstacle / curb-hop raycast to glide smoothly over jagged curb seams
 		local frontRayParams = RaycastParams.new()
-		frontRayParams.FilterDescendantsInstances = { bike, player.Character, undergroundTrack }
+		frontRayParams.FilterDescendantsInstances = { bike, player.Character }
 		frontRayParams.FilterType = Enum.RaycastFilterType.Exclude
-		local frontRay = workspace:Raycast(curPos + Vector3.new(0, 0.8, 0), look * 6, frontRayParams)
+		local frontRay = workspace:Raycast(curPos + Vector3.new(0, 0.6, 0), look * 6, frontRayParams)
 		if frontRay and frontRay.Instance then
-			if not (not Config.driveUnderground and (frontRay.Instance.Name:lower():find("road") or frontRay.Instance:IsA("Terrain"))) then
+			local n = frontRay.Instance.Name:lower()
+			local isGround = n:find("road") or n:find("ground") or n:find("terrain") or n:find("asphalt") or n:find("baseplate")
+			if not isGround then
 				frontRay.Instance.CanCollide = false
+				vy = math.max(vy, 8)
 			end
-			vy = math.max(vy, 14)
 		end
 
-		-- Pure physics velocity along LookVector: NEVER assigns CFrame or calls PivotTo
+		-- Pure physics velocity: tires stay firmly on the road surface
 		seat.Throttle = 1
 		primary.AssemblyLinearVelocity = Vector3.new(look.X * speed, vy, look.Z * speed)
 		primary.AssemblyAngularVelocity = Vector3.new(0, activeOmega, 0)
@@ -679,7 +627,7 @@ local success, err = pcall(function()
 						noclipSurroundings(bike, curPos, 45)
 						noclipBikeBody(bike)
 						bike:PivotTo(bike:GetPivot() + Vector3.new(0, 3.5, 0) + (look * 8))
-						primary.AssemblyLinearVelocity = look * speed + Vector3.new(0, 18, 0)
+						primary.AssemblyLinearVelocity = look * speed + Vector3.new(0, 15, 0)
 						driveStatusCard.Set("🚨 Meloloskan dari rintangan...")
 						
 						if stuckSeconds >= 4.0 then
@@ -723,8 +671,7 @@ local success, err = pcall(function()
 		end)
 
 		local elapsed = math.floor(os.clock() - circleDriveStartTime)
-		local locStr = Config.driveUnderground and "Bawah Tanah" or "Permukaan"
-		driveStatusCard.Set(string.format("%s | R: %d | %d km/h (%02d:%02d)", locStr, radius, speed, math.floor(elapsed / 60), elapsed % 60))
+		driveStatusCard.Set(string.format("Di Atas Tanah | R: %d | %d km/h (%02d:%02d)", radius, speed, math.floor(elapsed / 60), elapsed % 60))
 	end)
 end)
 

@@ -77,7 +77,7 @@ local success, err = pcall(function()
 
 	_G.HipHub_SpawnKasaki = spawnKasakiZ800
 
-	-- Ensure player is seated on bike's DriveSeat
+	-- Ensure player is seated on bike's DriveSeat with authentic riding pose & Speedometer HUD
 	local function ensureDriverSeated(autoSpawn)
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -96,23 +96,43 @@ local success, err = pcall(function()
 
 		if not seat then return false end
 
-		if hum.SeatPart == seat then
+		local pGui = player:FindFirstChild("PlayerGui")
+		local hasGauge = pGui and pGui:FindFirstChild("Gauge_EXRGARAGE", true)
+
+		-- If already seated and has the gauge HUD active, authentic riding pose (Image 2) is active!
+		if hum.SeatPart == seat and hasGauge and hasGauge.Visible then
 			return true
 		end
 
-		-- Direct sit attempt
-		hum.Sit = false
-		task.wait(0.05)
-		pcall(function()
-			seat:Sit(hum)
-		end)
+		-- If seated without gauge HUD (Image 1 floating upright bug), jump out first so prompt can properly re-seat with HUD
+		if hum.SeatPart == seat and (not hasGauge or not hasGauge.Visible) then
+			hum.Sit = false
+			task.wait(0.2)
+		end
 
-		-- Prompt fallback
-		if hum.SeatPart ~= seat then
-			local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt") or bike:FindFirstChildWhichIsA("ProximityPrompt", true)
-			if prompt and fireproximityprompt then
-				pcall(function() fireproximityprompt(prompt, 0) end)
+		-- Priority 1: Official Game VehiclePrompt (Mounts bike with custom riding animations & Speedometer HUD)
+		local prompt = seat:FindFirstChild("VehiclePrompt") or seat:FindFirstChildWhichIsA("ProximityPrompt") or bike:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt and fireproximityprompt then
+			pcall(function()
+				char:PivotTo(seat.CFrame + Vector3.new(0, 1.5, 0))
+				task.wait(0.15)
+				prompt.Enabled = true
+				prompt.RequiresLineOfSight = false
+				prompt.MaxActivationDistance = 50
+				fireproximityprompt(prompt, 0)
+			end)
+			local waitStart = os.clock()
+			while (os.clock() - waitStart) < 1.5 do
+				task.wait(0.1)
+				if hum.SeatPart == seat then break end
 			end
+		end
+
+		-- Priority 2: Fallback to direct sit if prompt failed
+		if hum.SeatPart ~= seat then
+			pcall(function()
+				seat:Sit(hum)
+			end)
 		end
 
 		return hum.SeatPart == seat
@@ -193,10 +213,18 @@ local success, err = pcall(function()
 					local char = player.Character
 					local hum = char and char:FindFirstChildOfClass("Humanoid")
 					local isSeated = hum and hum.SeatPart == seat
-					bikeStatusCard.Set(bike.Name .. (isSeated and " (Seated)" or " (Unmounted)"))
+					local pGui = player:FindFirstChild("PlayerGui")
+					local hasGauge = pGui and pGui:FindFirstChild("Gauge_EXRGARAGE", true)
+					local properSit = isSeated and hasGauge and hasGauge.Visible
+
+					bikeStatusCard.Set(bike.Name .. (properSit and " (Seated)" or (isSeated and " (Seated - No HUD)" or " (Unmounted)")))
+
+					if not isSeated and Config.autoMount and not _G.HipHub_IsAutoRacing and not _G.HipHub_IsAutoDriving then
+						ensureDriverSeated(false)
+					end
 				else
 					bikeStatusCard.Set("None (Despawned)")
-					if Config.autoMount and not _G.HipHub_IsAutoRacing then
+					if Config.autoMount and not _G.HipHub_IsAutoRacing and not _G.HipHub_IsAutoDriving then
 						ensureDriverSeated(true)
 					end
 				end
