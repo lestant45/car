@@ -2802,11 +2802,11 @@ local success, err = pcall(function()
 				local elapsed = tick() - tripStartTime
 
 				if elapsed < minSafeTime then
-					-- Berkendara hingga mendekati titik tujuan (jarak ~35 studs di luar zona trigger)
+					-- Berkendara hingga mendekati titik tujuan (jarak ~32 studs di luar zona trigger)
 					local dirToDest = (taxiDropPos - (taxiPickupPos or taxiDropPos)).Unit
 					if dirToDest.Magnitude < 0.1 then dirToDest = Vector3.new(0, 0, 1) end
-					local perimeterPos = taxiDropPos - (dirToDest * 35.0)
-					driveVehicleTo(perimeterPos, tripSpeed, 50)
+					local perimeterPos = taxiDropPos - (dirToDest * 32.0)
+					driveVehicleTo(perimeterPos, tripSpeed, 8.0)
 
 					-- Tahan di luar lingkaran tujuan sampai waktu tempuh sah tercapai
 					local nowElapsed = tick() - tripStartTime
@@ -2844,8 +2844,8 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Masuk ke titik tujuan utama (radius <= 25 studs) pada waktu yang sudah 100% sah di server!
-			driveVehicleTo(taxiDropPos, tripSpeed, 50)
+			-- Masuk tepat ke tengah titik tujuan utama (radius <= 4.0 studs) agar trigger penumpang turun otomatis aktif!
+			driveVehicleTo(taxiDropPos, tripSpeed, 4.0)
 
 			setTaxiState("DROPPING_OFF", "🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
 			local car, seat = getPlayerVehicle()
