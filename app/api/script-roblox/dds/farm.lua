@@ -172,14 +172,18 @@ local success, err = pcall(function()
 	local restartAutoRideGoToggle = nil
 	local autoCourierToggle       = nil
 	local toggleAutoCourier       = nil
+	local toggleAutoRideGO        = nil
 
-	local triggerSafeRespawn  = nil
-	local spawnTaxiBike       = nil
-	local changeTeam          = nil
-	local mountBike           = nil
-	local ensureDriverSeated  = nil
-	local recoverRideGoDuty   = nil
-	local cancelActiveDrive   = nil
+	local triggerSafeRespawn      = nil
+	local getPlayerVehicle        = nil
+	local spawnTaxiBike           = nil
+	local changeTeam              = nil
+	local mountBike               = nil
+	local ensureDriverSeated      = nil
+	local recoverRideGoDuty       = nil
+	local cancelActiveDrive       = nil
+	local getActiveCourierTarget  = nil
+	local hasCourierPackage       = nil
 	local glidePlayerAcrossVoid = nil
 	local ensureCarrierSeat     = nil
 	local destroyCarrierSeat    = nil
@@ -472,128 +476,126 @@ local success, err = pcall(function()
 		if isRespawning then return false end
 		isRespawning = true
 
-		updateBotActivity("🔄 Menunggu Respawn Karakter...", Color3.fromRGB(255, 180, 50))
+		local ok, err = pcall(function()
+			updateBotActivity("Menunggu Respawn Karakter...", Color3.fromRGB(255, 180, 50))
 
-		-- 1. Hentikan total navigasi & gerak kendaraan lama
-		cancelActiveDrive()
-		pcall(function()
-			local car, seat = getPlayerVehicle()
-			if car then
-				for _, part in ipairs(car:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
+			-- 1. Hentikan total navigasi & gerak kendaraan lama
+			if cancelActiveDrive then
+				cancelActiveDrive()
+			end
+			pcall(function()
+				local car, seat = getPlayerVehicle()
+				if car then
+					for _, part in ipairs(car:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
 					end
 				end
-			end
-		end)
+			end)
 
-		-- 2. Despawn motor lama agar tidak tersisa di bibir jurang / void
-		pcall(function()
-			local car, _ = getPlayerVehicle()
-			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
-			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
-			if despawnEvent then
-				despawnEvent:FireServer()
-			end
-			if car and car.Parent then
-				car:Destroy()
-			end
-		end)
+			-- 2. Despawn motor lama agar tidak tersisa di bibir jurang / void
+			pcall(function()
+				local car, _ = getPlayerVehicle()
+				local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+				local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
+				if despawnEvent then
+					despawnEvent:FireServer()
+				end
+				if car and car.Parent then
+					car:Destroy()
+				end
+			end)
 
-		-- 3. Reset karakter via Humanoid (legal native Roblox reset, bypass HealthGuard)
-		local oldChar = player.Character
-		pcall(function()
-			local hum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
-			if hum then
-				hum.Health = 0
-			end
-			if oldChar then
-				oldChar:BreakJoints()
-			end
-		end)
+			-- 3. Reset karakter via Humanoid (legal native Roblox reset, bypass HealthGuard)
+			local oldChar = player.Character
+			pcall(function()
+				local hum = oldChar and oldChar:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum.Health = 0
+				end
+				if oldChar then
+					oldChar:BreakJoints()
+				end
+			end)
 
-		-- 4. FOKUS TUNGGU RESPAWN: Tunggu hingga karakter baru benar-benar muncul dan hidup stabil
-		local t0 = os.clock()
-		while true do
-			local curChar = player.Character
-			if curChar and curChar ~= oldChar and curChar.Parent then
-				local hum = curChar:FindFirstChildOfClass("Humanoid")
-				local hrp = curChar:FindFirstChild("HumanoidRootPart")
-				if hum and hrp and hum.Health > 0 then
+			-- 4. FOKUS TUNGGU RESPAWN: Tunggu hingga karakter baru benar-benar muncul dan hidup stabil
+			local t0 = os.clock()
+			while true do
+				local curChar = player.Character
+				if curChar and curChar ~= oldChar and curChar.Parent then
+					local hum = curChar:FindFirstChildOfClass("Humanoid")
+					local hrp = curChar:FindFirstChild("HumanoidRootPart")
+					if hum and hrp and hum.Health > 0 then
+						break
+					end
+				end
+				if os.clock() - t0 > 12.0 then
+					warn("[HipHub DDS] triggerSafeRespawn: Timeout menunggu respawn karakter baru")
 					break
 				end
+				task.wait(0.25)
 			end
-			if os.clock() - t0 > 12.0 then
-				warn("[HipHub DDS] triggerSafeRespawn: Timeout menunggu respawn karakter baru")
-				break
-			end
-			task.wait(0.25)
-		end
 
-		-- Jeda 1.5 detik agar physics karakter dan streaming map kota asal stabil
-		updateBotActivity("⏳ Menstabilkan Posisi Karakter...", Color3.fromRGB(255, 200, 50))
-		task.wait(1.5)
+			-- Jeda 1.5 detik agar physics karakter dan streaming map kota asal stabil
+			updateBotActivity("Menstabilkan Posisi Karakter...", Color3.fromRGB(255, 200, 50))
+			task.wait(1.5)
 
-		-- 5. SPAWN MOTOR BARU: Karakter sudah respawn, panggil motor baru
-		updateBotActivity("🏍️ Memanggil Motor Baru...", Color3.fromRGB(0, 212, 255))
-
-		local bikeSpawned = false
-		local newCar, newSeat = nil, nil
-		for spawnAttempt = 1, 3 do
+			-- 5. SPAWN MOTOR BARU: Karakter sudah respawn, panggil motor baru
+			updateBotActivity("Memanggil Motor Baru...", Color3.fromRGB(0, 212, 255))
 			if spawnTaxiBike then
 				spawnTaxiBike()
 			end
-			local tWaitBike = os.clock()
-			while os.clock() - tWaitBike < 3.5 do
-				task.wait(0.3)
-				newCar, newSeat = getPlayerVehicle()
-				if newCar and newSeat then
-					bikeSpawned = true
-					break
-				end
-			end
-			if bikeSpawned then break end
-			task.wait(0.5)
-		end
 
-		-- 6. DUDUK DI DRIVER SEAT MOTOR: Baru setelah motor ada, duduk di kursi pengemudi
-		if newCar and newSeat then
-			updateBotActivity("🛵 Menaiki Kursi Pengemudi...", Color3.fromRGB(0, 212, 255))
+			-- 6. DUDUK DI DRIVER SEAT MOTOR: Segera dudukkan karakter ke motor
+			updateBotActivity("Menaiki Kursi Pengemudi...", Color3.fromRGB(0, 212, 255))
 			local seated = false
-			for sitAttempt = 1, 3 do
-				local ok = mountBike(true)
-				if ok then
-					local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-					if hum and hum.SeatPart then
+			for sitAttempt = 1, 6 do
+				if ensureDriverSeated and ensureDriverSeated(true) then
+					seated = true
+					break
+				elseif mountBike and mountBike(true) then
+					local curChar = player.Character
+					local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+					if curHum and curHum.SeatPart then
 						seated = true
 						break
 					end
 				end
 				task.wait(0.5)
 			end
-		end
 
-		-- 7. Jika sedang Kurir, refresh job request agar server memberi target baru
-		if courierActive then
-			pcall(function()
-				local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
-				local deliverySettingsFolder = deliverySys and deliverySys:FindFirstChild("Settings")
-				local reqJob = deliverySettingsFolder and (deliverySettingsFolder:FindFirstChild("RequestJobUpdate") or deliverySettingsFolder:FindFirstChild("ServiceEvent"))
-				if reqJob then
-					if reqJob.Name == "RequestJobUpdate" then
-						reqJob:FireServer()
-					else
-						reqJob:FireServer("RequestJobUpdate")
-					end
+			-- 7. Jika sedang Kurir & belum punya target, refresh job agar server memberi target baru
+			if courierActive then
+				local hasTarget = (getActiveCourierTarget and getActiveCourierTarget() ~= nil)
+				local hasPkg = (hasCourierPackage and hasCourierPackage())
+				if not hasTarget and not hasPkg then
+					pcall(function()
+						local deliverySys = ReplicatedStorage:FindFirstChild("Delivery System")
+						local deliverySettingsFolder = deliverySys and deliverySys:FindFirstChild("Settings")
+						local reqJob = deliverySettingsFolder and (deliverySettingsFolder:FindFirstChild("RequestJobUpdate") or deliverySettingsFolder:FindFirstChild("ServiceEvent"))
+						if reqJob then
+							if reqJob.Name == "RequestJobUpdate" then
+								reqJob:FireServer()
+							else
+								reqJob:FireServer("RequestJobUpdate")
+							end
+						end
+					end)
 				end
-			end)
+			end
+		end)
+
+		if not ok then
+			warn("[HipHub DDS] triggerSafeRespawn error:", tostring(err))
 		end
 
 		task.wait(0.5)
 		isRespawning = false
 		return true
 	end
+
 
 
 	local function getRootPart()
@@ -641,7 +643,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function getPlayerVehicle()
+	getPlayerVehicle = function()
 		local char = player.Character
 		if not char then return nil, nil end
 
@@ -1699,6 +1701,140 @@ local success, err = pcall(function()
 		return true
 	end
 
+	local nonDrivableMats = {
+		[Enum.Material.ClayRoofTiles] = true,
+		[Enum.Material.WoodPlanks] = true,
+		[Enum.Material.Fabric] = true,
+		[Enum.Material.Glass] = true,
+		[Enum.Material.Water] = true
+	}
+
+	local function probeGroundFile(probePos, refY, optCar, optFilter)
+		local offsets = {
+			Vector3.zero,
+			Vector3.new(2, 0, 0),
+			Vector3.new(-2, 0, 0),
+			Vector3.new(0, 0, 2),
+			Vector3.new(0, 0, -2)
+		}
+
+		local car = optCar or (getPlayerVehicle and select(1, getPlayerVehicle()))
+		local carPivot = car and car:GetPivot()
+		local carPos2D = carPivot and Vector3.new(carPivot.Position.X, 0, carPivot.Position.Z) or Vector3.new(probePos.X, 0, probePos.Z)
+		local distFromCar = (Vector3.new(probePos.X, 0, probePos.Z) - carPos2D).Magnitude
+
+		local startY
+		local rayDepth
+		if isSasanaKridaTrip() then
+			startY = (refY or 0) + 7
+			rayDepth = -30
+		elseif distFromCar <= 15 then
+			startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 14
+			rayDepth = -160
+		else
+			startY = math.max((refY or 0) + 14 + distFromCar * 0.35, 25)
+			rayDepth = -math.max(distFromCar * 0.6 + 60, 160)
+		end
+
+		local baseFilter = optFilter or { car, player.Character }
+		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
+		if safetyPlate and not table.find(baseFilter, safetyPlate) then
+			local t = table.clone(baseFilter)
+			table.insert(t, safetyPlate)
+			baseFilter = t
+		end
+
+		for _, off in ipairs(offsets) do
+			local pos = probePos + off
+			local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
+
+			local localFilter = table.clone(baseFilter)
+			local localParams = RaycastParams.new()
+			localParams.FilterType = Enum.RaycastFilterType.Exclude
+			localParams.IgnoreWater = false
+
+			for attempt = 1, 6 do
+				localParams.FilterDescendantsInstances = localFilter
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, rayDepth, 0), localParams)
+				if not hit then break end
+
+				local inst = hit.Instance
+				local mat = inst.Material
+				local nameLower = inst.Name:lower()
+				local parentName = inst.Parent and inst.Parent.Name:lower() or ""
+				local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
+				local fullName = inst:GetFullName():lower()
+
+				local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
+
+				local isRoadOrTerrain = isFlyover
+					or fullName:find("jl_klaten")
+					or fullName:find("jl_")
+					or fullName:find("jalan")
+					or fullName:find("road")
+					or fullName:find("street")
+					or fullName:find("aspal")
+					or nameLower:find("sawah")
+					or parentName:find("sawah")
+					or grandParentName:find("sawah")
+					or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
+					or inst:IsA("Terrain")
+
+				local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
+
+				local isRoofOrObstacle = false
+				local isBuildingModel = false
+
+				if not isRoadOrTerrain then
+					isRoofOrObstacle = nonDrivableMats[mat]
+						or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
+						or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
+						or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
+						or (inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
+
+					local hasBuildingKeyword = parentName:find("rumah") or parentName:find("house")
+						or parentName:find("gedung") or parentName:find("bangunan")
+						or parentName:find("ruko") or parentName:find("gudang")
+						or parentName:find("indamart") or parentName:find("indahmart")
+						or parentName:find("karoseri") or parentName:find("billboard")
+						or parentName:find("excavator") or parentName:find("adiputro")
+						or grandParentName:find("ruko") or grandParentName:find("gudang")
+						or grandParentName:find("indamart") or grandParentName:find("indahmart")
+						or grandParentName:find("karoseri") or grandParentName:find("billboard")
+						or grandParentName:find("adiputro")
+
+					isBuildingModel = hasBuildingKeyword and inst.Position.Y >= 6
+				end
+
+				if isWater then
+					break
+				elseif isRoofOrObstacle or isBuildingModel then
+					table.insert(localFilter, inst)
+					rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
+				else
+					local hitY = hit.Position.Y
+					local isOverheadObstacle = false
+					if refY and distFromCar <= 15 then
+						if hitY > (refY + 16) then
+							isOverheadObstacle = true
+						end
+					end
+
+					if not isOverheadObstacle and hitY >= -45 and hitY <= (startY + 10) and (not hit.Normal or hit.Normal.Y >= 0.10) then
+						return hitY + MOTOR_PIVOT_HEIGHT_OFFSET
+					elseif isOverheadObstacle then
+						table.insert(localFilter, inst)
+						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
+					else
+						break
+					end
+				end
+			end
+		end
+
+		return nil
+	end
+
 	-- 🌉 Void Bridge Engine: scan daratan seberang jurang (hanya sudut maju ke arah tujuan),
 	-- lalu teleport vehicle ke ground seberang dengan safety plate.
 	local function attemptVoidBridge(car, fromPos, toPos)
@@ -1865,7 +2001,7 @@ local success, err = pcall(function()
 			local approachDist = math.max(15, math.min(35, totalDistToDest * 0.1))
 			local nearDestPos = toPos - baseDir * approachDist
 			requestStreamAsync(nearDestPos)
-			local destGroundY = probeGround(nearDestPos, fromPos.Y) or probeGround(toPos, fromPos.Y)
+			local destGroundY = probeGroundFile(nearDestPos, fromPos.Y, car) or probeGroundFile(toPos, fromPos.Y, car)
 			if destGroundY then
 				local landPos = Vector3.new(nearDestPos.X, destGroundY, nearDestPos.Z)
 				local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
@@ -1942,145 +2078,10 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		rayParams.IgnoreWater = false -- 🌊 Terrain Water HARUS terdeteksi sebagai solid oleh semua raycast agar motor tidak menembusnya!
 
-		local nonDrivableMats = {
-			[Enum.Material.ClayRoofTiles] = true,
-			[Enum.Material.WoodPlanks] = true,
-			[Enum.Material.Fabric] = true,
-			[Enum.Material.Glass] = true,
-			[Enum.Material.Water] = true
-		}
-
 		local function probeGround(probePos, refY)
-			local offsets = {
-				Vector3.zero,
-				Vector3.new(2, 0, 0),
-				Vector3.new(-2, 0, 0),
-				Vector3.new(0, 0, 2),
-				Vector3.new(0, 0, -2)
-			}
-
-			local carPivot = car and car:GetPivot()
-			local carPos2D = carPivot and Vector3.new(carPivot.Position.X, 0, carPivot.Position.Z) or Vector3.new(probePos.X, 0, probePos.Z)
-			local distFromCar = (Vector3.new(probePos.X, 0, probePos.Z) - carPos2D).Magnitude
-
-			local startY
-			local rayDepth
-			if isSasanaKridaTrip() then
-				startY = (refY or 0) + 7
-				rayDepth = -30
-			elseif distFromCar <= 15 then
-				-- 🛵 Langkah mengemudi jarak dekat (immediate driving step):
-				-- Mulai dari refY + 14 agar tidak menembak dari atas atap tinggi,
-				-- dan tembak ke bawah cukup dalam (-160 stud) agar tanah di bawah turunan/tebing tetap terbaca!
-				startY = (refY or (carPivot and carPivot.Position.Y) or 0) + 14
-				rayDepth = -160
-			else
-				-- 🔭 Pemindaian jurang jarak jauh (solidAheadDist):
-				-- Adaptif naik mengikuti kemungkinan tanjakan bukit ke depan
-				startY = math.max((refY or 0) + 14 + distFromCar * 0.35, 25)
-				rayDepth = -math.max(distFromCar * 0.6 + 60, 160)
-			end
-
-			for _, off in ipairs(offsets) do
-				local pos = probePos + off
-				local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-
-				local localFilter = table.clone(rayFilter)
-				local localParams = RaycastParams.new()
-				localParams.FilterType = Enum.RaycastFilterType.Exclude
-				localParams.IgnoreWater = false -- 🌊 Jangan pernah lewatkan Terrain Water!
-
-				-- Penetrasi berlapis: menembus atap genteng & plafon rumah sampai menemukan aspal/tanah asli di bawahnya
-				for attempt = 1, 6 do
-					localParams.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(rayOrigin, Vector3.new(0, rayDepth, 0), localParams)
-					if not hit then break end
-
-					local inst = hit.Instance
-					local mat = inst.Material
-					local nameLower = inst.Name:lower()
-					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
-					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
-					local fullName = inst:GetFullName():lower()
-
-					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
-
-					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
-					local isRoadOrTerrain = isFlyover
-						or fullName:find("jl_klaten")
-						or fullName:find("jl_")
-						or fullName:find("jalan")
-						or fullName:find("road")
-						or fullName:find("street")
-						or fullName:find("aspal")
-						or nameLower:find("sawah")
-						or parentName:find("sawah")
-						or grandParentName:find("sawah")
-						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
-						or inst:IsA("Terrain")
-
-					-- 2. Air / Sungai (Bukan daratan)
-					local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
-
-					-- 3. Atap / Rintangan Fisik / Gedung Sungguhan
-					local isRoofOrObstacle = false
-					local isBuildingModel = false
-
-					if not isRoadOrTerrain then
-						isRoofOrObstacle = nonDrivableMats[mat]
-							or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
-							or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
-							or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
-							or (inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
-
-						-- Bangunan sungguhan (HANYA jika memiliki kata kunci gedung nyata, BUKAN sekadar "Model"!)
-						local hasBuildingKeyword = parentName:find("rumah") or parentName:find("house")
-							or parentName:find("gedung") or parentName:find("bangunan")
-							or parentName:find("ruko") or parentName:find("gudang")
-							or parentName:find("indamart") or parentName:find("indahmart")
-							or parentName:find("karoseri") or parentName:find("billboard")
-							or parentName:find("excavator") or parentName:find("adiputro")
-							or grandParentName:find("ruko") or grandParentName:find("gudang")
-							or grandParentName:find("indamart") or grandParentName:find("indahmart")
-							or grandParentName:find("karoseri") or grandParentName:find("billboard")
-							or grandParentName:find("adiputro")
-
-						isBuildingModel = hasBuildingKeyword and inst.Position.Y >= 6
-					end
-
-					if isWater then
-						-- Air sungai / kolam BUKAN daratan! Raycast di sini dianggap jurang hampa (void)
-						break
-					elseif isRoofOrObstacle or isBuildingModel then
-						table.insert(localFilter, inst)
-						rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
-					else
-						local hitY = hit.Position.Y
-						-- 🛡️ Validasi Daratan & Filter Objek Overhead:
-						-- 1. Jangan biarkan menembus ke atap/plafon tinggi di atas kepala jika hitY jauh di atas refY (> refY + 16)
-						-- 2. Jika hitY DI BAWAH kendaraan (turunan lereng, jalan di bawah), itu adalah DARATAN SAH!
-						local isOverheadObstacle = false
-						if refY and distFromCar <= 15 then
-							if hitY > (refY + 16) then
-								isOverheadObstacle = true
-							end
-						end
-
-						if not isOverheadObstacle and hitY >= -45 and hitY <= (startY + 10) and (not hit.Normal or hit.Normal.Y >= 0.10) then
-							return hitY + MOTOR_PIVOT_HEIGHT_OFFSET
-						elseif isOverheadObstacle then
-							-- Objek menggantung di atas kepala -> filter dan tembak ke bawahnya
-							table.insert(localFilter, inst)
-							rayOrigin = Vector3.new(pos.X, hit.Position.Y - 0.4, pos.Z)
-						else
-							break
-						end
-					end
-				end
-			end
-
-			return nil
+			return probeGroundFile(probePos, refY, car, rayFilter)
 		end
+
 
 		-- Selective Noclip on vehicle parts
 		for _, part in ipairs(car:GetDescendants()) do
@@ -3628,7 +3629,7 @@ local success, err = pcall(function()
 		return nil
 	end
 
-	local function hasCourierPackage()
+	hasCourierPackage = function()
 		return getCourierPackageTool() ~= nil
 	end
 
@@ -3672,7 +3673,7 @@ local success, err = pcall(function()
 		return driveVehicleTo(targetPos, driveSpeed, radius, nil, abortCheck)
 	end
 
-	local function getActiveCourierTarget()
+	getActiveCourierTarget = function()
 		local curDeliveryAttr = player:GetAttribute("CurrentDelivery")
 		if curDeliveryAttr and tostring(curDeliveryAttr) ~= "" and tostring(curDeliveryAttr) ~= "0" then
 			return tostring(curDeliveryAttr)

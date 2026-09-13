@@ -919,6 +919,11 @@ local success, err = pcall(function()
 		return false
 	end
 
+	local function parseProgress(text)
+		local cur, total = string.match(text or "", "(%d+)/(%d+)")
+		return tonumber(cur) or 0, tonumber(total) or 0
+	end
+
 	local function resetBcaState()
 		bcaCurKoper = 0
 		bcaTotKoper = 0
@@ -1264,11 +1269,6 @@ local success, err = pcall(function()
 		task.wait(0.5)
 
 		return getPlayerCar()
-	end
-
-	local function parseProgress(text)
-		local cur, total = string.match(text or "", "(%d+)/(%d+)")
-		return tonumber(cur) or 0, tonumber(total) or 0
 	end
 
 	local function loadKopersIntoCar(car)
