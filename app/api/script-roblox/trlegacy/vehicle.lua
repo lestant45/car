@@ -49,6 +49,24 @@ local success, err = pcall(function()
 		if not seat then return nil end
 
 		local primary = bike.PrimaryPart or seat or bike:FindFirstChildWhichIsA("BasePart")
+		if not primary then return nil end
+
+		-- CRITICAL HEALTH CHECK: If bike is falling in the void or destroyed underground, ignore it!
+		if primary.Position.Y < -15 then
+			return nil
+		end
+
+		-- If player is at Dealership / spawn area but bike is abandoned far away (> 500 studs), treat as abandoned
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local dist = (hrp.Position - primary.Position).Magnitude
+			if dist > 500 and hrp.Position.Magnitude < 400 then
+				-- Player is at central spawn, but bike was left in a distant race zone
+				return nil
+			end
+		end
+
 		return bike, seat, primary
 	end
 
@@ -81,6 +99,20 @@ local success, err = pcall(function()
 	local function ensureDriverSeated(autoSpawn)
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		
+		-- RESPAWN RECOVERY: If player is currently dead or respawning, wait for character to rebuild
+		if not hum or hum.Health <= 0 or not char:FindFirstChild("HumanoidRootPart") then
+			local tRespawnWait = os.clock() + 5.0
+			while os.clock() < tRespawnWait do
+				task.wait(0.3)
+				char = player.Character
+				hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 and char:FindFirstChild("HumanoidRootPart") then
+					break
+				end
+			end
+		end
+
 		if not hum or hum.Health <= 0 then return false end
 
 		local bike, seat, primary = getPlayerBike()
@@ -91,8 +123,8 @@ local success, err = pcall(function()
 			spawnKasakiZ800()
 			-- Step 1: Wait for bike model and parts to appear in workspace
 			local start = os.clock()
-			while (os.clock() - start) < 5.0 do
-				task.wait(0.15)
+			while (os.clock() - start) < 6.0 do
+				task.wait(0.2)
 				bike, seat, primary = getPlayerBike()
 				if bike and seat and primary and #bike:GetChildren() >= 10 then break end
 			end

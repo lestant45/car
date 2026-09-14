@@ -51,25 +51,36 @@ local success, err = pcall(function()
 		return ok
 	end
 
-	-- Race definitions with IDs, rewards, and MINIMUM SAFE LAP TIMES to eliminate anti-cheat bans
+	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and MINIMUM SAFE LAP TIMES
+	-- Data queried directly from TR Legacy game memory & Warp remote: RaceRewardEstimate
 	local RaceOptions = {
-		["Race 2 (Small Circuit - RM 11,000)"]     = { id = "2", modelName = "Race2", reward = 11000, maxTime = 45, minSafeDuration = 28.0 },
-		["Race 8 (Around The World - RM 38,000)"] = { id = "8", modelName = "Race8", reward = 38000, maxTime = 120, minSafeDuration = 72.0 },
-		["Race 4 (Highway - RM 27,000)"]           = { id = "4", modelName = "Race4", reward = 27000, maxTime = 90, minSafeDuration = 52.0 },
-		["Race 3 (GP Track - RM 18,500)"]          = { id = "3", modelName = "Race3", reward = 18500, maxTime = 60, minSafeDuration = 42.0 },
-		["Race 6 (Lake Race - RM 9,500)"]          = { id = "6", modelName = "Race6", reward = 9500,  maxTime = 45, minSafeDuration = 28.0 },
-		["Race 7 (Side Street - RM 7,300)"]        = { id = "7", modelName = "Race7", reward = 7300,  maxTime = 45, minSafeDuration = 26.0 },
-		["Race 5 (Drag - RM 1,500)"]               = { id = "5", modelName = "Race5", reward = 1500,  maxTime = 30, minSafeDuration = 14.0 },
+		["Race 1 (Mountain Race - RM 26,500 Solo)"]   = { id = "1", modelName = "Race1", reward = 26500, maxTime = 75, minSafeDuration = 45.0 },
+		["Race 8 (Around The World - RM 19,000 Solo)"] = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 72.0 },
+		["Race 4 (Highway - RM 13,500 Solo)"]         = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90, minSafeDuration = 52.0 },
+		["Race 3 (GP Track - RM 9,250 Solo)"]         = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60, minSafeDuration = 42.0 },
+		["Race 2 (Small Circuit - RM 5,500 Solo)"]    = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35, minSafeDuration = 28.0 },
+		["Race 6 (Lake Race - RM 4,750 Solo)"]        = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40, minSafeDuration = 28.0 },
+		["Race 7 (Side Street - RM 3,650 Solo)"]      = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40, minSafeDuration = 26.0 },
+		["Race 5 (Drag - RM 750 Solo)"]               = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30, minSafeDuration = 14.0 },
+		-- Backwards compatibility aliases
+		["Race 8 (Around The World - RM 38,000)"]     = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 72.0 },
+		["Race 2 (Small Circuit - RM 11,000)"]        = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35, minSafeDuration = 28.0 },
+		["Race 4 (Highway - RM 27,000)"]              = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90, minSafeDuration = 52.0 },
+		["Race 3 (GP Track - RM 18,500)"]             = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60, minSafeDuration = 42.0 },
+		["Race 6 (Lake Race - RM 9,500)"]             = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40, minSafeDuration = 28.0 },
+		["Race 7 (Side Street - RM 7,300)"]           = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40, minSafeDuration = 26.0 },
+		["Race 5 (Drag - RM 1,500)"]                  = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30, minSafeDuration = 14.0 },
 	}
 
 	local raceDropdownList = {
-		"Race 2 (Small Circuit - RM 11,000)",
-		"Race 8 (Around The World - RM 38,000)",
-		"Race 4 (Highway - RM 27,000)",
-		"Race 3 (GP Track - RM 18,500)",
-		"Race 6 (Lake Race - RM 9,500)",
-		"Race 7 (Side Street - RM 7,300)",
-		"Race 5 (Drag - RM 1,500)",
+		"Race 1 (Mountain Race - RM 26,500 Solo)",
+		"Race 8 (Around The World - RM 19,000 Solo)",
+		"Race 4 (Highway - RM 13,500 Solo)",
+		"Race 3 (GP Track - RM 9,250 Solo)",
+		"Race 2 (Small Circuit - RM 5,500 Solo)",
+		"Race 6 (Lake Race - RM 4,750 Solo)",
+		"Race 7 (Side Street - RM 3,650 Solo)",
+		"Race 5 (Drag - RM 750 Solo)",
 	}
 
 	-- Telemetry Stats
@@ -276,8 +287,19 @@ local success, err = pcall(function()
 		if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
 			seated = _G.HipHubVehicle.EnsureDriverSeated(true)
 		end
+		-- Auto-Respawn Recovery: If seating failed (e.g. fresh respawn after death), force spawn fresh bike and retry
 		if not seated then
-			task.wait(1.0)
+			if _G.HipHub_SpawnKasaki then
+				_G.HipHub_SpawnKasaki()
+				task.wait(2.0)
+				if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
+					seated = _G.HipHubVehicle.EnsureDriverSeated(true)
+				end
+			end
+		end
+		if not seated then
+			raceStatusCard.Set("Menunggu driver duduk di motor...")
+			task.wait(1.5)
 			return false
 		end
 
@@ -498,21 +520,30 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 9: Natural Finish Line Crossing & Server Handoff
-		-- CRITICAL ANTI-CHEAT FIX:
-		-- NEVER spam PivotTo at finish line!
-		-- The server naturally processes the finish, awards cash, and teleports the player to pit/spawn.
-		raceStatusCard.Set("Garis finish terlewati! Menunggu konfirmasi server...")
+		-- Step 9: Natural Finish Line Crossing & Safe Ground Landing at StartingArea
+		raceStatusCard.Set("Garis finish terlewati! Mendarat ke StartingArea...")
 		if lightsConn and startLightsClient then
 			pcall(function() startLightsClient:Disconnect(lightsConn) end)
 		end
 
-		-- Restore all collisions and remove flight velocity
+		-- Restore all collisions
 		setBikeNoclipSafe(bike, false)
+
+		-- SAFE LANDING ROUTINE:
+		-- Reposition bike safely onto the StartingArea platform (solid ground, prevents falling into void)
+		local landingCF = (startArea:IsA("BasePart") and startArea.CFrame or startArea) + Vector3.new(0, 2.2, 0)
+		bike:PivotTo(landingCF)
+		if farmBV and farmBV.Parent then
+			farmBV.Velocity = Vector3.zero
+		end
+		primary.AssemblyLinearVelocity = Vector3.zero
+		primary.AssemblyAngularVelocity = Vector3.zero
+
+		-- Small buffer for wheels and suspension to touch solid ground before destroying farmBV
+		task.wait(0.4)
 		if farmBV then pcall(function() farmBV:Destroy() end) end
 
 		-- Passive wait for server to clear InRace attribute
-		-- DO NOT call PivotTo! Allow the server to move the player to pit / spawn naturally!
 		local tWaitFinish = os.clock()
 		while player:GetAttribute("InRace") and (os.clock() - tWaitFinish) < 6 and Config.autoRace do
 			task.wait(0.25)
