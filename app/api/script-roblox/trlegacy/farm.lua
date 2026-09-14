@@ -54,22 +54,22 @@ local success, err = pcall(function()
 	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and MINIMUM SAFE LAP TIMES
 	-- Data queried directly from TR Legacy game memory & Warp remote: RaceRewardEstimate
 	local RaceOptions = {
-		["Race 1 (Mountain Race - RM 26,500 Solo)"]   = { id = "1", modelName = "Race1", reward = 26500, maxTime = 75, minSafeDuration = 45.0 },
-		["Race 8 (Around The World - RM 19,000 Solo)"] = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 72.0 },
-		["Race 4 (Highway - RM 13,500 Solo)"]         = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90, minSafeDuration = 52.0 },
-		["Race 3 (GP Track - RM 9,250 Solo)"]         = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60, minSafeDuration = 42.0 },
-		["Race 2 (Small Circuit - RM 5,500 Solo)"]    = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35, minSafeDuration = 28.0 },
-		["Race 6 (Lake Race - RM 4,750 Solo)"]        = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40, minSafeDuration = 28.0 },
-		["Race 7 (Side Street - RM 3,650 Solo)"]      = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40, minSafeDuration = 26.0 },
-		["Race 5 (Drag - RM 750 Solo)"]               = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30, minSafeDuration = 14.0 },
+		["Race 1 (Mountain Race - RM 26,500 Solo)"]   = { id = "1", modelName = "Race1", reward = 26500, maxTime = 75,  minSafeDuration = 240.0 }, -- 45.1k studs road ~ 4m 00s
+		["Race 8 (Around The World - RM 19,000 Solo)"] = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 480.0 }, -- 118.8k studs road ~ 8m 00s
+		["Race 4 (Highway - RM 13,500 Solo)"]         = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90,  minSafeDuration = 360.0 }, -- 83.6k studs road ~ 6m 00s
+		["Race 3 (GP Track - RM 9,250 Solo)"]         = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60,  minSafeDuration = 120.0 }, -- 20.9k studs road ~ 2m 00s
+		["Race 2 (Small Circuit - RM 5,500 Solo)"]    = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35,  minSafeDuration = 52.0 },  -- 9.0k studs road ~ 52s
+		["Race 6 (Lake Race - RM 4,750 Solo)"]        = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40,  minSafeDuration = 68.0 },  -- 11.6k studs road ~ 1m 08s
+		["Race 7 (Side Street - RM 3,650 Solo)"]      = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40,  minSafeDuration = 42.0 },  -- 6.9k studs road ~ 42s
+		["Race 5 (Drag - RM 750 Solo)"]               = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30,  minSafeDuration = 10.0 },  -- 1.2k studs straight ~ 10s
 		-- Backwards compatibility aliases
-		["Race 8 (Around The World - RM 38,000)"]     = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 72.0 },
-		["Race 2 (Small Circuit - RM 11,000)"]        = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35, minSafeDuration = 28.0 },
-		["Race 4 (Highway - RM 27,000)"]              = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90, minSafeDuration = 52.0 },
-		["Race 3 (GP Track - RM 18,500)"]             = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60, minSafeDuration = 42.0 },
-		["Race 6 (Lake Race - RM 9,500)"]             = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40, minSafeDuration = 28.0 },
-		["Race 7 (Side Street - RM 7,300)"]           = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40, minSafeDuration = 26.0 },
-		["Race 5 (Drag - RM 1,500)"]                  = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30, minSafeDuration = 14.0 },
+		["Race 8 (Around The World - RM 38,000)"]     = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 480.0 },
+		["Race 2 (Small Circuit - RM 11,000)"]        = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35,  minSafeDuration = 52.0 },
+		["Race 4 (Highway - RM 27,000)"]              = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90,  minSafeDuration = 360.0 },
+		["Race 3 (GP Track - RM 18,500)"]             = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60,  minSafeDuration = 120.0 },
+		["Race 6 (Lake Race - RM 9,500)"]             = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40,  minSafeDuration = 68.0 },
+		["Race 7 (Side Street - RM 7,300)"]           = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40,  minSafeDuration = 42.0 },
+		["Race 5 (Drag - RM 1,500)"]                  = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30,  minSafeDuration = 10.0 },
 	}
 
 	local raceDropdownList = {
