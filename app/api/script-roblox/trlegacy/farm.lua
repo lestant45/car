@@ -500,23 +500,28 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Hitung total jarak garis lurus seluruh checkpoint di lintasan
+		-- Bangun daftar titik awal, akhir, dan jarak tiap segmen checkpoint
+		local legStartPositions = {}
+		local legDistances = {}
 		local totalTrackDist = 0
-		for idx = 1, #checkpoints - 1 do
-			totalTrackDist = totalTrackDist + (checkpoints[idx + 1].Position - checkpoints[idx].Position).Magnitude
-		end
-		if totalTrackDist > 0 and (checkpoints[1].Position - primary.Position).Magnitude < 1000 then
-			totalTrackDist = totalTrackDist + (checkpoints[1].Position - primary.Position).Magnitude
+
+		local prevPos = primary.Position
+		for idx, cp in ipairs(checkpoints) do
+			local curCPPos = cp.Position
+			local d = (curCPPos - prevPos).Magnitude
+			table.insert(legStartPositions, prevPos)
+			table.insert(legDistances, d)
+			totalTrackDist = totalTrackDist + d
+			prevPos = curCPPos
 		end
 
-		-- Auto WR + 10% Dynamic Pacing Calculation
+		-- Auto WR + 10% Dynamic Pacing Calculation (Garansi Waktu Terikat Jam Server)
 		local targetDuration, wrTime, wrRider = getRaceTargetDuration(raceData.id, raceData.wrTime or raceData.minSafeDuration)
-		local pacedSpeed = totalTrackDist / math.max(targetDuration, 1)
-		local flySpeed = math.clamp(pacedSpeed, 50, 220)
+		if not targetDuration or targetDuration < 5 then targetDuration = 10 end
 
 		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
 
-		-- Create FarmBV velocity stabilizer
+		-- Create FarmBV velocity stabilizer (Hanya untuk menahan gravitasi, Velocity = 0)
 		local farmBV = primary:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
 		farmBV.Name = "FarmBV"
 		farmBV.MaxForce = Vector3.new(4e5, 4e5, 4e5)
@@ -528,11 +533,14 @@ local success, err = pcall(function()
 		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
-			local targetPos = cp.Position
-			local arrived = false
-			local distInitial = (targetPos - primary.Position).Magnitude
-			local estimatedFlightTime = distInitial / math.max(flySpeed, 50)
-			local cpTimeout = os.clock() + estimatedFlightTime + 30.0
+			local startPos = legStartPositions[i]
+			local endPos = cp.Position
+			local legDist = legDistances[i]
+			-- Alokasi waktu presisi untuk checkpoint ini berdasarkan proporsi jaraknya terhadap total track
+			local legDuration = (totalTrackDist > 0) and ((legDist / totalTrackDist) * targetDuration) or (targetDuration / #checkpoints)
+			if legDuration < 0.05 then legDuration = 0.05 end
+
+			local legStartTime = os.clock()
 
 			-- USER REQUIREMENT:
 			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah jalan, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
@@ -543,55 +551,47 @@ local success, err = pcall(function()
 				setFlightNoclipState(false)
 			end
 
-			while not arrived and Config.autoRace and os.clock() < cpTimeout do
-				local dt = RunService.Heartbeat:Wait()
-				local cur = primary.Position
-				local diff = targetPos - cur
-				local dist = diff.Magnitude
+			local diff = endPos - startPos
+			local dir = (diff.Magnitude > 0.01) and diff.Unit or Vector3.new(0, 0, 1)
 
-				if dist <= 16 then
-					arrived = true
-					bike:PivotTo(CFrame.lookAt(targetPos, targetPos + (cp:IsA("BasePart") and cp.CFrame.LookVector or diff.Unit)))
-					break
-				end
+			while Config.autoRace do
+				local now = os.clock()
+				local legElapsed = now - legStartTime
+				local alpha = math.clamp(legElapsed / legDuration, 0, 1)
 
-				if i < #checkpoints then
-					setFlightNoclipState(true)
-				else
-					setFlightNoclipState(false)
-				end
-
-				local dir = diff.Unit
-				local step = math.min(flySpeed * dt, dist)
-				local newPos = cur + dir * step
+				local currentPos = startPos:Lerp(endPos, alpha)
 
 				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar mendarat mulus menapak di permukaan aspal
-				if i == #checkpoints and dist < 60 then
+				if i == #checkpoints and alpha > 0.6 then
 					setFlightNoclipState(false)
 					local rayParams = RaycastParams.new()
 					rayParams.FilterDescendantsInstances = { bike, player.Character }
 					rayParams.FilterType = Enum.RaycastFilterType.Exclude
-					local hit = workspace:Raycast(newPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
+					local hit = workspace:Raycast(currentPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
 					if hit then
-						newPos = Vector3.new(newPos.X, hit.Position.Y + 2.8, newPos.Z)
+						currentPos = Vector3.new(currentPos.X, hit.Position.Y + 2.8, currentPos.Z)
 					end
 				end
 
-				bike:PivotTo(CFrame.lookAt(newPos, newPos + dir * 10))
-				farmBV.Velocity = dir * flySpeed
-				primary.AssemblyLinearVelocity = dir * flySpeed
+				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
+				farmBV.Velocity = Vector3.zero
+				primary.AssemblyLinearVelocity = Vector3.zero
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
-				local elapsed = os.clock() - raceStartTime
-				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s | %02d:%02d / %02d:%02d)", i, #checkpoints, dist, math.floor(flySpeed), math.floor(elapsed / 60), math.floor(elapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
+				local totalElapsed = now - raceStartTime
+				local speedDisplay = (totalTrackDist > 0 and targetDuration > 0) and (totalTrackDist / targetDuration) or 0
+				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0f%% | %d studs/s | %02d:%02d / %02d:%02d)", i, #checkpoints, alpha * 100, math.floor(speedDisplay), math.floor(totalElapsed / 60), math.floor(totalElapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
+
+				if alpha >= 1 then
+					break
+				end
+
+				RunService.Heartbeat:Wait()
 			end
 
-			if not arrived and Config.autoRace then
-				-- Fallback: pastikan CFrame melewati checkpoint jika terjadi timeout
-				bike:PivotTo(CFrame.lookAt(targetPos, targetPos + (cp:IsA("BasePart") and cp.CFrame.LookVector or Vector3.new(0, 0, 1))))
-				task.wait(0.1)
-			end
+			-- Pastikan motor persis di atas checkpoint di akhir segmen
+			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cp:IsA("BasePart") and cp.CFrame.LookVector or dir)))
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
