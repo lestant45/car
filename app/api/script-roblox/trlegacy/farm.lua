@@ -51,25 +51,25 @@ local success, err = pcall(function()
 		return ok
 	end
 
-	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and MINIMUM SAFE LAP TIMES
-	-- Data queried directly from TR Legacy game memory & Warp remote: RaceRewardEstimate
+	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and Base World Records
+	-- Real-time WR is dynamically queried via Warp remote: RaceLeaderboardQuery with +10% Dynamic Pacing
 	local RaceOptions = {
-		["Race 1 (Mountain Race - RM 26,500 Solo)"]   = { id = "1", modelName = "Race1", reward = 26500, maxTime = 75,  minSafeDuration = 205.0 }, -- Official WR is 03:21.62 (Maple) -> Safe 03:25
-		["Race 8 (Around The World - RM 19,000 Solo)"] = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 235.0 }, -- Official WR is 03:47.93 (Levi)  -> Safe 03:55
-		["Race 4 (Highway - RM 13,500 Solo)"]         = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90,  minSafeDuration = 185.0 }, -- Safe 03:05
-		["Race 3 (GP Track - RM 9,250 Solo)"]         = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60,  minSafeDuration = 80.0 },  -- Safe 01:20
-		["Race 2 (Small Circuit - RM 5,500 Solo)"]    = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35,  minSafeDuration = 38.0 },  -- Safe 38s
-		["Race 6 (Lake Race - RM 4,750 Solo)"]        = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40,  minSafeDuration = 45.0 },  -- Safe 45s
-		["Race 7 (Side Street - RM 3,650 Solo)"]      = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40,  minSafeDuration = 32.0 },  -- Safe 32s
-		["Race 5 (Drag - RM 750 Solo)"]               = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30,  minSafeDuration = 9.0 },   -- Safe 9s
+		["Race 1 (Mountain Race - RM 26,500 Solo)"]   = { id = "1", modelName = "Race1", reward = 26500, maxTime = 75,  wrTime = 201.62, minSafeDuration = 221.8 }, -- Official WR 03:21.62 (Maple) -> Target +10%: 03:41.8
+		["Race 8 (Around The World - RM 19,000 Solo)"] = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, wrTime = 227.93, minSafeDuration = 250.7 }, -- Official WR 03:47.93 (Levi)  -> Target +10%: 04:10.7
+		["Race 4 (Highway - RM 13,500 Solo)"]         = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90,  wrTime = 142.92, minSafeDuration = 157.2 }, -- Official WR 02:22.92 (Levi)  -> Target +10%: 02:37.2
+		["Race 3 (GP Track - RM 9,250 Solo)"]         = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60,  wrTime = 71.94,  minSafeDuration = 79.1 },  -- Official WR 01:11.94 (n3b)   -> Target +10%: 01:19.1
+		["Race 2 (Small Circuit - RM 5,500 Solo)"]    = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35,  wrTime = 44.90,  minSafeDuration = 49.4 },  -- Official WR 00:44.90 (n3b)   -> Target +10%: 00:49.4
+		["Race 6 (Lake Race - RM 4,750 Solo)"]        = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40,  wrTime = 35.93,  minSafeDuration = 39.5 },  -- Official WR 00:35.93 (100perc) -> Target +10%: 00:39.5
+		["Race 7 (Side Street - RM 3,650 Solo)"]      = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40,  wrTime = 34.55,  minSafeDuration = 38.0 },  -- Official WR 00:34.55 (UMA_m0Nd) -> Target +10%: 00:38.0
+		["Race 5 (Drag - RM 750 Solo)"]               = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30,  wrTime = 4.22,   minSafeDuration = 9.0 },   -- Official WR 00:04.22 (ALANSINHAO) -> Min Safe: 9.0s
 		-- Backwards compatibility aliases
-		["Race 8 (Around The World - RM 38,000)"]     = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, minSafeDuration = 235.0 },
-		["Race 2 (Small Circuit - RM 11,000)"]        = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35,  minSafeDuration = 38.0 },
-		["Race 4 (Highway - RM 27,000)"]              = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90,  minSafeDuration = 185.0 },
-		["Race 3 (GP Track - RM 18,500)"]             = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60,  minSafeDuration = 80.0 },
-		["Race 6 (Lake Race - RM 9,500)"]             = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40,  minSafeDuration = 45.0 },
-		["Race 7 (Side Street - RM 7,300)"]           = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40,  minSafeDuration = 32.0 },
-		["Race 5 (Drag - RM 1,500)"]                  = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30,  minSafeDuration = 9.0 },
+		["Race 8 (Around The World - RM 38,000)"]     = { id = "8", modelName = "Race8", reward = 19000, maxTime = 100, wrTime = 227.93, minSafeDuration = 250.7 },
+		["Race 2 (Small Circuit - RM 11,000)"]        = { id = "2", modelName = "Race2", reward = 5500,  maxTime = 35,  wrTime = 44.90,  minSafeDuration = 49.4 },
+		["Race 4 (Highway - RM 27,000)"]              = { id = "4", modelName = "Race4", reward = 13500, maxTime = 90,  wrTime = 142.92, minSafeDuration = 157.2 },
+		["Race 3 (GP Track - RM 18,500)"]             = { id = "3", modelName = "Race3", reward = 9250,  maxTime = 60,  wrTime = 71.94,  minSafeDuration = 79.1 },
+		["Race 6 (Lake Race - RM 9,500)"]             = { id = "6", modelName = "Race6", reward = 4750,  maxTime = 40,  wrTime = 35.93,  minSafeDuration = 39.5 },
+		["Race 7 (Side Street - RM 7,300)"]           = { id = "7", modelName = "Race7", reward = 3650,  maxTime = 40,  wrTime = 34.55,  minSafeDuration = 38.0 },
+		["Race 5 (Drag - RM 1,500)"]                  = { id = "5", modelName = "Race5", reward = 750,   maxTime = 30,  wrTime = 4.22,   minSafeDuration = 9.0 },
 	}
 
 	local raceDropdownList = {
@@ -82,6 +82,26 @@ local success, err = pcall(function()
 		"Race 7 (Side Street - RM 3,650 Solo)",
 		"Race 5 (Drag - RM 750 Solo)",
 	}
+
+	-- Auto WR + 10% Dynamic Pacing Helper: Queries live rank 1 time or falls back to pre-verified WR constants
+	local function getRaceTargetDuration(raceId, fallbackWR)
+		local wrTime = fallbackWR or 60.0
+		local riderName = "Server Record"
+		pcall(function()
+			local old = (getthreadidentity and getthreadidentity()) or 8
+			if setthreadidentity then setthreadidentity(2) end
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local client = Warp.Client("RaceLeaderboardQuery")
+			local res = client:Invoke(10, tostring(raceId))
+			if type(res) == "table" and #res > 0 and res[1] and type(res[1].time) == "number" and res[1].time > 0 then
+				wrTime = res[1].time
+				riderName = tostring(res[1].name or res[1].rawName or "Server Record")
+			end
+			if setthreadidentity then setthreadidentity(old) end
+		end)
+		local targetDuration = wrTime * 1.10 -- Auto WR + 10% Dynamic Pacing Formula
+		return targetDuration, wrTime, riderName
+	end
 
 	-- Telemetry Stats
 	local totalRacesWon = 0
@@ -108,7 +128,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- ️ UI: FARM TAB
+	-- UI: FARM TAB
 	------------------------------------------------
 
 	-- 1. AUTO RACE SECTION
@@ -121,19 +141,15 @@ local success, err = pcall(function()
 		Config.selectedRace = selected
 	end, 4)
 
-	local flySpeedSlider = UI.AddSlider(raceSection, "Kecepatan Fly Race (Safe: 120-180)", 80, 220, Config.raceFlySpeed or 160, function(val)
-		Config.raceFlySpeed = val
-	end, 5, " studs/s", 5)
-
 	local delaySlider = UI.AddSlider(raceSection, "Checkpoint Delay", 0.00, 0.30, Config.checkpointDelay or 0.02, function(val)
 		Config.checkpointDelay = val
-	end, 0.01, "s", 6)
+	end, 0.01, "s", 5)
 
-	local autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
+	local autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race (WR + 10% Dynamic Pacing)", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
 		if enabled then
-			UI.Notify("Auto Race", "Memulai auto race (Fly ke tiap checkpoint)...", 3, "success")
+			UI.Notify("Auto Race", "Memulai auto race (WR + 10% Dynamic Pacing)...", 3, "success")
 		else
 			UI.Notify("Auto Race", "Menghentikan auto race.", 2, "info")
 			raceStatusCard.Set("Stopped")
@@ -142,7 +158,7 @@ local success, err = pcall(function()
 				returnBikeToSurface(bike, primary)
 			end
 		end
-	end, 7)
+	end, 6)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
 	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Khusus Di Atas Tanah)", 9)
@@ -493,11 +509,10 @@ local success, err = pcall(function()
 			totalTrackDist = totalTrackDist + (checkpoints[1].Position - primary.Position).Magnitude
 		end
 
-		-- Pacing Kecepatan Aman Alami: Menghindari hovering/diam di udara yang memicu Checkpoint Timeout server!
-		local minSafe = raceData.minSafeDuration or 30.0
-		local pacedSpeed = math.clamp(totalTrackDist / minSafe, 70, 220)
-		local userRequestedSpeed = math.clamp(Config.raceFlySpeed or 160, 80, 220)
-		local flySpeed = math.min(userRequestedSpeed, pacedSpeed)
+		-- Auto WR + 10% Dynamic Pacing Calculation
+		local targetDuration, wrTime, wrRider = getRaceTargetDuration(raceData.id, raceData.wrTime or raceData.minSafeDuration)
+		local pacedSpeed = totalTrackDist / math.max(targetDuration, 1)
+		local flySpeed = math.clamp(pacedSpeed, 50, 220)
 
 		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
 
@@ -551,7 +566,7 @@ local success, err = pcall(function()
 				local newPos = cur + dir * step
 
 				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar mendarat mulus menapak di permukaan aspal
-				if i == #checkpoints and dist < 50 then
+				if i == #checkpoints and dist < 60 then
 					setFlightNoclipState(false)
 					local rayParams = RaycastParams.new()
 					rayParams.FilterDescendantsInstances = { bike, player.Character }
@@ -568,7 +583,8 @@ local success, err = pcall(function()
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
-				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s)", i, #checkpoints, dist, flySpeed))
+				local elapsed = os.clock() - raceStartTime
+				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s | %02d:%02d / %02d:%02d)", i, #checkpoints, dist, math.floor(flySpeed), math.floor(elapsed / 60), math.floor(elapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
 			end
 
 			if not arrived and Config.autoRace then
