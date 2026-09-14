@@ -201,25 +201,44 @@ local success, err = pcall(function()
 		if ordered and #ordered > 0 then return ordered end
 
 		local folder = raceModel:FindFirstChild("Checkpoints")
-		if not folder then return {} end
-
-		local list = {}
-		for _, child in ipairs(folder:GetChildren()) do
-			if child:IsA("BasePart") then
-				local num = tonumber(child.Name:match("%d+"))
-				if num then
-					table.insert(list, { part = child, index = num })
+		if folder then
+			local list = {}
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart") then
+					local num = tonumber(child.Name:match("%d+"))
+					if num then
+						table.insert(list, { part = child, index = num })
+					end
 				end
+			end
+
+			table.sort(list, function(a, b) return a.index < b.index end)
+
+			if #list > 0 then
+				local res = {}
+				for _, item in ipairs(list) do
+					table.insert(res, item.part)
+				end
+				return res
 			end
 		end
 
-		table.sort(list, function(a, b) return a.index < b.index end)
-
-		local res = {}
-		for _, item in ipairs(list) do
-			table.insert(res, item.part)
+		-- Fallback: MinimapPath attribute (exact deobfuscated showcase logic)
+		local minimapAttr = raceModel:GetAttribute("MinimapPath")
+		if minimapAttr and type(minimapAttr) == "string" then
+			local pathCheckpoints = {}
+			for seg in minimapAttr:gmatch("[^|]+") do
+				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
+				if x and y and z then
+					table.insert(pathCheckpoints, { Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) })
+				end
+			end
+			if #pathCheckpoints > 0 then
+				return pathCheckpoints
+			end
 		end
-		return res
+
+		return {}
 	end
 
 	local function runRaceCycle()
@@ -258,13 +277,13 @@ local success, err = pcall(function()
 		if type(cooldownAttr) == "number" then
 			local rem = math.ceil(cooldownAttr - Workspace:GetServerTimeNow())
 			if rem > 0 then
-				raceStatusCard.Set(string.format("Cooldown: %d s", rem))
+				raceStatusCard.Set(string.format("Cooldown: %d s...", rem))
 				task.wait(1.0)
 				return true
 			end
 		end
 
-		-- Step 3: Teleport bike to StartingArea bounding box
+		-- Step 3: Teleport bike to StartingArea bounding box & hold position
 		local startArea = raceModel:FindFirstChild("StartingArea") or raceModel:GetPivot()
 		raceStatusCard.Set("Menuju Starting Area " .. raceData.modelName .. "...")
 		for _, p in ipairs(bike:GetDescendants()) do
@@ -275,7 +294,7 @@ local success, err = pcall(function()
 		primary.AssemblyLinearVelocity = Vector3.zero
 		primary.AssemblyAngularVelocity = Vector3.zero
 
-		-- Step 4: Wait for RacingUI MenuPanel to open
+		-- Step 4: Wait for RacingUI MenuPanel to open while staying held at StartingArea
 		local racingUI = player.PlayerGui:WaitForChild("RacingUI", 5)
 		local menuPanel = nil
 		if racingUI and racingUI:FindFirstChild("MainFrame") then
@@ -283,13 +302,16 @@ local success, err = pcall(function()
 		end
 		local tWaitMenu = os.clock()
 		while (not menuPanel or not menuPanel.Visible) and (os.clock() - tWaitMenu) < 4 and Config.autoRace do
+			bike:PivotTo(startCF)
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
 			task.wait(0.2)
 			if racingUI and racingUI:FindFirstChild("MainFrame") then
 				menuPanel = racingUI.MainFrame:FindFirstChild("MenuPanel")
 			end
 		end
 
-		-- Step 5: Hook RaceStartLights for strict countdown synchronization
+		-- Step 5: Hook RaceStartLights for countdown synchronization
 		local lightsOut = false
 		local lightsConn = nil
 		local startLightsClient = nil
@@ -306,16 +328,18 @@ local success, err = pcall(function()
 			if setthreadidentity then setthreadidentity(old) end
 		end)
 
-		-- Step 6: Trigger solo race creation
-		raceStatusCard.Set("Mendaftarkan Solo Race...")
+		-- Step 6: Trigger solo race creation while holding in StartingArea
+		raceStatusCard.Set("Segurando na StartingArea ate criar a race...")
 		local footer = menuPanel and menuPanel:FindFirstChild("Footer")
 		local quickBtn = footer and footer:FindFirstChild("Quick")
 		if quickBtn then
 			local tQuick = os.clock()
 			while not quickBtn.Interactable and (os.clock() - tQuick) < 3 and Config.autoRace do
+				bike:PivotTo(startCF)
 				task.wait(0.1)
 			end
 			for _, c in ipairs(getconnections(quickBtn.Activated)) do c:Fire() end
+			for _, c in ipairs(getconnections(quickBtn.MouseButton1Click)) do c:Fire() end
 		else
 			fireWarp("RaceSessionAction", true, "create", {
 				zoneId = raceData.id,
@@ -324,7 +348,7 @@ local success, err = pcall(function()
 		end
 
 		-- Check if a start card appeared in active sessions
-		task.wait(0.8)
+		task.wait(0.5)
 		local active = menuPanel and menuPanel:FindFirstChild("Active")
 		local sessions = active and active:FindFirstChild("Sessions")
 		if sessions then
@@ -340,23 +364,34 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 7: STRICT ANTICHEAT COUNTDOWN - Wait until lights go OUT!
-		raceStatusCard.Set("Menunggu countdown lampu race (GO)...")
-		local tWaitLights = os.clock()
-		while not lightsOut and (os.clock() - tWaitLights) < 14 and Config.autoRace do
+		-- Step 7: Wait for InRace and enforce the verified 9-SECOND ANTICHEAT COUNTDOWN DELAY
+		local tWaitInRace = os.clock()
+		while not player:GetAttribute("InRace") and (os.clock() - tWaitInRace) < 6 and Config.autoRace do
+			bike:PivotTo(startCF)
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
 			task.wait(0.1)
 		end
 
-		-- STRICT FAIL-SAFE: If the race did not legitimately start, ABORT IMMEDIATELY!
-		-- NEVER fly or touch checkpoints if not in an active race session!
-		local activeRaceId = player:GetAttribute("InRace")
-		if not lightsOut or not activeRaceId then
-			raceStatusCard.Set("Gagal mulai: Sesi balapan tidak aktif / sedang dipakai. Membatalkan...")
+		if not player:GetAttribute("InRace") and not lightsOut then
+			raceStatusCard.Set("Race did not start (menu/InRace). Mencoba lagi...")
 			if lightsConn and startLightsClient then
 				pcall(function() startLightsClient:Disconnect(lightsConn) end)
 			end
-			task.wait(3.0)
+			task.wait(2.0)
 			return false
+		end
+
+		-- CRITICAL DEOBFUSCATED SAFETY: "Aguardando 9s antes do percurso..."
+		-- Holds vehicle locked in StartingArea for the full server-side countdown
+		local tPreRun = os.clock()
+		while (os.clock() - tPreRun) < 9.0 and not lightsOut and Config.autoRace do
+			local remaining = math.ceil(9.0 - (os.clock() - tPreRun))
+			raceStatusCard.Set(string.format("Aguardando countdown (%d s)...", remaining))
+			bike:PivotTo(startCF)
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
+			task.wait(0.2)
 		end
 
 		if not Config.autoRace then
@@ -366,7 +401,7 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Step 8: Smooth flight through ordered checkpoints
+		-- Step 8: Smooth flight through ordered checkpoints with FarmBV stabilizer
 		local checkpoints = getCheckpointsForRace(raceModel)
 		if #checkpoints == 0 then
 			raceStatusCard.Set("Tidak ada checkpoint ditemukan.")
@@ -377,6 +412,13 @@ local success, err = pcall(function()
 
 		local flySpeed = math.clamp(Config.raceFlySpeed or 260, 100, 450)
 		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
+
+		-- Create FarmBV velocity stabilizer (exact showcase technique)
+		local farmBV = primary:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
+		farmBV.Name = "FarmBV"
+		farmBV.MaxForce = Vector3.new(4e5, 4e5, 4e5)
+		farmBV.Velocity = Vector3.zero
+		farmBV.Parent = primary
 
 		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
@@ -405,11 +447,12 @@ local success, err = pcall(function()
 				local newPos = cur + dir * step
 
 				bike:PivotTo(CFrame.lookAt(newPos, newPos + dir * 10))
+				farmBV.Velocity = dir * flySpeed
 				primary.AssemblyLinearVelocity = dir * flySpeed
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
-				if dist < 25 and firetouchinterest then
+				if dist < 25 and firetouchinterest and typeof(cp) == "Instance" and cp:IsA("BasePart") then
 					pcall(function()
 						firetouchinterest(seat, cp, 0)
 						firetouchinterest(primary, cp, 0)
@@ -421,7 +464,7 @@ local success, err = pcall(function()
 				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s)", i, #checkpoints, dist, flySpeed))
 			end
 
-			if firetouchinterest then
+			if firetouchinterest and typeof(cp) == "Instance" and cp:IsA("BasePart") then
 				pcall(function()
 					firetouchinterest(seat, cp, 0)
 					firetouchinterest(primary, cp, 0)
@@ -436,12 +479,25 @@ local success, err = pcall(function()
 			end
 		end
 
+		if farmBV then pcall(function() farmBV:Destroy() end) end
 		if lightsConn and startLightsClient then
 			pcall(function() startLightsClient:Disconnect(lightsConn) end)
 		end
 
-		-- Step 9: Race finished and payout verification
-		task.wait(2.0)
+		-- Step 9: CRITICAL FINISH CP HOLD TRICK (exact showcase mechanism)
+		-- "Volta completa — travado no CP final ate proxima race..."
+		raceStatusCard.Set("Volta completa — travado no CP final ate server registrar...")
+		local finishPos = checkpoints[#checkpoints].Position
+		local tWaitFinish = os.clock()
+		while player:GetAttribute("InRace") and (os.clock() - tWaitFinish) < 12 and Config.autoRace do
+			bike:PivotTo(CFrame.new(finishPos + Vector3.new(0, 1.5, 0)))
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
+			task.wait(0.15)
+		end
+
+		-- Step 10: Race finished and payout verification
+		task.wait(1.5)
 		local currentCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or initialCash
 		local earned = math.max(currentCash - initialCash, raceData.reward)
 
