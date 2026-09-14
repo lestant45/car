@@ -506,7 +506,9 @@ local success, err = pcall(function()
 
 			local targetPos = cp.Position
 			local arrived = false
-			local cpTimeout = os.clock() + 15.0
+			local distInitial = (targetPos - primary.Position).Magnitude
+			local estimatedFlightTime = distInitial / math.max(flySpeed, 50)
+			local cpTimeout = os.clock() + estimatedFlightTime + 30.0
 
 			-- USER REQUIREMENT:
 			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah mulai jalan setelah countdown selesai, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
@@ -543,8 +545,9 @@ local success, err = pcall(function()
 				local diff = targetPos - cur
 				local dist = diff.Magnitude
 
-				if dist <= 12 then
+				if dist <= 16 then
 					arrived = true
+					bike:PivotTo(CFrame.lookAt(targetPos, targetPos + (cp:IsA("BasePart") and cp.CFrame.LookVector or diff.Unit)))
 					break
 				end
 
@@ -577,6 +580,12 @@ local success, err = pcall(function()
 				seat.Throttle = 1
 
 				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s)", i, #checkpoints, dist, flySpeed))
+			end
+
+			if not arrived and Config.autoRace then
+				-- Fallback: pastikan CFrame melewati checkpoint jika terjadi timeout
+				bike:PivotTo(CFrame.lookAt(targetPos, targetPos + (cp:IsA("BasePart") and cp.CFrame.LookVector or Vector3.new(0, 0, 1))))
+				task.wait(0.1)
 			end
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
