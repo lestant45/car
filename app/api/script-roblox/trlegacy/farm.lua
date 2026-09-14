@@ -520,34 +520,49 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 9: Natural Finish Line Crossing & Safe Ground Landing at StartingArea
-		raceStatusCard.Set("Garis finish terlewati! Mendarat ke StartingArea...")
+		-- Step 9: Natural Finish Line Crossing & Validation Wait
+		-- USER REQUIREMENT:
+		-- 1. Jangan langsung berpindah ke area masuk race (StartingArea).
+		-- 2. Tahan motor melayang stabil di garis finish dengan farmBV agar tidak jatuh ke bawah tanah/void.
+		-- 3. Biarkan sistem game memvalidasi hasil balapan dan menampilkan leaderboard.
+		-- 4. Game akan men-teleport sendiri pemain dan motor kembali ke area pendaftaran race.
+		raceStatusCard.Set("Garis finish! Menunggu game memvalidasi balapan...")
 		if lightsConn and startLightsClient then
 			pcall(function() startLightsClient:Disconnect(lightsConn) end)
 		end
 
-		-- Restore all collisions
-		setBikeNoclipSafe(bike, false)
-
-		-- SAFE LANDING ROUTINE:
-		-- Reposition bike safely onto the StartingArea platform (solid ground, prevents falling into void)
-		local landingCF = (startArea:IsA("BasePart") and startArea.CFrame or startArea) + Vector3.new(0, 2.2, 0)
-		bike:PivotTo(landingCF)
+		local finishPos = checkpoints[#checkpoints].Position
+		-- Tahan motor stabil di udara pada koordinat finish line (mencegah jatuh ke void/bawah tanah)
 		if farmBV and farmBV.Parent then
 			farmBV.Velocity = Vector3.zero
 		end
 		primary.AssemblyLinearVelocity = Vector3.zero
 		primary.AssemblyAngularVelocity = Vector3.zero
 
-		-- Small buffer for wheels and suspension to touch solid ground before destroying farmBV
-		task.wait(0.4)
-		if farmBV then pcall(function() farmBV:Destroy() end) end
-
-		-- Passive wait for server to clear InRace attribute
+		-- Tunggu game memvalidasi dan men-teleport kita kembali ke area race secara otomatis
 		local tWaitFinish = os.clock()
-		while player:GetAttribute("InRace") and (os.clock() - tWaitFinish) < 6 and Config.autoRace do
-			task.wait(0.25)
+		while player:GetAttribute("InRace") and (os.clock() - tWaitFinish) < 10 and Config.autoRace do
+			-- Cek apakah game sudah men-teleport motor kita jauh dari garis finish (kembali ke StartingArea / Pits)
+			local distFromFinish = (primary.Position - finishPos).Magnitude
+			if distFromFinish > 50 then
+				break
+			end
+			-- Jaga motor tetap melayang stabil di garis finish selama validasi
+			if farmBV and farmBV.Parent then
+				farmBV.Velocity = Vector3.zero
+			end
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
+			task.wait(0.2)
 		end
+
+		-- Balapan telah selesai divalidasi dan motor sudah berada di area masuk race
+		raceStatusCard.Set("Balapan selesai divalidasi! Menyiapkan race...")
+		task.wait(0.5)
+
+		-- Pulihkan tabrakan motor dan lepas stabilizer farmBV
+		setBikeNoclipSafe(bike, false)
+		if farmBV then pcall(function() farmBV:Destroy() end) end
 
 		-- Step 10: Race finished and payout verification
 		task.wait(1.5)
