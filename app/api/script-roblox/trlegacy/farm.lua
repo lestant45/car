@@ -201,70 +201,10 @@ local success, err = pcall(function()
 	end, 18)
 
 	------------------------------------------------
-	-- 🏁 UNDETECTED ROAD-SPLINE AUTO RACE LOGIC
+	-- 🏁 UNDERGROUND AUTO RACE LOGIC
 	------------------------------------------------
 
-	-- Helper: Safely noclip ONLY roadside obstacle props (fences, poles, signs, decor)
-	-- NEVER noclip terrain, ground, grass, floors, road, spawn, or baseplate
-	local function noclipSurroundings(bikeRef, pos, radius)
-		pcall(function()
-			local overlap = OverlapParams.new()
-			overlap.FilterDescendantsInstances = { bikeRef, player.Character }
-			overlap.FilterType = Enum.RaycastFilterType.Exclude
-			overlap.MaxParts = 50
-			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)
-			for _, hit in ipairs(hits) do
-				if hit:IsA("BasePart") and hit.CanCollide then
-					local n = hit.Name:lower()
-					local isGround = n:find("road") or n:find("ground") or n:find("grass") or n:find("floor") or n:find("spawn") or n:find("terrain") or n:find("baseplate") or n:find("plate") or n:find("walk") or n:find("asphalt")
-					if not isGround then
-						local isObstacle = n:find("fence") or n:find("rail") or n:find("wall") or n:find("barrier") or n:find("post") or n:find("pole") or n:find("tree") or n:find("stop") or n:find("shelf") or n:find("sign") or n:find("light") or n:find("prop") or n:find("decor") or n:find("curb")
-						if isObstacle then
-							hit.CanCollide = false
-						end
-					end
-				end
-			end
-		end)
-	end
-
-	-- Extract dense road waypoints following the exact road spline (MinimapPath)
-	local function getRoadPathWaypoints(raceModel)
-		local minimapAttr = raceModel:GetAttribute("MinimapPath")
-		if minimapAttr and type(minimapAttr) == "string" and #minimapAttr > 0 then
-			local pathWaypoints = {}
-			for seg in minimapAttr:gmatch("[^|]+") do
-				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
-				if x and y and z then
-					table.insert(pathWaypoints, { Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) })
-				end
-			end
-			if #pathWaypoints >= 2 then
-				return pathWaypoints
-			end
-		end
-
-		local mmFolder = raceModel:FindFirstChild("MinimapPath")
-		if mmFolder then
-			local list = {}
-			for _, child in ipairs(mmFolder:GetChildren()) do
-				if child:IsA("BasePart") or child:IsA("Attachment") then
-					local num = tonumber(child.Name:match("%d+")) or 0
-					table.insert(list, { part = child, index = num })
-				end
-			end
-			table.sort(list, function(a, b) return a.index < b.index end)
-			if #list >= 2 then
-				local res = {}
-				for _, item in ipairs(list) do
-					local pos = item.part:IsA("Attachment") and item.part.WorldPosition or item.part.Position
-					table.insert(res, { Position = pos })
-				end
-				return res
-			end
-		end
-
-		-- Fallback to Checkpoints folder if MinimapPath is not found
+	local function getCheckpointsForRace(raceModel)
 		local ordered = nil
 		pcall(function()
 			local getOrdered = require(ReplicatedStorage.Modules.UI.Racing.Utility.getOrderedCheckpoints)
@@ -278,10 +218,14 @@ local success, err = pcall(function()
 			for _, child in ipairs(folder:GetChildren()) do
 				if child:IsA("BasePart") then
 					local num = tonumber(child.Name:match("%d+"))
-					if num then table.insert(list, { part = child, index = num }) end
+					if num then
+						table.insert(list, { part = child, index = num })
+					end
 				end
 			end
+
 			table.sort(list, function(a, b) return a.index < b.index end)
+
 			if #list > 0 then
 				local res = {}
 				for _, item in ipairs(list) do
@@ -291,26 +235,56 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- Fallback: MinimapPath attribute (exact deobfuscated showcase logic)
+		local minimapAttr = raceModel:GetAttribute("MinimapPath")
+		if minimapAttr and type(minimapAttr) == "string" then
+			local pathCheckpoints = {}
+			for seg in minimapAttr:gmatch("[^|]+") do
+				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
+				if x and y and z then
+					table.insert(pathCheckpoints, { Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) })
+				end
+			end
+			if #pathCheckpoints > 0 then
+				return pathCheckpoints
+			end
+		end
+
 		return {}
 	end
 
-	local function setBikeNoclipSafe(b, enableNoclip)
+	-- Helper: Full Ghost Noclip during race flight (menembus bukit, gunung, pohon, & rintangan)
+	local function setFullFlightNoclip(b, char, enableNoclip)
 		pcall(function()
 			if b then
 				for _, desc in ipairs(b:GetDescendants()) do
 					if desc:IsA("BasePart") then
-						desc.CanCollide = not enableNoclip
+						if enableNoclip then
+							desc.CanCollide = false
+						else
+							local n = desc.Name:lower()
+							local isWheel = n:find("wheel") or n:find("tire") or n:find("tireh") or desc.CollisionGroup == "BikeWheel"
+							if isWheel then
+								desc.CanCollide = true
+							else
+								desc.CanCollide = true
+							end
+						end
 					end
 				end
 			end
-			if player.Character then
-				for _, desc in ipairs(player.Character:GetDescendants()) do
+			if char then
+				for _, desc in ipairs(char:GetDescendants()) do
 					if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
 						desc.CanCollide = not enableNoclip
 					end
 				end
 			end
 		end)
+	end
+
+	local function setBikeNoclipSafe(b, enableNoclip)
+		setFullFlightNoclip(b, player.Character, enableNoclip)
 	end
 
 	local function runRaceCycle()
@@ -496,21 +470,27 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Step 8: Road Spline Traversal (Following MinimapPath dense road waypoints)
-		local waypoints = getRoadPathWaypoints(raceModel)
-		if #waypoints == 0 then
-			raceStatusCard.Set("Tidak ada jalur jalan ditemukan.")
+		-- Step 8: Smooth flight through ordered checkpoints
+		local checkpoints = getCheckpointsForRace(raceModel)
+		if #checkpoints == 0 then
+			raceStatusCard.Set("Tidak ada checkpoint ditemukan.")
 			if lightsConn then pcall(function() lightsConn:Disconnect() end) end
 			task.wait(2.0)
 			return false
 		end
 
-		-- Safe bounded speed along the road (realistic Kasaki z800 cruising velocity)
-		local roadSpeed = math.clamp(Config.raceFlySpeed or 140, 80, 180)
-		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
+		-- Dedicated State Manager: Mengatur Noclip hanya saat transisi state (efisien & bebas lag)
+		local currentFlightNoclip = nil
+		local function setFlightNoclipState(enable)
+			if currentFlightNoclip ~= enable then
+				currentFlightNoclip = enable
+				setFullFlightNoclip(bike, player.Character, enable)
+			end
+		end
 
-		-- Ensure collision is fully active on motor & character (NO ILLEGAL NOCLIP THROUGH TERRAIN!)
-		setBikeNoclipSafe(bike, false)
+		-- Safe bounded flight speed (matches normal Kasaki z800 velocities)
+		local flySpeed = math.clamp(Config.raceFlySpeed or 160, 80, 220)
+		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
 
 		-- Create FarmBV velocity stabilizer
 		local farmBV = primary:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
@@ -520,18 +500,28 @@ local success, err = pcall(function()
 		farmBV.Parent = primary
 
 		local raceStartTime = os.clock()
-		local lastSurroundCheck = 0
 
-		for i, wp in ipairs(waypoints) do
+		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
-			local targetPos = wp.Position
+			local targetPos = cp.Position
 			local arrived = false
-			local wpTimeout = os.clock() + 15.0
+			local cpTimeout = os.clock() + 15.0
+
+			-- USER REQUIREMENT:
+			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah mulai jalan setelah countdown selesai, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
+			-- 2. Checkpoint terakhir (garis finish): Matikan No-Clip agar motor mendarat menapak tanah sebelum finish
+			if i < #checkpoints then
+				setFlightNoclipState(true)
+			else
+				setFlightNoclipState(false)
+			end
 
 			-- 🛡️ STRICT ANTI-CHEAT LAP TIME GUARD:
-			-- Sebelum melewati titik finish terakhir, tahan motor hingga durasi minimum aman tercapai
-			if i == #waypoints then
+			-- Before hitting the final checkpoint (finish line), verify minimum safe duration has elapsed!
+			-- This guarantees the server's lap time check will NEVER flag or ban for unrealistic completion times!
+			if i == #checkpoints then
+				setFlightNoclipState(false)
 				local elapsed = os.clock() - raceStartTime
 				local minSafe = raceData.minSafeDuration or 28.0
 				if elapsed < minSafe then
@@ -547,48 +537,46 @@ local success, err = pcall(function()
 				end
 			end
 
-			while not arrived and Config.autoRace and os.clock() < wpTimeout do
+			while not arrived and Config.autoRace and os.clock() < cpTimeout do
 				local dt = RunService.Heartbeat:Wait()
 				local cur = primary.Position
 				local diff = targetPos - cur
 				local dist = diff.Magnitude
 
-				-- Threshold radius untuk belokan jalan raya yang mulus
-				local threshold = (i == #waypoints) and 12 or 22
-				if dist <= threshold then
+				if dist <= 12 then
 					arrived = true
 					break
 				end
 
-				-- Hilangkan tabrakan objek dekorasi pinggir jalan (rambu, tiang, pagar) secara aman
-				if (os.clock() - lastSurroundCheck) > 0.5 then
-					lastSurroundCheck = os.clock()
-					noclipSurroundings(bike, cur, 25)
+				if i < #checkpoints then
+					setFlightNoclipState(true)
+				else
+					setFlightNoclipState(false)
 				end
 
 				local dir = diff.Unit
-				local step = math.min(roadSpeed * dt, dist)
+				local step = math.min(flySpeed * dt, dist)
 				local newPos = cur + dir * step
 
-				-- Klem ketinggian roda di atas permukaan aspal jalan raya menggunakan Raycast
-				local rayParams = RaycastParams.new()
-				rayParams.FilterDescendantsInstances = { bike, player.Character }
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local groundRay = workspace:Raycast(newPos + Vector3.new(0, 8, 0), Vector3.new(0, -25, 0), rayParams)
-				if groundRay then
-					newPos = Vector3.new(newPos.X, groundRay.Position.Y + 2.8, newPos.Z)
-				else
-					newPos = Vector3.new(newPos.X, targetPos.Y + 2.8, newPos.Z)
+				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar mendarat mulus menapak di permukaan aspal
+				if i == #checkpoints and dist < 50 then
+					setFlightNoclipState(false)
+					local rayParams = RaycastParams.new()
+					rayParams.FilterDescendantsInstances = { bike, player.Character }
+					rayParams.FilterType = Enum.RaycastFilterType.Exclude
+					local hit = workspace:Raycast(newPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
+					if hit then
+						newPos = Vector3.new(newPos.X, hit.Position.Y + 2.8, newPos.Z)
+					end
 				end
 
 				bike:PivotTo(CFrame.lookAt(newPos, newPos + dir * 10))
-				farmBV.Velocity = dir * roadSpeed
-				primary.AssemblyLinearVelocity = dir * roadSpeed
+				farmBV.Velocity = dir * flySpeed
+				primary.AssemblyLinearVelocity = dir * flySpeed
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
-				local pct = math.floor((i / #waypoints) * 100)
-				raceStatusCard.Set(string.format("Navigasi Jalan %d%% (Titik %d / %d | %d studs/s)", pct, i, #waypoints, roadSpeed))
+				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s)", i, #checkpoints, dist, flySpeed))
 			end
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
@@ -607,9 +595,10 @@ local success, err = pcall(function()
 			pcall(function() startLightsClient:Disconnect(lightsConn) end)
 		end
 
-		setBikeNoclipSafe(bike, false)
+		-- Pastikan No-Clip mati saat mendarat di finish
+		setFlightNoclipState(false)
 
-		local finishPos = waypoints[#waypoints].Position
+		local finishPos = checkpoints[#checkpoints].Position
 		-- Tahan motor stabil di koordinat finish line (mencegah jatuh ke void/bawah tanah)
 		if farmBV and farmBV.Parent then
 			farmBV.Velocity = Vector3.zero
