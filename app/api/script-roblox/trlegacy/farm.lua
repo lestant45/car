@@ -253,22 +253,38 @@ local success, err = pcall(function()
 		return {}
 	end
 
-	-- Helper: Noclip bike body parts during race flight while ALWAYS keeping wheels collidable
-	local function setBikeNoclipSafe(b, enableNoclip)
-		if not b then return end
+	-- Helper: Full Ghost Noclip during race flight (menembus bukit, gunung, pohon, & rintangan)
+	local function setFullFlightNoclip(b, char, enableNoclip)
 		pcall(function()
-			for _, desc in ipairs(b:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					local n = desc.Name:lower()
-					local isWheel = n:find("wheel") or n:find("tire") or n:find("tireh") or desc.CollisionGroup == "BikeWheel"
-					if isWheel then
-						desc.CanCollide = true
-					else
+			if b then
+				for _, desc in ipairs(b:GetDescendants()) do
+					if desc:IsA("BasePart") then
+						if enableNoclip then
+							desc.CanCollide = false
+						else
+							local n = desc.Name:lower()
+							local isWheel = n:find("wheel") or n:find("tire") or n:find("tireh") or desc.CollisionGroup == "BikeWheel"
+							if isWheel then
+								desc.CanCollide = true
+							else
+								desc.CanCollide = true
+							end
+						end
+					end
+				end
+			end
+			if char then
+				for _, desc in ipairs(char:GetDescendants()) do
+					if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
 						desc.CanCollide = not enableNoclip
 					end
 				end
 			end
 		end)
+	end
+
+	local function setBikeNoclipSafe(b, enableNoclip)
+		setFullFlightNoclip(b, player.Character, enableNoclip)
 	end
 
 	local function runRaceCycle()
@@ -500,11 +516,30 @@ local success, err = pcall(function()
 					break
 				end
 
-				setBikeNoclipSafe(bike, true)
+				-- USER REQUIREMENT:
+				-- Saat balapan: Full Ghost Noclip (tembus bukit, gunung, pohon, & semua rintangan)
+				-- Saat sudah ingin finish (checkpoint terakhir): matikan noclip agar roda menapak sempurna di tanah
+				if i < #checkpoints then
+					setFullFlightNoclip(bike, player.Character, true)
+				else
+					-- Checkpoint terakhir (garis finish): matikan noclip agar mendarat sempurna di aspal/tanah
+					setFullFlightNoclip(bike, player.Character, false)
+				end
 
 				local dir = diff.Unit
 				local step = math.min(flySpeed * dt, dist)
 				local newPos = cur + dir * step
+
+				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar menempel di permukaan jalan
+				if i == #checkpoints and dist < 40 then
+					local rayParams = RaycastParams.new()
+					rayParams.FilterDescendantsInstances = { bike, player.Character }
+					rayParams.FilterType = Enum.RaycastFilterType.Exclude
+					local hit = workspace:Raycast(newPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
+					if hit then
+						newPos = Vector3.new(newPos.X, hit.Position.Y + 2.0, newPos.Z)
+					end
+				end
 
 				bike:PivotTo(CFrame.lookAt(newPos, newPos + dir * 10))
 				farmBV.Velocity = dir * flySpeed
