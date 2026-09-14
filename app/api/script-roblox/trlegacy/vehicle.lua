@@ -83,46 +83,85 @@ local success, err = pcall(function()
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.Health <= 0 then return false end
 
-		local bike, seat = getPlayerBike()
+		local bike, seat, primary = getPlayerBike()
+		local newlySpawned = false
+
 		if not bike and autoSpawn then
+			newlySpawned = true
 			spawnKasakiZ800()
+			-- Step 1: Wait for bike model and parts to appear in workspace
 			local start = os.clock()
-			while (os.clock() - start) < 3.5 do
-				task.wait(0.2)
-				bike, seat = getPlayerBike()
-				if bike and seat then break end
+			while (os.clock() - start) < 5.0 do
+				task.wait(0.15)
+				bike, seat, primary = getPlayerBike()
+				if bike and seat and primary and #bike:GetChildren() >= 10 then break end
 			end
 		end
 
-		if not seat then return false end
+		if not bike or not seat or not primary then return false end
+
+		-- Step 2: Ensure wheels are collidable so bike won't glitch through the ground
+		pcall(function()
+			for _, desc in ipairs(bike:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					local n = desc.Name:lower()
+					if n:find("wheel") or n:find("tire") or n:find("tireh") or desc.CollisionGroup == "BikeWheel" then
+						desc.CanCollide = true
+					end
+				end
+			end
+		end)
+
+		-- Step 3: CRITICAL USER REQUIREMENT: Wait until bike is fully spawned AND menapak dengan tanah (grounded & settled)
+		if newlySpawned or (primary.AssemblyLinearVelocity.Magnitude > 8.0) then
+			local groundTimeout = os.clock() + 4.0
+			while os.clock() < groundTimeout do
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = { bike, char }
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				local ray = workspace:Raycast(primary.Position, Vector3.new(0, -35, 0), rayParams)
+				if ray then
+					local groundDist = primary.Position.Y - ray.Position.Y
+					local velY = primary.AssemblyLinearVelocity.Y
+					-- Bike has touched ground and vertical falling velocity is settled
+					if groundDist <= 3.8 and math.abs(velY) < 1.5 then
+						break
+					end
+				end
+				task.wait(0.1)
+			end
+			-- Stabilization buffer: let suspension and game vehicle controller attach
+			task.wait(0.6)
+		end
 
 		local pGui = player:FindFirstChild("PlayerGui")
 		local hasGauge = pGui and pGui:FindFirstChild("Gauge_EXRGARAGE", true)
 
-		-- If already seated and has the gauge HUD active, authentic riding pose (Image 2) is active!
+		-- If already seated and has the gauge HUD active, authentic riding pose is active!
 		if hum.SeatPart == seat and hasGauge and hasGauge.Visible then
 			return true
 		end
 
-		-- If seated without gauge HUD (Image 1 floating upright bug), jump out first so prompt can properly re-seat with HUD
+		-- If seated without gauge HUD (buggy sit state), jump out first so prompt can properly re-seat with HUD
 		if hum.SeatPart == seat and (not hasGauge or not hasGauge.Visible) then
 			hum.Sit = false
-			task.wait(0.2)
+			task.wait(0.3)
 		end
 
 		-- Priority 1: Official Game VehiclePrompt (Mounts bike with custom riding animations & Speedometer HUD)
 		local prompt = seat:FindFirstChild("VehiclePrompt") or seat:FindFirstChildWhichIsA("ProximityPrompt") or bike:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt and fireproximityprompt then
 			pcall(function()
-				char:PivotTo(seat.CFrame + Vector3.new(0, 1.5, 0))
-				task.wait(0.15)
+				-- Position character standing beside the seat, not clipping inside it
+				char:PivotTo(seat.CFrame + Vector3.new(0, 1.2, 0))
+				task.wait(0.2)
 				prompt.Enabled = true
 				prompt.RequiresLineOfSight = false
 				prompt.MaxActivationDistance = 50
 				fireproximityprompt(prompt, 0)
 			end)
 			local waitStart = os.clock()
-			while (os.clock() - waitStart) < 1.5 do
+			while (os.clock() - waitStart) < 2.0 do
 				task.wait(0.1)
 				if hum.SeatPart == seat then break end
 			end
@@ -133,6 +172,15 @@ local success, err = pcall(function()
 			pcall(function()
 				seat:Sit(hum)
 			end)
+			task.wait(0.2)
+		end
+
+		-- Step 4: Verify Speedometer HUD (Gauge_EXRGARAGE)
+		local waitHud = os.clock()
+		while (os.clock() - waitHud) < 2.0 do
+			hasGauge = pGui and pGui:FindFirstChild("Gauge_EXRGARAGE", true)
+			if hasGauge and hasGauge.Visible then break end
+			task.wait(0.1)
 		end
 
 		return hum.SeatPart == seat
