@@ -488,8 +488,21 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Safe bounded flight speed (matches normal Kasaki z800 velocities)
-		local flySpeed = math.clamp(Config.raceFlySpeed or 160, 80, 220)
+		-- Hitung total jarak garis lurus seluruh checkpoint di lintasan
+		local totalTrackDist = 0
+		for idx = 1, #checkpoints - 1 do
+			totalTrackDist = totalTrackDist + (checkpoints[idx + 1].Position - checkpoints[idx].Position).Magnitude
+		end
+		if totalTrackDist > 0 and (checkpoints[1].Position - primary.Position).Magnitude < 1000 then
+			totalTrackDist = totalTrackDist + (checkpoints[1].Position - primary.Position).Magnitude
+		end
+
+		-- Pacing Kecepatan Aman Alami: Menghindari hovering/diam di udara yang memicu Checkpoint Timeout server!
+		local minSafe = raceData.minSafeDuration or 30.0
+		local pacedSpeed = math.clamp(totalTrackDist / minSafe, 70, 220)
+		local userRequestedSpeed = math.clamp(Config.raceFlySpeed or 160, 80, 220)
+		local flySpeed = math.min(userRequestedSpeed, pacedSpeed)
+
 		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
 
 		-- Create FarmBV velocity stabilizer
@@ -511,32 +524,12 @@ local success, err = pcall(function()
 			local cpTimeout = os.clock() + estimatedFlightTime + 30.0
 
 			-- USER REQUIREMENT:
-			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah mulai jalan setelah countdown selesai, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
+			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah jalan, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
 			-- 2. Checkpoint terakhir (garis finish): Matikan No-Clip agar motor mendarat menapak tanah sebelum finish
 			if i < #checkpoints then
 				setFlightNoclipState(true)
 			else
 				setFlightNoclipState(false)
-			end
-
-			-- 🛡️ STRICT ANTI-CHEAT LAP TIME GUARD:
-			-- Before hitting the final checkpoint (finish line), verify minimum safe duration has elapsed!
-			-- This guarantees the server's lap time check will NEVER flag or ban for unrealistic completion times!
-			if i == #checkpoints then
-				setFlightNoclipState(false)
-				local elapsed = os.clock() - raceStartTime
-				local minSafe = raceData.minSafeDuration or 28.0
-				if elapsed < minSafe then
-					local waitSafe = minSafe - elapsed
-					raceStatusCard.Set(string.format("Anti-Cheat Guard: Menahan lap time (+%.1fs)...", waitSafe))
-					local hoverEnd = os.clock() + waitSafe
-					while os.clock() < hoverEnd and Config.autoRace do
-						farmBV.Velocity = Vector3.zero
-						primary.AssemblyLinearVelocity = Vector3.zero
-						primary.AssemblyAngularVelocity = Vector3.zero
-						task.wait(0.25)
-					end
-				end
 			end
 
 			while not arrived and Config.autoRace and os.clock() < cpTimeout do
