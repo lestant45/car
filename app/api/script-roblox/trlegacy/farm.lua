@@ -10,7 +10,7 @@ local success, err = pcall(function()
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRace = false,
-		selectedRace = "Race 1 (Mountain Race - RM 53,000)",
+		selectedRace = "Race 2 (Small Circuit - RM 11,000)",
 		undergroundDepth = 25,
 		raceFlySpeed = 260,
 		checkpointDelay = 0.02,
@@ -50,24 +50,22 @@ local success, err = pcall(function()
 		return ok
 	end
 
-	-- Race definitions with IDs and rewards
+	-- Race definitions with IDs and rewards (Updated for current TR Legacy map)
 	local RaceOptions = {
-		["Race 1 (Mountain Race - RM 53,000)"]  = { id = "1", modelName = "Race1", reward = 53000, maxTime = 75 },
+		["Race 2 (Small Circuit - RM 11,000)"]     = { id = "2", modelName = "Race2", reward = 11000, maxTime = 35 },
 		["Race 8 (Around The World - RM 38,000)"] = { id = "8", modelName = "Race8", reward = 38000, maxTime = 100 },
 		["Race 4 (Highway - RM 27,000)"]           = { id = "4", modelName = "Race4", reward = 27000, maxTime = 90 },
 		["Race 3 (GP Track - RM 18,500)"]          = { id = "3", modelName = "Race3", reward = 18500, maxTime = 60 },
-		["Race 2 (Small Circuit - RM 11,000)"]     = { id = "2", modelName = "Race2", reward = 11000, maxTime = 35 },
 		["Race 6 (Lake Race - RM 9,500)"]          = { id = "6", modelName = "Race6", reward = 9500,  maxTime = 40 },
 		["Race 7 (Side Street - RM 7,300)"]        = { id = "7", modelName = "Race7", reward = 7300,  maxTime = 40 },
 		["Race 5 (Drag - RM 1,500)"]               = { id = "5", modelName = "Race5", reward = 1500,  maxTime = 30 },
 	}
 
 	local raceDropdownList = {
-		"Race 1 (Mountain Race - RM 53,000)",
+		"Race 2 (Small Circuit - RM 11,000)",
 		"Race 8 (Around The World - RM 38,000)",
 		"Race 4 (Highway - RM 27,000)",
 		"Race 3 (GP Track - RM 18,500)",
-		"Race 2 (Small Circuit - RM 11,000)",
 		"Race 6 (Lake Race - RM 9,500)",
 		"Race 7 (Side Street - RM 7,300)",
 		"Race 5 (Drag - RM 1,500)",
@@ -195,6 +193,13 @@ local success, err = pcall(function()
 	------------------------------------------------
 
 	local function getCheckpointsForRace(raceModel)
+		local ordered = nil
+		pcall(function()
+			local getOrdered = require(ReplicatedStorage.Modules.UI.Racing.Utility.getOrderedCheckpoints)
+			ordered = getOrdered(raceModel)
+		end)
+		if ordered and #ordered > 0 then return ordered end
+
 		local folder = raceModel:FindFirstChild("Checkpoints")
 		if not folder then return {} end
 
@@ -210,11 +215,11 @@ local success, err = pcall(function()
 
 		table.sort(list, function(a, b) return a.index < b.index end)
 
-		local ordered = {}
+		local res = {}
 		for _, item in ipairs(list) do
-			table.insert(ordered, item.part)
+			table.insert(res, item.part)
 		end
-		return ordered
+		return res
 	end
 
 	local function runRaceCycle()
@@ -223,7 +228,7 @@ local success, err = pcall(function()
 		local raceData = RaceOptions[Config.selectedRace] or RaceOptions[raceDropdownList[1]]
 		local raceModel = workspace:FindFirstChild(raceData.modelName)
 		if not raceModel then
-			raceStatusCard.Set("Error: Track model not found")
+			raceStatusCard.Set("Error: Track " .. tostring(raceData.modelName) .. " tidak ditemukan")
 			return false
 		end
 
@@ -259,85 +264,131 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 3: Descend underground at starting area
-		local startArea = raceModel:FindFirstChild("StartingArea")
-		local startPos = startArea and startArea.Position or raceModel:GetPivot().Position
-		local depth = Config.undergroundDepth or 25
-		local undergroundStartPos = Vector3.new(startPos.X, startPos.Y - depth, startPos.Z)
-
-		raceStatusCard.Set("Menyelam ke bawah tanah...")
-		
-		-- Smooth vertical descent
-		local curPos = primary.Position
-		local tDescend = 0.35
-		local t0 = os.clock()
-		while (os.clock() - t0) < tDescend and Config.autoRace do
-			local alpha = (os.clock() - t0) / tDescend
-			local interpY = curPos.Y + (undergroundStartPos.Y - curPos.Y) * alpha
-			for _, p in ipairs(bike:GetDescendants()) do
-				if p:IsA("BasePart") then p.CanCollide = false end
-			end
-			bike:PivotTo(CFrame.new(startPos.X, interpY, startPos.Z))
-			RunService.Heartbeat:Wait()
+		-- Step 3: Teleport bike to StartingArea bounding box
+		local startArea = raceModel:FindFirstChild("StartingArea") or raceModel:GetPivot()
+		raceStatusCard.Set("Menuju Starting Area " .. raceData.modelName .. "...")
+		for _, p in ipairs(bike:GetDescendants()) do
+			if p:IsA("BasePart") then p.CanCollide = false end
 		end
-		bike:PivotTo(CFrame.new(undergroundStartPos))
-		task.wait(0.2)
+		local startCF = (startArea:IsA("BasePart") and startArea.CFrame or startArea) + Vector3.new(0, 1.5, 0)
+		bike:PivotTo(startCF)
+		primary.AssemblyLinearVelocity = Vector3.zero
+		primary.AssemblyAngularVelocity = Vector3.zero
 
-		-- Step 4: Request solo race start via Warp
-		raceStatusCard.Set("Mendaftarkan Solo TimeTrial...")
-		fireWarp("RaceSessionAction", true, "create", {
-			zoneId = raceData.id,
-			config = {
-				Mode = "TimeTrial",
-				Laps = 1,
-				MaxPlayers = 1
-			}
-		})
-
-		-- Step 5: Wait for race countdown / active status
-		local waitStart = os.clock()
-		local started = false
-		while (os.clock() - waitStart) < 7.0 do
-			if not Config.autoRace then return false end
-			local inRace = player:GetAttribute("InRace") or player:GetAttribute("lap") or player:GetAttribute("checkpoint")
-			if inRace then
-				started = true
-				break
-			end
-			for _, p in ipairs(bike:GetDescendants()) do
-				if p:IsA("BasePart") then p.CanCollide = false end
-			end
-			bike:PivotTo(CFrame.new(undergroundStartPos))
-			primary.AssemblyLinearVelocity = Vector3.zero
+		-- Step 4: Wait for RacingUI MenuPanel to open
+		local racingUI = player.PlayerGui:WaitForChild("RacingUI", 5)
+		local menuPanel = nil
+		if racingUI and racingUI:FindFirstChild("MainFrame") then
+			menuPanel = racingUI.MainFrame:FindFirstChild("MenuPanel")
+		end
+		local tWaitMenu = os.clock()
+		while (not menuPanel or not menuPanel.Visible) and (os.clock() - tWaitMenu) < 4 and Config.autoRace do
 			task.wait(0.2)
+			if racingUI and racingUI:FindFirstChild("MainFrame") then
+				menuPanel = racingUI.MainFrame:FindFirstChild("MenuPanel")
+			end
 		end
 
-		raceStatusCard.Set("Race Dimulai! Terbang ke tiap checkpoint...")
+		-- Step 5: Hook RaceStartLights for strict countdown synchronization
+		local lightsOut = false
+		local lightsConn = nil
+		local startLightsClient = nil
+		pcall(function()
+			local old = (getthreadidentity and getthreadidentity()) or 8
+			if setthreadidentity then setthreadidentity(2) end
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			startLightsClient = Warp.Client("RaceStartLights")
+			lightsConn = startLightsClient:Connect(function(status)
+				if tostring(status) == "out" then
+					lightsOut = true
+				end
+			end)
+			if setthreadidentity then setthreadidentity(old) end
+		end)
 
-		-- Step 6: Smoothly FLY underground towards each checkpoint
+		-- Step 6: Trigger solo race creation
+		raceStatusCard.Set("Mendaftarkan Solo Race...")
+		local footer = menuPanel and menuPanel:FindFirstChild("Footer")
+		local quickBtn = footer and footer:FindFirstChild("Quick")
+		if quickBtn then
+			local tQuick = os.clock()
+			while not quickBtn.Interactable and (os.clock() - tQuick) < 3 and Config.autoRace do
+				task.wait(0.1)
+			end
+			for _, c in ipairs(getconnections(quickBtn.Activated)) do c:Fire() end
+		else
+			fireWarp("RaceSessionAction", true, "create", {
+				zoneId = raceData.id,
+				config = { Mode = "TimeTrial", Laps = 1, MaxPlayers = 1 }
+			})
+		end
+
+		-- Check if a start card appeared in active sessions
+		task.wait(0.8)
+		local active = menuPanel and menuPanel:FindFirstChild("Active")
+		local sessions = active and active:FindFirstChild("Sessions")
+		if sessions then
+			for _, card in ipairs(sessions:GetChildren()) do
+				if card:IsA("Frame") and card:FindFirstChild("Start") then
+					local startBtn = card.Start
+					local label = startBtn:FindFirstChild("Label") and startBtn.Label.Text or startBtn.Text
+					if tostring(label):upper():find("START") or tostring(label):upper():find("BALAP") then
+						for _, c in ipairs(getconnections(startBtn.Activated)) do c:Fire() end
+						for _, c in ipairs(getconnections(startBtn.MouseButton1Click)) do c:Fire() end
+					end
+				end
+			end
+		end
+
+		-- Step 7: STRICT ANTICHEAT COUNTDOWN - Wait until lights go OUT!
+		raceStatusCard.Set("Menunggu countdown lampu race (GO)...")
+		local tWaitLights = os.clock()
+		while not lightsOut and (os.clock() - tWaitLights) < 14 and Config.autoRace do
+			task.wait(0.1)
+		end
+
+		-- STRICT FAIL-SAFE: If the race did not legitimately start, ABORT IMMEDIATELY!
+		-- NEVER fly or touch checkpoints if not in an active race session!
+		local activeRaceId = player:GetAttribute("InRace")
+		if not lightsOut or not activeRaceId then
+			raceStatusCard.Set("Gagal mulai: Sesi balapan tidak aktif / sedang dipakai. Membatalkan...")
+			if lightsConn and startLightsClient then
+				pcall(function() startLightsClient:Disconnect(lightsConn) end)
+			end
+			task.wait(3.0)
+			return false
+		end
+
+		if not Config.autoRace then
+			if lightsConn and startLightsClient then
+				pcall(function() startLightsClient:Disconnect(lightsConn) end)
+			end
+			return false
+		end
+
+		-- Step 8: Smooth flight through ordered checkpoints
 		local checkpoints = getCheckpointsForRace(raceModel)
 		if #checkpoints == 0 then
 			raceStatusCard.Set("Tidak ada checkpoint ditemukan.")
+			if lightsConn then pcall(function() lightsConn:Disconnect() end) end
 			task.wait(2.0)
 			return false
 		end
 
-		local flySpeed = math.clamp(Config.raceFlySpeed or 260, 80, 600)
+		local flySpeed = math.clamp(Config.raceFlySpeed or 260, 100, 450)
+		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
 
 		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
-			local cpPos = cp.Position
-			local targetUnderground = Vector3.new(cpPos.X, cpPos.Y - depth, cpPos.Z)
-
-			-- Smooth fly loop towards target checkpoint
+			local targetPos = cp.Position
 			local arrived = false
-			local timeout = os.clock() + 15.0
+			local cpTimeout = os.clock() + 12.0
 
-			while not arrived and Config.autoRace and os.clock() < timeout do
+			while not arrived and Config.autoRace and os.clock() < cpTimeout do
 				local dt = RunService.Heartbeat:Wait()
 				local cur = primary.Position
-				local diff = (targetUnderground - cur)
+				local diff = targetPos - cur
 				local dist = diff.Magnitude
 
 				if dist <= 12 then
@@ -353,56 +404,80 @@ local success, err = pcall(function()
 				local step = math.min(flySpeed * dt, dist)
 				local newPos = cur + dir * step
 
-				local lookAhead = newPos + dir * 10
-				bike:PivotTo(CFrame.lookAt(newPos, lookAhead))
-
+				bike:PivotTo(CFrame.lookAt(newPos, newPos + dir * 10))
 				primary.AssemblyLinearVelocity = dir * flySpeed
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
-				if dist < 25 then
+				if dist < 25 and firetouchinterest then
 					pcall(function()
-						if firetouchinterest then
-							firetouchinterest(seat, cp, 0)
-							firetouchinterest(seat, cp, 1)
-						end
+						firetouchinterest(seat, cp, 0)
+						firetouchinterest(primary, cp, 0)
+						firetouchinterest(seat, cp, 1)
+						firetouchinterest(primary, cp, 1)
 					end)
 				end
 
 				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0fm | %d studs/s)", i, #checkpoints, dist, flySpeed))
 			end
 
-			pcall(function()
-				if firetouchinterest then
+			if firetouchinterest then
+				pcall(function()
 					firetouchinterest(seat, cp, 0)
+					firetouchinterest(primary, cp, 0)
 					task.wait(0.02)
 					firetouchinterest(seat, cp, 1)
-				end
-			end)
+					firetouchinterest(primary, cp, 1)
+				end)
+			end
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
 			end
 		end
 
-		-- Step 7: Completed race
-		totalRacesWon = totalRacesWon + 1
-		totalRaceCash = totalRaceCash + raceData.reward
-		raceEarningsCard.Set(string.format("RM %s (%d Wins)", string.format("%.0f", totalRaceCash):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""), totalRacesWon))
-		raceStatusCard.Set("Selesai! Menang RM " .. raceData.reward)
+		if lightsConn and startLightsClient then
+			pcall(function() startLightsClient:Disconnect(lightsConn) end)
+		end
 
-		UI.Notify("Auto Race", string.format("Finish %s (+RM %d)", raceData.modelName, raceData.reward), 3, "success")
-
+		-- Step 9: Race finished and payout verification
 		task.wait(2.0)
+		local currentCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or initialCash
+		local earned = math.max(currentCash - initialCash, raceData.reward)
+
+		totalRacesWon = totalRacesWon + 1
+		totalRaceCash = totalRaceCash + earned
+		raceEarningsCard.Set(string.format("RM %s (%d Wins)", string.format("%.0f", totalRaceCash):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""), totalRacesWon))
+		raceStatusCard.Set(string.format("Selesai! Menang RM %d", earned))
+
+		UI.Notify("Auto Race", string.format("Finish %s (+RM %d)", raceData.modelName, earned), 3, "success")
+
+		task.wait(1.5)
 		return true
+	end
+
+	local currentSessionToken = os.clock()
+	_G.HipHub_FarmSessionToken = currentSessionToken
+
+	_G.HipHub_ToggleAutoRace = function(val)
+		Config.autoRace = val
+		_G.HipHub_IsAutoRacing = val
+	end
+
+	_G.HipHub_ToggleAutoDrive = function(val)
+		Config.autoDriveCircle = val
+		_G.HipHub_IsAutoDriving = val
 	end
 
 	-- Background Auto Race Routine
 	task.spawn(function()
-		while true do
+		while _G.HipHub_FarmSessionToken == currentSessionToken do
 			task.wait(0.5)
-			if Config.autoRace then
-				pcall(runRaceCycle)
+			if Config.autoRace or _G.HipHub_IsAutoRacing then
+				local ok, err = pcall(runRaceCycle)
+				if not ok then
+					warn("[HipHub AutoRace Loop Error]:", err)
+				end
 			end
 		end
 	end)
