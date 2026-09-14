@@ -51,6 +51,38 @@ local success, err = pcall(function()
 		return ok
 	end
 
+	-- Anti-Leak Ghost Replay Blocker: Blocks RaceGhostSubmit & GhostRecorder during auto race
+	pcall(function()
+		local old = (getthreadidentity and getthreadidentity()) or 8
+		if setthreadidentity then setthreadidentity(2) end
+		local Warp = require(ReplicatedStorage.Modules.Warp)
+		local ghostClient = Warp.Client("RaceGhostSubmit")
+		if ghostClient and ghostClient.Fire then
+			local originalGhostFire = ghostClient.Fire
+			ghostClient.Fire = function(self, ...)
+				if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+					-- Block sending flying ghost trajectory replay to prevent server ban
+					return nil
+				end
+				return originalGhostFire(self, ...)
+			end
+		end
+		local okRecorder, GhostRecorder = pcall(function()
+			return require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
+		end)
+		if okRecorder and GhostRecorder and GhostRecorder.update then
+			local oldUpdate = GhostRecorder.update
+			GhostRecorder.update = function(self, ...)
+				if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+					self.frames = {}
+					return
+				end
+				return oldUpdate(self, ...)
+			end
+		end
+		if setthreadidentity then setthreadidentity(old) end
+	end)
+
 	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and Base World Records
 	-- Real-time WR is dynamically queried via Warp remote: RaceLeaderboardQuery with +10% Dynamic Pacing
 	local RaceOptions = {
@@ -265,7 +297,7 @@ local success, err = pcall(function()
 		return {}
 	end
 
-	-- Helper: Full Ghost Noclip during race flight (menembus bukit, gunung, pohon, & rintangan)
+	-- Helper: Safe Noclip during race flight (only modify vehicle parts, never modify character parts)
 	local function setFullFlightNoclip(b, char, enableNoclip)
 		pcall(function()
 			if b then
@@ -274,21 +306,8 @@ local success, err = pcall(function()
 						if enableNoclip then
 							desc.CanCollide = false
 						else
-							local n = desc.Name:lower()
-							local isWheel = n:find("wheel") or n:find("tire") or n:find("tireh") or desc.CollisionGroup == "BikeWheel"
-							if isWheel then
-								desc.CanCollide = true
-							else
-								desc.CanCollide = true
-							end
+							desc.CanCollide = true
 						end
-					end
-				end
-			end
-			if char then
-				for _, desc in ipairs(char:GetDescendants()) do
-					if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
-						desc.CanCollide = not enableNoclip
 					end
 				end
 			end
@@ -561,15 +580,21 @@ local success, err = pcall(function()
 
 				local currentPos = startPos:Lerp(endPos, alpha)
 
-				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar mendarat mulus menapak di permukaan aspal
-				if i == #checkpoints and alpha > 0.6 then
-					setFlightNoclipState(false)
-					local rayParams = RaycastParams.new()
-					rayParams.FilterDescendantsInstances = { bike, player.Character }
-					rayParams.FilterType = Enum.RaycastFilterType.Exclude
-					local hit = workspace:Raycast(currentPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
-					if hit then
-						currentPos = Vector3.new(currentPos.X, hit.Position.Y + 2.8, currentPos.Z)
+				-- Terrain-Surface Gliding: Motor selalu meluncur di atas kontur permukaan lereng bukit/tanah
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = { bike, player.Character }
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				local groundRay = workspace:Raycast(Vector3.new(currentPos.X, math.max(currentPos.Y + 200, 350), currentPos.Z), Vector3.new(0, -700, 0), rayParams)
+
+				if groundRay and groundRay.Position then
+					local minSurfaceY = groundRay.Position.Y + 3.0
+					if i == #checkpoints and alpha > 0.6 then
+						-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
+						setFlightNoclipState(false)
+						currentPos = Vector3.new(currentPos.X, groundRay.Position.Y + 2.8, currentPos.Z)
+					elseif minSurfaceY > currentPos.Y then
+						-- Mengikuti kontur lereng bukit: angkat motor di atas permukaan lereng
+						currentPos = Vector3.new(currentPos.X, minSurfaceY, currentPos.Z)
 					end
 				end
 
