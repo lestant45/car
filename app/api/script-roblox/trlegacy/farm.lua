@@ -1,4 +1,4 @@
--- 🏁 HipHub TR Legacy — Auto Race Underground & Circular Auto Drive Suite
+-- HipHub TR Legacy — Auto Race Underground & Circular Auto Drive Suite
 -- Smooth underground flight traversal between checkpoints and circular underground odometer farm
 
 local success, err = pcall(function()
@@ -108,7 +108,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🎛️ UI: FARM TAB
+	-- ️ UI: FARM TAB
 	------------------------------------------------
 
 	-- 1. AUTO RACE SECTION
@@ -164,7 +164,7 @@ local success, err = pcall(function()
 		Config.antiStuck = v
 	end, 16)
 
-	local unstuckBtn = UI.AddButton(driveSection, "🚨 Unstuck Manual (Lepaskan Motor)", function()
+	local unstuckBtn = UI.AddButton(driveSection, "Unstuck Manual (Lepaskan Motor)", function()
 		local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
 		if bike and primary then
 			local look = primary.CFrame.LookVector
@@ -197,7 +197,7 @@ local success, err = pcall(function()
 	end, 18)
 
 	------------------------------------------------
-	-- 🏁 UNDERGROUND AUTO RACE LOGIC
+	-- UNDERGROUND AUTO RACE LOGIC
 	------------------------------------------------
 
 	local function getCheckpointsForRace(raceModel)
@@ -698,7 +698,7 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 🔄 CIRCULAR AUTO DRIVE (ODOMETER & CASH)
+	-- CIRCULAR AUTO DRIVE (ODOMETER & CASH)
 	------------------------------------------------
 
 	local circleCenter = nil
@@ -918,7 +918,7 @@ local success, err = pcall(function()
 						noclipBikeBody(bike)
 						bike:PivotTo(bike:GetPivot() + Vector3.new(0, 3.5, 0) + (look * 8))
 						primary.AssemblyLinearVelocity = look * speed + Vector3.new(0, 15, 0)
-						driveStatusCard.Set("🚨 Meloloskan dari rintangan...")
+						driveStatusCard.Set("Meloloskan dari rintangan...")
 						
 						if stuckSeconds >= 4.0 then
 							local shift = look * 35

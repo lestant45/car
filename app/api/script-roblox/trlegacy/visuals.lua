@@ -1,4 +1,4 @@
--- 👁️ HipHub TR Legacy — Visuals, ESP & Lighting Suite
+-- ️ HipHub TR Legacy — Visuals, ESP & Lighting Suite
 
 local success, err = pcall(function()
     local UI = _G.HipHubUI
@@ -21,7 +21,7 @@ local success, err = pcall(function()
     espFolder.Parent = UI.gui
 
     ------------------------------------------------
-    -- 💡 LIGHTING & FULLBRIGHT
+    -- LIGHTING & FULLBRIGHT
     ------------------------------------------------
     local defaultBrightness = Lighting.Brightness
     local defaultClockTime = Lighting.ClockTime
@@ -47,7 +47,7 @@ local success, err = pcall(function()
     end)
 
     ------------------------------------------------
-    -- 🚗 VEHICLE & PLAYER ESP
+    -- VEHICLE & PLAYER ESP
     ------------------------------------------------
     local function clearESP()
         espFolder:ClearAllChildren()
@@ -99,7 +99,7 @@ local success, err = pcall(function()
                                         t1.Size = UDim2.new(1, -6, 0, 16)
                                         t1.Position = UDim2.new(0, 3, 0, 2)
                                         t1.BackgroundTransparency = 1
-                                        t1.Text = "🏍️ " .. v.Name
+                                        t1.Text = v.Name
                                         t1.TextColor3 = Color3.fromRGB(255, 255, 255)
                                         t1.Font = Enum.Font.GothamBold
                                         t1.TextSize = 10
@@ -159,7 +159,7 @@ local success, err = pcall(function()
                         t1.Size = UDim2.new(1, -6, 0, 16)
                         t1.Position = UDim2.new(0, 3, 0, 2)
                         t1.BackgroundTransparency = 1
-                        t1.Text = "👤 " .. p.DisplayName
+                        t1.Text = p.DisplayName
                         t1.TextColor3 = Color3.fromRGB(255, 255, 255)
                         t1.Font = Enum.Font.GothamBold
                         t1.TextSize = 10
@@ -192,7 +192,7 @@ local success, err = pcall(function()
     end)
 
     ------------------------------------------------
-    -- 🎨 UI INTEGRATION
+    -- UI INTEGRATION
     ------------------------------------------------
     local vFrame = UI.Tabs.Visuals
     if not vFrame then return end
@@ -231,12 +231,12 @@ local success, err = pcall(function()
         end
     end, 2)
 
-    UI.AddButton(lightSec, "☀️ Set Time to Noon (14:00)", function()
+    UI.AddButton(lightSec, "Set Time to Noon (14:00)", function()
         Lighting.ClockTime = 14
         UI.Notify("Atmosphere", "Waktu diubah ke Siang (14:00).", 1, "success")
     end, 3)
 
-    UI.AddButton(lightSec, "🌙 Set Time to Midnight (00:00)", function()
+    UI.AddButton(lightSec, "Set Time to Midnight (00:00)", function()
         Lighting.ClockTime = 0
         UI.Notify("Atmosphere", "Waktu diubah ke Malam (00:00).", 1, "success")
     end, 4)

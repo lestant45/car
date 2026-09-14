@@ -1,4 +1,4 @@
--- 📍 HipHub TR Legacy — Teleportation System
+-- HipHub TR Legacy — Teleportation System
 -- Supports Race Starting Areas, Dealership, Customization Garage, Daily Reward Pad, and Player Teleportation
 
 local success, err = pcall(function()
@@ -71,7 +71,7 @@ local success, err = pcall(function()
     end
 
     ------------------------------------------------
-    -- 📍 LOCATIONS DATA
+    -- LOCATIONS DATA
     ------------------------------------------------
     local RaceLocations = {
         ["Race 1: Mountain Race (RM 53,000)"] = Vector3.new(89.16, 15.06, -173.03),
@@ -93,7 +93,7 @@ local success, err = pcall(function()
     }
 
     ------------------------------------------------
-    -- 🎨 UI INTEGRATION
+    -- UI INTEGRATION
     ------------------------------------------------
     local tpFrame = UI.Tabs.Teleport
     if not tpFrame then return end

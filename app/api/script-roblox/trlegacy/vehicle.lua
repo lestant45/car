@@ -1,4 +1,4 @@
--- 🏍️ HipHub TR Legacy — Universal Motorcycle Spawner & Mobility Suite
+-- ️ HipHub TR Legacy — Universal Motorcycle Spawner & Mobility Suite
 -- Handles Searchable Motorcycle Spawning (97+ Models), Dynamic Seating, Speed Boost, Guardian & Flight
 
 local success, err = pcall(function()
@@ -326,7 +326,7 @@ local success, err = pcall(function()
 	_G.HipHub_EnsureSeated = ensureDriverSeated
 
 	------------------------------------------------
-	-- 🎛️ UI SECTIONS: VEHICLE TAB
+	-- ️ UI SECTIONS: VEHICLE TAB
 	------------------------------------------------
 	local bikeSection = UI.AddSection(tab, "Motorcycle Spawner & Controls", 1)
 
@@ -336,7 +336,7 @@ local success, err = pcall(function()
 		Config.selectedVehicle = val
 	end, 3)
 
-	UI.AddButton(bikeSection, "🚀 Spawn Motor Terpilih", function()
+	UI.AddButton(bikeSection, "Spawn Motor Terpilih", function()
 		spawnVehicle(Config.selectedVehicle)
 	end, 4)
 
@@ -389,7 +389,7 @@ local success, err = pcall(function()
 	end, 15)
 
 	------------------------------------------------
-	-- ⚙️ RUNTIME PHYSICS & CONTROLLERS
+	-- ️ RUNTIME PHYSICS & CONTROLLERS
 	------------------------------------------------
 
 	-- Status monitor

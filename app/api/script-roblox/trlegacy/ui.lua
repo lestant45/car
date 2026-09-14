@@ -1,4 +1,4 @@
--- 🌟 HipHub TR Legacy — Liquid Glass Futuristic UI Base
+-- HipHub TR Legacy — Liquid Glass Futuristic UI Base
 -- Pure UI Layout Base & Component Suite
 -- Theme: Glassmorphism / Liquid Glass with Cyan-Violet accents
 
@@ -21,7 +21,7 @@ local success, err = pcall(function()
 	player:WaitForChild("PlayerGui")
 
 	------------------------------------------------
-	-- 🎨 DESIGN TOKENS (Liquid Glass Palette)
+	-- DESIGN TOKENS (Liquid Glass Palette)
 	------------------------------------------------
 	local COLORS = {
 		glassPrimary  = Color3.fromRGB(10, 12, 24),
@@ -66,7 +66,7 @@ local success, err = pcall(function()
 	}
 
 	------------------------------------------------
-	-- 🧹 CLEANUP EXISTING INSTANCES
+	-- CLEANUP EXISTING INSTANCES
 	------------------------------------------------
 	local parentGui = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
 	local oldGui = parentGui:FindFirstChild("HipHub_TRLegacy") or parentGui:FindFirstChild("HipHub")
@@ -75,7 +75,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🛠️ HELPER FUNCTIONS
+	-- ️ HELPER FUNCTIONS
 	------------------------------------------------
 	local function applyGlass(frame, opts)
 		opts = opts or {}
@@ -143,7 +143,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🖥️ GUI SETUP
+	-- ️ GUI SETUP
 	------------------------------------------------
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "HipHub_TRLegacy"
@@ -222,7 +222,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📌 TOP BAR
+	-- TOP BAR
 	------------------------------------------------
 	local topBar = Instance.new("Frame")
 	topBar.Name = "TopBar"
@@ -416,7 +416,7 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 📂 SIDEBAR
+	-- SIDEBAR
 	------------------------------------------------
 	local sidebar = Instance.new("Frame")
 	sidebar.Name = "Sidebar"
@@ -511,7 +511,7 @@ local success, err = pcall(function()
 	usernameLabel.Parent = profileCard
 
 	------------------------------------------------
-	-- 🖥️ CONTENT AREA
+	-- ️ CONTENT AREA
 	------------------------------------------------
 	local contentArea = Instance.new("Frame")
 	contentArea.Name = "ContentArea"
@@ -523,7 +523,7 @@ local success, err = pcall(function()
 	contentAreaInstance = contentArea
 
 	------------------------------------------------
-	-- 📑 TAB SYSTEM
+	-- TAB SYSTEM
 	------------------------------------------------
 	local tabs = {}
 	local activeTab = nil
@@ -669,7 +669,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🧩 COMPONENT BUILDERS
+	-- COMPONENT BUILDERS
 	------------------------------------------------
 
 	-- Section Header & Container
@@ -1122,7 +1122,7 @@ local success, err = pcall(function()
 		searchBox.Position = UDim2.new(0, 6, 0, 0)
 		searchBox.BackgroundTransparency = 1
 		searchBox.Text = ""
-		searchBox.PlaceholderText = "🔍 Ketik untuk mencari..."
+		searchBox.PlaceholderText = "Cari nama motor..."
 		searchBox.PlaceholderColor3 = COLORS.textMuted
 		searchBox.TextColor3 = COLORS.textWhite
 		searchBox.Font = Enum.Font.GothamMedium
@@ -1248,27 +1248,51 @@ local success, err = pcall(function()
 	-- Push Button
 	local function addButton(parent, text, callback, layoutOrder, style)
 		local cleanText = sanitizeText(text)
-		local btnBg = COLORS.accentCyan
-		local btnFg = Color3.fromRGB(10, 14, 26)
+		local btnBg = COLORS.glassCard
+		local btnFg = COLORS.textWhite
+		local strokeCol = COLORS.accentCyan
+		local strokeTrans = 0.55
+		local bgTrans = 0.2
 
-		if style == "secondary" then
+		if style == "primary" then
+			btnBg = COLORS.glassHover
+			btnFg = COLORS.textWhite
+			strokeCol = COLORS.accentCyan
+			strokeTrans = 0.35
+			bgTrans = 0.1
+		elseif style == "secondary" then
 			btnBg = COLORS.glassCard
-			btnFg = COLORS.textPrimary
+			btnFg = COLORS.textWhite
+			strokeCol = COLORS.borderGlass
+			strokeTrans = 0.75
+			bgTrans = 0.25
 		elseif style == "danger" then
 			btnBg = COLORS.dangerRed
 			btnFg = COLORS.textWhite
+			strokeCol = COLORS.dangerRed
+			strokeTrans = 0.4
+			bgTrans = 0.15
 		elseif style == "success" then
 			btnBg = COLORS.successGreen
 			btnFg = COLORS.textWhite
+			strokeCol = COLORS.successGreen
+			strokeTrans = 0.4
+			bgTrans = 0.15
+		else
+			btnBg = COLORS.glassCard
+			btnFg = COLORS.textWhite
+			strokeCol = COLORS.borderGlass
+			strokeTrans = 0.65
+			bgTrans = 0.2
 		end
 
 		local button = Instance.new("TextButton")
 		button.Name = "Btn_" .. cleanText:gsub("%s+", "")
 		button.Size = UDim2.new(1, 0, 0, 32)
 		button.BackgroundColor3 = btnBg
-		button.BackgroundTransparency = style == "secondary" and 0.2 or 0.1
+		button.BackgroundTransparency = bgTrans
 		button.Text = cleanText
-		button.TextColor3 = btnFg
+		button.TextColor3 = COLORS.textWhite
 		button.Font = Enum.Font.GothamBold
 		button.TextSize = 11
 		button.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
@@ -1277,19 +1301,27 @@ local success, err = pcall(function()
 
 		applyGlass(button, {
 			corner = CORNER.small,
+			color = btnBg,
+			transparency = bgTrans,
 			stroke = true,
-			strokeColor = btnBg,
+			strokeColor = strokeCol,
 			strokeThickness = 1,
-			strokeTransparency = 0.5
+			strokeTransparency = strokeTrans
 		})
 
+		button.MouseEnter:Connect(function()
+			TweenService:Create(button, TweenInfo.new(0.12), { BackgroundColor3 = COLORS.glassHover, BackgroundTransparency = 0.1 }):Play()
+		end)
+
+		button.MouseLeave:Connect(function()
+			TweenService:Create(button, TweenInfo.new(0.15), { BackgroundColor3 = btnBg, BackgroundTransparency = bgTrans }):Play()
+		end)
+
 		button.MouseButton1Click:Connect(function()
-			TweenService:Create(button, TweenInfo.new(0.1), { BackgroundTransparency = 0.4 }):Play()
-			task.delay(0.12, function()
+			TweenService:Create(button, TweenInfo.new(0.08), { BackgroundTransparency = 0.4 }):Play()
+			task.delay(0.1, function()
 				if button and button.Parent then
-					TweenService:Create(button, TweenInfo.new(0.15), {
-						BackgroundTransparency = style == "secondary" and 0.2 or 0.1
-					}):Play()
+					TweenService:Create(button, TweenInfo.new(0.12), { BackgroundTransparency = bgTrans }):Play()
 				end
 			end)
 			if callback then
@@ -1380,7 +1412,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🔔 TOAST NOTIFICATIONS
+	-- TOAST NOTIFICATIONS
 	------------------------------------------------
 	local notifContainer = Instance.new("Frame")
 	notifContainer.Name = "NotificationContainer"
@@ -1492,7 +1524,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🚀 REGISTER CORE TABS
+	-- REGISTER CORE TABS
 	------------------------------------------------
 	addTab("Main", "", 1)
 	addTab("Farm", "", 2)
@@ -1511,7 +1543,7 @@ local success, err = pcall(function()
 	})
 
 	------------------------------------------------
-	-- 🌐 EXPORT GLOBAL UI API
+	-- EXPORT GLOBAL UI API
 	------------------------------------------------
 	_G.HipHubUI = {
 		gui = gui,

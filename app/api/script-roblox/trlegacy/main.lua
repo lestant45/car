@@ -1,4 +1,4 @@
--- 🧠 HipHub TR Legacy — Main Controller, Window Interactions & Player Mods
+-- HipHub TR Legacy — Main Controller, Window Interactions & Player Mods
 
 local success, err = pcall(function()
     local UI = _G.HipHubUI
@@ -20,7 +20,7 @@ local success, err = pcall(function()
     local syncShadow = UI.SyncShadow
 
     ------------------------------------------------
-    -- 🖼️ WINDOW DRAGGING & CONTROLS
+    -- ️ WINDOW DRAGGING & CONTROLS
     ------------------------------------------------
     local dragging, dragInput, dragStart, startPos
     local isMinimized = false
@@ -124,7 +124,7 @@ local success, err = pcall(function()
     end
 
     ------------------------------------------------
-    -- 🏃 CHARACTER MODIFICATIONS
+    -- CHARACTER MODIFICATIONS
     ------------------------------------------------
     local walkSpeed = 16
     local jumpPower = 50
@@ -171,7 +171,7 @@ local success, err = pcall(function()
     end)
 
     ------------------------------------------------
-    -- 🕊️ CHARACTER FLY
+    -- ️ CHARACTER FLY
     ------------------------------------------------
     local charBv, charBg
     local function toggleCharFly(enable)
@@ -220,7 +220,7 @@ local success, err = pcall(function()
     end
 
     ------------------------------------------------
-    -- 🎨 BUILD MAIN TAB UI
+    -- BUILD MAIN TAB UI
     ------------------------------------------------
     local mFrame = UI.Tabs.Main
     if not mFrame then return end
@@ -259,7 +259,7 @@ local success, err = pcall(function()
     bSub.Size = UDim2.new(1, -20, 0, 32)
     bSub.Position = UDim2.new(0, 12, 0, 30)
     bSub.BackgroundTransparency = 1
-    bSub.Text = "HipHub TR Legacy • Auto Underground Race & Circular Auto Drive\nTarget Motor: Kasaki z800 2015 | Status: Siap Digunakan"
+    bSub.Text = "HipHub TR Legacy - Auto Race & Circular Auto Drive\nStatus: Siap Digunakan"
     bSub.TextColor3 = UI.COLORS.textSecondary
     bSub.Font = Enum.Font.Gotham
     bSub.TextSize = 10
@@ -270,15 +270,15 @@ local success, err = pcall(function()
     -- Quick Actions Section
     local quickSec = UI.AddSection(mFrame, "Quick Shortcuts & Vehicle Controls", 2)
 
-    UI.AddButton(quickSec, "🏍️ Spawn & Mount Kasaki z800 2015", function()
+    UI.AddButton(quickSec, "Spawn & Mount Motor", function()
         if _G.HipHubVehicle and _G.HipHubVehicle.SpawnBike then
             _G.HipHubVehicle.SpawnBike()
         else
-            UI.Notify("Vehicle", "Spawning Kasaki z800 2015...", 2, "info")
+            UI.Notify("Vehicle", "Spawning motor...", 2, "info")
         end
     end, 1)
 
-    UI.AddButton(quickSec, "💺 Mount / Duduk ke Motor", function()
+    UI.AddButton(quickSec, "Mount / Duduk ke Motor", function()
         if _G.HipHubVehicle and _G.HipHubVehicle.MountBike then
             _G.HipHubVehicle.MountBike()
         end
@@ -321,7 +321,7 @@ local success, err = pcall(function()
     -- Utilities Section
     local srvSec = UI.AddSection(mFrame, "Server & Diagnostics", 5)
 
-    UI.AddButton(srvSec, "📋 Salin Posisi Saat Ini (Vector3)", function()
+    UI.AddButton(srvSec, "Salin Posisi Saat Ini (Vector3)", function()
         local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         if root then
             local pos = root.Position
@@ -335,11 +335,11 @@ local success, err = pcall(function()
         end
     end, 1)
 
-    UI.AddButton(srvSec, "🔄 Rejoin Server Saat Ini", function()
+    UI.AddButton(srvSec, "Rejoin Server Saat Ini", function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
     end, 2)
 
-    UI.AddButton(srvSec, "🚀 Server Hop (Pindah Server)", function()
+    UI.AddButton(srvSec, "Server Hop (Pindah Server)", function()
         TeleportService:Teleport(game.PlaceId, player)
     end, 3)
 end)

@@ -1,4 +1,4 @@
--- ⚙️ HipHub TR Legacy — Settings & Configuration Manager
+-- ️ HipHub TR Legacy — Settings & Configuration Manager
 
 local success, err = pcall(function()
     local UI = _G.HipHubUI
@@ -80,7 +80,7 @@ local success, err = pcall(function()
     _G.HipHubSaveConfig = saveConfig
 
     ------------------------------------------------
-    -- 🛡️ ANTI-AFK SYSTEM
+    -- ️ ANTI-AFK SYSTEM
     ------------------------------------------------
     player.Idled:Connect(function()
         if Config.settings.antiAfk then
@@ -92,18 +92,18 @@ local success, err = pcall(function()
     end)
 
     ------------------------------------------------
-    -- 🎨 UI INTEGRATION
+    -- UI INTEGRATION
     ------------------------------------------------
     local sFrame = UI.Tabs.Settings
     if not sFrame then return end
 
     -- Config Management Section
     local cfgSec = UI.AddSection(sFrame, "Configuration & Profiles", 1)
-    UI.AddButton(cfgSec, "💾 Save Configuration", function()
+    UI.AddButton(cfgSec, "Save Configuration", function()
         saveConfig()
     end, 1)
 
-    UI.AddButton(cfgSec, "🔄 Reset Configuration to Default", function()
+    UI.AddButton(cfgSec, "Reset Configuration to Default", function()
         if delfile and isfile and isfile(CONFIG_FILE) then
             pcall(delfile, CONFIG_FILE)
         end
@@ -185,11 +185,11 @@ local success, err = pcall(function()
         end
     end)
 
-    UI.AddButton(uiSec, "❌ Destroy / Unload UI", function()
+    UI.AddButton(uiSec, "Destroy / Unload UI", function()
         if UI.gui then UI.gui:Destroy() end
         _G.HipHubUI = nil
         _G.HipHubLoaded = nil
-    end, 2)
+    end, 2, "danger")
 end)
 
 if not success then

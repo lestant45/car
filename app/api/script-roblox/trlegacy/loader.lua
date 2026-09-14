@@ -1,4 +1,4 @@
--- 🚀 HipHub TR Legacy — Modular Loader
+-- HipHub TR Legacy — Modular Loader
 -- Sequentially loads UI, Settings, Teleport, Visuals, Vehicle, Farm, and Main modules
 
 local MODULE_FILES = {
