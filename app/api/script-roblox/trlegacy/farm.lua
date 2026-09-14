@@ -343,8 +343,21 @@ local success, err = pcall(function()
 		-- Step 3: Position bike at StartingArea (only teleport if far away)
 		local startArea = raceModel:FindFirstChild("StartingArea") or raceModel:GetPivot()
 		raceStatusCard.Set("Menuju Starting Area " .. raceData.modelName .. "...")
-		setBikeNoclipSafe(bike, true)
-		local startCF = (startArea:IsA("BasePart") and startArea.CFrame or startArea) + Vector3.new(0, 1.5, 0)
+
+		-- Matikan No-Clip di StartingArea agar motor berdiri kokoh di atas aspal (tidak tembus tanah!)
+		setBikeNoclipSafe(bike, false)
+		local oldBV = primary:FindFirstChild("FarmBV")
+		if oldBV then pcall(function() oldBV:Destroy() end) end
+
+		local startAreaPos = typeof(startArea) == "CFrame" and startArea.Position or (startArea:IsA("BasePart") and startArea.Position or (startArea.Position or primary.Position))
+		local rayParams = RaycastParams.new()
+		rayParams.FilterDescendantsInstances = { bike, player.Character }
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local groundRay = workspace:Raycast(startAreaPos + Vector3.new(0, 10, 0), Vector3.new(0, -30, 0), rayParams)
+		local groundY = groundRay and (groundRay.Position.Y + 2.8) or (startAreaPos.Y + 2.8)
+		local rotCF = typeof(startArea) == "CFrame" and (startArea - startArea.Position) or (startArea:IsA("BasePart") and (startArea.CFrame - startArea.CFrame.Position) or CFrame.identity)
+		local startCF = CFrame.new(startAreaPos.X, groundY, startAreaPos.Z) * rotCF
+
 		local distToStart = (primary.Position - startCF.Position).Magnitude
 		if distToStart > 25 then
 			bike:PivotTo(startCF)
@@ -466,6 +479,15 @@ local success, err = pcall(function()
 			return false
 		end
 
+		-- Dedicated State Manager: Mengatur Noclip hanya saat transisi state (efisien & bebas lag)
+		local currentFlightNoclip = nil
+		local function setFlightNoclipState(enable)
+			if currentFlightNoclip ~= enable then
+				currentFlightNoclip = enable
+				setFullFlightNoclip(bike, player.Character, enable)
+			end
+		end
+
 		-- Safe bounded flight speed (matches normal Kasaki z800 velocities)
 		local flySpeed = math.clamp(Config.raceFlySpeed or 160, 80, 220)
 		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
@@ -486,10 +508,20 @@ local success, err = pcall(function()
 			local arrived = false
 			local cpTimeout = os.clock() + 15.0
 
+			-- USER REQUIREMENT:
+			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah mulai jalan setelah countdown selesai, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
+			-- 2. Checkpoint terakhir (garis finish): Matikan No-Clip agar motor mendarat menapak tanah sebelum finish
+			if i < #checkpoints then
+				setFlightNoclipState(true)
+			else
+				setFlightNoclipState(false)
+			end
+
 			-- 🛡️ STRICT ANTI-CHEAT LAP TIME GUARD:
 			-- Before hitting the final checkpoint (finish line), verify minimum safe duration has elapsed!
 			-- This guarantees the server's lap time check will NEVER flag or ban for unrealistic completion times!
 			if i == #checkpoints then
+				setFlightNoclipState(false)
 				local elapsed = os.clock() - raceStartTime
 				local minSafe = raceData.minSafeDuration or 28.0
 				if elapsed < minSafe then
@@ -516,28 +548,25 @@ local success, err = pcall(function()
 					break
 				end
 
-				-- USER REQUIREMENT:
-				-- Saat balapan: Full Ghost Noclip (tembus bukit, gunung, pohon, & semua rintangan)
-				-- Saat sudah ingin finish (checkpoint terakhir): matikan noclip agar roda menapak sempurna di tanah
 				if i < #checkpoints then
-					setFullFlightNoclip(bike, player.Character, true)
+					setFlightNoclipState(true)
 				else
-					-- Checkpoint terakhir (garis finish): matikan noclip agar mendarat sempurna di aspal/tanah
-					setFullFlightNoclip(bike, player.Character, false)
+					setFlightNoclipState(false)
 				end
 
 				local dir = diff.Unit
 				local step = math.min(flySpeed * dt, dist)
 				local newPos = cur + dir * step
 
-				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar menempel di permukaan jalan
-				if i == #checkpoints and dist < 40 then
+				-- Saat mendekati checkpoint finish: pandu ketinggian motor agar mendarat mulus menapak di permukaan aspal
+				if i == #checkpoints and dist < 50 then
+					setFlightNoclipState(false)
 					local rayParams = RaycastParams.new()
 					rayParams.FilterDescendantsInstances = { bike, player.Character }
 					rayParams.FilterType = Enum.RaycastFilterType.Exclude
 					local hit = workspace:Raycast(newPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
 					if hit then
-						newPos = Vector3.new(newPos.X, hit.Position.Y + 2.0, newPos.Z)
+						newPos = Vector3.new(newPos.X, hit.Position.Y + 2.8, newPos.Z)
 					end
 				end
 
@@ -558,16 +587,19 @@ local success, err = pcall(function()
 		-- Step 9: Natural Finish Line Crossing & Validation Wait
 		-- USER REQUIREMENT:
 		-- 1. Jangan langsung berpindah ke area masuk race (StartingArea).
-		-- 2. Tahan motor melayang stabil di garis finish dengan farmBV agar tidak jatuh ke bawah tanah/void.
-		-- 3. Biarkan sistem game memvalidasi hasil balapan dan menampilkan leaderboard.
+		-- 2. Tahan motor stabil di garis finish dengan farmBV agar tidak jatuh ke void.
+		-- 3. No-Clip sudah dimatikan saat mendarat di garis finish agar validasi finish sah.
 		-- 4. Game akan men-teleport sendiri pemain dan motor kembali ke area pendaftaran race.
 		raceStatusCard.Set("Garis finish! Menunggu game memvalidasi balapan...")
 		if lightsConn and startLightsClient then
 			pcall(function() startLightsClient:Disconnect(lightsConn) end)
 		end
 
+		-- Pastikan No-Clip mati saat mendarat di finish
+		setFlightNoclipState(false)
+
 		local finishPos = checkpoints[#checkpoints].Position
-		-- Tahan motor stabil di udara pada koordinat finish line (mencegah jatuh ke void/bawah tanah)
+		-- Tahan motor stabil di koordinat finish line (mencegah jatuh ke void/bawah tanah)
 		if farmBV and farmBV.Parent then
 			farmBV.Velocity = Vector3.zero
 		end
@@ -637,6 +669,16 @@ local success, err = pcall(function()
 	_G.HipHub_ToggleAutoRace = function(val)
 		Config.autoRace = val
 		_G.HipHub_IsAutoRacing = val
+		if not val then
+			pcall(function()
+				local b = _G.HipHub_GetPlayerBike and select(1, _G.HipHub_GetPlayerBike())
+				if b then
+					setFullFlightNoclip(b, player.Character, false)
+					local farmBV = b:FindFirstChild("FarmBV", true)
+					if farmBV then farmBV:Destroy() end
+				end
+			end)
+		end
 	end
 
 	_G.HipHub_ToggleAutoDrive = function(val)
