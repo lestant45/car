@@ -1,5 +1,5 @@
--- 🏍️ HipHub TR Legacy — Vehicle Controller & Kasaki z800 2015 Integration
--- Handles Motorcycle Spawning, Driver Seating, Torque/Speed Boosting, Anti-Fall Guardian & Mobility
+-- 🏍️ HipHub TR Legacy — Universal Motorcycle Spawner & Mobility Suite
+-- Handles Searchable Motorcycle Spawning (97+ Models), Dynamic Seating, Speed Boost, Guardian & Flight
 
 local success, err = pcall(function()
 	local UI = _G.HipHubUI
@@ -9,6 +9,7 @@ local success, err = pcall(function()
 	if not tab then return end
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.vehicle or {
+		selectedVehicle = "Kasaki z800 2015",
 		speedMultiplier = 1.0,
 		antiFall = true,
 		autoMount = true,
@@ -18,25 +19,131 @@ local success, err = pcall(function()
 		vehicleNoclip = false
 	}
 
+	if not Config.selectedVehicle then Config.selectedVehicle = "Kasaki z800 2015" end
+
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
 	local UserInputService = game:GetService("UserInputService")
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local player = Players.LocalPlayer
 
+	-- Complete verified catalog of 97 TR Legacy Motorcycles (Alphabetical)
+	local ALL_MOTORCYCLES = {
+		"April RS250 2001",
+		"April RS660 2021",
+		"April RSV1KR Racing Modified 2003",
+		"April RSV4 APRC ABS 2014",
+		"April RSV4 E5 2021",
+		"April RXV RR Racing Modified 2015",
+		"April Tuono V4 Factory 2015",
+		"Bomoto Yb8 Furino 1992",
+		"BZM HP4 RACE 2017",
+		"BZM M1KRR 2020",
+		"BZM M1KRR Racing Modified 2021",
+		"BZM PRAEM S1KRR 2017",
+		"BZM S1KR 2021",
+		"BZM S1KRR 2005",
+		"BZM S1KRR 2015",
+		"BZM S1KRR 2019",
+		"BZM S1KRR 2019 RACING MODIFIED",
+		"BZM S1KRR 2023",
+		"BZM S1KRR Street Edition 2015",
+		"BZM S1KXR 2017",
+		"Ducatti 1098r 2008",
+		"Ducatti 1098R Racing Modified 2008",
+		"Ducatti 1199 Moto Rapid 2017",
+		"Ducatti 1299 Panigale S 2017",
+		"Ducatti 916 1998",
+		"Ducatti 999r Racing Modified 2006",
+		"Ducatti Diavel Carbon 2014",
+		"Ducatti Hypermotard 1100 EVO SP 2012",
+		"Ducatti StreetFighter V4",
+		"Ducatti V4 2018",
+		"Ducatti V4 SP2 2022",
+		"Ducatti V4r 2019",
+		"Ducatti V4r Endurance Modified 2019",
+		"Honde Cbr 1000rr Fireblade 2014",
+		"Honde CBR1KRR ENDURANCE",
+		"Honde CBR1KRR Fireblade SP 2019",
+		"Honde CBR1KRR-R 2020",
+		"Honde CBR1KRR-R FIREBLADE SP 2022",
+		"Honde Cbr250r 2017",
+		"Honde Cbr600rr 2015",
+		"Honde Nr750 1992",
+		"Honde Nsr 125 1992",
+		"Honde Nsr 250",
+		"Honde Nsr 250 1995",
+		"Honde RC45",
+		"Honde VTR1000 SP2 2006",
+		"K1m 450 SX-F 2012",
+		"K1m 600 SMC 2017",
+		"K1m RC8R 1190 2014",
+		"K1m Super Duke 1290r 2019",
+		"K1m Super Duke Gt 2017",
+		"Kasaki Ninja 300 2017",
+		"Kasaki Ninja H2 2015",
+		"Kasaki Z H2 2022",
+		"Kasaki z1000 2014",
+		"Kasaki z800 2015",
+		"Kasaki Zx-10r 2015",
+		"Kasaki Zx-10r DRAG EDITION 2006",
+		"Kasaki Zx-10r Racing Modified 2019",
+		"Kasaki Zx-10rr 2024",
+		"Kasaki Zx-14r 2021",
+		"Kasaki Zx-6R 636 2005",
+		"Kasaki Zx-6r 2017",
+		"Kasaki Zx-6r 2019",
+		"Kasaki Zx-7rr 1996",
+		"Kasaki ZZR1400 2015",
+		"Mz Agusta Boldor 2017",
+		"Mz Agusta Brutale 1000  Serie Oro 2019",
+		"Mz Agusta Superveloce800 2019",
+		"Mz F3 2014",
+		"Mz F4 Tamborini 2006",
+		"Mz F4rr 2019",
+		"Mz Rvs #1 2018",
+		"Noxon Dominate SS 2017",
+		"Nurtun V4 1200 2017",
+		"Trump 675r Racing Modified",
+		"Trump Daytona 675R",
+		"Trump Jaguar Sport 2016",
+		"Trump Speed Triple 1200RR 2025",
+		"Yamha MT-09 SP 2023",
+		"Yamha R1M Racing Modified 2025",
+		"Yamha R7 Racing Modified 1998",
+		"Yamha Tzr 250r 1994",
+		"Yamha Yz450f supermoto 2011",
+		"Yamha Yzf R1 1998",
+		"Yamha Yzf R1 2014",
+		"Yamha Yzf R1 Drag Edition 2006",
+		"Yamha Yzf R1m 2015",
+		"Yamha Yzf R1m 2019",
+		"Yamha Yzf R1m 2020",
+		"Yamha Yzf R3 2019",
+		"Yamha Yzf R3 Racing Modified 2019",
+		"Yamha Yzf R6 2015",
+		"Yamha Yzr 500 1992",
+		"Zuzuki Gsxr 1000 K5 2005",
+		"Zuzuki Gsxr 1000r 2017",
+		"Zuzuki Gsxr 750 1998",
+		"Zuzuki Hayabusa 2016",
+		"Zuzuki Hayabusa 2022",
+		"Zuzuki Hayabusa Racing Modified 2015"
+	}
+
 	-- Find player's active motorbike in workspace
-	local function getPlayerBike()
+	local function getPlayerBike(preferredModel)
 		local vFolder = workspace:FindFirstChild("Vehicles")
 		if not vFolder then return nil end
 		local playerVehicles = vFolder:FindFirstChild(player.Name)
 		if not playerVehicles then return nil end
 
-		-- Check for Kasaki z800 2015 first, ensuring it has DriveSeat
-		local bike = playerVehicles:FindFirstChild("Kasaki z800 2015")
+		local targetName = preferredModel or Config.selectedVehicle or "Kasaki z800 2015"
+		local bike = playerVehicles:FindFirstChild(targetName)
 		if not bike or not bike:FindFirstChild("DriveSeat", true) then
 			bike = nil
 			for _, child in ipairs(playerVehicles:GetChildren()) do
-				if child:IsA("Model") and child:FindFirstChild("DriveSeat", true) then
+				if child:IsA("Model") and (child:FindFirstChild("DriveSeat", true) or child:FindFirstChildWhichIsA("VehicleSeat", true)) then
 					bike = child
 					break
 				end
@@ -62,7 +169,6 @@ local success, err = pcall(function()
 		if hrp then
 			local dist = (hrp.Position - primary.Position).Magnitude
 			if dist > 500 and hrp.Position.Magnitude < 400 then
-				-- Player is at central spawn, but bike was left in a distant race zone
 				return nil
 			end
 		end
@@ -72,20 +178,21 @@ local success, err = pcall(function()
 
 	_G.HipHub_GetPlayerBike = getPlayerBike
 
-	-- Spawn Kasaki z800 2015
-	local function spawnKasakiZ800()
+	-- Universal Vehicle Spawner via Dealership Network Remote
+	local function spawnVehicle(modelName)
+		modelName = modelName or Config.selectedVehicle or "Kasaki z800 2015"
 		local success = false
 		pcall(function()
 			local old = (getthreadidentity and getthreadidentity()) or 8
 			if setthreadidentity then setthreadidentity(2) end
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			local dClient = Warp.Client("Dealership")
-			dClient:Fire(true, "Kasaki z800 2015", "Spawn")
+			dClient:Fire(true, modelName, "Spawn")
 			if setthreadidentity then setthreadidentity(old) end
 			success = true
 		end)
 		if success then
-			UI.Notify("Vehicle", "Spawning Kasaki z800 2015...", 2, "info")
+			UI.Notify("Vehicle", "Spawning " .. tostring(modelName) .. "...", 2, "info")
 			return true
 		else
 			UI.Notify("Vehicle", "Failed to access Dealership network.", 3, "error")
@@ -93,7 +200,8 @@ local success, err = pcall(function()
 		end
 	end
 
-	_G.HipHub_SpawnKasaki = spawnKasakiZ800
+	_G.HipHub_SpawnVehicle = spawnVehicle
+	_G.HipHub_SpawnKasaki = spawnVehicle
 
 	-- Ensure player is seated on bike's DriveSeat with authentic riding pose & Speedometer HUD
 	local function ensureDriverSeated(autoSpawn)
@@ -120,7 +228,7 @@ local success, err = pcall(function()
 
 		if not bike and autoSpawn then
 			newlySpawned = true
-			spawnKasakiZ800()
+			spawnVehicle(Config.selectedVehicle)
 			-- Step 1: Wait for bike model and parts to appear in workspace
 			local start = os.clock()
 			while (os.clock() - start) < 6.0 do
@@ -144,7 +252,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- Step 3: CRITICAL USER REQUIREMENT: Wait until bike is fully spawned AND menapak dengan tanah (grounded & settled)
+		-- Step 3: Wait until bike is fully spawned AND grounded & settled on terrain
 		if newlySpawned or (primary.AssemblyLinearVelocity.Magnitude > 8.0) then
 			local groundTimeout = os.clock() + 4.0
 			while os.clock() < groundTimeout do
@@ -155,14 +263,12 @@ local success, err = pcall(function()
 				if ray then
 					local groundDist = primary.Position.Y - ray.Position.Y
 					local velY = primary.AssemblyLinearVelocity.Y
-					-- Bike has touched ground and vertical falling velocity is settled
 					if groundDist <= 3.8 and math.abs(velY) < 1.5 then
 						break
 					end
 				end
 				task.wait(0.1)
 			end
-			-- Stabilization buffer: let suspension and game vehicle controller attach
 			task.wait(0.6)
 		end
 
@@ -184,7 +290,6 @@ local success, err = pcall(function()
 		local prompt = seat:FindFirstChild("VehiclePrompt") or seat:FindFirstChildWhichIsA("ProximityPrompt") or bike:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt and fireproximityprompt then
 			pcall(function()
-				-- Position character standing beside the seat, not clipping inside it
 				char:PivotTo(seat.CFrame + Vector3.new(0, 1.2, 0))
 				task.wait(0.2)
 				prompt.Enabled = true
@@ -223,13 +328,17 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🎛️ UI SECTIONS: VEHICLE TAB
 	------------------------------------------------
-	local bikeSection = UI.AddSection(tab, "Kasaki z800 2015 Management", 1)
+	local bikeSection = UI.AddSection(tab, "Motorcycle Spawner & Controls", 1)
 
 	local bikeStatusCard = UI.AddStatsCard(bikeSection, "Active Motorcycle", "Searching...", 2)
 
-	UI.AddButton(bikeSection, "Spawn Kasaki z800 2015", function()
-		spawnKasakiZ800()
+	local bikeDropdown = UI.AddDropdown(bikeSection, "Pilih Motor (Searchable)", ALL_MOTORCYCLES, Config.selectedVehicle or "Kasaki z800 2015", function(val)
+		Config.selectedVehicle = val
 	end, 3)
+
+	UI.AddButton(bikeSection, "🚀 Spawn Motor Terpilih", function()
+		spawnVehicle(Config.selectedVehicle)
+	end, 4)
 
 	UI.AddButton(bikeSection, "Mount / Sit Driver Seat", function()
 		if ensureDriverSeated(true) then
@@ -237,47 +346,47 @@ local success, err = pcall(function()
 		else
 			UI.Notify("Vehicle", "Could not sit on motorcycle.", 2, "warning")
 		end
-	end, 4, "secondary")
+	end, 5, "secondary")
 
 	local autoMountToggle = UI.AddToggle(bikeSection, "Auto Re-Spawn & Mount", Config.autoMount, function(enabled)
 		Config.autoMount = enabled
-	end, 5)
+	end, 6)
 
 	-- Physics Section
-	local tuningSection = UI.AddSection(tab, "Tuning & Handling", 6)
+	local tuningSection = UI.AddSection(tab, "Tuning & Handling", 7)
 
 	local speedBoostToggle = UI.AddToggle(tuningSection, "Speed & Torque Multiplier", Config.speedMultiplier > 1.0, function(enabled)
 		if not enabled then
 			Config.speedMultiplier = 1.0
 		end
-	end, 7)
+	end, 8)
 
 	local speedBoostSlider = UI.AddSlider(tuningSection, "Speed Multiplier Boost", 1.0, 5.0, Config.speedMultiplier or 1.0, function(val)
 		Config.speedMultiplier = val
-	end, 0.1, "x", 8)
+	end, 0.1, "x", 9)
 
 	local antiFallToggle = UI.AddToggle(tuningSection, "Anti-Fall / Auto-Upright Guardian", Config.antiFall, function(enabled)
 		Config.antiFall = enabled
-	end, 9)
+	end, 10)
 
 	local instantBrakeToggle = UI.AddToggle(tuningSection, "Instant Brake (Space / S)", Config.instantBrake, function(enabled)
 		Config.instantBrake = enabled
-	end, 10)
+	end, 11)
 
 	-- Mobility Section
-	local mobilitySection = UI.AddSection(tab, "Mobility & Flight", 11)
+	local mobilitySection = UI.AddSection(tab, "Mobility & Flight", 12)
 
 	local flyToggle = UI.AddToggle(mobilitySection, "Motorcycle Flight", Config.vehicleFly, function(enabled)
 		Config.vehicleFly = enabled
-	end, 12)
+	end, 13)
 
 	local flySpeedSlider = UI.AddSlider(mobilitySection, "Flight Speed", 50, 400, Config.flySpeed or 120, function(val)
 		Config.flySpeed = val
-	end, 5, " studs/s", 13)
+	end, 5, " studs/s", 14)
 
 	local noclipToggle = UI.AddToggle(mobilitySection, "Vehicle Noclip", Config.vehicleNoclip, function(enabled)
 		Config.vehicleNoclip = enabled
-	end, 14)
+	end, 15)
 
 	------------------------------------------------
 	-- ⚙️ RUNTIME PHYSICS & CONTROLLERS
@@ -376,7 +485,8 @@ local success, err = pcall(function()
 	_G.HipHubVehicle = {
 		GetPlayerBike = getPlayerBike,
 		GetActiveVehicle = getPlayerBike,
-		SpawnBike = spawnKasakiZ800,
+		SpawnBike = spawnVehicle,
+		SpawnVehicle = spawnVehicle,
 		MountBike = function() ensureDriverSeated(true) end,
 		EnsureDriverSeated = ensureDriverSeated
 	}

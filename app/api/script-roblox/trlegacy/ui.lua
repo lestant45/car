@@ -1028,12 +1028,13 @@ local success, err = pcall(function()
 		return proxy
 	end
 
-	-- Dropdown Selector
+	-- Dropdown Selector (with Interactive Search Bar & Dynamic Filtering)
 	local function addDropdown(parent, label, options, default, callback, layoutOrder)
 		local cleanLabel = sanitizeText(label)
 		options = options or {}
 		local selected = default or (options[1] or "")
 		local isOpen = false
+		local currentFilter = ""
 
 		local container = Instance.new("Frame")
 		container.Name = "Dropdown_" .. cleanLabel:gsub("%s+", "")
@@ -1062,7 +1063,7 @@ local success, err = pcall(function()
 		headerBtn.Parent = container
 
 		local titleLabel = Instance.new("TextLabel")
-		titleLabel.Size = UDim2.new(0.45, 0, 1, 0)
+		titleLabel.Size = UDim2.new(0.42, 0, 1, 0)
 		titleLabel.Position = UDim2.new(0, 12, 0, 0)
 		titleLabel.BackgroundTransparency = 1
 		titleLabel.Text = cleanLabel
@@ -1074,8 +1075,8 @@ local success, err = pcall(function()
 		titleLabel.Parent = headerBtn
 
 		local selectedLabel = Instance.new("TextLabel")
-		selectedLabel.Size = UDim2.new(0.5, -40, 1, 0)
-		selectedLabel.Position = UDim2.new(0.45, 0, 0, 0)
+		selectedLabel.Size = UDim2.new(0.53, -40, 1, 0)
+		selectedLabel.Position = UDim2.new(0.42, 0, 0, 0)
 		selectedLabel.BackgroundTransparency = 1
 		selectedLabel.Text = tostring(selected)
 		selectedLabel.TextColor3 = COLORS.accentCyan
@@ -1097,13 +1098,47 @@ local success, err = pcall(function()
 		arrow.ZIndex = 12
 		arrow.Parent = headerBtn
 
+		-- Search Bar Container
+		local searchFrame = Instance.new("Frame")
+		searchFrame.Size = UDim2.new(1, -12, 0, 28)
+		searchFrame.Position = UDim2.new(0, 6, 0, 38)
+		searchFrame.BackgroundColor3 = COLORS.glassSurface
+		searchFrame.BackgroundTransparency = 0.2
+		searchFrame.BorderSizePixel = 0
+		searchFrame.Visible = false
+		searchFrame.ZIndex = 14
+		searchFrame.Parent = container
+
+		applyGlass(searchFrame, {
+			corner = CORNER.small,
+			stroke = true,
+			strokeColor = COLORS.accentBlend,
+			strokeThickness = 1,
+			strokeTransparency = 0.7
+		})
+
+		local searchBox = Instance.new("TextBox")
+		searchBox.Size = UDim2.new(1, -12, 1, 0)
+		searchBox.Position = UDim2.new(0, 6, 0, 0)
+		searchBox.BackgroundTransparency = 1
+		searchBox.Text = ""
+		searchBox.PlaceholderText = "🔍 Ketik untuk mencari..."
+		searchBox.PlaceholderColor3 = COLORS.textMuted
+		searchBox.TextColor3 = COLORS.textWhite
+		searchBox.Font = Enum.Font.GothamMedium
+		searchBox.TextSize = 10
+		searchBox.TextXAlignment = Enum.TextXAlignment.Left
+		searchBox.ClearTextOnFocus = false
+		searchBox.ZIndex = 15
+		searchBox.Parent = searchFrame
+
 		local optionsFrame = Instance.new("ScrollingFrame")
-		optionsFrame.Size = UDim2.new(1, -12, 0, 120)
-		optionsFrame.Position = UDim2.new(0, 6, 0, 38)
+		optionsFrame.Size = UDim2.new(1, -12, 0, 140)
+		optionsFrame.Position = UDim2.new(0, 6, 0, 70)
 		optionsFrame.BackgroundColor3 = COLORS.glassSurface
 		optionsFrame.BackgroundTransparency = 0.1
 		optionsFrame.BorderSizePixel = 0
-		optionsFrame.ScrollBarThickness = 2
+		optionsFrame.ScrollBarThickness = 3
 		optionsFrame.ScrollBarImageColor3 = COLORS.accentCyan
 		optionsFrame.Visible = false
 		optionsFrame.ZIndex = 15
@@ -1119,53 +1154,71 @@ local success, err = pcall(function()
 		applyListLayout(optionsFrame, 2)
 		applyPadding(optionsFrame, 4, 4, 4, 4)
 
-		local function rebuildOptions()
+		local function rebuildOptions(filter)
+			filter = filter or currentFilter or ""
+			currentFilter = filter
+			local lowerFilter = filter:lower()
+
 			for _, c in ipairs(optionsFrame:GetChildren()) do
 				if c:IsA("TextButton") then c:Destroy() end
 			end
 
+			local matchCount = 0
 			for _, opt in ipairs(options) do
-				local optBtn = Instance.new("TextButton")
-				optBtn.Size = UDim2.new(1, 0, 0, 26)
-				optBtn.BackgroundColor3 = opt == selected and COLORS.glassActive or COLORS.glassCard
-				optBtn.BackgroundTransparency = opt == selected and 0.2 or 0.6
-				optBtn.Text = "  " .. tostring(opt)
-				optBtn.TextColor3 = opt == selected and COLORS.accentCyan or COLORS.textPrimary
-				optBtn.Font = Enum.Font.GothamMedium
-				optBtn.TextSize = 10
-				optBtn.TextXAlignment = Enum.TextXAlignment.Left
-				optBtn.ZIndex = 16
-				optBtn.Parent = optionsFrame
+				local strOpt = tostring(opt)
+				if lowerFilter == "" or strOpt:lower():find(lowerFilter, 1, true) then
+					matchCount = matchCount + 1
+					local optBtn = Instance.new("TextButton")
+					optBtn.Size = UDim2.new(1, 0, 0, 26)
+					optBtn.BackgroundColor3 = opt == selected and COLORS.glassActive or COLORS.glassCard
+					optBtn.BackgroundTransparency = opt == selected and 0.2 or 0.6
+					optBtn.Text = "  " .. strOpt
+					optBtn.TextColor3 = opt == selected and COLORS.accentCyan or COLORS.textPrimary
+					optBtn.Font = Enum.Font.GothamMedium
+					optBtn.TextSize = 10
+					optBtn.TextXAlignment = Enum.TextXAlignment.Left
+					optBtn.TextTruncate = Enum.TextTruncate.AtEnd
+					optBtn.ZIndex = 16
+					optBtn.Parent = optionsFrame
 
-				local optCorner = Instance.new("UICorner")
-				optCorner.CornerRadius = CORNER.small
-				optCorner.Parent = optBtn
+					local optCorner = Instance.new("UICorner")
+					optCorner.CornerRadius = CORNER.small
+					optCorner.Parent = optBtn
 
-				optBtn.MouseButton1Click:Connect(function()
-					selected = opt
-					selectedLabel.Text = tostring(opt)
-					isOpen = false
-					optionsFrame.Visible = false
-					container.Size = UDim2.new(1, 0, 0, 36)
-					arrow.Text = "▼"
-					if callback then
-						pcall(callback, selected)
-					end
-				end)
+					optBtn.MouseButton1Click:Connect(function()
+						selected = opt
+						selectedLabel.Text = strOpt
+						isOpen = false
+						searchFrame.Visible = false
+						optionsFrame.Visible = false
+						container.Size = UDim2.new(1, 0, 0, 36)
+						arrow.Text = "▼"
+						if callback then
+							pcall(callback, selected)
+						end
+					end)
+				end
 			end
-			optionsFrame.CanvasSize = UDim2.new(0, 0, 0, #options * 28 + 8)
+			optionsFrame.CanvasSize = UDim2.new(0, 0, 0, matchCount * 28 + 8)
 		end
+
+		searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+			rebuildOptions(searchBox.Text)
+		end)
 
 		rebuildOptions()
 
 		headerBtn.MouseButton1Click:Connect(function()
 			isOpen = not isOpen
 			if isOpen then
+				searchBox.Text = ""
+				rebuildOptions("")
+				searchFrame.Visible = true
 				optionsFrame.Visible = true
-				local targetH = math.min(160, #options * 28 + 48)
-				container.Size = UDim2.new(1, 0, 0, targetH)
+				container.Size = UDim2.new(1, 0, 0, 218)
 				arrow.Text = "▲"
 			else
+				searchFrame.Visible = false
 				optionsFrame.Visible = false
 				container.Size = UDim2.new(1, 0, 0, 36)
 				arrow.Text = "▼"

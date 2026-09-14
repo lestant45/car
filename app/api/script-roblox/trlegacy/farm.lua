@@ -111,8 +111,8 @@ local success, err = pcall(function()
 	-- 🎛️ UI: FARM TAB
 	------------------------------------------------
 
-	-- 1. AUTO RACE UNDERGROUND SECTION
-	local raceSection = UI.AddSection(tab, "Auto Race Underground (Stealth Farm)", 1)
+	-- 1. AUTO RACE SECTION
+	local raceSection = UI.AddSection(tab, "Auto Race Track Farm", 1)
 
 	local raceStatusCard = UI.AddStatsCard(raceSection, "Race Status", "Idle", 2)
 	local raceEarningsCard = UI.AddStatsCard(raceSection, "Race Earnings", "RM 0 (0 Wins)", 3)
@@ -121,23 +121,19 @@ local success, err = pcall(function()
 		Config.selectedRace = selected
 	end, 4)
 
-	local depthSlider = UI.AddSlider(raceSection, "Underground Depth", 10, 60, Config.undergroundDepth or 25, function(val)
-		Config.undergroundDepth = val
-	end, 1, " studs", 5)
-
 	local flySpeedSlider = UI.AddSlider(raceSection, "Kecepatan Fly Race (Safe: 120-180)", 80, 220, Config.raceFlySpeed or 160, function(val)
 		Config.raceFlySpeed = val
-	end, 5, " studs/s", 6)
+	end, 5, " studs/s", 5)
 
 	local delaySlider = UI.AddSlider(raceSection, "Checkpoint Delay", 0.00, 0.30, Config.checkpointDelay or 0.02, function(val)
 		Config.checkpointDelay = val
-	end, 0.01, "s", 7)
+	end, 0.01, "s", 6)
 
-	local autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race Underground", Config.autoRace, function(enabled)
+	local autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
 		if enabled then
-			UI.Notify("Auto Race", "Memulai race bawah tanah (Fly ke tiap checkpoint)...", 3, "success")
+			UI.Notify("Auto Race", "Memulai auto race (Fly ke tiap checkpoint)...", 3, "success")
 		else
 			UI.Notify("Auto Race", "Menghentikan auto race.", 2, "info")
 			raceStatusCard.Set("Stopped")
@@ -146,7 +142,7 @@ local success, err = pcall(function()
 				returnBikeToSurface(bike, primary)
 			end
 		end
-	end, 8)
+	end, 7)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
 	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Khusus Di Atas Tanah)", 9)
