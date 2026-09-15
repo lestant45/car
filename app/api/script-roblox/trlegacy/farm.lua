@@ -51,20 +51,6 @@ local success, err = pcall(function()
 
 	-- Universal Multi-Layer Ghost Telemetry Suppressor: Completely blocks RaceGhostSubmit packet leaks
 	pcall(function()
-		-- Layer 1: Global ClientProcess queue blocker for RaceGhostSubmit (Event ID 17 / \x11)
-		local okProcess, ClientProcess = pcall(function()
-			return require(ReplicatedStorage.Modules.Warp.Index.Client.ClientProcess)
-		end)
-		if okProcess and ClientProcess and ClientProcess.insertQueue then
-			local originalInsertQueue = ClientProcess.insertQueue
-			ClientProcess.insertQueue = function(id, isReliable, ...)
-				if (typeof(id) == "string" and string.byte(id) == 17) or id == "\x11" or id == string.char(17) then
-					-- Unconditionally drop ghost submission packets to eliminate server telemetry bans
-					return
-				end
-				return originalInsertQueue(id, isReliable, ...)
-			end
-		end
 
 		-- Layer 2: Neutralize GhostRecorder state & frames so recorder remains completely inert
 		local okRecorder, GhostRecorder = pcall(function()
