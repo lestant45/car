@@ -334,6 +334,7 @@ local success, err = pcall(function()
 
 	local bikeDropdown = UI.AddDropdown(bikeSection, "Pilih Motor (Searchable)", ALL_MOTORCYCLES, Config.selectedVehicle or "Kasaki z800 2015", function(val)
 		Config.selectedVehicle = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 3)
 
 	UI.AddButton(bikeSection, "Spawn Motor Terpilih", function()
@@ -350,6 +351,7 @@ local success, err = pcall(function()
 
 	local autoMountToggle = UI.AddToggle(bikeSection, "Auto Re-Spawn & Mount", Config.autoMount, function(enabled)
 		Config.autoMount = enabled
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 6)
 
 	-- Physics Section
@@ -359,18 +361,22 @@ local success, err = pcall(function()
 		if not enabled then
 			Config.speedMultiplier = 1.0
 		end
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 8)
 
 	local speedBoostSlider = UI.AddSlider(tuningSection, "Speed Multiplier Boost", 1.0, 5.0, Config.speedMultiplier or 1.0, function(val)
 		Config.speedMultiplier = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.1, "x", 9)
 
 	local antiFallToggle = UI.AddToggle(tuningSection, "Anti-Fall / Auto-Upright Guardian", Config.antiFall, function(enabled)
 		Config.antiFall = enabled
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 10)
 
 	local instantBrakeToggle = UI.AddToggle(tuningSection, "Instant Brake (Space / S)", Config.instantBrake, function(enabled)
 		Config.instantBrake = enabled
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 11)
 
 	-- Mobility Section
@@ -378,14 +384,17 @@ local success, err = pcall(function()
 
 	local flyToggle = UI.AddToggle(mobilitySection, "Motorcycle Flight", Config.vehicleFly, function(enabled)
 		Config.vehicleFly = enabled
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 13)
 
 	local flySpeedSlider = UI.AddSlider(mobilitySection, "Flight Speed", 50, 400, Config.flySpeed or 120, function(val)
 		Config.flySpeed = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 5, " studs/s", 14)
 
 	local noclipToggle = UI.AddToggle(mobilitySection, "Vehicle Noclip", Config.vehicleNoclip, function(enabled)
 		Config.vehicleNoclip = enabled
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 15)
 
 	------------------------------------------------

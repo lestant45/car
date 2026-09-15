@@ -259,6 +259,7 @@ local success, err = pcall(function()
 		local num = tonumber(cleaned)
 		if num and num > 0 then
 			Config.targetEarnAmount = num
+			if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 			updateTargetProgress()
 			UI.Notify("Target Profit", "Target profit diatur ke RM " .. formatCash(num), 2, "info")
 		end
@@ -266,6 +267,7 @@ local success, err = pcall(function()
 
 	targetToggle = UI.AddToggle(targetSection, "Enable Auto-Stop Saat Target Tercapai", Config.targetEarnEnabled, function(enabled)
 		Config.targetEarnEnabled = enabled
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 		updateTargetProgress()
 		UI.Notify("Target Earn", enabled and ("Auto-Stop aktif jika profit mencapai RM " .. formatCash(Config.targetEarnAmount)) or "Auto-Stop dinonaktifkan", 3, "info")
 	end, 4)
@@ -291,10 +293,12 @@ local success, err = pcall(function()
 
 	local raceDropdown = UI.AddDropdown(raceSection, "Select Track Target", raceDropdownList, Config.selectedRace, function(selected)
 		Config.selectedRace = selected
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 9)
 
 	local delaySlider = UI.AddSlider(raceSection, "Checkpoint Delay", 0.00, 0.30, Config.checkpointDelay or 0.02, function(val)
 		Config.checkpointDelay = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.01, "s", 10)
 
 	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race (WR + 10% Dynamic Pacing)", Config.autoRace, function(enabled)
@@ -327,14 +331,17 @@ local success, err = pcall(function()
 
 	local radiusSlider = UI.AddSlider(driveSection, "Ruas Lingkaran (Radius)", 15, 300, Config.circleRadius or 65, function(val)
 		Config.circleRadius = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 5, " studs", 17)
 
 	local driveSpeedSlider = UI.AddSlider(driveSection, "Kecepatan Memutar", 50, 300, Config.circleSpeed or 150, function(val)
 		Config.circleSpeed = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 5, " km/h", 18)
 
 	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip (Tembus Rintangan)", Config.antiStuck ~= false, function(v)
 		Config.antiStuck = v
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 19)
 
 	local unstuckBtn = UI.AddButton(driveSection, "Unstuck Manual (Lepaskan Motor)", function()

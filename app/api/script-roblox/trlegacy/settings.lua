@@ -20,21 +20,26 @@ local success, err = pcall(function()
     local Config = {
         farm = {
             autoRace = false,
-            raceUnderground = true,
-            raceDepth = 25,
-            raceTrack = "1",
-            raceDelay = 0.05,
-            autoDrive = false,
-            driveUnderground = true,
-            driveDepth = 25,
-            driveSpeed = 120,
-            circleRadius = 50,
+            selectedRace = "Race 1 (Mountain Race - RM 26,500 Solo)",
+            targetEarnEnabled = false,
+            targetEarnAmount = 100000,
+            checkpointDelay = 0.02,
+            returnToSurface = true,
+            autoDriveCircle = false,
+            circleRadius = 65,
+            circleSpeed = 150,
+            antiStuck = true,
+            autoLoop = true
         },
         vehicle = {
-            targetVehicle = "Kasaki z800 2015",
+            selectedVehicle = "Kasaki z800 2015",
             autoMount = true,
             antiFall = true,
             speedMultiplier = 1.0,
+            instantBrake = true,
+            vehicleFly = false,
+            flySpeed = 120,
+            vehicleNoclip = false
         },
         settings = {
             antiAfk = true,
@@ -48,43 +53,70 @@ local success, err = pcall(function()
         }
     }
 
-    if Config.settings.antiStaff == nil then Config.settings.antiStaff = true end
-    if Config.settings.staffAction == nil then Config.settings.staffAction = "Keluar Game (Auto-Leave/Kick)" end
-    if Config.settings.minStaffRank == nil then Config.settings.minStaffRank = 248 end
-
     -- Load saved config if available
     local function loadConfig()
-        if readfile and isfile and isfile(CONFIG_FILE) then
-            pcall(function()
-                local raw = readfile(CONFIG_FILE)
-                local decoded = HttpService:JSONDecode(raw)
-                if decoded then
-                    for category, items in pairs(decoded) do
-                        if Config[category] then
-                            for k, v in pairs(items) do
-                                Config[category][k] = v
+        pcall(function()
+            if not readfile then return end
+            local target = nil
+            if isfile and isfile("HipHub/trlegacy_config.json") then
+                target = "HipHub/trlegacy_config.json"
+            elseif isfile and isfile("trlegacy_config.json") then
+                target = "trlegacy_config.json"
+            end
+            if target then
+                local raw = readfile(target)
+                if raw and #raw > 2 then
+                    local decoded = HttpService:JSONDecode(raw)
+                    if decoded and type(decoded) == "table" then
+                        for category, items in pairs(decoded) do
+                            if Config[category] and type(items) == "table" then
+                                for k, v in pairs(items) do
+                                    Config[category][k] = v
+                                end
+                            else
+                                Config[category] = items
                             end
                         end
                     end
                 end
-            end)
-        end
+            end
+        end)
     end
 
-    local function saveConfig()
-        if writefile then
-            pcall(function()
-                if makefolder then pcall(makefolder, "HipHub") end
-                local encoded = HttpService:JSONEncode(Config)
-                writefile(CONFIG_FILE, encoded)
+    local function saveConfig(silent)
+        pcall(function()
+            if not writefile then return end
+            if makefolder then pcall(makefolder, "HipHub") end
+            local encoded = HttpService:JSONEncode(Config)
+            local ok = pcall(writefile, "HipHub/trlegacy_config.json", encoded)
+            if not ok then
+                pcall(writefile, "trlegacy_config.json", encoded)
+            end
+            if not silent and UI and UI.Notify then
                 UI.Notify("Settings", "Pengaturan berhasil disimpan ke disk.", 2, "success")
-            end)
-        end
+            end
+        end)
+    end
+
+    local autoSaveDebounce = false
+    local function autoSave()
+        if autoSaveDebounce then return end
+        autoSaveDebounce = true
+        task.delay(0.1, function()
+            autoSaveDebounce = false
+            saveConfig(true)
+        end)
     end
 
     loadConfig()
+
+    if Config.settings.antiStaff == nil then Config.settings.antiStaff = true end
+    if Config.settings.staffAction == nil then Config.settings.staffAction = "Keluar Game (Auto-Leave/Kick)" end
+    if Config.settings.minStaffRank == nil then Config.settings.minStaffRank = 248 end
+
     _G.HipHubConfig = Config
     _G.HipHubSaveConfig = saveConfig
+    _G.HipHubAutoSave = autoSave
 
     ------------------------------------------------
     -- ANTI-AFK SYSTEM
@@ -281,6 +313,7 @@ local success, err = pcall(function()
 
     UI.AddToggle(safetySec, "Enable Anti-Staff Guardian (Auto-Protect)", Config.settings.antiStaff ~= false, function(v)
         Config.settings.antiStaff = v
+        autoSave()
         refreshStaffStatus()
         if v then
             UI.Notify("Anti-Staff", "Anti-Staff Guardian diaktifkan. Server dipantau secara otomatis.", 3, "success")
@@ -292,6 +325,7 @@ local success, err = pcall(function()
 
     UI.AddDropdown(safetySec, "Aksi Saat Staff Terdeteksi", staffActionOptions, Config.settings.staffAction or staffActionOptions[1], function(selected)
         Config.settings.staffAction = selected
+        autoSave()
         UI.Notify("Anti-Staff", "Aksi diatur ke: " .. selected, 2, "info")
     end, 3)
 
@@ -342,10 +376,12 @@ local success, err = pcall(function()
     local perfSec = UI.AddSection(sFrame, "Performance & AFK Farming", 7)
     UI.AddToggle(perfSec, "Anti-AFK Protection (No 20m Kick)", Config.settings.antiAfk, function(v)
         Config.settings.antiAfk = v
+        autoSave()
     end, 1)
 
     UI.AddToggle(perfSec, "Black Screen (Low CPU/GPU for Overnight)", Config.settings.blackScreen, function(v)
         Config.settings.blackScreen = v
+        autoSave()
         pcall(function()
             RunService:Set3dRenderingEnabled(not v)
         end)
@@ -358,11 +394,13 @@ local success, err = pcall(function()
 
     UI.AddSlider(perfSec, "FPS Limit Cap", 15, 240, Config.settings.fpsCap, 5, function(v)
         Config.settings.fpsCap = v
+        autoSave()
         if setfpscap then pcall(setfpscap, v) end
     end, 3)
 
     UI.AddToggle(perfSec, "Low Graphics / Anti-Lag Mode", Config.settings.lowGraphics, function(v)
         Config.settings.lowGraphics = v
+        autoSave()
         pcall(function()
             for _, obj in pairs(workspace:GetDescendants()) do
                 if v then
@@ -400,6 +438,7 @@ local success, err = pcall(function()
                 conn:Disconnect()
                 currentKey = input.KeyCode
                 Config.settings.uiKeybind = currentKey.Name
+                autoSave()
                 keybindBtn.Text = "Toggle UI Keybind: [" .. currentKey.Name .. "]"
                 UI.Notify("Keybind", "UI Toggle diatur ke " .. currentKey.Name, 2, "success")
             end
