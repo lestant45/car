@@ -24,6 +24,7 @@ local success, err = pcall(function()
             targetEarnEnabled = false,
             targetEarnAmount = 100000,
             checkpointDelay = 0.02,
+            countdownDelay = 8.5,
             returnToSurface = true,
             autoDriveCircle = false,
             circleRadius = 65,

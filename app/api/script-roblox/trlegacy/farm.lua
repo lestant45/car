@@ -14,6 +14,7 @@ local success, err = pcall(function()
 		targetEarnEnabled = false,
 		targetEarnAmount = 100000,
 		checkpointDelay = 0.02,
+		countdownDelay = 8.5,
 		returnToSurface = true,
 		autoDriveCircle = false,
 		circleRadius = 65,
@@ -313,6 +314,11 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.01, "s", 10)
 
+	local countdownSlider = UI.AddSlider(raceSection, "Countdown Start Hold (Jeda Lampu)", 1.0, 15.0, Config.countdownDelay or 8.5, function(val)
+		Config.countdownDelay = val
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
+	end, 0.5, "s", 11)
+
 	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
@@ -331,7 +337,7 @@ local success, err = pcall(function()
 				returnBikeToSurface(bike, primary)
 			end
 		end
-	end, 11)
+	end, 12)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
 	local driveSection = UI.AddSection(tab, "Auto Drive Circle", 12)
@@ -635,9 +641,9 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- Anti-cheat delay: Hold position during the natural 3.5s countdown light sequence
+		-- Anti-cheat delay: Hold position during the countdown light sequence (configurable via slider)
 		local tPreRun = os.clock()
-		local countdownDuration = 3.5
+		local countdownDuration = math.max(tonumber(Config.countdownDelay) or 8.5, 1.0)
 		while (os.clock() - tPreRun) < countdownDuration and Config.autoRace do
 			local remaining = math.ceil(countdownDuration - (os.clock() - tPreRun))
 			raceStatusCard.Set(string.format("Menunggu countdown lampu (%d s)...", remaining))
