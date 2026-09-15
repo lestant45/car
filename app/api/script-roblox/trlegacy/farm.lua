@@ -99,6 +99,60 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Safe Multi-Layer Anti-Cheat & Ghost Telemetry Shield
+	-- 1. Keeps GhostRecorder frames purged without hooking/modifying the 60fps render loop
+	-- 2. Intercepts finishLap return value & blocks RaceGhostSubmit remote packets
+	pcall(function()
+		local okRecorder, GhostRecorder = pcall(function()
+			return require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
+		end)
+		if okRecorder and GhostRecorder and GhostRecorder.finishLap then
+			local oldFinish = GhostRecorder.finishLap
+			GhostRecorder.finishLap = function(self, ...)
+				if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+					pcall(function()
+						self.recording = false
+						self.frames = {}
+					end)
+					return {}
+				end
+				return oldFinish(self, ...)
+			end
+		end
+
+		local okWarp, Warp = pcall(function()
+			return require(ReplicatedStorage.Modules.Warp)
+		end)
+		if okWarp and Warp and Warp.Client then
+			local ghostClient = Warp.Client("RaceGhostSubmit")
+			if ghostClient and ghostClient.Fire then
+				local oldFire = ghostClient.Fire
+				ghostClient.Fire = function(self, ...)
+					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+						return nil
+					end
+					return oldFire(self, ...)
+				end
+			end
+		end
+	end)
+
+	-- Active Ghost Frame Purger Routine (Runs periodically without touching engine method pointers)
+	task.spawn(function()
+		while true do
+			task.wait(1.0)
+			if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+				pcall(function()
+					local GhostRecorder = require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
+					if GhostRecorder and GhostRecorder.frames then
+						GhostRecorder.recording = false
+						GhostRecorder.frames = {}
+					end
+				end)
+			end
+		end
+	end)
+
 	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and Base World Records
 	-- Real-time WR is dynamically queried via Warp remote: RaceLeaderboardQuery with +10% Dynamic Pacing
 	local RaceOptions = {
