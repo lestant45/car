@@ -52,35 +52,79 @@ local success, err = pcall(function()
 		return ok
 	end
 
-	-- Anti-Leak Ghost Replay Blocker: Blocks RaceGhostSubmit & GhostRecorder during auto race
+	-- Universal Multi-Layer Ghost Telemetry Suppressor: Completely blocks RaceGhostSubmit packet leaks
 	pcall(function()
 		local old = (getthreadidentity and getthreadidentity()) or 8
 		if setthreadidentity then setthreadidentity(2) end
-		local Warp = require(ReplicatedStorage.Modules.Warp)
-		local ghostClient = Warp.Client("RaceGhostSubmit")
-		if ghostClient and ghostClient.Fire then
-			local originalGhostFire = ghostClient.Fire
-			ghostClient.Fire = function(self, ...)
-				if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
-					-- Block sending flying ghost trajectory replay to prevent server ban
-					return nil
+
+		-- Layer 1: Global ClientProcess queue blocker for RaceGhostSubmit (Event ID 17 / \x11)
+		local okProcess, ClientProcess = pcall(function()
+			return require(ReplicatedStorage.Modules.Warp.Index.Client.ClientProcess)
+		end)
+		if okProcess and ClientProcess and ClientProcess.insertQueue then
+			local originalInsertQueue = ClientProcess.insertQueue
+			ClientProcess.insertQueue = function(id, isReliable, ...)
+				if (typeof(id) == "string" and string.byte(id) == 17) or id == "\x11" or id == string.char(17) then
+					-- Unconditionally drop ghost submission packets to eliminate server telemetry bans
+					return
 				end
-				return originalGhostFire(self, ...)
+				return originalInsertQueue(id, isReliable, ...)
 			end
 		end
+
+		-- Layer 2: Neutralize GhostRecorder state & frames so recorder remains completely inert
 		local okRecorder, GhostRecorder = pcall(function()
 			return require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
 		end)
-		if okRecorder and GhostRecorder and GhostRecorder.update then
-			local oldUpdate = GhostRecorder.update
-			GhostRecorder.update = function(self, ...)
-				if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
-					self.frames = {}
-					return
+		if okRecorder and GhostRecorder then
+			if GhostRecorder.update then
+				local oldUpdate = GhostRecorder.update
+				GhostRecorder.update = function(self, ...)
+					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+						self.recording = false
+						self.frames = {}
+						return
+					end
+					return oldUpdate(self, ...)
 				end
-				return oldUpdate(self, ...)
+			end
+			if GhostRecorder.startLap then
+				local oldStart = GhostRecorder.startLap
+				GhostRecorder.startLap = function(self, ...)
+					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+						self.recording = false
+						self.frames = {}
+						return
+					end
+					return oldStart(self, ...)
+				end
+			end
+			if GhostRecorder.finishLap then
+				local oldFinish = GhostRecorder.finishLap
+				GhostRecorder.finishLap = function(self, ...)
+					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
+						self.recording = false
+						self.frames = {}
+						return {}
+					end
+					return oldFinish(self, ...)
+				end
 			end
 		end
+
+		-- Layer 3: Hook Warp.Client instances directly
+		local okWarp, Warp = pcall(function()
+			return require(ReplicatedStorage.Modules.Warp)
+		end)
+		if okWarp and Warp and Warp.Client then
+			local ghostClient = Warp.Client("RaceGhostSubmit")
+			if ghostClient and ghostClient.Fire then
+				ghostClient.Fire = function(self, ...)
+					return nil
+				end
+			end
+		end
+
 		if setthreadidentity then setthreadidentity(old) end
 	end)
 
@@ -386,6 +430,44 @@ local success, err = pcall(function()
 	------------------------------------------------
 
 	local function getCheckpointsForRace(raceModel)
+		-- 1. Prioritize MinimapPath attribute (Dense spline nodes following exact road curvature, e.g. 375 nodes on Race 1)
+		local minimapAttr = raceModel:GetAttribute("MinimapPath")
+		if minimapAttr and type(minimapAttr) == "string" and #minimapAttr > 0 then
+			local pathCheckpoints = {}
+			for seg in minimapAttr:gmatch("[^|]+") do
+				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
+				if x and y and z then
+					table.insert(pathCheckpoints, { Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) })
+				end
+			end
+			if #pathCheckpoints >= 2 then
+				return pathCheckpoints
+			end
+		end
+
+		-- 2. Check MinimapPath folder if present
+		local minimapFolder = raceModel:FindFirstChild("MinimapPath")
+		if minimapFolder then
+			local parts = {}
+			for _, child in ipairs(minimapFolder:GetChildren()) do
+				if child:IsA("BasePart") or child:IsA("Attachment") then
+					table.insert(parts, child)
+				end
+			end
+			table.sort(parts, function(a, b)
+				return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
+			end)
+			if #parts >= 2 then
+				local res = {}
+				for _, v in ipairs(parts) do
+					local pos = v:IsA("Attachment") and v.WorldPosition or v.Position
+					table.insert(res, { Position = pos })
+				end
+				return res
+			end
+		end
+
+		-- 3. Fallback to physical Checkpoints folder / getOrderedCheckpoints
 		local ordered = nil
 		pcall(function()
 			local getOrdered = require(ReplicatedStorage.Modules.UI.Racing.Utility.getOrderedCheckpoints)
@@ -413,21 +495,6 @@ local success, err = pcall(function()
 					table.insert(res, item.part)
 				end
 				return res
-			end
-		end
-
-		-- Fallback: MinimapPath attribute (exact deobfuscated showcase logic)
-		local minimapAttr = raceModel:GetAttribute("MinimapPath")
-		if minimapAttr and type(minimapAttr) == "string" then
-			local pathCheckpoints = {}
-			for seg in minimapAttr:gmatch("[^|]+") do
-				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
-				if x and y and z then
-					table.insert(pathCheckpoints, { Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) })
-				end
-			end
-			if #pathCheckpoints > 0 then
-				return pathCheckpoints
 			end
 		end
 
@@ -762,8 +829,9 @@ local success, err = pcall(function()
 				RunService.Heartbeat:Wait()
 			end
 
-			-- Pastikan motor persis di atas checkpoint di akhir segmen
-			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cp:IsA("BasePart") and cp.CFrame.LookVector or dir)))
+			-- Pastikan motor persis di atas waypoint di akhir segmen
+			local cpLook = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.CFrame.LookVector or dir
+			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
