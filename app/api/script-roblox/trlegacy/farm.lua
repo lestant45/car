@@ -723,31 +723,19 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Sanitize waypoints & build continuous positions array
-		local pointPositions = { primary.Position }
-		for _, cp in ipairs(checkpoints) do
-			local p = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.Position or cp.Position
-			if p then
-				local prev = pointPositions[#pointPositions]
-				if (p - prev).Magnitude > 0.5 then
-					table.insert(pointPositions, p)
-				end
-			end
-		end
-
-		local numPoints = #pointPositions
-		if numPoints < 2 then
-			table.insert(pointPositions, checkpoints[#checkpoints].Position)
-			numPoints = #pointPositions
-		end
-
-		-- Hitung jarak tiap leg dan total jarak track
+		-- Bangun daftar titik awal, akhir, dan jarak tiap segmen checkpoint
+		local legStartPositions = {}
 		local legDistances = {}
 		local totalTrackDist = 0
-		for idx = 1, numPoints - 1 do
-			local d = (pointPositions[idx + 1] - pointPositions[idx]).Magnitude
+
+		local prevPos = primary.Position
+		for idx, cp in ipairs(checkpoints) do
+			local curCPPos = cp.Position
+			local d = (curCPPos - prevPos).Magnitude
+			table.insert(legStartPositions, prevPos)
 			table.insert(legDistances, d)
 			totalTrackDist = totalTrackDist + d
+			prevPos = curCPPos
 		end
 
 		-- Auto WR + 10% Dynamic Pacing Calculation (Garansi Waktu Terikat Jam Server)
@@ -764,100 +752,57 @@ local success, err = pcall(function()
 		farmBV.Parent = primary
 
 		local raceStartTime = os.clock()
-		local currentBikeCF = primary.CFrame
 
-		-- Catmull-Rom Spline Helper Functions
-		local function getSplinePoint(p0, p1, p2, p3, t)
-			local t2 = t * t
-			local t3 = t2 * t
-			return 0.5 * (
-				(2 * p1) +
-				(-p0 + p2) * t +
-				(2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-				(-p0 + 3 * p1 - 3 * p2 + p3) * t3
-			)
-		end
-
-		local function getSplineTangent(p0, p1, p2, p3, t)
-			local t2 = t * t
-			local v = 0.5 * (
-				(-p0 + p2) +
-				2 * (2 * p0 - 5 * p1 + 4 * p2 - p3) * t +
-				3 * (-p0 + 3 * p1 - 3 * p2 + p3) * t2
-			)
-			if v.Magnitude > 0.001 then
-				return v.Unit
-			end
-			local fallback = p2 - p1
-			if fallback.Magnitude > 0.001 then
-				return fallback.Unit
-			end
-			return Vector3.new(0, 0, 1)
-		end
-
-		for i = 1, numPoints - 1 do
+		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
-			local p1 = pointPositions[i]
-			local p2 = pointPositions[i + 1]
-			local p0 = (i > 1) and pointPositions[i - 1] or (p1 * 2 - p2)
-			local p3 = (i + 2 <= numPoints) and pointPositions[i + 2] or (p2 * 2 - p1)
-
+			local startPos = legStartPositions[i]
+			local endPos = cp.Position
 			local legDist = legDistances[i]
-			local legDuration = (totalTrackDist > 0) and ((legDist / totalTrackDist) * targetDuration) or (targetDuration / (numPoints - 1))
-			if legDuration < 0.02 then legDuration = 0.02 end
+			-- Alokasi waktu presisi untuk checkpoint ini berdasarkan proporsi jaraknya terhadap total track
+			local legDuration = (totalTrackDist > 0) and ((legDist / totalTrackDist) * targetDuration) or (targetDuration / #checkpoints)
+			if legDuration < 0.05 then legDuration = 0.05 end
 
 			local legStartTime = os.clock()
 
-			-- Ghost Noclip Controller
-			if i < (numPoints - 1) then
+			-- USER REQUIREMENT:
+			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah jalan, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
+			-- 2. Checkpoint terakhir (garis finish): Matikan No-Clip agar motor mendarat menapak tanah sebelum finish
+			if i < #checkpoints then
 				setFlightNoclipState(true)
 			else
 				setFlightNoclipState(false)
 			end
 
-			local lastFrameTime = os.clock()
+			local diff = endPos - startPos
+			local dir = (diff.Magnitude > 0.01) and diff.Unit or Vector3.new(0, 0, 1)
 
 			while Config.autoRace do
 				local now = os.clock()
-				local dt = math.clamp(now - lastFrameTime, 0.001, 0.1)
-				lastFrameTime = now
-
 				local legElapsed = now - legStartTime
 				local alpha = math.clamp(legElapsed / legDuration, 0, 1)
 
-				-- 1. Hitung Posisi Spline Halus (Bebas Potong Sudut Jalan)
-				local rawPos = getSplinePoint(p0, p1, p2, p3, alpha)
+				local currentPos = startPos:Lerp(endPos, alpha)
 
-				-- 2. Surface Height Adherence: Selalu menempel di atas aspal jalan (tidak melayang ke puncak gunung/void)
-				local currentPos = rawPos
+				-- Terrain-Surface Gliding: Motor selalu meluncur di atas kontur permukaan lereng bukit/tanah
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = { bike, player.Character }
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				local groundRay = workspace:Raycast(Vector3.new(currentPos.X, math.max(currentPos.Y + 200, 350), currentPos.Z), Vector3.new(0, -700, 0), rayParams)
 
-				-- Raycast dari 12 stud di atas posisi spline ke 24 stud ke bawah
-				local groundRay = workspace:Raycast(Vector3.new(rawPos.X, rawPos.Y + 12, rawPos.Z), Vector3.new(0, -24, 0), rayParams)
 				if groundRay and groundRay.Position then
-					local targetSurfaceY = groundRay.Position.Y + 2.8
-					currentPos = Vector3.new(rawPos.X, targetSurfaceY, rawPos.Z)
+					local minSurfaceY = groundRay.Position.Y + 3.0
+					if i == #checkpoints and alpha > 0.6 then
+						-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
+						setFlightNoclipState(false)
+						currentPos = Vector3.new(currentPos.X, groundRay.Position.Y + 2.8, currentPos.Z)
+					elseif minSurfaceY > currentPos.Y then
+						-- Mengikuti kontur lereng bukit: angkat motor di atas permukaan lereng
+						currentPos = Vector3.new(currentPos.X, minSurfaceY, currentPos.Z)
+					end
 				end
 
-				-- 3. Hitung Tangen Arah Halus (Continuous Forward Tangent) & Dynamic Bank Angle (Kemiringan Motor)
-				local tangent = getSplineTangent(p0, p1, p2, p3, alpha)
-				local lookaheadAlpha = math.min(alpha + 0.08, 1.0)
-				local nextTangent = getSplineTangent(p0, p1, p2, p3, lookaheadAlpha)
-
-				-- Curvature turn rate calculation
-				local crossY = (tangent.X * nextTangent.Z) - (tangent.Z * nextTangent.X)
-				local bankAngle = math.clamp(crossY * 25, -math.rad(20), math.rad(20))
-
-				local targetLook = currentPos + tangent * 15
-				local targetCF = CFrame.lookAt(currentPos, targetLook, Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, bankAngle)
-
-				-- Slerp CFrame untuk transisi sudut yang sangat halus tanpa patah-patah
-				currentBikeCF = currentBikeCF:Lerp(targetCF, math.clamp(dt * 20, 0.15, 1.0))
-				bike:PivotTo(currentBikeCF)
-
+				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
 				farmBV.Velocity = Vector3.zero
 				primary.AssemblyLinearVelocity = Vector3.zero
 				primary.AssemblyAngularVelocity = Vector3.zero
@@ -865,7 +810,7 @@ local success, err = pcall(function()
 
 				local totalElapsed = now - raceStartTime
 				local speedDisplay = (totalTrackDist > 0 and targetDuration > 0) and (totalTrackDist / targetDuration) or 0
-				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0f%% | %d studs/s | %02d:%02d / %02d:%02d)", i, numPoints - 1, alpha * 100, math.floor(speedDisplay), math.floor(totalElapsed / 60), math.floor(totalElapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
+				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0f%% | %d studs/s | %02d:%02d / %02d:%02d)", i, #checkpoints, alpha * 100, math.floor(speedDisplay), math.floor(totalElapsed / 60), math.floor(totalElapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
 
 				if alpha >= 1 then
 					break
@@ -873,6 +818,10 @@ local success, err = pcall(function()
 
 				RunService.Heartbeat:Wait()
 			end
+
+			-- Pastikan motor persis di atas waypoint di akhir segmen
+			local cpLook = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.CFrame.LookVector or dir
+			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
