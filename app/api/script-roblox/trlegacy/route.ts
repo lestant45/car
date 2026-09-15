@@ -189,12 +189,6 @@ errGui.ResetOnSpawn = false
 errGui.DisplayOrder = 2147483647
 
 local function findGuiInParents(name)
-    if gethui then
-        local g = gethui():FindFirstChild(name)
-        if g then return g end
-    end
-    local c = game:GetService("CoreGui"):FindFirstChild(name)
-    if c then return c end
     local p = player:WaitForChild("PlayerGui"):FindFirstChild(name)
     if p then return p end
     return nil
@@ -206,11 +200,7 @@ pcall(function()
 end)
 
 pcall(function()
-    local parentGui = (gethui and gethui()) or (syn and syn.protect_gui and game:GetService("CoreGui")) or player:WaitForChild("PlayerGui")
-    if syn and syn.protect_gui and parentGui == game:GetService("CoreGui") then
-        pcall(function() syn.protect_gui(errGui) end)
-    end
-    errGui.Parent = parentGui
+    errGui.Parent = player:WaitForChild("PlayerGui")
     
     local COLORS = {
         glassSurface  = Color3.fromRGB(16, 20, 36),

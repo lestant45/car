@@ -73,24 +73,18 @@ local success, err = pcall(function()
 		if not isStudio and syn and syn.protect_gui then
 			pcall(function() syn.protect_gui(gui) end)
 			return game:GetService("CoreGui")
-		elseif not isStudio and gethui then
-			local h = nil
-			pcall(function() h = gethui() end)
-			if h then return h end
 		end
 		return player:WaitForChild("PlayerGui")
 	end
 
 	pcall(function()
-		local checkParents = {}
-		if gethui then pcall(function() table.insert(checkParents, gethui()) end) end
-		if syn and syn.protect_gui then pcall(function() table.insert(checkParents, game:GetService("CoreGui")) end) end
-		if player:FindFirstChild("PlayerGui") then table.insert(checkParents, player.PlayerGui) end
-		for _, p in ipairs(checkParents) do
-			if p then
-				local oldGui = p:FindFirstChild("HipHub_TRLegacy") or p:FindFirstChild("HipHub")
-				if oldGui then pcall(function() oldGui:Destroy() end) end
-			end
+		local pGui = player:WaitForChild("PlayerGui")
+		local oldGui = pGui:FindFirstChild("HipHub_TRLegacy") or pGui:FindFirstChild("HipHub")
+		if oldGui then pcall(function() oldGui:Destroy() end) end
+		if syn and syn.protect_gui then
+			local cGui = game:GetService("CoreGui")
+			local cOld = cGui:FindFirstChild("HipHub_TRLegacy") or cGui:FindFirstChild("HipHub")
+			if cOld then pcall(function() cOld:Destroy() end) end
 		end
 	end)
 
@@ -511,9 +505,11 @@ local success, err = pcall(function()
 	avatarCorner.CornerRadius = CORNER.pill
 	avatarCorner.Parent = avatarLabel
 
-	pcall(function()
-		local thumb = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
-		if thumb then avatarLabel.Image = thumb end
+	task.spawn(function()
+		pcall(function()
+			local thumb = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+			if thumb then avatarLabel.Image = thumb end
+		end)
 	end)
 
 	local usernameLabel = Instance.new("TextLabel")
