@@ -98,9 +98,7 @@ ${result}
 }
 
 function obfuscateLuaXor(code: string, licenseKey: string = "KEYLESS"): string {
-  const decName = makeId(8);
-  const encryptionKey = Math.floor(Math.random() * 254) + 1;
-  const scrambledCode = localObfuscate(stripComments(code), decName, encryptionKey);
+  const clean = stripComments(code);
 
   let seed = 5381;
   for (let i = 0; i < licenseKey.length; i++) {
@@ -109,7 +107,7 @@ function obfuscateLuaXor(code: string, licenseKey: string = "KEYLESS"): string {
   if (seed === 0) seed = 123456789;
 
   let hexString = "";
-  const buf = Buffer.from(scrambledCode, "utf8");
+  const buf = Buffer.from(clean, "utf8");
   let currentSeed = seed;
 
   for (let i = 0; i < buf.length; i++) {
@@ -119,30 +117,64 @@ function obfuscateLuaXor(code: string, licenseKey: string = "KEYLESS"): string {
     hexString += encryptedByte.toString(16).padStart(2, "0");
   }
 
-  const varSeed = makeId(10);
-  const varPayload = makeId(10);
-  const varSource = makeId(10);
-  const varIndex = makeId(10);
-  const varFunc = makeId(10);
-  const varErr = makeId(10);
-  const varKeyByte = makeId(10);
-  const varByteStr = makeId(10);
-  const varVal = makeId(10);
+  const varSeed = makeId(8);
+  const varPayload = makeId(8);
+  const varChunks = makeId(8);
+  const varBuf = makeId(8);
+  const varBufLen = makeId(8);
+  const varXor = makeId(8);
+  const varMap = makeId(8);
+  const varIdx = makeId(8);
+  const varH1 = makeId(8);
+  const varH2 = makeId(8);
+  const varVal = makeId(8);
+  const varKeyByte = makeId(8);
+  const varFunc = makeId(8);
+  const varErr = makeId(8);
 
   return `
 local ${varSeed} = ${seed}
 local ${varPayload} = "${hexString}"
-local ${varSource} = {}
-for ${varIndex} = 1, #${varPayload}, 2 do
-    local ${varByteStr} = string.sub(${varPayload}, ${varIndex}, ${varIndex} + 1)
-    local ${varVal} = tonumber(${varByteStr}, 16)
+local ${varChunks} = {}
+local ${varBuf} = {}
+local ${varBufLen} = 0
+local ${varXor} = (bit32 and bit32.bxor) or (bit and bit.bxor) or function(a, b)
+    local r = 0
+    for i = 0, 7 do
+        local bA = math.floor(a / (2 ^ i)) % 2
+        local bB = math.floor(b / (2 ^ i)) % 2
+        if bA ~= bB then r = r + 2 ^ i end
+    end
+    return r
+end
+
+local ${varMap} = {
+    ["0"]=0,["1"]=1,["2"]=2,["3"]=3,["4"]=4,["5"]=5,["6"]=6,["7"]=7,
+    ["8"]=8,["9"]=9,["a"]=10,["b"]=11,["c"]=12,["d"]=13,["e"]=14,["f"]=15,
+    ["A"]=10,["B"]=11,["C"]=12,["D"]=13,["E"]=14,["F"]=15
+}
+
+for ${varIdx} = 1, #${varPayload}, 2 do
+    local ${varH1} = ${varMap}[string.sub(${varPayload}, ${varIdx}, ${varIdx})] or 0
+    local ${varH2} = ${varMap}[string.sub(${varPayload}, ${varIdx} + 1, ${varIdx} + 1)] or 0
+    local ${varVal} = ${varH1} * 16 + ${varH2}
     ${varSeed} = (${varSeed} * 48271) % 2147483647
     local ${varKeyByte} = ${varSeed} % 256
-    table.insert(${varSource}, string.char(bit32.bxor(${varVal}, ${varKeyByte})))
+    ${varBufLen} = ${varBufLen} + 1
+    ${varBuf}[${varBufLen}] = string.char(${varXor}(${varVal}, ${varKeyByte}))
+    if ${varBufLen} >= 4096 then
+        table.insert(${varChunks}, table.concat(${varBuf}))
+        ${varBuf} = {}
+        ${varBufLen} = 0
+    end
 end
-local ${varFunc}, ${varErr} = loadstring(table.concat(${varSource}))
+if ${varBufLen} > 0 then
+    table.insert(${varChunks}, table.concat(${varBuf}))
+end
+
+local ${varFunc}, ${varErr} = loadstring(table.concat(${varChunks}))
 if not ${varFunc} then
-    error("HipHub Boot Error: Connection payload is corrupted: " .. tostring(${varErr}))
+    error("HipHub Boot Error: Payload decode failed: " .. tostring(${varErr}))
 end
 ${varFunc}()
 `;
@@ -174,7 +206,10 @@ pcall(function()
 end)
 
 pcall(function()
-    local parentGui = gethui and gethui() or game:GetService("CoreGui")
+    local parentGui = (gethui and gethui()) or (syn and syn.protect_gui and game:GetService("CoreGui")) or player:WaitForChild("PlayerGui")
+    if syn and syn.protect_gui and parentGui == game:GetService("CoreGui") then
+        pcall(function() syn.protect_gui(errGui) end)
+    end
     errGui.Parent = parentGui
     
     local COLORS = {

@@ -66,13 +66,33 @@ local success, err = pcall(function()
 	}
 
 	------------------------------------------------
-	-- CLEANUP EXISTING INSTANCES
+	-- CLEANUP EXISTING INSTANCES & SAFE PARENTING
 	------------------------------------------------
-	local parentGui = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
-	local oldGui = parentGui:FindFirstChild("HipHub_TRLegacy") or parentGui:FindFirstChild("HipHub")
-	if oldGui then
-		pcall(function() oldGui:Destroy() end)
+	local function getSafeGuiParent()
+		local isStudio = RunService:IsStudio()
+		if not isStudio and syn and syn.protect_gui then
+			pcall(function() syn.protect_gui(gui) end)
+			return game:GetService("CoreGui")
+		elseif not isStudio and gethui then
+			local h = nil
+			pcall(function() h = gethui() end)
+			if h then return h end
+		end
+		return player:WaitForChild("PlayerGui")
 	end
+
+	pcall(function()
+		local checkParents = {}
+		if gethui then pcall(function() table.insert(checkParents, gethui()) end) end
+		if syn and syn.protect_gui then pcall(function() table.insert(checkParents, game:GetService("CoreGui")) end) end
+		if player:FindFirstChild("PlayerGui") then table.insert(checkParents, player.PlayerGui) end
+		for _, p in ipairs(checkParents) do
+			if p then
+				local oldGui = p:FindFirstChild("HipHub_TRLegacy") or p:FindFirstChild("HipHub")
+				if oldGui then pcall(function() oldGui:Destroy() end) end
+			end
+		end
+	end)
 
 	------------------------------------------------
 	-- ️ HELPER FUNCTIONS
@@ -150,7 +170,7 @@ local success, err = pcall(function()
 	gui.ResetOnSpawn = false
 	gui.DisplayOrder = 2147483647
 	pcall(function() gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling end)
-	gui.Parent = parentGui
+	gui.Parent = getSafeGuiParent()
 
 	local defaultWidth = 580
 	local defaultHeight = 400

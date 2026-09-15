@@ -152,14 +152,23 @@ local success, err = pcall(function()
 
     local function applyLowGraphics(enable)
         if enable then
-            -- 1. Optimize all existing objects in workspace & Lighting
-            pcall(function()
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    optimizeObject(obj)
-                end
-                for _, obj in ipairs(Lighting:GetDescendants()) do
-                    optimizeObject(obj)
-                end
+            -- 1. Optimize all existing objects in workspace & Lighting safely in background
+            task.spawn(function()
+                pcall(function()
+                    local count = 0
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if not Config.settings.lowGraphics then break end
+                        optimizeObject(obj)
+                        count = count + 1
+                        if count % 250 == 0 then
+                            task.wait()
+                        end
+                    end
+                    for _, obj in ipairs(Lighting:GetDescendants()) do
+                        if not Config.settings.lowGraphics then break end
+                        optimizeObject(obj)
+                    end
+                end)
             end)
 
             -- 2. Strip Terrain decoration (3D grass) & water physics

@@ -183,12 +183,9 @@ local success, err = pcall(function()
 		modelName = modelName or Config.selectedVehicle or "Kasaki z800 2015"
 		local success = false
 		pcall(function()
-			local old = (getthreadidentity and getthreadidentity()) or 8
-			if setthreadidentity then setthreadidentity(2) end
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			local dClient = Warp.Client("Dealership")
 			dClient:Fire(true, modelName, "Spawn")
-			if setthreadidentity then setthreadidentity(old) end
 			success = true
 		end)
 		if success then

@@ -18,7 +18,9 @@ local success, err = pcall(function()
 
     local espFolder = Instance.new("Folder")
     espFolder.Name = "HipHub_TR_ESP"
-    espFolder.Parent = UI.gui
+    if UI and UI.gui then
+        espFolder.Parent = UI.gui
+    end
 
     ------------------------------------------------
     -- LIGHTING & FULLBRIGHT
