@@ -49,6 +49,56 @@ local success, err = pcall(function()
 		return ok
 	end
 
+	-- Safe UI Button Clicker (Supports firesignal, safe getconnections, and VirtualInputManager without crashing mobile executors)
+	local function safeClickButton(btn)
+		if not btn then return end
+		pcall(function()
+			if firesignal then
+				pcall(function() firesignal(btn.Activated) end)
+				pcall(function() firesignal(btn.MouseButton1Click) end)
+				pcall(function() firesignal(btn.MouseButton1Down) end)
+				pcall(function() firesignal(btn.MouseButton1Up) end)
+			end
+		end)
+		pcall(function()
+			if getconnections then
+				local c1 = getconnections(btn.Activated)
+				if type(c1) == "table" then
+					for _, c in ipairs(c1) do
+						pcall(function()
+							if c and c.Fire then
+								c:Fire()
+							elseif c and c.Function then
+								c.Function()
+							end
+						end)
+					end
+				end
+				local c2 = getconnections(btn.MouseButton1Click)
+				if type(c2) == "table" then
+					for _, c in ipairs(c2) do
+						pcall(function()
+							if c and c.Fire then
+								c:Fire()
+							elseif c and c.Function then
+								c.Function()
+							end
+						end)
+					end
+				end
+			end
+		end)
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			if vim and btn.AbsolutePosition and btn.AbsoluteSize then
+				local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+				vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+				task.wait(0.02)
+				vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+			end
+		end)
+	end
+
 	-- Universal Multi-Layer Ghost Telemetry Suppressor: Completely blocks RaceGhostSubmit packet leaks
 	pcall(function()
 
@@ -617,14 +667,14 @@ local success, err = pcall(function()
 			while not quickBtn.Interactable and (os.clock() - tQuick) < 3 and Config.autoRace do
 				task.wait(0.1)
 			end
-			for _, c in ipairs(getconnections(quickBtn.Activated)) do c:Fire() end
-			for _, c in ipairs(getconnections(quickBtn.MouseButton1Click)) do c:Fire() end
-		else
-			fireWarp("RaceSessionAction", true, "create", {
-				zoneId = raceData.id,
-				config = { Mode = "TimeTrial", Laps = 1, MaxPlayers = 1 }
-			})
+			safeClickButton(quickBtn)
 		end
+
+		-- Always ensure fallback Warp remote create is dispatched
+		fireWarp("RaceSessionAction", true, "create", {
+			zoneId = raceData.id,
+			config = { Mode = "TimeTrial", Laps = 1, MaxPlayers = 1 }
+		})
 
 		-- Check if a start card appeared in active sessions
 		task.wait(0.5)
@@ -636,8 +686,7 @@ local success, err = pcall(function()
 					local startBtn = card.Start
 					local label = startBtn:FindFirstChild("Label") and startBtn.Label.Text or startBtn.Text
 					if tostring(label):upper():find("START") or tostring(label):upper():find("BALAP") then
-						for _, c in ipairs(getconnections(startBtn.Activated)) do c:Fire() end
-						for _, c in ipairs(getconnections(startBtn.MouseButton1Click)) do c:Fire() end
+						safeClickButton(startBtn)
 					end
 				end
 			end
@@ -653,7 +702,16 @@ local success, err = pcall(function()
 
 		if not player:GetAttribute("InRace") and not lightsOut then
 			raceStatusCard.Set("Race belum mulai. Mencoba lagi...")
-			if lightsConn and startLightsClient then
+			if lightsConn then
+				pcall(function()
+					if typeof(lightsConn) == "RBXScriptConnection" or (type(lightsConn) == "table" and lightsConn.Disconnect) or (type(lightsConn) == "userdata" and lightsConn.Disconnect) then
+						lightsConn:Disconnect()
+					elseif type(lightsConn) == "function" then
+						lightsConn()
+					end
+				end)
+			end
+			if lightsConn and startLightsClient and startLightsClient.Disconnect then
 				pcall(function() startLightsClient:Disconnect(lightsConn) end)
 			end
 			task.wait(2.0)

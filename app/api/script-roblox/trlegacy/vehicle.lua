@@ -438,7 +438,7 @@ local success, err = pcall(function()
 		if not isSeated then return end
 
 		-- Anti-Fall / Auto-Upright Guardian
-		if Config.antiFall and not Config.vehicleFly then
+		if Config.antiFall and not Config.vehicleFly and not _G.HipHub_IsAutoRacing then
 			local currentCF = primary.CFrame
 			local _, yaw, _ = currentCF:ToEulerAnglesYXZ()
 			primary.CFrame = CFrame.new(currentCF.Position) * CFrame.Angles(0, yaw, 0)

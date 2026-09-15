@@ -328,7 +328,7 @@ local success, err = pcall(function()
             _G.HipHubConfig.farm.autoDriveCircle = false
         end
 
-        local action = Config.settings.staffAction or "Keluar Game (Auto-Leave/Kick)"
+        local action = Config.settings.staffAction or "Hentikan Farming Saja"
 
         if action == "Keluar Game (Auto-Leave/Kick)" then
             local kickMsg = string.format("[HipHub Anti-Staff Guardian]\n\nStaff Terdeteksi: %s (@%s)\nRole: %s (Rank %d)\n\nKeluar dari game secara otomatis untuk mencegah ban.", staffPlayer.DisplayName, staffPlayer.Name, tostring(roleName or "Staff"), rankNum or 0)
