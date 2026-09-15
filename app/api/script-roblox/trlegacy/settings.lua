@@ -38,12 +38,19 @@ local success, err = pcall(function()
         },
         settings = {
             antiAfk = true,
+            antiStaff = true,
+            staffAction = "Keluar Game (Auto-Leave/Kick)",
+            minStaffRank = 248,
             blackScreen = false,
             fpsCap = 60,
             lowGraphics = false,
             uiKeybind = "RightShift",
         }
     }
+
+    if Config.settings.antiStaff == nil then Config.settings.antiStaff = true end
+    if Config.settings.staffAction == nil then Config.settings.staffAction = "Keluar Game (Auto-Leave/Kick)" end
+    if Config.settings.minStaffRank == nil then Config.settings.minStaffRank = 248 end
 
     -- Load saved config if available
     local function loadConfig()
@@ -80,7 +87,7 @@ local success, err = pcall(function()
     _G.HipHubSaveConfig = saveConfig
 
     ------------------------------------------------
-    -- ️ ANTI-AFK SYSTEM
+    -- ANTI-AFK SYSTEM
     ------------------------------------------------
     player.Idled:Connect(function()
         if Config.settings.antiAfk then
@@ -92,13 +99,234 @@ local success, err = pcall(function()
     end)
 
     ------------------------------------------------
+    -- ANTI-STAFF GUARDIAN SYSTEM
+    ------------------------------------------------
+    local STAFF_GROUP_ID = 33138186 -- TR Legacy Developer / Admin Group (exrgarage)
+    local CREATOR_USER_ID = 5012440553 -- 6rfxn (Owner)
+
+    local staffActionOptions = {
+        "Keluar Game (Auto-Leave/Kick)",
+        "Pindah Server (Server Hop)",
+        "Hentikan Farming Saja"
+    }
+
+    local function isStaffMember(p)
+        if not p or p == player then return false, nil, 0 end
+
+        -- 1. Owner & Game Creator Check
+        if p.UserId == CREATOR_USER_ID or p.UserId == game.CreatorId then
+            return true, "Game Owner", 255
+        end
+
+        -- 2. Group Rank Check
+        local rank = 0
+        local role = "Guest"
+        local ok = pcall(function()
+            rank = p:GetRankInGroup(STAFF_GROUP_ID)
+            role = p:GetRoleInGroup(STAFF_GROUP_ID)
+        end)
+
+        local minRank = Config.settings.minStaffRank or 248
+        if ok and rank >= minRank then
+            return true, role, rank
+        end
+
+        -- 3. Role Name Keyword Check
+        if ok and role then
+            local roleLower = role:lower()
+            if roleLower:find("staff") or roleLower:find("admin") or roleLower:find("mod")
+               or roleLower:find("developer") or roleLower:find("manager") or roleLower:find("owner")
+               or roleLower:find("holder") then
+                return true, role, rank
+            end
+        end
+
+        -- 4. In-Game Attribute / Admin Badge Check
+        local isStaffAttr = p:GetAttribute("IsStaff") or p:GetAttribute("Admin") or p:GetAttribute("Staff")
+        if isStaffAttr then
+            return true, "Game Staff Attribute", 250
+        end
+
+        return false, nil, rank
+    end
+
+    local isEvasionExecuting = false
+    local function executeStaffEvasion(staffPlayer, roleName, rankNum)
+        if isEvasionExecuting then return end
+        isEvasionExecuting = true
+
+        -- Stop all active farming routines immediately
+        if _G.HipHub_ToggleAutoRace then pcall(_G.HipHub_ToggleAutoRace, false) end
+        if _G.HipHub_ToggleAutoDrive then pcall(_G.HipHub_ToggleAutoDrive, false) end
+        if _G.HipHubConfig and _G.HipHubConfig.farm then
+            _G.HipHubConfig.farm.autoRace = false
+            _G.HipHubConfig.farm.autoDriveCircle = false
+        end
+
+        local action = Config.settings.staffAction or "Keluar Game (Auto-Leave/Kick)"
+
+        if action == "Keluar Game (Auto-Leave/Kick)" then
+            local kickMsg = string.format("[HipHub Anti-Staff Guardian]\n\nStaff Terdeteksi: %s (@%s)\nRole: %s (Rank %d)\n\nKeluar dari game secara otomatis untuk mencegah ban.", staffPlayer.DisplayName, staffPlayer.Name, tostring(roleName or "Staff"), rankNum or 0)
+            player:Kick(kickMsg)
+        elseif action == "Pindah Server (Server Hop)" then
+            UI.Notify("Anti-Staff Guardian", "Staff terdeteksi: " .. staffPlayer.Name .. "! Memindahkan ke server lain...", 4, "warning")
+            task.spawn(function()
+                local TeleportService = game:GetService("TeleportService")
+                local placeId = game.PlaceId
+                local jobId = game.JobId
+                local hopped = false
+                pcall(function()
+                    local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100", tostring(placeId))
+                    local req = syn and syn.request or http and http.request or request or http_request
+                    if req then
+                        local res = req({ Url = url, Method = "GET" })
+                        if res and res.Body then
+                            local data = HttpService:JSONDecode(res.Body)
+                            if data and data.data then
+                                for _, s in ipairs(data.data) do
+                                    if type(s) == "table" and s.id ~= jobId and s.playing < s.maxPlayers and s.playing > 0 then
+                                        hopped = true
+                                        TeleportService:TeleportToPlaceInstance(placeId, s.id, player)
+                                        return
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end)
+                if not hopped then
+                    TeleportService:Teleport(placeId, player)
+                end
+            end)
+        else
+            -- Hentikan Farming Saja
+            UI.Notify("Anti-Staff Warning", "Peringatan: Staff " .. staffPlayer.Name .. " (" .. tostring(roleName) .. ") berada di server! Farming dihentikan.", 6, "warning")
+            isEvasionExecuting = false
+        end
+    end
+
+    local function scanForStaff()
+        if not Config.settings.antiStaff then return false end
+        local playersList = Players:GetPlayers()
+        for _, p in ipairs(playersList) do
+            if p ~= player then
+                local isStaff, roleName, rankNum = isStaffMember(p)
+                if isStaff then
+                    executeStaffEvasion(p, roleName, rankNum)
+                    return true, p, roleName, rankNum
+                end
+            end
+        end
+        return false
+    end
+
+    -- Listener: On Player Added (Instant check when anyone joins server)
+    Players.PlayerAdded:Connect(function(newPlayer)
+        if Config.settings.antiStaff and newPlayer ~= player then
+            task.wait(0.5)
+            local isStaff, roleName, rankNum = isStaffMember(newPlayer)
+            if isStaff then
+                executeStaffEvasion(newPlayer, roleName, rankNum)
+            end
+        end
+    end)
+
+    -- Background Sentinel Loop (Checks every 5 seconds)
+    task.spawn(function()
+        while true do
+            task.wait(5)
+            if Config.settings.antiStaff then
+                pcall(scanForStaff)
+            end
+        end
+    end)
+
+    _G.HipHub_AntiStaff = {
+        isStaffMember = isStaffMember,
+        scanForStaff = scanForStaff,
+        executeStaffEvasion = executeStaffEvasion
+    }
+
+    ------------------------------------------------
     -- UI INTEGRATION
     ------------------------------------------------
     local sFrame = UI.Tabs.Settings
     if not sFrame then return end
 
-    -- Config Management Section
-    local cfgSec = UI.AddSection(sFrame, "Configuration & Profiles", 1)
+    -- 1. Safety & Anti-Staff Guardian Section
+    local safetySec = UI.AddSection(sFrame, "Safety & Anti-Staff Guardian", 1)
+
+    local totalPlayersCount = #Players:GetPlayers()
+    local staffStatusCard = UI.AddStatsCard(safetySec, "Staff Detector Status", string.format("Aman (0 Staff | %d Pemain Aktif)", totalPlayersCount), 1)
+
+    local function refreshStaffStatus()
+        if not staffStatusCard then return end
+        local staffCount = 0
+        local totalCount = #Players:GetPlayers()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and isStaffMember(p) then
+                staffCount = staffCount + 1
+            end
+        end
+        if staffCount > 0 then
+            staffStatusCard.Set(string.format("BAHAYA (%d Staff di Server!)", staffCount))
+        else
+            if Config.settings.antiStaff then
+                staffStatusCard.Set(string.format("Aktif & Aman (0 Staff | %d Pemain)", totalCount))
+            else
+                staffStatusCard.Set(string.format("Nonaktif (0 Staff | %d Pemain)", totalCount))
+            end
+        end
+    end
+
+    UI.AddToggle(safetySec, "Enable Anti-Staff Guardian (Auto-Protect)", Config.settings.antiStaff ~= false, function(v)
+        Config.settings.antiStaff = v
+        refreshStaffStatus()
+        if v then
+            UI.Notify("Anti-Staff", "Anti-Staff Guardian diaktifkan. Server dipantau secara otomatis.", 3, "success")
+            scanForStaff()
+        else
+            UI.Notify("Anti-Staff", "Anti-Staff Guardian dinonaktifkan.", 2, "info")
+        end
+    end, 2)
+
+    UI.AddDropdown(safetySec, "Aksi Saat Staff Terdeteksi", staffActionOptions, Config.settings.staffAction or staffActionOptions[1], function(selected)
+        Config.settings.staffAction = selected
+        UI.Notify("Anti-Staff", "Aksi diatur ke: " .. selected, 2, "info")
+    end, 3)
+
+    UI.AddButton(safetySec, "Scan Server Sekarang (Manual Check)", function()
+        local found, p, role, rank = scanForStaff()
+        refreshStaffStatus()
+        if not found then
+            UI.Notify("Anti-Staff", string.format("Server Bersih! Tidak ada admin/staff dari %d pemain aktif.", #Players:GetPlayers()), 3, "success")
+        end
+    end, 4, "primary")
+
+    UI.AddButton(safetySec, "Uji Coba Aksi (Test Run)", function()
+        local dummyStaff = {
+            DisplayName = "TestAdmin",
+            Name = "TestAdmin_Roblox",
+            UserId = 12345
+        }
+        UI.Notify("Anti-Staff Test", "Menjalankan simulasi aksi Anti-Staff...", 2, "warning")
+        task.delay(1.5, function()
+            executeStaffEvasion(dummyStaff, "Admin (Simulation)", 250)
+        end)
+    end, 5, "secondary")
+
+    -- Update player count on connect/disconnect
+    Players.PlayerAdded:Connect(function()
+        task.wait(0.5)
+        refreshStaffStatus()
+    end)
+    Players.PlayerRemoving:Connect(function()
+        task.wait(0.5)
+        refreshStaffStatus()
+    end)
+
+    -- 2. Config Management Section
+    local cfgSec = UI.AddSection(sFrame, "Configuration & Profiles", 6)
     UI.AddButton(cfgSec, "Save Configuration", function()
         saveConfig()
     end, 1)
@@ -110,8 +338,8 @@ local success, err = pcall(function()
         UI.Notify("Settings", "Konfigurasi direset ke default.", 2, "warning")
     end, 2)
 
-    -- Performance & Optimization Section
-    local perfSec = UI.AddSection(sFrame, "Performance & AFK Farming", 2)
+    -- 3. Performance & Optimization Section
+    local perfSec = UI.AddSection(sFrame, "Performance & AFK Farming", 7)
     UI.AddToggle(perfSec, "Anti-AFK Protection (No 20m Kick)", Config.settings.antiAfk, function(v)
         Config.settings.antiAfk = v
     end, 1)
@@ -160,8 +388,8 @@ local success, err = pcall(function()
         end
     end, 4)
 
-    -- UI Keybind Section
-    local uiSec = UI.AddSection(sFrame, "Interface Controls", 3)
+    -- 4. UI Keybind Section
+    local uiSec = UI.AddSection(sFrame, "Interface Controls", 8)
     local currentKey = Enum.KeyCode[Config.settings.uiKeybind] or Enum.KeyCode.RightShift
     local keybindBtn
     keybindBtn = UI.AddButton(uiSec, "Toggle UI Keybind: [" .. currentKey.Name .. "]", function()

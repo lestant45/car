@@ -451,6 +451,12 @@ local success, err = pcall(function()
 	local function runRaceCycle()
 		if not Config.autoRace then return false end
 
+		-- Pre-Race Safety: Anti-Staff Scan
+		if _G.HipHub_AntiStaff and _G.HipHub_AntiStaff.scanForStaff then
+			local staffFound = _G.HipHub_AntiStaff.scanForStaff()
+			if staffFound then return false end
+		end
+
 		local cur = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or nil
 		if cur then updateTargetProgress(cur) end
 		if not Config.autoRace then return false end
