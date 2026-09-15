@@ -115,7 +115,7 @@ local success, err = pcall(function()
 		"Race 5 (Drag - RM 750 Solo)",
 	}
 
-	-- Auto WR + 10% Dynamic Pacing Helper: Queries live rank 1 time or falls back to pre-verified WR constants
+	-- Auto WR + 10% Dynamic Pacing with Humanized Jitter: Prevents identical millisecond lap bot detection
 	local function getRaceTargetDuration(raceId, fallbackWR)
 		local wrTime = fallbackWR or 60.0
 		local riderName = "Server Record"
@@ -131,8 +131,10 @@ local success, err = pcall(function()
 			end
 			if setthreadidentity then setthreadidentity(old) end
 		end)
-		local targetDuration = wrTime * 1.10 -- Auto WR + 10% Dynamic Pacing Formula
-		return targetDuration, wrTime, riderName
+		-- Base +10% target with natural human jitter variance (+3.0 to +8.5 seconds random)
+		local jitter = math.random(300, 850) / 100
+		local targetDuration = (wrTime * 1.10) + jitter
+		return targetDuration, wrTime, riderName, jitter
 	end
 
 	-- Telemetry Stats
@@ -682,20 +684,19 @@ local success, err = pcall(function()
 
 		UI.Notify("Auto Race", string.format("Finish %s (+RM %d)", raceData.modelName, earned), 3, "success")
 
-		-- Wait for server cooldown (RaceCooldownUntil)
+		-- Wait for server cooldown (RaceCooldownUntil) + Natural Human Rest Buffer (10-15s)
 		local tCooldown = os.clock()
-		while (os.clock() - tCooldown) < 5.0 and Config.autoRace do
+		local naturalRest = math.random(10, 15)
+		while Config.autoRace do
+			local elapsed = os.clock() - tCooldown
 			local cd = player:GetAttribute("RaceCooldownUntil")
-			if type(cd) == "number" then
-				local rem = math.ceil(cd - Workspace:GetServerTimeNow())
-				if rem > 0 then
-					raceStatusCard.Set(string.format("Cooldown Server: %d s...", rem))
-					task.wait(1.0)
-				else
-					break
-				end
+			local remServer = (type(cd) == "number") and math.ceil(cd - Workspace:GetServerTimeNow()) or 0
+			local remaining = math.max(remServer, math.ceil(naturalRest - elapsed))
+			if remaining > 0 then
+				raceStatusCard.Set(string.format("Jeda Aman Server: %d s...", remaining))
+				task.wait(1.0)
 			else
-				task.wait(0.5)
+				break
 			end
 		end
 
@@ -901,12 +902,14 @@ local success, err = pcall(function()
 		local speed = math.max(Config.circleSpeed or 120, 40)
 
 		-- Set circle center upon first run directly relative to bike's current surface position
-		if not circleCenter then
+		if not circleCenter and primary then
 			local curPos = primary.Position
 			local right = primary.CFrame.RightVector
 			circleCenter = curPos + Vector3.new(right.X, 0, right.Z).Unit * radius
 			noclipBikeBody(bike)
 		end
+
+		if not circleCenter or not primary then return end
 
 		local curPos = primary.Position
 
