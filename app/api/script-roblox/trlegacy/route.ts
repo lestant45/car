@@ -416,9 +416,7 @@ func()
       });
     }
 
-    const disableLuraph = process.env.DISABLE_LURAPH === "true";
-    const obfuscationType = disableLuraph ? "xor" : "plain";
-    const sourceHash = crypto.createHash("sha256").update(luaScript + "_" + obfuscationType).digest("hex");
+    const sourceHash = crypto.createHash("sha256").update(luaScript + "_v2_clean").digest("hex");
 
     if (globalCache && globalCache.sourceHash === sourceHash) {
       return new NextResponse(globalCache.obfuscatedCode, {
@@ -429,39 +427,7 @@ func()
       });
     }
 
-    try {
-      const cacheRes = await pool.query(
-        "SELECT obfuscated_code FROM script_cache WHERE source_hash = $1 LIMIT 1;",
-        [sourceHash]
-      );
-      if (cacheRes.rows.length > 0) {
-        const cachedCode = cacheRes.rows[0].obfuscated_code;
-        globalCache = { sourceHash, obfuscatedCode: cachedCode };
-        return new NextResponse(cachedCode, {
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-          },
-        });
-      }
-    } catch (dbCacheErr) {
-      // In development or if db is unavailable, continue gracefully
-    }
-
     let finalScript = luaScript;
-    if (disableLuraph) {
-      finalScript = obfuscateLuaXor(luaScript, "KEYLESS");
-      try {
-        await pool.query(
-          `INSERT INTO script_cache (source_hash, obfuscated_code) 
-           VALUES ($1, $2) 
-           ON CONFLICT (source_hash) 
-           DO UPDATE SET obfuscated_code = EXCLUDED.obfuscated_code;`,
-          [sourceHash, finalScript]
-        );
-      } catch (dbSaveErr) {}
-    }
-
     globalCache = { sourceHash, obfuscatedCode: finalScript };
 
     return new NextResponse(finalScript, {

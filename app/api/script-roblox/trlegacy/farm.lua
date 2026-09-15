@@ -42,21 +42,15 @@ local success, err = pcall(function()
 	local function fireWarp(clientName, ...)
 		local args = {...}
 		local ok = pcall(function()
-			local old = (getthreadidentity and getthreadidentity()) or 8
-			if setthreadidentity then setthreadidentity(2) end
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			local client = Warp.Client(clientName)
 			client:Fire(table.unpack(args))
-			if setthreadidentity then setthreadidentity(old) end
 		end)
 		return ok
 	end
 
 	-- Universal Multi-Layer Ghost Telemetry Suppressor: Completely blocks RaceGhostSubmit packet leaks
 	pcall(function()
-		local old = (getthreadidentity and getthreadidentity()) or 8
-		if setthreadidentity then setthreadidentity(2) end
-
 		-- Layer 1: Global ClientProcess queue blocker for RaceGhostSubmit (Event ID 17 / \x11)
 		local okProcess, ClientProcess = pcall(function()
 			return require(ReplicatedStorage.Modules.Warp.Index.Client.ClientProcess)
@@ -124,8 +118,6 @@ local success, err = pcall(function()
 				end
 			end
 		end
-
-		if setthreadidentity then setthreadidentity(old) end
 	end)
 
 	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and Base World Records
@@ -165,8 +157,6 @@ local success, err = pcall(function()
 		local wrTime = fallbackWR or 60.0
 		local riderName = "Server Record"
 		pcall(function()
-			local old = (getthreadidentity and getthreadidentity()) or 8
-			if setthreadidentity then setthreadidentity(2) end
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			local client = Warp.Client("RaceLeaderboardQuery")
 			local res = client:Invoke(10, tostring(raceId))
@@ -174,7 +164,6 @@ local success, err = pcall(function()
 				wrTime = res[1].time
 				riderName = tostring(res[1].name or res[1].rawName or "Server Record")
 			end
-			if setthreadidentity then setthreadidentity(old) end
 		end)
 		-- Base +10% target with natural human jitter variance (+3.0 to +8.5 seconds random)
 		local jitter = math.random(300, 850) / 100
@@ -624,8 +613,6 @@ local success, err = pcall(function()
 		local lightsConn = nil
 		local startLightsClient = nil
 		pcall(function()
-			local old = (getthreadidentity and getthreadidentity()) or 8
-			if setthreadidentity then setthreadidentity(2) end
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			startLightsClient = Warp.Client("RaceStartLights")
 			lightsConn = startLightsClient:Connect(function(status)
@@ -633,7 +620,6 @@ local success, err = pcall(function()
 					lightsOut = true
 				end
 			end)
-			if setthreadidentity then setthreadidentity(old) end
 		end)
 
 		-- Step 6: Trigger solo race creation

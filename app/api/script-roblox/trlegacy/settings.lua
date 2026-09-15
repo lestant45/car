@@ -44,7 +44,7 @@ local success, err = pcall(function()
         settings = {
             antiAfk = true,
             antiStaff = true,
-            staffAction = "Keluar Game (Auto-Leave/Kick)",
+            staffAction = "Hentikan Farming Saja",
             minStaffRank = 248,
             blackScreen = false,
             fpsCap = 60,
@@ -111,7 +111,7 @@ local success, err = pcall(function()
     loadConfig()
 
     if Config.settings.antiStaff == nil then Config.settings.antiStaff = true end
-    if Config.settings.staffAction == nil then Config.settings.staffAction = "Keluar Game (Auto-Leave/Kick)" end
+    if Config.settings.staffAction == nil then Config.settings.staffAction = "Hentikan Farming Saja" end
     if Config.settings.minStaffRank == nil then Config.settings.minStaffRank = 248 end
 
     _G.HipHubConfig = Config
@@ -279,7 +279,7 @@ local success, err = pcall(function()
         if not p or p == player then return false, nil, 0 end
 
         -- 1. Owner & Game Creator Check
-        if p.UserId == CREATOR_USER_ID or p.UserId == game.CreatorId then
+        if p.UserId == CREATOR_USER_ID or (game.CreatorType == Enum.CreatorType.User and p.UserId == game.CreatorId) then
             return true, "Game Owner", 255
         end
 
@@ -299,7 +299,7 @@ local success, err = pcall(function()
         -- 3. Role Name Keyword Check
         if ok and role then
             local roleLower = role:lower()
-            if roleLower:find("staff") or roleLower:find("admin") or roleLower:find("mod")
+            if roleLower:find("staff") or roleLower:find("admin") or roleLower:find("moderator")
                or roleLower:find("developer") or roleLower:find("manager") or roleLower:find("owner")
                or roleLower:find("holder") then
                 return true, role, rank
@@ -307,7 +307,7 @@ local success, err = pcall(function()
         end
 
         -- 4. In-Game Attribute / Admin Badge Check
-        local isStaffAttr = p:GetAttribute("IsStaff") or p:GetAttribute("Admin") or p:GetAttribute("Staff")
+        local isStaffAttr = p:GetAttribute("IsStaff") or p:GetAttribute("Admin")
         if isStaffAttr then
             return true, "Game Staff Attribute", 250
         end
