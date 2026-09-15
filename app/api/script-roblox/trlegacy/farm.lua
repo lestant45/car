@@ -345,7 +345,7 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.01, "s", 10)
 
-	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race (WR + 10% Dynamic Pacing)", Config.autoRace, function(enabled)
+	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
 		if enabled then
@@ -354,7 +354,7 @@ local success, err = pcall(function()
 				sessionStartCash = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
 			end
 			updateTargetProgress()
-			UI.Notify("Auto Race", "Memulai auto race (WR + 10% Dynamic Pacing)...", 3, "success")
+			UI.Notify("Auto Race", "Memulai auto race", 3, "success")
 		else
 			UI.Notify("Auto Race", "Menghentikan auto race.", 2, "info")
 			raceStatusCard.Set("Stopped")
@@ -383,12 +383,12 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 5, " km/h", 18)
 
-	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip (Tembus Rintangan)", Config.antiStuck ~= false, function(v)
+	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip ", Config.antiStuck ~= false, function(v)
 		Config.antiStuck = v
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 19)
 
-	autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar (Di Atas Tanah)", Config.autoDriveCircle, function(enabled)
+	autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
 		_G.HipHub_IsAutoDriving = enabled
 		if enabled then
