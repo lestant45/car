@@ -249,6 +249,40 @@ local success, err = pcall(function()
         end
     end, 1)
 
+    -- FPS Booster Section
+    local boostSec = UI.AddSection(vFrame, "Performance & FPS Booster", 4)
+    local cfg = _G.HipHubConfig and _G.HipHubConfig.settings
+    local initialLowGraphics = (cfg and cfg.lowGraphics) or false
+
+    UI.AddToggle(boostSec, "Low Graphics / Ultra FPS Boost", initialLowGraphics, function(v)
+        if _G.HipHubConfig and _G.HipHubConfig.settings then
+            _G.HipHubConfig.settings.lowGraphics = v
+            if _G.HipHubAutoSave then _G.HipHubAutoSave() end
+        end
+        if _G.HipHubApplyLowGraphics then
+            _G.HipHubApplyLowGraphics(v)
+        end
+        if v then
+            UI.Notify("FPS Booster", "Low Graphics aktif: PBR, Mesh, Shadow, Terrain & Partikel dibersihkan.", 3, "success")
+        else
+            UI.Notify("FPS Booster", "Low Graphics dinonaktifkan.", 2, "info")
+        end
+    end, 1)
+
+    UI.AddButton(boostSec, "Clean Memory & Free RAM", function()
+        pcall(function()
+            if gcinfo then
+                local before = gcinfo()
+                collectgarbage("collect")
+                local after = gcinfo()
+                UI.Notify("Memory Cleaned", "RAM Lua dibersihkan: " .. tostring(before - after) .. " KB freed.", 3, "success")
+            else
+                collectgarbage("collect")
+                UI.Notify("Memory Cleaned", "Garbage collection berhasil dijalankan.", 2, "success")
+            end
+        end)
+    end, 2, "secondary")
+
     -- Global Export
     _G.HipHubVisuals = {
         SetFullbright = function(v) fullbrightActive = v applyLightingMods() end,

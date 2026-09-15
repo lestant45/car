@@ -119,6 +119,130 @@ local success, err = pcall(function()
     _G.HipHubAutoSave = autoSave
 
     ------------------------------------------------
+    -- ULTIMATE FPS BOOSTER & GRAPHICS ENGINE
+    ------------------------------------------------
+    local lowGraphicsConn = nil
+    local lowGraphicsLightingConn = nil
+
+    local function optimizeObject(obj)
+        if not Config.settings.lowGraphics then return end
+        pcall(function()
+            if obj:IsA("SurfaceAppearance") then
+                obj:Destroy()
+            elseif obj:IsA("BasePart") then
+                obj.Material = Enum.Material.SmoothPlastic
+                obj.CastShadow = false
+                obj.Reflectance = 0
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                obj.Transparency = 1
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                obj.Enabled = false
+            elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+                obj.Shadows = false
+                obj.Range = math.min(obj.Range, 12)
+            elseif obj:IsA("Highlight") then
+                obj.Enabled = false
+            elseif obj:IsA("PostEffect") or obj:IsA("BloomEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("SunRaysEffect") or obj:IsA("BlurEffect") or obj:IsA("ColorCorrectionEffect") then
+                obj.Enabled = false
+            elseif obj:IsA("Atmosphere") or obj:IsA("Clouds") then
+                obj:Destroy()
+            end
+        end)
+    end
+
+    local function applyLowGraphics(enable)
+        if enable then
+            -- 1. Optimize all existing objects in workspace & Lighting
+            pcall(function()
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    optimizeObject(obj)
+                end
+                for _, obj in ipairs(Lighting:GetDescendants()) do
+                    optimizeObject(obj)
+                end
+            end)
+
+            -- 2. Strip Terrain decoration (3D grass) & water physics
+            pcall(function()
+                local terrain = workspace:FindFirstChildOfClass("Terrain") or workspace.Terrain
+                if terrain then
+                    terrain.Decoration = false
+                    terrain.WaterWaveSize = 0
+                    terrain.WaterWaveSpeed = 0
+                    terrain.WaterReflectance = 0
+                    terrain.WaterTransparency = 0
+                end
+            end)
+
+            -- 3. Lighting settings
+            pcall(function()
+                Lighting.GlobalShadows = false
+                Lighting.FogEnd = 9e9
+                Lighting.ShadowSoftness = 0
+                Lighting.Brightness = 1
+            end)
+
+            -- 4. Set Roblox client rendering level to Level01 (Minimum)
+            pcall(function()
+                if settings and settings().Rendering then
+                    settings().Rendering.QualityLevel = 1
+                    settings().Rendering.EditQualityLevel = 1
+                end
+            end)
+
+            -- 5. Real-time DescendantAdded listener for new cars / stream-in parts
+            if not lowGraphicsConn then
+                lowGraphicsConn = workspace.DescendantAdded:Connect(function(obj)
+                    if Config.settings.lowGraphics then
+                        optimizeObject(obj)
+                    end
+                end)
+            end
+            if not lowGraphicsLightingConn then
+                lowGraphicsLightingConn = Lighting.DescendantAdded:Connect(function(obj)
+                    if Config.settings.lowGraphics then
+                        optimizeObject(obj)
+                    end
+                end)
+            end
+        else
+            -- Disconnect listeners
+            if lowGraphicsConn then
+                lowGraphicsConn:Disconnect()
+                lowGraphicsConn = nil
+            end
+            if lowGraphicsLightingConn then
+                lowGraphicsLightingConn:Disconnect()
+                lowGraphicsLightingConn = nil
+            end
+
+            -- Restore basic lighting & terrain decoration
+            pcall(function()
+                Lighting.GlobalShadows = true
+                Lighting.FogEnd = 1e4
+                local terrain = workspace:FindFirstChildOfClass("Terrain") or workspace.Terrain
+                if terrain then
+                    terrain.Decoration = true
+                end
+            end)
+        end
+    end
+
+    _G.HipHubApplyLowGraphics = applyLowGraphics
+
+    -- Apply initial performance settings
+    task.spawn(function()
+        if Config.settings.lowGraphics then
+            task.wait(0.5)
+            applyLowGraphics(true)
+        end
+        if Config.settings.fpsCap and setfpscap then
+            pcall(setfpscap, Config.settings.fpsCap)
+        end
+    end)
+
+
+    ------------------------------------------------
     -- ANTI-AFK SYSTEM
     ------------------------------------------------
     player.Idled:Connect(function()
@@ -398,31 +522,14 @@ local success, err = pcall(function()
         if setfpscap then pcall(setfpscap, v) end
     end, 3)
 
-    UI.AddToggle(perfSec, "Low Graphics / Anti-Lag Mode", Config.settings.lowGraphics, function(v)
+    UI.AddToggle(perfSec, "Low Graphics / Ultra FPS Boost", Config.settings.lowGraphics, function(v)
         Config.settings.lowGraphics = v
         autoSave()
-        pcall(function()
-            for _, obj in pairs(workspace:GetDescendants()) do
-                if v then
-                    if obj:IsA("BasePart") and not obj:IsA("MeshPart") then
-                        obj.Material = Enum.Material.SmoothPlastic
-                    elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                        obj.Transparency = 1
-                    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
-                        obj.Enabled = false
-                    end
-                end
-            end
-            if v then
-                Lighting.GlobalShadows = false
-                Lighting.FogEnd = 1e6
-                if settings and settings().Rendering then
-                    settings().Rendering.QualityLevel = 1
-                end
-            end
-        end)
+        applyLowGraphics(v)
         if v then
-            UI.Notify("Optimization", "Material dan efek diturunkan untuk performa.", 2, "success")
+            UI.Notify("FPS Booster", "Low Graphics aktif: PBR, Mesh, Shadow, Terrain & Partikel dibersihkan.", 3, "success")
+        else
+            UI.Notify("FPS Booster", "Low Graphics dinonaktifkan.", 2, "info")
         end
     end, 4)
 

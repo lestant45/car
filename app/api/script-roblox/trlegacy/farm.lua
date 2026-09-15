@@ -366,7 +366,7 @@ local success, err = pcall(function()
 	end, 11)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
-	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Khusus Di Atas Tanah)", 12)
+	local driveSection = UI.AddSection(tab, "Auto Drive Circle", 12)
 
 	driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 13)
 	driveCashCard = UI.AddStatsCard(driveSection, "Live Cash / Balance", "RM 0 (+RM 0)", 14)

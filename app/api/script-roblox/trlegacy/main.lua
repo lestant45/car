@@ -295,11 +295,11 @@ local success, err = pcall(function()
         jumpPower = v
     end, 2)
 
-    UI.AddToggle(charSec, "Character Noclip (Tembus Tembok)", noclipActive, function(v)
+    UI.AddToggle(charSec, "Character Noclip", noclipActive, function(v)
         noclipActive = v
     end, 3)
 
-    UI.AddToggle(charSec, "Infinite Jump (Lompat Bebas di Udara)", infJump, function(v)
+    UI.AddToggle(charSec, "Infinite Jump", infJump, function(v)
         infJump = v
     end, 4)
 
@@ -321,11 +321,11 @@ local success, err = pcall(function()
     -- Utilities Section
     local srvSec = UI.AddSection(mFrame, "Server & Diagnostics", 5)
 
-    UI.AddButton(srvSec, "Rejoin Server Saat Ini", function()
+    UI.AddButton(srvSec, "Rejoin Current Server", function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
     end, 1)
 
-    UI.AddButton(srvSec, "Server Hop (Pindah Server)", function()
+    UI.AddButton(srvSec, "Hop Server", function()
         TeleportService:Teleport(game.PlaceId, player)
     end, 2)
 end)
