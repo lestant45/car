@@ -99,63 +99,6 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Universal Multi-Layer Ghost Telemetry Suppressor: Completely blocks RaceGhostSubmit packet leaks
-	pcall(function()
-
-		-- Layer 2: Neutralize GhostRecorder state & frames so recorder remains completely inert
-		local okRecorder, GhostRecorder = pcall(function()
-			return require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
-		end)
-		if okRecorder and GhostRecorder then
-			if GhostRecorder.update then
-				local oldUpdate = GhostRecorder.update
-				GhostRecorder.update = function(self, ...)
-					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
-						self.recording = false
-						self.frames = {}
-						return
-					end
-					return oldUpdate(self, ...)
-				end
-			end
-			if GhostRecorder.startLap then
-				local oldStart = GhostRecorder.startLap
-				GhostRecorder.startLap = function(self, ...)
-					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
-						self.recording = false
-						self.frames = {}
-						return
-					end
-					return oldStart(self, ...)
-				end
-			end
-			if GhostRecorder.finishLap then
-				local oldFinish = GhostRecorder.finishLap
-				GhostRecorder.finishLap = function(self, ...)
-					if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
-						self.recording = false
-						self.frames = {}
-						return {}
-					end
-					return oldFinish(self, ...)
-				end
-			end
-		end
-
-		-- Layer 3: Hook Warp.Client instances directly
-		local okWarp, Warp = pcall(function()
-			return require(ReplicatedStorage.Modules.Warp)
-		end)
-		if okWarp and Warp and Warp.Client then
-			local ghostClient = Warp.Client("RaceGhostSubmit")
-			if ghostClient and ghostClient.Fire then
-				ghostClient.Fire = function(self, ...)
-					return nil
-				end
-			end
-		end
-	end)
-
 	-- Race definitions with verified IDs, rewards (Solo TimeTrial is 50% of Multi), and Base World Records
 	-- Real-time WR is dynamically queried via Warp remote: RaceLeaderboardQuery with +10% Dynamic Pacing
 	local RaceOptions = {
@@ -525,7 +468,9 @@ local success, err = pcall(function()
 						if enableNoclip then
 							desc.CanCollide = false
 						else
-							desc.CanCollide = true
+							local n = desc.Name:lower()
+							local isWheel = n:find("wheel") or n:find("tire") or desc.CollisionGroup == "BikeWheel"
+							desc.CanCollide = isWheel
 						end
 					end
 				end
@@ -644,21 +589,7 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 5: Hook RaceStartLights for countdown synchronization
-		local lightsOut = false
-		local lightsConn = nil
-		local startLightsClient = nil
-		pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			startLightsClient = Warp.Client("RaceStartLights")
-			lightsConn = startLightsClient:Connect(function(status)
-				if tostring(status) == "out" then
-					lightsOut = true
-				end
-			end)
-		end)
-
-		-- Step 6: Trigger solo race creation
+		-- Step 5: Trigger solo race creation
 		raceStatusCard.Set("Mendaftarkan race di StartingArea...")
 		local footer = menuPanel and menuPanel:FindFirstChild("Footer")
 		local quickBtn = footer and footer:FindFirstChild("Quick")
@@ -692,54 +623,39 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 7: Wait for InRace and enforce server countdown synchronization
+		-- Step 6: Wait for InRace and enforce server countdown synchronization
 		local tWaitInRace = os.clock()
 		while not player:GetAttribute("InRace") and (os.clock() - tWaitInRace) < 6 and Config.autoRace do
-			primary.AssemblyLinearVelocity = Vector3.zero
-			primary.AssemblyAngularVelocity = Vector3.zero
+			if primary and primary.Parent then
+				pcall(function()
+					primary.AssemblyLinearVelocity = Vector3.zero
+					primary.AssemblyAngularVelocity = Vector3.zero
+				end)
+			end
 			task.wait(0.2)
 		end
 
-		if not player:GetAttribute("InRace") and not lightsOut then
-			raceStatusCard.Set("Race belum mulai. Mencoba lagi...")
-			if lightsConn then
+		-- Anti-cheat delay: Hold position during the natural 3.5s countdown light sequence
+		local tPreRun = os.clock()
+		local countdownDuration = 3.5
+		while (os.clock() - tPreRun) < countdownDuration and Config.autoRace do
+			local remaining = math.ceil(countdownDuration - (os.clock() - tPreRun))
+			raceStatusCard.Set(string.format("Menunggu countdown lampu (%d s)...", remaining))
+			if primary and primary.Parent then
 				pcall(function()
-					if typeof(lightsConn) == "RBXScriptConnection" or (type(lightsConn) == "table" and lightsConn.Disconnect) or (type(lightsConn) == "userdata" and lightsConn.Disconnect) then
-						lightsConn:Disconnect()
-					elseif type(lightsConn) == "function" then
-						lightsConn()
-					end
+					primary.AssemblyLinearVelocity = Vector3.zero
+					primary.AssemblyAngularVelocity = Vector3.zero
 				end)
 			end
-			if lightsConn and startLightsClient and startLightsClient.Disconnect then
-				pcall(function() startLightsClient:Disconnect(lightsConn) end)
-			end
-			task.wait(2.0)
-			return false
-		end
-
-		-- Anti-cheat delay: Hold position until countdown light goes out
-		local tPreRun = os.clock()
-		while (os.clock() - tPreRun) < 9.0 and not lightsOut and Config.autoRace do
-			local remaining = math.ceil(9.0 - (os.clock() - tPreRun))
-			raceStatusCard.Set(string.format("Menunggu countdown lampu (%d s)...", remaining))
-			primary.AssemblyLinearVelocity = Vector3.zero
-			primary.AssemblyAngularVelocity = Vector3.zero
 			task.wait(0.25)
 		end
 
-		if not Config.autoRace then
-			if lightsConn and startLightsClient then
-				pcall(function() startLightsClient:Disconnect(lightsConn) end)
-			end
-			return false
-		end
+		if not Config.autoRace then return false end
 
-		-- Step 8: Smooth flight through ordered checkpoints
+		-- Step 7: Smooth flight through ordered checkpoints
 		local checkpoints = getCheckpointsForRace(raceModel)
 		if #checkpoints == 0 then
 			raceStatusCard.Set("Tidak ada checkpoint ditemukan.")
-			if lightsConn then pcall(function() lightsConn:Disconnect() end) end
 			task.wait(2.0)
 			return false
 		end
@@ -865,9 +781,6 @@ local success, err = pcall(function()
 		-- 3. No-Clip sudah dimatikan saat mendarat di garis finish agar validasi finish sah.
 		-- 4. Game akan men-teleport sendiri pemain dan motor kembali ke area pendaftaran race.
 		raceStatusCard.Set("Garis finish! Menunggu game memvalidasi balapan...")
-		if lightsConn and startLightsClient then
-			pcall(function() startLightsClient:Disconnect(lightsConn) end)
-		end
 
 		-- Pastikan No-Clip mati saat mendarat di finish
 		setFlightNoclipState(false)
