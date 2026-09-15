@@ -1325,10 +1325,7 @@ local success, err = pcall(function()
 		button.BackgroundTransparency = bgTrans
 		button.BorderSizePixel = 0
 		button.AutoButtonColor = false
-		button.Text = cleanText
-		button.TextColor3 = COLORS.textWhite
-		button.Font = Enum.Font.GothamBold
-		button.TextSize = 11
+		button.Text = ""
 		button.ZIndex = 4
 		button.Parent = wrapper
 
@@ -1336,7 +1333,7 @@ local success, err = pcall(function()
 		btnCorner.CornerRadius = UDim.new(0, 8)
 		btnCorner.Parent = button
 
-		-- Vertical 3D Light Gradient
+		-- Vertical 3D Light Gradient (Affects button background)
 		local btnGrad = Instance.new("UIGradient")
 		btnGrad.Rotation = 90
 		btnGrad.Color = ColorSequence.new({
@@ -1372,6 +1369,28 @@ local success, err = pcall(function()
 			NumberSequenceKeypoint.new(1.0, 1.0)
 		})
 		glossGrad.Parent = glossLine
+
+		-- Dedicated Pure White Text Label (Never darkened by UIGradient)
+		local btnLabel = Instance.new("TextLabel")
+		btnLabel.Name = "Label"
+		btnLabel.Size = UDim2.new(1, -16, 1, 0)
+		btnLabel.Position = UDim2.new(0, 8, 0, 0)
+		btnLabel.BackgroundTransparency = 1
+		btnLabel.Text = cleanText
+		btnLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		btnLabel.Font = Enum.Font.GothamBold
+		btnLabel.TextSize = 11
+		btnLabel.TextXAlignment = Enum.TextXAlignment.Center
+		btnLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		btnLabel.ZIndex = 6
+		btnLabel.Parent = button
+
+		button:GetPropertyChangedSignal("Text"):Connect(function()
+			if button.Text ~= "" then
+				btnLabel.Text = sanitizeText(button.Text)
+				button.Text = ""
+			end
+		end)
 
 		-- Hover Animation
 		button.MouseEnter:Connect(function()
