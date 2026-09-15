@@ -10,9 +10,9 @@ local success, err = pcall(function()
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRace = false,
-		selectedRace = "Race 2 (Small Circuit - RM 11,000)",
-		undergroundDepth = 25,
-		raceFlySpeed = 160,
+		selectedRace = "Race 1 (Mountain Race - RM 26,500 Solo)",
+		targetEarnEnabled = false,
+		targetEarnAmount = 100000,
 		checkpointDelay = 0.02,
 		returnToSurface = true,
 		autoDriveCircle = false,
@@ -22,10 +22,11 @@ local success, err = pcall(function()
 		autoLoop = true
 	}
 
+	if Config.targetEarnEnabled == nil then Config.targetEarnEnabled = false end
+	if Config.targetEarnAmount == nil or Config.targetEarnAmount <= 0 then Config.targetEarnAmount = 100000 end
 	if Config.circleRadius == nil then Config.circleRadius = 65 end
 	if Config.circleSpeed == nil then Config.circleSpeed = 150 end
 	if Config.antiStuck == nil then Config.antiStuck = true end
-	if Config.raceFlySpeed == nil or Config.raceFlySpeed > 220 then Config.raceFlySpeed = 160 end
 
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
@@ -137,13 +138,31 @@ local success, err = pcall(function()
 		return targetDuration, wrTime, riderName, jitter
 	end
 
-	-- Telemetry Stats
+	-- Telemetry Stats & Formatting Helpers
 	local totalRacesWon = 0
 	local totalRaceCash = 0
 	local totalDistanceTraveled = 0
 	local circleDriveStartTime = 0
 	local startDriveCash = nil
 	local startDriveMiles = nil
+	local sessionStartCash = nil
+
+	local function formatCash(amount)
+		return string.format("%.0f", amount or 0):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	end
+
+	-- Forward declarations for UI elements
+	local targetProgressCard = nil
+	local targetInput = nil
+	local targetToggle = nil
+	local raceStatusCard = nil
+	local raceEarningsCard = nil
+	local autoRaceToggle = nil
+	local driveStatusCard = nil
+	local driveCashCard = nil
+	local driveMilesCard = nil
+	local driveDistCard = nil
+	local autoDriveToggle = nil
 
 	-- Helper: Safely return bike to ground surface
 	local function returnBikeToSurface(bike, primary)
@@ -161,28 +180,132 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Dynamic Target Earn Progress Updater & Auto-Stop Controller
+	local function updateTargetProgress(currentCash)
+		local curCash = currentCash
+		if not curCash then
+			local ls = player:FindFirstChild("leaderstats")
+			curCash = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
+		end
+
+		if not sessionStartCash then
+			sessionStartCash = curCash
+		end
+
+		local targetAmount = math.max(tonumber(Config.targetEarnAmount) or 100000, 1000)
+		local earned = math.max(0, curCash - sessionStartCash)
+		local pct = math.clamp(math.floor((earned / targetAmount) * 100), 0, 100)
+
+		if targetProgressCard and targetProgressCard.Set then
+			if Config.targetEarnEnabled then
+				if earned >= targetAmount then
+					targetProgressCard.Set(string.format("TARGET TERCAPAI (+RM %s / RM %s)", formatCash(earned), formatCash(targetAmount)))
+				else
+					targetProgressCard.Set(string.format("+RM %s / RM %s (%d%% | Saldo: RM %s)", formatCash(earned), formatCash(targetAmount), pct, formatCash(curCash)))
+				end
+			else
+				targetProgressCard.Set(string.format("Nonaktif (+RM %s / RM %s | Saldo: RM %s)", formatCash(earned), formatCash(targetAmount), formatCash(curCash)))
+			end
+		end
+
+		-- Check auto-stop condition: stop farming immediately when target net profit is reached
+		if Config.targetEarnEnabled and earned >= targetAmount then
+			if Config.autoRace or Config.autoDriveCircle or _G.HipHub_IsAutoRacing or _G.HipHub_IsAutoDriving then
+				Config.autoRace = false
+				Config.autoDriveCircle = false
+				_G.HipHub_IsAutoRacing = false
+				_G.HipHub_IsAutoDriving = false
+
+				if autoRaceToggle and autoRaceToggle.Set then
+					autoRaceToggle.Set(false)
+				end
+				if autoDriveToggle and autoDriveToggle.Set then
+					autoDriveToggle.Set(false)
+				end
+
+				if raceStatusCard and raceStatusCard.Set then
+					raceStatusCard.Set(string.format("Target RM %s Tercapai! Farming Berhenti.", formatCash(targetAmount)))
+				end
+				if driveStatusCard and driveStatusCard.Set then
+					driveStatusCard.Set(string.format("Target RM %s Tercapai! Farming Berhenti.", formatCash(targetAmount)))
+				end
+
+				local bike, seat, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
+				if bike and primary then
+					returnBikeToSurface(bike, primary)
+					primary.AssemblyLinearVelocity = Vector3.zero
+					primary.AssemblyAngularVelocity = Vector3.zero
+					if seat then seat.Throttle = 0 end
+				end
+
+				if UI and UI.Notify then
+					UI.Notify("Target Profit Tercapai", string.format("Farming selesai! Total profit: +RM %s (Saldo: RM %s)", formatCash(earned), formatCash(curCash)), 5, "success")
+				end
+			end
+		end
+	end
+
 	------------------------------------------------
 	-- UI: FARM TAB
 	------------------------------------------------
 
-	-- 1. AUTO RACE SECTION
-	local raceSection = UI.AddSection(tab, "Auto Race Track Farm", 1)
+	-- 0. TARGET PROFIT & SAFETY LIMITER SECTION
+	local targetSection = UI.AddSection(tab, "Target Profit & Safety Limiter", 1)
 
-	local raceStatusCard = UI.AddStatsCard(raceSection, "Race Status", "Idle", 2)
-	local raceEarningsCard = UI.AddStatsCard(raceSection, "Race Earnings", "RM 0 (0 Wins)", 3)
+	targetProgressCard = UI.AddStatsCard(targetSection, "Target Profit Progress", "Nonaktif (Target: RM 100,000)", 2)
+
+	targetInput = UI.AddInput(targetSection, "Target Profit (RM)", "Contoh: 100000", tostring(Config.targetEarnAmount or 100000), function(text)
+		local cleaned = text:gsub("[^%d]", "")
+		local num = tonumber(cleaned)
+		if num and num > 0 then
+			Config.targetEarnAmount = num
+			updateTargetProgress()
+			UI.Notify("Target Profit", "Target profit diatur ke RM " .. formatCash(num), 2, "info")
+		end
+	end, 3)
+
+	targetToggle = UI.AddToggle(targetSection, "Enable Auto-Stop Saat Target Tercapai", Config.targetEarnEnabled, function(enabled)
+		Config.targetEarnEnabled = enabled
+		updateTargetProgress()
+		UI.Notify("Target Earn", enabled and ("Auto-Stop aktif jika profit mencapai RM " .. formatCash(Config.targetEarnAmount)) or "Auto-Stop dinonaktifkan", 3, "info")
+	end, 4)
+
+	local resetTargetBtn = UI.AddButton(targetSection, "Reset Hitungan Profit Sesi", function()
+		local ls = player:FindFirstChild("leaderstats")
+		local cur = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
+		sessionStartCash = cur
+		totalRacesWon = 0
+		totalRaceCash = 0
+		if raceEarningsCard and raceEarningsCard.Set then
+			raceEarningsCard.Set("RM 0 (0 Wins)")
+		end
+		updateTargetProgress(cur)
+		UI.Notify("Target Profit", "Hitungan profit sesi di-reset ke RM 0!", 2, "info")
+	end, 5, "secondary")
+
+	-- 1. AUTO RACE SECTION
+	local raceSection = UI.AddSection(tab, "Auto Race Track Farm", 6)
+
+	raceStatusCard = UI.AddStatsCard(raceSection, "Race Status", "Idle", 7)
+	raceEarningsCard = UI.AddStatsCard(raceSection, "Race Earnings", "RM 0 (0 Wins)", 8)
 
 	local raceDropdown = UI.AddDropdown(raceSection, "Select Track Target", raceDropdownList, Config.selectedRace, function(selected)
 		Config.selectedRace = selected
-	end, 4)
+	end, 9)
 
 	local delaySlider = UI.AddSlider(raceSection, "Checkpoint Delay", 0.00, 0.30, Config.checkpointDelay or 0.02, function(val)
 		Config.checkpointDelay = val
-	end, 0.01, "s", 5)
+	end, 0.01, "s", 10)
 
-	local autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race (WR + 10% Dynamic Pacing)", Config.autoRace, function(enabled)
+	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race (WR + 10% Dynamic Pacing)", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
 		if enabled then
+			if not sessionStartCash then
+				local ls = player:FindFirstChild("leaderstats")
+				sessionStartCash = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
+			end
+			updateTargetProgress()
 			UI.Notify("Auto Race", "Memulai auto race (WR + 10% Dynamic Pacing)...", 3, "success")
 		else
 			UI.Notify("Auto Race", "Menghentikan auto race.", 2, "info")
@@ -192,27 +315,27 @@ local success, err = pcall(function()
 				returnBikeToSurface(bike, primary)
 			end
 		end
-	end, 6)
+	end, 11)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
-	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Khusus Di Atas Tanah)", 9)
+	local driveSection = UI.AddSection(tab, "Auto Drive Memutar (Khusus Di Atas Tanah)", 12)
 
-	local driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 10)
-	local driveCashCard = UI.AddStatsCard(driveSection, "Live Cash / Balance", "RM 0 (+RM 0)", 11)
-	local driveMilesCard = UI.AddStatsCard(driveSection, "Odometer Miles", "0 mi (+0 mi)", 12)
-	local driveDistCard = UI.AddStatsCard(driveSection, "Distance Traveled", "0.00 km", 13)
+	driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 13)
+	driveCashCard = UI.AddStatsCard(driveSection, "Live Cash / Balance", "RM 0 (+RM 0)", 14)
+	driveMilesCard = UI.AddStatsCard(driveSection, "Odometer Miles", "0 mi (+0 mi)", 15)
+	driveDistCard = UI.AddStatsCard(driveSection, "Distance Traveled", "0.00 km", 16)
 
 	local radiusSlider = UI.AddSlider(driveSection, "Ruas Lingkaran (Radius)", 15, 300, Config.circleRadius or 65, function(val)
 		Config.circleRadius = val
-	end, 5, " studs", 14)
+	end, 5, " studs", 17)
 
 	local driveSpeedSlider = UI.AddSlider(driveSection, "Kecepatan Memutar", 50, 300, Config.circleSpeed or 150, function(val)
 		Config.circleSpeed = val
-	end, 5, " km/h", 15)
+	end, 5, " km/h", 18)
 
 	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip (Tembus Rintangan)", Config.antiStuck ~= false, function(v)
 		Config.antiStuck = v
-	end, 16)
+	end, 19)
 
 	local unstuckBtn = UI.AddButton(driveSection, "Unstuck Manual (Lepaskan Motor)", function()
 		local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
@@ -222,15 +345,20 @@ local success, err = pcall(function()
 			primary.AssemblyLinearVelocity = look * 120 + Vector3.new(0, 15, 0)
 			UI.Notify("Anti-Stuck", "Motor dilepaskan dari rintangan!", 2, "success")
 		end
-	end, 17)
+	end, 20)
 
-	local autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar (Di Atas Tanah)", Config.autoDriveCircle, function(enabled)
+	autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar (Di Atas Tanah)", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
 		_G.HipHub_IsAutoDriving = enabled
 		if enabled then
 			circleDriveStartTime = os.clock()
 			startDriveCash = nil
 			startDriveMiles = nil
+			if not sessionStartCash then
+				local ls = player:FindFirstChild("leaderstats")
+				sessionStartCash = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
+			end
+			updateTargetProgress()
 			UI.Notify("Auto Drive", "Memulai circular drive di atas tanah (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
 		else
 			UI.Notify("Auto Drive", "Menghentikan circular drive.", 2, "info")
@@ -244,7 +372,7 @@ local success, err = pcall(function()
 				if seat then seat.Throttle = 0 end
 			end
 		end
-	end, 18)
+	end, 21)
 
 	------------------------------------------------
 	-- UNDERGROUND AUTO RACE LOGIC
@@ -321,6 +449,10 @@ local success, err = pcall(function()
 	end
 
 	local function runRaceCycle()
+		if not Config.autoRace then return false end
+
+		local cur = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or nil
+		if cur then updateTargetProgress(cur) end
 		if not Config.autoRace then return false end
 
 		local raceData = RaceOptions[Config.selectedRace] or RaceOptions[raceDropdownList[1]]
@@ -679,10 +811,12 @@ local success, err = pcall(function()
 
 		totalRacesWon = totalRacesWon + 1
 		totalRaceCash = totalRaceCash + earned
-		raceEarningsCard.Set(string.format("RM %s (%d Wins)", string.format("%.0f", totalRaceCash):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""), totalRacesWon))
-		raceStatusCard.Set(string.format("Selesai! Menang RM %d", earned))
+		raceEarningsCard.Set(string.format("RM %s (%d Wins)", formatCash(totalRaceCash), totalRacesWon))
+		raceStatusCard.Set(string.format("Selesai! Menang RM %s", formatCash(earned)))
 
-		UI.Notify("Auto Race", string.format("Finish %s (+RM %d)", raceData.modelName, earned), 3, "success")
+		UI.Notify("Auto Race", string.format("Finish %s (+RM %s)", raceData.modelName, formatCash(earned)), 3, "success")
+
+		updateTargetProgress(currentCash)
 
 		-- Wait for server cooldown (RaceCooldownUntil) + Natural Human Rest Buffer (10-15s)
 		local tCooldown = os.clock()
@@ -999,13 +1133,30 @@ local success, err = pcall(function()
 				end
 				local diffCash = curCash - startDriveCash
 				local diffMiles = curMiles - startDriveMiles
-				driveCashCard.Set(string.format("RM %s (+RM %d)", string.format("%.0f", curCash):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""), diffCash))
+				driveCashCard.Set(string.format("RM %s (+RM %s)", formatCash(curCash), formatCash(diffCash)))
 				driveMilesCard.Set(string.format("%d mi (+%d mi)", curMiles, diffMiles))
+
+				updateTargetProgress(curCash)
 			end
 		end)
 
 		local elapsed = math.floor(os.clock() - circleDriveStartTime)
 		driveStatusCard.Set(string.format("Di Atas Tanah | R: %d | %d km/h (%02d:%02d)", radius, speed, math.floor(elapsed / 60), elapsed % 60))
+	end)
+
+	-- Initialize session cash and connect real-time leaderstats listener
+	pcall(function()
+		local ls = player:FindFirstChild("leaderstats") or player:WaitForChild("leaderstats", 5)
+		if ls then
+			local cashVal = ls:FindFirstChild("Cash") or ls:WaitForChild("Cash", 5)
+			if cashVal then
+				sessionStartCash = cashVal.Value
+				updateTargetProgress(cashVal.Value)
+				cashVal.Changed:Connect(function(newVal)
+					updateTargetProgress(newVal)
+				end)
+			end
+		end
 	end)
 end)
 

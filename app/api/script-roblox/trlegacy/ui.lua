@@ -1411,6 +1411,91 @@ local success, err = pcall(function()
 		return proxy
 	end
 
+	-- Text / Number Input Box Item
+	local function addInput(parent, labelText, placeholderText, defaultValue, callback, layoutOrder)
+		local cleanLabel = sanitizeText(labelText)
+		local cleanPlaceholder = sanitizeText(placeholderText or "Ketik di sini...")
+
+		local container = Instance.new("Frame")
+		container.Name = "Input_" .. cleanLabel:gsub("%s+", "")
+		container.Size = UDim2.new(1, 0, 0, 42)
+		container.BackgroundColor3 = COLORS.glassCard
+		container.BackgroundTransparency = TRANSPARENCY.glassCard
+		container.BorderSizePixel = 0
+		container.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
+		container.ZIndex = 3
+		container.Parent = parent
+
+		applyGlass(container, {
+			corner = CORNER.small,
+			stroke = true,
+			strokeColor = COLORS.borderGlass,
+			strokeThickness = 1,
+			strokeTransparency = 0.75
+		})
+
+		local titleLabel = Instance.new("TextLabel")
+		titleLabel.Size = UDim2.new(0.48, 0, 1, 0)
+		titleLabel.Position = UDim2.new(0, 12, 0, 0)
+		titleLabel.BackgroundTransparency = 1
+		titleLabel.Text = cleanLabel
+		titleLabel.TextColor3 = COLORS.textPrimary
+		titleLabel.Font = Enum.Font.GothamMedium
+		titleLabel.TextSize = 11
+		titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+		titleLabel.ZIndex = 4
+		titleLabel.Parent = container
+
+		local boxFrame = Instance.new("Frame")
+		boxFrame.Size = UDim2.new(0.48, -12, 0, 26)
+		boxFrame.Position = UDim2.new(0.52, 0, 0.5, -13)
+		boxFrame.BackgroundColor3 = COLORS.glassSurface
+		boxFrame.BackgroundTransparency = 0.15
+		boxFrame.BorderSizePixel = 0
+		boxFrame.ZIndex = 4
+		boxFrame.Parent = container
+
+		applyGlass(boxFrame, {
+			corner = CORNER.small,
+			stroke = true,
+			strokeColor = COLORS.accentCyan,
+			strokeThickness = 1,
+			strokeTransparency = 0.65
+		})
+
+		local textBox = Instance.new("TextBox")
+		textBox.Size = UDim2.new(1, -12, 1, 0)
+		textBox.Position = UDim2.new(0, 6, 0, 0)
+		textBox.BackgroundTransparency = 1
+		textBox.Text = tostring(defaultValue or "")
+		textBox.PlaceholderText = cleanPlaceholder
+		textBox.PlaceholderColor3 = COLORS.textMuted
+		textBox.TextColor3 = COLORS.textWhite
+		textBox.Font = Enum.Font.GothamBold
+		textBox.TextSize = 11
+		textBox.TextXAlignment = Enum.TextXAlignment.Center
+		textBox.ClearTextOnFocus = false
+		textBox.ZIndex = 5
+		textBox.Parent = boxFrame
+
+		textBox.FocusLost:Connect(function(enterPressed)
+			if callback then
+				pcall(callback, textBox.Text, enterPressed)
+			end
+		end)
+
+		return {
+			Frame = container,
+			TextBox = textBox,
+			Set = function(newVal)
+				textBox.Text = tostring(newVal)
+			end,
+			Get = function()
+				return textBox.Text
+			end
+		}
+	end
+
 	------------------------------------------------
 	-- TOAST NOTIFICATIONS
 	------------------------------------------------
@@ -1573,6 +1658,7 @@ local success, err = pcall(function()
 		AddButton = addButton,
 		AddLabel = addLabel,
 		AddStatsCard = addStatsCard,
+		AddInput = addInput,
 		Notify = notify,
 		SyncShadow = syncShadow
 	}
