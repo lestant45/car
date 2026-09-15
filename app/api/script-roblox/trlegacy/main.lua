@@ -321,27 +321,13 @@ local success, err = pcall(function()
     -- Utilities Section
     local srvSec = UI.AddSection(mFrame, "Server & Diagnostics", 5)
 
-    UI.AddButton(srvSec, "Salin Posisi Saat Ini (Vector3)", function()
-        local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-        if root then
-            local pos = root.Position
-            local str = string.format("Vector3.new(%.2f, %.2f, %.2f)", pos.X, pos.Y, pos.Z)
-            if setclipboard then
-                setclipboard(str)
-                UI.Notify("Koordinat Disalin", str, 3, "success")
-            else
-                UI.Notify("Koordinat", str, 3, "info")
-            end
-        end
-    end, 1)
-
     UI.AddButton(srvSec, "Rejoin Server Saat Ini", function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
-    end, 2)
+    end, 1)
 
     UI.AddButton(srvSec, "Server Hop (Pindah Server)", function()
         TeleportService:Teleport(game.PlaceId, player)
-    end, 3)
+    end, 2)
 end)
 
 if not success then

@@ -388,16 +388,6 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 19)
 
-	local unstuckBtn = UI.AddButton(driveSection, "Unstuck Manual (Lepaskan Motor)", function()
-		local bike, _, primary = _G.HipHub_GetPlayerBike and _G.HipHub_GetPlayerBike()
-		if bike and primary then
-			local look = primary.CFrame.LookVector
-			bike:PivotTo(bike:GetPivot() + Vector3.new(0, 4, 0) + (look * 10))
-			primary.AssemblyLinearVelocity = look * 120 + Vector3.new(0, 15, 0)
-			UI.Notify("Anti-Stuck", "Motor dilepaskan dari rintangan!", 2, "success")
-		end
-	end, 20)
-
 	autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive Memutar (Di Atas Tanah)", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
 		_G.HipHub_IsAutoDriving = enabled

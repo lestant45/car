@@ -1245,85 +1245,166 @@ local success, err = pcall(function()
 		return proxy
 	end
 
-	-- Push Button
+	-- Push Button (Elevated 3D Glassmorphic Action Button with Specular Glow & Drop Shadow)
 	local function addButton(parent, text, callback, layoutOrder, style)
 		local cleanText = sanitizeText(text)
-		local btnBg = COLORS.glassCard
-		local btnFg = COLORS.textWhite
-		local strokeCol = COLORS.accentCyan
-		local strokeTrans = 0.55
-		local bgTrans = 0.2
+		
+		-- Color palettes for different styles
+		local topCol, botCol, strokeCol, hoverTopCol, hoverBotCol
+		local strokeTrans = 0.35
+		local bgTrans = 0.05
 
 		if style == "primary" then
-			btnBg = COLORS.glassHover
-			btnFg = COLORS.textWhite
-			strokeCol = COLORS.accentCyan
-			strokeTrans = 0.35
-			bgTrans = 0.1
-		elseif style == "secondary" then
-			btnBg = COLORS.glassCard
-			btnFg = COLORS.textWhite
-			strokeCol = COLORS.borderGlass
-			strokeTrans = 0.75
-			bgTrans = 0.25
+			topCol = Color3.fromRGB(0, 155, 235)
+			botCol = Color3.fromRGB(0, 95, 180)
+			hoverTopCol = Color3.fromRGB(20, 180, 255)
+			hoverBotCol = Color3.fromRGB(0, 120, 210)
+			strokeCol = Color3.fromRGB(80, 210, 255)
+			strokeTrans = 0.2
 		elseif style == "danger" then
-			btnBg = COLORS.dangerRed
-			btnFg = COLORS.textWhite
-			strokeCol = COLORS.dangerRed
-			strokeTrans = 0.4
-			bgTrans = 0.15
+			topCol = Color3.fromRGB(225, 55, 65)
+			botCol = Color3.fromRGB(155, 25, 35)
+			hoverTopCol = Color3.fromRGB(245, 75, 85)
+			hoverBotCol = Color3.fromRGB(180, 35, 45)
+			strokeCol = Color3.fromRGB(255, 120, 130)
+			strokeTrans = 0.25
 		elseif style == "success" then
-			btnBg = COLORS.successGreen
-			btnFg = COLORS.textWhite
-			strokeCol = COLORS.successGreen
+			topCol = Color3.fromRGB(42, 195, 105)
+			botCol = Color3.fromRGB(22, 135, 68)
+			hoverTopCol = Color3.fromRGB(55, 220, 125)
+			hoverBotCol = Color3.fromRGB(30, 160, 80)
+			strokeCol = Color3.fromRGB(100, 240, 150)
+			strokeTrans = 0.25
+		elseif style == "secondary" then
+			topCol = Color3.fromRGB(32, 40, 68)
+			botCol = Color3.fromRGB(18, 22, 40)
+			hoverTopCol = Color3.fromRGB(44, 55, 92)
+			hoverBotCol = Color3.fromRGB(26, 32, 58)
+			strokeCol = Color3.fromRGB(75, 95, 150)
 			strokeTrans = 0.4
-			bgTrans = 0.15
-		else
-			btnBg = COLORS.glassCard
-			btnFg = COLORS.textWhite
-			strokeCol = COLORS.borderGlass
-			strokeTrans = 0.65
-			bgTrans = 0.2
+		else -- Default elevated button style
+			topCol = Color3.fromRGB(34, 46, 80)
+			botCol = Color3.fromRGB(18, 24, 44)
+			hoverTopCol = Color3.fromRGB(48, 64, 110)
+			hoverBotCol = Color3.fromRGB(26, 36, 64)
+			strokeCol = COLORS.accentBlend
+			strokeTrans = 0.35
 		end
 
+		-- Outer wrapper frame for drop shadow and layout positioning
+		local wrapper = Instance.new("Frame")
+		wrapper.Name = "BtnWrap_" .. cleanText:gsub("%s+", "")
+		wrapper.Size = UDim2.new(1, 0, 0, 34)
+		wrapper.BackgroundTransparency = 1
+		wrapper.BorderSizePixel = 0
+		wrapper.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
+		wrapper.ZIndex = 3
+		wrapper.Parent = parent
+
+		-- 3D Drop Shadow Frame behind the button
+		local shadow = Instance.new("Frame")
+		shadow.Name = "DropShadow"
+		shadow.Size = UDim2.new(1, 0, 1, 0)
+		shadow.Position = UDim2.new(0, 0, 0, 2)
+		shadow.BackgroundColor3 = Color3.fromRGB(4, 6, 14)
+		shadow.BackgroundTransparency = 0.4
+		shadow.BorderSizePixel = 0
+		shadow.ZIndex = 3
+		shadow.Parent = wrapper
+
+		local shadowCorner = Instance.new("UICorner")
+		shadowCorner.CornerRadius = UDim.new(0, 8)
+		shadowCorner.Parent = shadow
+
+		-- Main Interactive Button Frame
 		local button = Instance.new("TextButton")
-		button.Name = "Btn_" .. cleanText:gsub("%s+", "")
-		button.Size = UDim2.new(1, 0, 0, 32)
-		button.BackgroundColor3 = btnBg
+		button.Name = "Button"
+		button.Size = UDim2.new(1, 0, 1, 0)
+		button.Position = UDim2.new(0, 0, 0, 0)
+		button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 		button.BackgroundTransparency = bgTrans
+		button.BorderSizePixel = 0
+		button.AutoButtonColor = false
 		button.Text = cleanText
 		button.TextColor3 = COLORS.textWhite
 		button.Font = Enum.Font.GothamBold
 		button.TextSize = 11
-		button.LayoutOrder = resolveLayoutOrder(parent, layoutOrder)
-		button.ZIndex = 3
-		button.Parent = parent
+		button.ZIndex = 4
+		button.Parent = wrapper
 
-		applyGlass(button, {
-			corner = CORNER.small,
-			color = btnBg,
-			transparency = bgTrans,
-			stroke = true,
-			strokeColor = strokeCol,
-			strokeThickness = 1,
-			strokeTransparency = strokeTrans
+		local btnCorner = Instance.new("UICorner")
+		btnCorner.CornerRadius = UDim.new(0, 8)
+		btnCorner.Parent = button
+
+		-- Vertical 3D Light Gradient
+		local btnGrad = Instance.new("UIGradient")
+		btnGrad.Rotation = 90
+		btnGrad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0.0, topCol),
+			ColorSequenceKeypoint.new(1.0, botCol)
 		})
+		btnGrad.Parent = button
 
+		-- Crisp Outer Accent Stroke
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = strokeCol
+		stroke.Thickness = 1.2
+		stroke.Transparency = strokeTrans
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Parent = button
+
+		-- Top Specular Gloss Highlight (Frosted glass reflection line)
+		local glossLine = Instance.new("Frame")
+		glossLine.Name = "GlossHighlight"
+		glossLine.Size = UDim2.new(1, -12, 0, 1)
+		glossLine.Position = UDim2.new(0, 6, 0, 1)
+		glossLine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		glossLine.BackgroundTransparency = 0.8
+		glossLine.BorderSizePixel = 0
+		glossLine.ZIndex = 5
+		glossLine.Parent = button
+
+		local glossGrad = Instance.new("UIGradient")
+		glossGrad.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0.0, 1.0),
+			NumberSequenceKeypoint.new(0.2, 0.4),
+			NumberSequenceKeypoint.new(0.8, 0.4),
+			NumberSequenceKeypoint.new(1.0, 1.0)
+		})
+		glossGrad.Parent = glossLine
+
+		-- Hover Animation
 		button.MouseEnter:Connect(function()
-			TweenService:Create(button, TweenInfo.new(0.12), { BackgroundColor3 = COLORS.glassHover, BackgroundTransparency = 0.1 }):Play()
+			btnGrad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0.0, hoverTopCol),
+				ColorSequenceKeypoint.new(1.0, hoverBotCol)
+			})
+			TweenService:Create(stroke, TweenInfo.new(0.15), { Transparency = math.max(0.05, strokeTrans - 0.2) }):Play()
+			TweenService:Create(glossLine, TweenInfo.new(0.15), { BackgroundTransparency = 0.6 }):Play()
 		end)
 
 		button.MouseLeave:Connect(function()
-			TweenService:Create(button, TweenInfo.new(0.15), { BackgroundColor3 = btnBg, BackgroundTransparency = bgTrans }):Play()
+			btnGrad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0.0, topCol),
+				ColorSequenceKeypoint.new(1.0, botCol)
+			})
+			TweenService:Create(stroke, TweenInfo.new(0.18), { Transparency = strokeTrans }):Play()
+			TweenService:Create(glossLine, TweenInfo.new(0.18), { BackgroundTransparency = 0.8 }):Play()
+			button.Position = UDim2.new(0, 0, 0, 0)
+		end)
+
+		-- Tactile Mechanical Press Animation
+		button.MouseButton1Down:Connect(function()
+			button.Position = UDim2.new(0, 0, 0, 1.5)
+			TweenService:Create(button, TweenInfo.new(0.06), { BackgroundTransparency = 0.2 }):Play()
+		end)
+
+		button.MouseButton1Up:Connect(function()
+			button.Position = UDim2.new(0, 0, 0, 0)
+			TweenService:Create(button, TweenInfo.new(0.1), { BackgroundTransparency = bgTrans }):Play()
 		end)
 
 		button.MouseButton1Click:Connect(function()
-			TweenService:Create(button, TweenInfo.new(0.08), { BackgroundTransparency = 0.4 }):Play()
-			task.delay(0.1, function()
-				if button and button.Parent then
-					TweenService:Create(button, TweenInfo.new(0.12), { BackgroundTransparency = bgTrans }):Play()
-				end
-			end)
 			if callback then
 				pcall(callback)
 			end
