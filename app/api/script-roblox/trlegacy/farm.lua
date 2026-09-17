@@ -645,25 +645,16 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Step 2: Check for post-race cooldown
-		local cooldownAttr = player:GetAttribute("RaceCooldownUntil")
-		if type(cooldownAttr) == "number" then
-			local rem = math.ceil(cooldownAttr - Workspace:GetServerTimeNow())
-			if rem > 0 then
-				raceStatusCard.Set(string.format("Cooldown: %d s...", rem))
-				task.wait(1.0)
-				return true
-			end
-		end
-
-		-- Step 3: Position bike at StartingArea (only teleport if far away)
+		-- Step 2: Ensure StartingArea position & clean up any leftover session
 		local startArea = raceModel:FindFirstChild("StartingArea") or raceModel:GetPivot()
 		raceStatusCard.Set("Menuju Starting Area " .. raceData.modelName .. "...")
 
-		-- Matikan No-Clip di StartingArea agar motor berdiri kokoh di atas aspal (tidak tembus tanah!)
+		-- Matikan No-Clip di StartingArea agar motor berdiri kokoh di atas aspal
 		setBikeNoclipSafe(bike, false)
 		local oldBV = primary:FindFirstChild("FarmBV")
 		if oldBV then pcall(function() oldBV:Destroy() end) end
+
+		fireWarp("RaceSessionAction", true, "leave", { zoneId = raceData.id })
 
 		local startAreaPos = typeof(startArea) == "CFrame" and startArea.Position or (startArea:IsA("BasePart") and startArea.Position or (startArea.Position or primary.Position))
 		local rayParams = RaycastParams.new()
@@ -675,21 +666,41 @@ local success, err = pcall(function()
 		local startCF = CFrame.new(startAreaPos.X, groundY, startAreaPos.Z) * rotCF
 
 		local distToStart = (primary.Position - startCF.Position).Magnitude
-		if distToStart > 25 then
+		if distToStart > 10 then
 			bike:PivotTo(startCF)
 		end
 		primary.AssemblyLinearVelocity = Vector3.zero
 		primary.AssemblyAngularVelocity = Vector3.zero
 
-		-- Step 4: Wait for RacingUI MenuPanel to open
+		-- Step 3: Check for post-race cooldown (while stationed in StartingArea)
+		local tCdWait = os.clock()
+		while Config.autoRace do
+			local cd = player:GetAttribute("RaceCooldownUntil")
+			local remServer = (type(cd) == "number") and math.ceil(cd - Workspace:GetServerTimeNow()) or 0
+			if remServer > 0 then
+				raceStatusCard.Set(string.format("Cooldown Server: %d s...", remServer))
+				if (primary.Position - startCF.Position).Magnitude > 10 then
+					bike:PivotTo(startCF)
+				end
+				primary.AssemblyLinearVelocity = Vector3.zero
+				primary.AssemblyAngularVelocity = Vector3.zero
+				task.wait(1.0)
+			else
+				break
+			end
+		end
+
+		if not Config.autoRace then return false end
+
+		-- Step 4: Wait for RacingUI MenuPanel to open in StartingArea
 		local racingUI = player.PlayerGui:WaitForChild("RacingUI", 5)
 		local menuPanel = nil
 		if racingUI and racingUI:FindFirstChild("MainFrame") then
 			menuPanel = racingUI.MainFrame:FindFirstChild("MenuPanel")
 		end
 		local tWaitMenu = os.clock()
-		while (not menuPanel or not menuPanel.Visible) and (os.clock() - tWaitMenu) < 4 and Config.autoRace do
-			if (primary.Position - startCF.Position).Magnitude > 25 then
+		while (not menuPanel or not menuPanel.Visible) and (os.clock() - tWaitMenu) < 6 and Config.autoRace do
+			if (primary.Position - startCF.Position).Magnitude > 10 then
 				bike:PivotTo(startCF)
 			end
 			primary.AssemblyLinearVelocity = Vector3.zero
@@ -700,13 +711,13 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 5: Trigger solo race creation
+		-- Step 5: Trigger Solo Race / Session Creation
 		raceStatusCard.Set("Mendaftarkan race di StartingArea...")
 		local footer = menuPanel and menuPanel:FindFirstChild("Footer")
 		local quickBtn = footer and footer:FindFirstChild("Quick")
 		if quickBtn then
 			local tQuick = os.clock()
-			while not quickBtn.Interactable and (os.clock() - tQuick) < 3 and Config.autoRace do
+			while not quickBtn.Interactable and (os.clock() - tQuick) < 4 and Config.autoRace do
 				task.wait(0.1)
 			end
 			safeClickButton(quickBtn)
@@ -718,32 +729,41 @@ local success, err = pcall(function()
 			config = { Mode = "TimeTrial", Laps = 1, MaxPlayers = 1 }
 		})
 
-		-- Check if a start card appeared in active sessions
-		task.wait(0.5)
-		local active = menuPanel and menuPanel:FindFirstChild("Active")
-		local sessions = active and active:FindFirstChild("Sessions")
-		if sessions then
-			for _, card in ipairs(sessions:GetChildren()) do
-				if card:IsA("Frame") and card:FindFirstChild("Start") then
-					local startBtn = card.Start
-					local label = startBtn:FindFirstChild("Label") and startBtn.Label.Text or startBtn.Text
-					if tostring(label):upper():find("START") or tostring(label):upper():find("BALAP") then
-						safeClickButton(startBtn)
+		-- Watch active sessions card & trigger Start
+		local tSessionWait = os.clock()
+		while not player:GetAttribute("InRace") and (os.clock() - tSessionWait) < 5 and Config.autoRace do
+			local active = menuPanel and menuPanel:FindFirstChild("Active")
+			local sessions = active and active:FindFirstChild("Sessions")
+			if sessions then
+				for _, card in ipairs(sessions:GetChildren()) do
+					if card:IsA("Frame") and card:FindFirstChild("Start") then
+						local startBtn = card.Start
+						local label = startBtn:FindFirstChild("Label") and startBtn.Label.Text or startBtn.Text
+						local lblStr = tostring(label):upper()
+						if lblStr:find("START") or lblStr:find("BALAP") or lblStr:find("READY") or lblStr:find("JOIN") then
+							safeClickButton(startBtn)
+						end
 					end
 				end
 			end
+			task.wait(0.3)
 		end
 
-		-- Step 6: Wait for InRace and enforce server countdown synchronization
+		-- Step 6: Strict InRace Verification Gate
 		local tWaitInRace = os.clock()
 		while not player:GetAttribute("InRace") and (os.clock() - tWaitInRace) < 6 and Config.autoRace do
-			if primary and primary.Parent then
-				pcall(function()
-					primary.AssemblyLinearVelocity = Vector3.zero
-					primary.AssemblyAngularVelocity = Vector3.zero
-				end)
+			if (primary.Position - startCF.Position).Magnitude > 10 then
+				bike:PivotTo(startCF)
 			end
-			task.wait(0.2)
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
+			task.wait(0.25)
+		end
+
+		if not player:GetAttribute("InRace") then
+			raceStatusCard.Set("Gagal verifikasi InRace server. Mencoba ulang...")
+			task.wait(2.0)
+			return false
 		end
 
 		-- Anti-cheat delay: Hold position during the official 8.5s countdown light sequence
@@ -921,31 +941,43 @@ local success, err = pcall(function()
 			task.wait(0.2)
 		end
 
-		-- Balapan telah selesai divalidasi dan motor sudah berada di area masuk race
-		raceStatusCard.Set("Balapan selesai divalidasi! Menyiapkan race...")
+		-- Balapan telah selesai divalidasi
+		raceStatusCard.Set("Balapan selesai! Menunggu konfirmasi hadiah server...")
 		task.wait(0.5)
 
 		-- Pulihkan tabrakan motor dan lepas stabilizer farmBV
 		setBikeNoclipSafe(bike, false)
 		if farmBV then pcall(function() farmBV:Destroy() end) end
 
-		-- Step 10: Race finished and payout verification
-		task.wait(1.5)
+		-- Step 10: Race finished and payout verification (Poll leaderstats.Cash up to 4s)
+		local tWaitCash = os.clock()
 		local currentCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or initialCash
-		local earned = math.max(currentCash - initialCash, raceData.reward)
+		while (currentCash <= initialCash) and (os.clock() - tWaitCash) < 4 do
+			task.wait(0.5)
+			currentCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or initialCash
+		end
 
-		totalRacesWon = totalRacesWon + 1
-		totalRaceCash = totalRaceCash + earned
-		raceEarningsCard.Set(string.format("RM %s (%d Wins)", formatCash(totalRaceCash), totalRacesWon))
-		raceStatusCard.Set(string.format("Selesai! Menang RM %s", formatCash(earned)))
+		local earned = math.max(0, currentCash - initialCash)
+		if earned > 0 then
+			totalRacesWon = totalRacesWon + 1
+			totalRaceCash = totalRaceCash + earned
+			raceEarningsCard.Set(string.format("RM %s (%d Wins)", formatCash(totalRaceCash), totalRacesWon))
+			raceStatusCard.Set(string.format("Selesai! Menang +RM %s", formatCash(earned)))
+			UI.Notify("Auto Race", string.format("Finish %s (+RM %s)", raceData.modelName, formatCash(earned)), 3, "success")
+			updateTargetProgress(currentCash)
+		else
+			raceStatusCard.Set("Finish! Menyiapkan putaran berikutnya...")
+		end
 
-		UI.Notify("Auto Race", string.format("Finish %s (+RM %s)", raceData.modelName, formatCash(earned)), 3, "success")
+		-- Immediately return bike to StartingArea for next round & leave old session
+		bike:PivotTo(startCF)
+		primary.AssemblyLinearVelocity = Vector3.zero
+		primary.AssemblyAngularVelocity = Vector3.zero
+		fireWarp("RaceSessionAction", true, "leave", { zoneId = raceData.id })
 
-		updateTargetProgress(currentCash)
-
-		-- Wait for server cooldown (RaceCooldownUntil) + Natural Human Rest Buffer (10-15s)
+		-- Wait for server cooldown (RaceCooldownUntil) + Natural Human Rest Buffer (5-8s)
 		local tCooldown = os.clock()
-		local naturalRest = math.random(10, 15)
+		local naturalRest = math.random(5, 8)
 		while Config.autoRace do
 			local elapsed = os.clock() - tCooldown
 			local cd = player:GetAttribute("RaceCooldownUntil")
