@@ -11,17 +11,21 @@ local success, err = pcall(function()
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRace = false,
 		selectedRace = "Race 1 (Mountain Race - RM 26,500 Solo)",
+		raceUnderground = true,
 		targetEarnEnabled = false,
 		targetEarnAmount = 100000,
 		checkpointDelay = 0.02,
 		returnToSurface = true,
 		autoDriveCircle = false,
+		driveUnderground = true,
 		circleRadius = 65,
 		circleSpeed = 150,
 		antiStuck = true,
 		autoLoop = true
 	}
 
+	if Config.raceUnderground == nil then Config.raceUnderground = true end
+	if Config.driveUnderground == nil then Config.driveUnderground = true end
 	if Config.targetEarnEnabled == nil then Config.targetEarnEnabled = false end
 	if Config.targetEarnAmount == nil or Config.targetEarnAmount <= 0 then Config.targetEarnAmount = 100000 end
 	if Config.circleRadius == nil then Config.circleRadius = 65 end
@@ -367,6 +371,12 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.01, "s", 10)
 
+	local raceUndergroundToggle = UI.AddToggle(raceSection, "Underground Stealth Mode (Anti-Report)", Config.raceUnderground ~= false, function(v)
+		Config.raceUnderground = v
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
+		UI.Notify("Underground Mode", v and "Balapan di bawah tanah (-50 studs, 100% invisible)" or "Balapan di atas kontur tanah", 2, "info")
+	end, 11)
+
 	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
@@ -376,7 +386,7 @@ local success, err = pcall(function()
 				sessionStartCash = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
 			end
 			updateTargetProgress()
-			UI.Notify("Auto Race", "Memulai auto race", 3, "success")
+			UI.Notify("Auto Race", "Memulai auto race (Underground Stealth + Odometer Sync)", 3, "success")
 		else
 			UI.Notify("Auto Race", "Menghentikan auto race.", 2, "info")
 			raceStatusCard.Set("Stopped")
@@ -385,30 +395,36 @@ local success, err = pcall(function()
 				returnBikeToSurface(bike, primary)
 			end
 		end
-	end, 11)
+	end, 12)
 
-	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
-	local driveSection = UI.AddSection(tab, "Auto Drive Circle", 12)
+	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS ODOMETER & CASH)
+	local driveSection = UI.AddSection(tab, "Auto Drive Circle (Odometer & Cash)", 13)
 
-	driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 13)
-	driveCashCard = UI.AddStatsCard(driveSection, "Live Cash / Balance", "RM 0 (+RM 0)", 14)
-	driveMilesCard = UI.AddStatsCard(driveSection, "Odometer Miles", "0 mi (+0 mi)", 15)
-	driveDistCard = UI.AddStatsCard(driveSection, "Distance Traveled", "0.00 km", 16)
+	driveStatusCard = UI.AddStatsCard(driveSection, "Drive Status", "Idle", 14)
+	driveCashCard = UI.AddStatsCard(driveSection, "Live Cash / Balance", "RM 0 (+RM 0)", 15)
+	driveMilesCard = UI.AddStatsCard(driveSection, "Odometer Miles", "0 mi (+0 mi)", 16)
+	driveDistCard = UI.AddStatsCard(driveSection, "Distance Traveled", "0.00 km", 17)
+
+	local driveUndergroundToggle = UI.AddToggle(driveSection, "Underground Drive Mode (Anti-Report)", Config.driveUnderground ~= false, function(v)
+		Config.driveUnderground = v
+		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
+		UI.Notify("Underground Drive", v and "Memutar di bawah tanah (-60 studs, tidak terlihat)" or "Memutar di atas aspal jalan", 2, "info")
+	end, 18)
 
 	local radiusSlider = UI.AddSlider(driveSection, "Ruas Lingkaran (Radius)", 15, 300, Config.circleRadius or 65, function(val)
 		Config.circleRadius = val
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
-	end, 5, " studs", 17)
+	end, 5, " studs", 19)
 
 	local driveSpeedSlider = UI.AddSlider(driveSection, "Kecepatan Memutar", 50, 300, Config.circleSpeed or 150, function(val)
 		Config.circleSpeed = val
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
-	end, 5, " km/h", 18)
+	end, 5, " km/h", 20)
 
-	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip ", Config.antiStuck ~= false, function(v)
+	local antiStuckToggle = UI.AddToggle(driveSection, "Anti-Stuck & Ghost Noclip", Config.antiStuck ~= false, function(v)
 		Config.antiStuck = v
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
-	end, 19)
+	end, 21)
 
 	autoDriveToggle = UI.AddToggle(driveSection, "Enable Auto Drive", Config.autoDriveCircle, function(enabled)
 		Config.autoDriveCircle = enabled
@@ -422,7 +438,8 @@ local success, err = pcall(function()
 				sessionStartCash = ls and ls:FindFirstChild("Cash") and ls.Cash.Value or 0
 			end
 			updateTargetProgress()
-			UI.Notify("Auto Drive", "Memulai circular drive di atas tanah (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
+			local modeText = Config.driveUnderground and "di bawah tanah (Anti-Report)" or "di atas tanah"
+			UI.Notify("Auto Drive", "Memulai circular drive " .. modeText .. " (Radius: " .. Config.circleRadius .. " studs)", 3, "success")
 		else
 			UI.Notify("Auto Drive", "Menghentikan circular drive.", 2, "info")
 			driveStatusCard.Set("Stopped")
@@ -433,9 +450,12 @@ local success, err = pcall(function()
 				primary.AssemblyLinearVelocity = Vector3.zero
 				primary.AssemblyAngularVelocity = Vector3.zero
 				if seat then seat.Throttle = 0 end
+				if Config.driveUnderground and Config.returnToSurface then
+					returnBikeToSurface(bike, primary)
+				end
 			end
 		end
-	end, 21)
+	end, 22)
 
 	------------------------------------------------
 	-- UNDERGROUND AUTO RACE LOGIC
@@ -744,7 +764,7 @@ local success, err = pcall(function()
 
 		local initialCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or totalRaceCash
 
-		-- Create FarmBV velocity stabilizer (Hanya untuk menahan gravitasi, Velocity = 0)
+		-- Create FarmBV velocity stabilizer (assist daya dorong fisika kecepatan maju & gravitasi)
 		local farmBV = primary:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
 		farmBV.Name = "FarmBV"
 		farmBV.MaxForce = Vector3.new(4e5, 4e5, 4e5)
@@ -764,10 +784,12 @@ local success, err = pcall(function()
 			if legDuration < 0.05 then legDuration = 0.05 end
 
 			local legStartTime = os.clock()
+			local legSpeedStuds = (legDist > 0 and legDuration > 0) and (legDist / legDuration) or 150
+			local wheelRotSpeed = legSpeedStuds / 1.5
 
 			-- USER REQUIREMENT:
-			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Saat motor sudah jalan, aktifkan Full Ghost Noclip (tembus bukit, gunung, pohon, rintangan)
-			-- 2. Checkpoint terakhir (garis finish): Matikan No-Clip agar motor mendarat menapak tanah sebelum finish
+			-- 1. Checkpoint 1 s/d (#checkpoints - 1): Meluncur di bawah tanah (Underground -50 studs) dengan Ghost Noclip
+			-- 2. Checkpoint terakhir (garis finish): Naik mulus ke permukaan aspal & matikan No-Clip agar validasi finish sah
 			if i < #checkpoints then
 				setFlightNoclipState(true)
 			else
@@ -776,6 +798,7 @@ local success, err = pcall(function()
 
 			local diff = endPos - startPos
 			local dir = (diff.Magnitude > 0.01) and diff.Unit or Vector3.new(0, 0, 1)
+			local forwardVelocity = dir * legSpeedStuds
 
 			while Config.autoRace do
 				local now = os.clock()
@@ -784,33 +807,66 @@ local success, err = pcall(function()
 
 				local currentPos = startPos:Lerp(endPos, alpha)
 
-				-- Terrain-Surface Gliding: Motor selalu meluncur di atas kontur permukaan lereng bukit/tanah
+				-- Raycast cari posisi permukaan aspal / tanah asli
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = { bike, player.Character }
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				local groundRay = workspace:Raycast(Vector3.new(currentPos.X, math.max(currentPos.Y + 200, 350), currentPos.Z), Vector3.new(0, -700, 0), rayParams)
 
 				if groundRay and groundRay.Position then
-					local minSurfaceY = groundRay.Position.Y + 3.0
-					if i == #checkpoints and alpha > 0.6 then
-						-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
-						setFlightNoclipState(false)
-						currentPos = Vector3.new(currentPos.X, groundRay.Position.Y + 2.8, currentPos.Z)
-					elseif minSurfaceY > currentPos.Y then
-						-- Mengikuti kontur lereng bukit: angkat motor di atas permukaan lereng
-						currentPos = Vector3.new(currentPos.X, minSurfaceY, currentPos.Z)
+					local groundY = groundRay.Position.Y
+					if i == #checkpoints and alpha > 0.55 then
+						-- Mendekati garis finish: naik mulus dari bawah tanah ke permukaan aspal (+2.8)
+						local finishAlpha = math.clamp((alpha - 0.55) / 0.45, 0, 1)
+						local targetY = (-50 + groundY) + (finishAlpha * 52.8)
+						currentPos = Vector3.new(currentPos.X, targetY, currentPos.Z)
+						if finishAlpha > 0.8 then
+							setFlightNoclipState(false)
+						end
+					else
+						-- Bergerak di bawah tanah (-50 studs dari permukaan jalan jika raceUnderground aktif)
+						if Config.raceUnderground ~= false then
+							local safeUndergroundY = math.max(groundY - 50, -100)
+							currentPos = Vector3.new(currentPos.X, safeUndergroundY, currentPos.Z)
+						else
+							local minSurfaceY = groundY + 3.0
+							if minSurfaceY > currentPos.Y then
+								currentPos = Vector3.new(currentPos.X, minSurfaceY, currentPos.Z)
+							end
+						end
+					end
+				else
+					if i < #checkpoints and Config.raceUnderground ~= false then
+						currentPos = Vector3.new(currentPos.X, math.max(currentPos.Y - 50, -100), currentPos.Z)
 					end
 				end
 
 				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
-				farmBV.Velocity = Vector3.zero
-				primary.AssemblyLinearVelocity = Vector3.zero
+
+				-- Memberikan Kecepatan Fisika Maju Asli & Throttle agar Odometer mencatat Miles di game!
+				farmBV.Velocity = forwardVelocity
+				primary.AssemblyLinearVelocity = forwardVelocity
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
+				-- Putar roda motor untuk memicu sensor putaran roda chassis odometer
+				pcall(function()
+					local rightVec = bike:GetPivot().RightVector
+					for _, desc in ipairs(bike:GetDescendants()) do
+						if desc:IsA("BasePart") then
+							local n = desc.Name:lower()
+							if n:find("wheel") or n:find("tire") or desc.CollisionGroup == "BikeWheel" then
+								desc.AssemblyLinearVelocity = forwardVelocity
+								desc.AssemblyAngularVelocity = rightVec * (-wheelRotSpeed)
+							end
+						end
+					end
+				end)
+
 				local totalElapsed = now - raceStartTime
-				local speedDisplay = (totalTrackDist > 0 and targetDuration > 0) and (totalTrackDist / targetDuration) or 0
-				raceStatusCard.Set(string.format("Checkpoint %d / %d (%.0f%% | %d studs/s | %02d:%02d / %02d:%02d)", i, #checkpoints, alpha * 100, math.floor(speedDisplay), math.floor(totalElapsed / 60), math.floor(totalElapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
+				local speedKmh = math.floor(legSpeedStuds * 1.097)
+				local depthText = (i == #checkpoints and alpha > 0.55) and "Mendarat Finish" or ((Config.raceUnderground ~= false) and "Underground (-50m)" or "Surface")
+				raceStatusCard.Set(string.format("CP %d/%d (%.0f%% | %s | %d km/h | %02d:%02d)", i, #checkpoints, alpha * 100, depthText, speedKmh, math.floor(totalElapsed / 60), math.floor(totalElapsed % 60)))
 
 				if alpha >= 1 then
 					break
@@ -821,7 +877,8 @@ local success, err = pcall(function()
 
 			-- Pastikan motor persis di atas waypoint di akhir segmen
 			local cpLook = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.CFrame.LookVector or dir
-			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
+			local finalCPPos = (i == #checkpoints or Config.raceUnderground == false) and endPos or Vector3.new(endPos.X, math.max(endPos.Y - 50, -100), endPos.Z)
+			bike:PivotTo(CFrame.lookAt(finalCPPos, finalCPPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
@@ -877,12 +934,14 @@ local success, err = pcall(function()
 		local currentCash = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")) and player.leaderstats.Cash.Value or initialCash
 		local earned = math.max(currentCash - initialCash, raceData.reward)
 
+		local currentMiles = (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Miles")) and player.leaderstats.Miles.Value or 0
+
 		totalRacesWon = totalRacesWon + 1
 		totalRaceCash = totalRaceCash + earned
-		raceEarningsCard.Set(string.format("RM %s (%d Wins)", formatCash(totalRaceCash), totalRacesWon))
-		raceStatusCard.Set(string.format("Selesai! Menang RM %s", formatCash(earned)))
+		raceEarningsCard.Set(string.format("RM %s (%d Wins | %d mi)", formatCash(totalRaceCash), totalRacesWon, currentMiles))
+		raceStatusCard.Set(string.format("Selesai! Menang RM %s (+Miles Tercatat)", formatCash(earned)))
 
-		UI.Notify("Auto Race", string.format("Finish %s (+RM %s)", raceData.modelName, formatCash(earned)), 3, "success")
+		UI.Notify("Auto Race", string.format("Finish %s (+RM %s | %d mi)", raceData.modelName, formatCash(earned), currentMiles), 3, "success")
 
 		updateTargetProgress(currentCash)
 
@@ -1103,12 +1162,20 @@ local success, err = pcall(function()
 		local radius = math.max(Config.circleRadius or 65, 15)
 		local speed = math.max(Config.circleSpeed or 120, 40)
 
-		-- Set circle center upon first run directly relative to bike's current surface position
+		-- Set circle center upon first run directly relative to bike's position
 		if not circleCenter and primary then
 			local curPos = primary.Position
 			local right = primary.CFrame.RightVector
-			circleCenter = curPos + Vector3.new(right.X, 0, right.Z).Unit * radius
-			noclipBikeBody(bike)
+			local surfY = getGroundSurfaceY(curPos.X, curPos.Z, bike)
+			local targetY = (Config.driveUnderground ~= false) and math.max(surfY - 60, -85) or (surfY + 2.5)
+			circleCenter = Vector3.new(curPos.X + right.X * radius, targetY, curPos.Z + right.Z * radius)
+			if Config.driveUnderground ~= false then
+				bike:PivotTo(CFrame.new(curPos.X, targetY, curPos.Z) * (primary.CFrame - primary.CFrame.Position))
+				noclipBikeBody(bike)
+				setFullFlightNoclip(bike, player.Character, true)
+			else
+				noclipBikeBody(bike)
+			end
 		end
 
 		if not circleCenter or not primary then return end
@@ -1133,24 +1200,40 @@ local success, err = pcall(function()
 		local look = primary.CFrame.LookVector
 		local vy = primary.AssemblyLinearVelocity.Y
 
-		-- Front obstacle / curb-hop raycast to glide smoothly over jagged curb seams
-		local frontRayParams = RaycastParams.new()
-		frontRayParams.FilterDescendantsInstances = { bike, player.Character }
-		frontRayParams.FilterType = Enum.RaycastFilterType.Exclude
-		local frontRay = workspace:Raycast(curPos + Vector3.new(0, 0.6, 0), look * 6, frontRayParams)
-		if frontRay and frontRay.Instance then
-			local n = frontRay.Instance.Name:lower()
-			local isGround = n:find("road") or n:find("ground") or n:find("terrain") or n:find("asphalt") or n:find("baseplate")
-			if not isGround then
-				frontRay.Instance.CanCollide = false
-				vy = math.max(vy, 8)
-			end
-		end
+		if Config.driveUnderground ~= false then
+			-- Mode Underground: Jaga motor tetap melayang stabil di kedalaman bawah tanah (-60m)
+			local farmBV = primary:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
+			farmBV.Name = "FarmBV"
+			farmBV.MaxForce = Vector3.new(4e5, 4e5, 4e5)
+			farmBV.Velocity = Vector3.new(look.X * speed, 0, look.Z * speed)
+			farmBV.Parent = primary
+			seat.Throttle = 1
+			primary.AssemblyLinearVelocity = Vector3.new(look.X * speed, 0, look.Z * speed)
+			primary.AssemblyAngularVelocity = Vector3.new(0, activeOmega, 0)
+			setFullFlightNoclip(bike, player.Character, true)
+		else
+			-- Mode Di Atas Tanah:
+			local oldBV = primary:FindFirstChild("FarmBV")
+			if oldBV then pcall(function() oldBV:Destroy() end) end
 
-		-- Pure physics velocity: tires stay firmly on the road surface
-		seat.Throttle = 1
-		primary.AssemblyLinearVelocity = Vector3.new(look.X * speed, vy, look.Z * speed)
-		primary.AssemblyAngularVelocity = Vector3.new(0, activeOmega, 0)
+			-- Front obstacle / curb-hop raycast to glide smoothly over jagged curb seams
+			local frontRayParams = RaycastParams.new()
+			frontRayParams.FilterDescendantsInstances = { bike, player.Character }
+			frontRayParams.FilterType = Enum.RaycastFilterType.Exclude
+			local frontRay = workspace:Raycast(curPos + Vector3.new(0, 0.6, 0), look * 6, frontRayParams)
+			if frontRay and frontRay.Instance then
+				local n = frontRay.Instance.Name:lower()
+				local isGround = n:find("road") or n:find("ground") or n:find("terrain") or n:find("asphalt") or n:find("baseplate")
+				if not isGround then
+					frontRay.Instance.CanCollide = false
+					vy = math.max(vy, 8)
+				end
+			end
+
+			seat.Throttle = 1
+			primary.AssemblyLinearVelocity = Vector3.new(look.X * speed, vy, look.Z * speed)
+			primary.AssemblyAngularVelocity = Vector3.new(0, activeOmega, 0)
+		end
 
 		-- Real-time Anti-Stuck Watchdog
 		local now = os.clock()
@@ -1209,7 +1292,8 @@ local success, err = pcall(function()
 		end)
 
 		local elapsed = math.floor(os.clock() - circleDriveStartTime)
-		driveStatusCard.Set(string.format("Di Atas Tanah | R: %d | %d km/h (%02d:%02d)", radius, speed, math.floor(elapsed / 60), elapsed % 60))
+		local modeStr = (Config.driveUnderground ~= false) and "Underground (-60m)" or "Di Atas Tanah"
+		driveStatusCard.Set(string.format("%s | R: %d | %d km/h (%02d:%02d)", modeStr, radius, speed, math.floor(elapsed / 60), elapsed % 60))
 	end)
 
 	-- Initialize session cash and connect real-time leaderstats listener
@@ -1222,6 +1306,16 @@ local success, err = pcall(function()
 				updateTargetProgress(cashVal.Value)
 				cashVal.Changed:Connect(function(newVal)
 					updateTargetProgress(newVal)
+				end)
+			end
+			local milesVal = ls:FindFirstChild("Miles") or ls:WaitForChild("Miles", 5)
+			if milesVal then
+				startDriveMiles = milesVal.Value
+				milesVal.Changed:Connect(function(newMiles)
+					if driveMilesCard and driveMilesCard.Set and startDriveMiles then
+						local diff = newMiles - startDriveMiles
+						driveMilesCard.Set(string.format("%d mi (+%d mi)", newMiles, diff))
+					end
 				end)
 			end
 		end
