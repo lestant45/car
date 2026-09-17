@@ -169,11 +169,67 @@ local success, err = pcall(function()
 
 	_G.HipHub_GetPlayerBike = getPlayerBike
 
-	-- Universal Vehicle Spawner via Dealership & Garage Network Remotes
+	-- Safe UI Button Clicker helper
+	local function safeClickButton(btn)
+		if not btn then return end
+		pcall(function()
+			if firesignal then
+				pcall(function() firesignal(btn.Activated) end)
+				pcall(function() firesignal(btn.MouseButton1Click) end)
+				pcall(function() firesignal(btn.MouseButton1Down) end)
+				pcall(function() firesignal(btn.MouseButton1Up) end)
+			end
+		end)
+		pcall(function()
+			if getconnections then
+				for _, eventName in ipairs({"Activated", "MouseButton1Click", "MouseButton1Up"}) do
+					local conns = getconnections(btn[eventName])
+					if type(conns) == "table" then
+						for _, c in ipairs(conns) do
+							pcall(function()
+								if c and c.Fire then c:Fire()
+								elseif c and c.Function then c.Function() end
+							end)
+						end
+					end
+				end
+			end
+		end)
+	end
+
+	-- Universal Vehicle Spawner via Native UI & Network Remotes
 	local function spawnVehicle(modelName)
 		modelName = modelName or Config.selectedVehicle or "Kasaki z800 2015"
 		local success = false
 
+		-- Method 1: Native Game MainUI Vehicle List Spawn Button (100% Reliable & Direct)
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			local mainUI = pGui and pGui:FindFirstChild("MainUI")
+			if mainUI and mainUI:FindFirstChild("MainFrame") then
+				local selected = mainUI.MainFrame:FindFirstChild("Selected")
+				local vMenu = selected and selected:FindFirstChild("Vehicle")
+				local vList = vMenu and vMenu:FindFirstChild("ListPane") and vMenu.ListPane:FindFirstChild("VehicleList")
+				if vList then
+					local target = vList:FindFirstChild(modelName) or vList:FindFirstChild("Kasaki z800 2015") or vList:FindFirstChildWhichIsA("Frame")
+					if target then
+						local btn = target:FindFirstChild("SpawnButton") or target:FindFirstChildWhichIsA("TextButton")
+						if btn then
+							safeClickButton(btn)
+							success = true
+						end
+					end
+				end
+
+				-- Also trigger Hero Acts Spawn button if available
+				if not success and vMenu and vMenu:FindFirstChild("Hero") and vMenu.Hero:FindFirstChild("Acts") and vMenu.Hero.Acts:FindFirstChild("Spawn") then
+					safeClickButton(vMenu.Hero.Acts.Spawn)
+					success = true
+				end
+			end
+		end)
+
+		-- Method 2: Warp Network Remotes (Dealership & Garage)
 		pcall(function()
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			local dClient = Warp.Client("Dealership")
@@ -206,7 +262,7 @@ local success, err = pcall(function()
 		end)
 
 		if success then
-			UI.Notify("Vehicle", "Spawning " .. tostring(modelName) .. "...", 2, "info")
+			UI.Notify("Vehicle", "Memanggil motor " .. tostring(modelName) .. "...", 2, "info")
 			-- Auto-position bike in front of player if spawned
 			task.spawn(function()
 				task.wait(0.6)
@@ -226,7 +282,7 @@ local success, err = pcall(function()
 			end)
 			return true
 		else
-			UI.Notify("Vehicle", "Failed to access Dealership network.", 3, "error")
+			UI.Notify("Vehicle", "Gagal memanggil motor.", 3, "error")
 			return false
 		end
 	end

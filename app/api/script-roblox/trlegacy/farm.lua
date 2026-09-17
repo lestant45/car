@@ -1,5 +1,5 @@
--- HipHub TR Legacy — Auto Race Underground & Circular Auto Drive Suite
--- Smooth underground flight traversal between checkpoints and circular underground odometer farm
+-- HipHub TR Legacy — Auto Race & Circular Auto Drive Suite
+-- Smooth flight traversal between checkpoints and circular odometer farm
 
 local success, err = pcall(function()
 	local UI = _G.HipHubUI
@@ -10,7 +10,6 @@ local success, err = pcall(function()
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoRace = false,
-		undergroundRace = true,
 		selectedRace = "Race 1 (Mountain Race - RM 26,500 Solo)",
 		targetEarnEnabled = false,
 		targetEarnAmount = 100000,
@@ -23,7 +22,6 @@ local success, err = pcall(function()
 		autoLoop = true
 	}
 
-	if Config.undergroundRace == nil then Config.undergroundRace = true end
 	if Config.targetEarnEnabled == nil then Config.targetEarnEnabled = false end
 	if Config.targetEarnAmount == nil or Config.targetEarnAmount <= 0 then Config.targetEarnAmount = 100000 end
 	if Config.circleRadius == nil then Config.circleRadius = 65 end
@@ -422,12 +420,6 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.01, "s", 12)
 
-	UI.AddToggle(raceSection, "Underground Stealth Race (Anti-Report)", Config.undergroundRace ~= false, function(enabled)
-		Config.undergroundRace = enabled
-		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
-		UI.Notify("Stealth Race", enabled and "Mode Underground aktif: Checkpoint dilewati di bawah tanah agar 100% tak terlihat." or "Mode Permukaan aktif.", 3, "info")
-	end, 13)
-
 	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
 		Config.autoRace = enabled
 		_G.HipHub_IsAutoRacing = enabled
@@ -450,7 +442,7 @@ local success, err = pcall(function()
 				returnBikeToSurface(bike, primary)
 			end
 		end
-	end, 14)
+	end, 13)
 
 	-- 2. AUTO DRIVE MEMUTAR SECTION (KHUSUS DI ATAS TANAH)
 	local driveSection = UI.AddSection(tab, "Auto Drive Circle", 12)
@@ -503,7 +495,7 @@ local success, err = pcall(function()
 	end, 21)
 
 	------------------------------------------------
-	-- UNDERGROUND AUTO RACE LOGIC
+	-- AUTO RACE LOGIC
 	------------------------------------------------
 
 	local function getCheckpointsForRace(raceModel)
@@ -851,7 +843,7 @@ local success, err = pcall(function()
 
 				local currentPos = startPos:Lerp(endPos, alpha)
 
-				-- Terrain-Surface & Underground Raycast
+				-- Terrain-Surface Raycast (Road Alignment)
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = { bike, player.Character }
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -862,14 +854,8 @@ local success, err = pcall(function()
 					if i == #checkpoints and alpha > 0.5 then
 						-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
 						setFlightNoclipState(false)
-						currentPos = Vector3.new(currentPos.X, groundY + 2.8, currentPos.Z)
-					elseif Config.undergroundRace ~= false then
-						-- Mode Underground Stealth: -50 studs di bawah tanah agar 100% tak terlihat pemain lain
-						currentPos = Vector3.new(currentPos.X, groundY - 50, currentPos.Z)
-					else
-						-- Mode Permukaan
-						currentPos = Vector3.new(currentPos.X, groundY + 2.8, currentPos.Z)
 					end
+					currentPos = Vector3.new(currentPos.X, groundY + 2.8, currentPos.Z)
 				end
 
 				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
@@ -1018,7 +1004,6 @@ local success, err = pcall(function()
 
 	local circleCenter = nil
 	local lastDrivePos = nil
-	local undergroundTrack = nil
 	local lastWatchdogPos = nil
 	local lastWatchdogTime = 0
 	local stuckSeconds = 0
@@ -1037,7 +1022,7 @@ local success, err = pcall(function()
 	local function noclipSurroundings(bikeRef, pos, radius)
 		pcall(function()
 			local overlap = OverlapParams.new()
-			overlap.FilterDescendantsInstances = { bikeRef, player.Character, undergroundTrack }
+			overlap.FilterDescendantsInstances = { bikeRef, player.Character }
 			overlap.FilterType = Enum.RaycastFilterType.Exclude
 			overlap.MaxParts = 50
 			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)

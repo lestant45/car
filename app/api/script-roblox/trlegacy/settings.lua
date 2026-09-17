@@ -20,7 +20,6 @@ local success, err = pcall(function()
     local Config = {
         farm = {
             autoRace = false,
-            undergroundRace = true,
             selectedRace = "Race 1 (Mountain Race - RM 26,500 Solo)",
             targetEarnEnabled = false,
             targetEarnAmount = 100000,
