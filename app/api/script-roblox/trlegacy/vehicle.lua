@@ -132,6 +132,7 @@ local success, err = pcall(function()
 	}
 
 	-- Find player's active motorbike in workspace
+	-- Find player's active motorbike in workspace
 	local function getPlayerBike(preferredModel)
 		local vFolder = workspace:FindFirstChild("Vehicles")
 		if not vFolder then return nil end
@@ -140,7 +141,7 @@ local success, err = pcall(function()
 
 		local targetName = preferredModel or Config.selectedVehicle or "Kasaki z800 2015"
 		local bike = playerVehicles:FindFirstChild(targetName)
-		if not bike or not bike:FindFirstChild("DriveSeat", true) then
+		if not bike or not (bike:FindFirstChild("DriveSeat", true) or bike:FindFirstChildWhichIsA("VehicleSeat", true)) then
 			bike = nil
 			for _, child in ipairs(playerVehicles:GetChildren()) do
 				if child:IsA("Model") and (child:FindFirstChild("DriveSeat", true) or child:FindFirstChildWhichIsA("VehicleSeat", true)) then
@@ -158,19 +159,9 @@ local success, err = pcall(function()
 		local primary = bike.PrimaryPart or seat or bike:FindFirstChildWhichIsA("BasePart")
 		if not primary then return nil end
 
-		-- CRITICAL HEALTH CHECK: If bike is falling in the void or destroyed underground, ignore it!
-		if primary.Position.Y < -15 then
+		-- CRITICAL HEALTH CHECK: Only ignore if falling in deep void (below Y = -120)
+		if primary.Position.Y < -120 then
 			return nil
-		end
-
-		-- If player is at Dealership / spawn area but bike is abandoned far away (> 500 studs), treat as abandoned
-		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			local dist = (hrp.Position - primary.Position).Magnitude
-			if dist > 500 and hrp.Position.Magnitude < 400 then
-				return nil
-			end
 		end
 
 		return bike, seat, primary
@@ -178,18 +169,61 @@ local success, err = pcall(function()
 
 	_G.HipHub_GetPlayerBike = getPlayerBike
 
-	-- Universal Vehicle Spawner via Dealership Network Remote
+	-- Universal Vehicle Spawner via Dealership & Garage Network Remotes
 	local function spawnVehicle(modelName)
 		modelName = modelName or Config.selectedVehicle or "Kasaki z800 2015"
 		local success = false
+
 		pcall(function()
 			local Warp = require(ReplicatedStorage.Modules.Warp)
 			local dClient = Warp.Client("Dealership")
-			dClient:Fire(true, modelName, "Spawn")
-			success = true
+			if dClient and dClient.Fire then
+				dClient:Fire(true, modelName, "Spawn")
+				dClient:Fire(modelName, "Spawn")
+				dClient:Fire("Spawn", modelName)
+				success = true
+			end
 		end)
+
+		pcall(function()
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local gClient = Warp.Client("Garage")
+			if gClient and gClient.Fire then
+				gClient:Fire(true, modelName, "Spawn")
+				gClient:Fire(modelName, "Spawn")
+				gClient:Fire("Spawn", modelName)
+				success = true
+			end
+		end)
+
+		pcall(function()
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local sClient = Warp.Client("VehicleSpawn")
+			if sClient and sClient.Fire then
+				sClient:Fire(modelName)
+				success = true
+			end
+		end)
+
 		if success then
 			UI.Notify("Vehicle", "Spawning " .. tostring(modelName) .. "...", 2, "info")
+			-- Auto-position bike in front of player if spawned
+			task.spawn(function()
+				task.wait(0.6)
+				local bike, seat, primary = getPlayerBike(modelName)
+				local char = player.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				if bike and primary and hrp then
+					local dist = (hrp.Position - primary.Position).Magnitude
+					if dist > 15 or primary.Position.Y < -20 then
+						local pCF = hrp.CFrame
+						local targetCF = pCF + (pCF.LookVector * 6) + Vector3.new(0, 1.8, 0)
+						bike:PivotTo(targetCF)
+						primary.AssemblyLinearVelocity = Vector3.zero
+						primary.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+			end)
 			return true
 		else
 			UI.Notify("Vehicle", "Failed to access Dealership network.", 3, "error")
@@ -231,11 +265,25 @@ local success, err = pcall(function()
 			while (os.clock() - start) < 6.0 do
 				task.wait(0.2)
 				bike, seat, primary = getPlayerBike()
-				if bike and seat and primary and #bike:GetChildren() >= 10 then break end
+				if bike and seat and primary and #bike:GetChildren() >= 6 then break end
 			end
 		end
 
 		if not bike or not seat or not primary then return false end
+
+		-- Bring bike to player if spawned far away or in showroom basement
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local dist = (hrp.Position - primary.Position).Magnitude
+			if dist > 15 or primary.Position.Y < -20 then
+				local pCF = hrp.CFrame
+				local targetCF = pCF + (pCF.LookVector * 6) + Vector3.new(0, 1.8, 0)
+				bike:PivotTo(targetCF)
+				primary.AssemblyLinearVelocity = Vector3.zero
+				primary.AssemblyAngularVelocity = Vector3.zero
+				task.wait(0.25)
+			end
+		end
 
 		-- Step 2: Ensure wheels are collidable so bike won't glitch through the ground
 		pcall(function()
