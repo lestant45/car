@@ -178,15 +178,38 @@ local success, err = pcall(function()
 
 	_G.HipHub_GetPlayerBike = getPlayerBike
 
+	-- Safe Warp Client Resolver (Bypasses executor module context restrictions)
+	local function getWarpClient(clientName)
+		local client = nil
+		local setIdent = setthreadidentity or setidentity or setthreadcontext
+		local oldIdentity = (getthreadidentity and getthreadidentity()) or 8
+		pcall(function()
+			if setIdent then setIdent(2) end
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			client = Warp.Client(clientName)
+			if setIdent then setIdent(oldIdentity) end
+		end)
+		if not client then
+			pcall(function()
+				if setIdent then setIdent(2) end
+				local getClient = require(ReplicatedStorage.Modules.Warp.Index.Client.Index)
+				client = getClient(clientName)
+				if setIdent then setIdent(oldIdentity) end
+			end)
+		end
+		return client
+	end
+
 	-- Universal Vehicle Spawner via Dealership Network Remote
 	local function spawnVehicle(modelName)
 		modelName = modelName or Config.selectedVehicle or "Kasaki z800 2015"
 		local success = false
 		pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			local dClient = Warp.Client("Dealership")
-			dClient:Fire(true, modelName, "Spawn")
-			success = true
+			local dClient = getWarpClient("Dealership")
+			if dClient and dClient.Fire then
+				dClient:Fire(true, modelName, "Spawn")
+				success = true
+			end
 		end)
 		if success then
 			UI.Notify("Vehicle", "Spawning " .. tostring(modelName) .. "...", 2, "info")

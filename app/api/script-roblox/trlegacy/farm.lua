@@ -42,13 +42,36 @@ local success, err = pcall(function()
 	_G.HipHub_IsAutoRacing = false
 	_G.HipHub_IsAutoDriving = false
 
+	-- Safe Warp Client Resolver (Bypasses executor module context restrictions)
+	local function getWarpClient(clientName)
+		local client = nil
+		local setIdent = setthreadidentity or setidentity or setthreadcontext
+		local oldIdentity = (getthreadidentity and getthreadidentity()) or 8
+		pcall(function()
+			if setIdent then setIdent(2) end
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			client = Warp.Client(clientName)
+			if setIdent then setIdent(oldIdentity) end
+		end)
+		if not client then
+			pcall(function()
+				if setIdent then setIdent(2) end
+				local getClient = require(ReplicatedStorage.Modules.Warp.Index.Client.Index)
+				client = getClient(clientName)
+				if setIdent then setIdent(oldIdentity) end
+			end)
+		end
+		return client
+	end
+
 	-- Safe Warp Remote Dispatcher
 	local function fireWarp(clientName, ...)
 		local args = {...}
 		local ok = pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			local client = Warp.Client(clientName)
-			client:Fire(table.unpack(args))
+			local client = getWarpClient(clientName)
+			if client and client.Fire then
+				client:Fire(table.unpack(args))
+			end
 		end)
 		return ok
 	end
@@ -124,11 +147,8 @@ local success, err = pcall(function()
 			end
 		end
 
-		local okWarp, Warp = pcall(function()
-			return require(ReplicatedStorage.Modules.Warp)
-		end)
-		if okWarp and Warp and Warp.Client then
-			local ghostClient = Warp.Client("RaceGhostSubmit")
+		pcall(function()
+			local ghostClient = getWarpClient("RaceGhostSubmit")
 			if ghostClient and ghostClient.Fire then
 				local oldFire = ghostClient.Fire
 				ghostClient.Fire = function(self, ...)
@@ -138,7 +158,7 @@ local success, err = pcall(function()
 					return oldFire(self, ...)
 				end
 			end
-		end
+		end)
 	end)
 
 	-- Active Ghost Frame Purger Routine (Runs periodically without touching engine method pointers)
@@ -194,12 +214,13 @@ local success, err = pcall(function()
 		local wrTime = fallbackWR or 60.0
 		local riderName = "Server Record"
 		pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			local client = Warp.Client("RaceLeaderboardQuery")
-			local res = client:Invoke(10, tostring(raceId))
-			if type(res) == "table" and #res > 0 and res[1] and type(res[1].time) == "number" and res[1].time > 0 then
-				wrTime = res[1].time
-				riderName = tostring(res[1].name or res[1].rawName or "Server Record")
+			local client = getWarpClient("RaceLeaderboardQuery")
+			if client and client.Invoke then
+				local res = client:Invoke(10, tostring(raceId))
+				if type(res) == "table" and #res > 0 and res[1] and type(res[1].time) == "number" and res[1].time > 0 then
+					wrTime = res[1].time
+					riderName = tostring(res[1].name or res[1].rawName or "Server Record")
+				end
 			end
 		end)
 		-- Base +10% target with natural human jitter variance (+3.0 to +8.5 seconds random)
@@ -371,10 +392,10 @@ local success, err = pcall(function()
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 0.01, "s", 10)
 
-	local raceUndergroundToggle = UI.AddToggle(raceSection, "Underground Stealth Mode (Anti-Report)", Config.raceUnderground ~= false, function(v)
+	local raceUndergroundToggle = UI.AddToggle(raceSection, "Sub-Surface Stealth Mode", Config.raceUnderground ~= false, function(v)
 		Config.raceUnderground = v
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
-		UI.Notify("Underground Mode", v and "Balapan di bawah tanah (-50 studs, 100% invisible)" or "Balapan di atas kontur tanah", 2, "info")
+		UI.Notify("Race Mode", v and "Mode Stealth Aktif (Tenggelam -1.5s di bawah aspal, CP tetap kena)" or "Mode Permukaan (Di atas aspal)", 2, "info")
 	end, 11)
 
 	autoRaceToggle = UI.AddToggle(raceSection, "Enable Auto Race", Config.autoRace, function(enabled)
@@ -807,7 +828,7 @@ local success, err = pcall(function()
 
 				local currentPos = startPos:Lerp(endPos, alpha)
 
-				-- Raycast cari posisi permukaan aspal / tanah asli
+				-- Raycast cari posisi permukaan aspal / jalan agar pas menabrak checkpoint trigger
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = { bike, player.Character }
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -815,30 +836,12 @@ local success, err = pcall(function()
 
 				if groundRay and groundRay.Position then
 					local groundY = groundRay.Position.Y
-					if i == #checkpoints and alpha > 0.55 then
-						-- Mendekati garis finish: naik mulus dari bawah tanah ke permukaan aspal (+2.8)
-						local finishAlpha = math.clamp((alpha - 0.55) / 0.45, 0, 1)
-						local targetY = (-50 + groundY) + (finishAlpha * 52.8)
-						currentPos = Vector3.new(currentPos.X, targetY, currentPos.Z)
-						if finishAlpha > 0.8 then
-							setFlightNoclipState(false)
-						end
-					else
-						-- Bergerak di bawah tanah (-50 studs dari permukaan jalan jika raceUnderground aktif)
-						if Config.raceUnderground ~= false then
-							local safeUndergroundY = math.max(groundY - 50, -100)
-							currentPos = Vector3.new(currentPos.X, safeUndergroundY, currentPos.Z)
-						else
-							local minSurfaceY = groundY + 3.0
-							if minSurfaceY > currentPos.Y then
-								currentPos = Vector3.new(currentPos.X, minSurfaceY, currentPos.Z)
-							end
-						end
+					local surfaceY = groundY + 2.8
+					if Config.raceUnderground then
+						-- Sub-Surface Stealth Mode: Sinks -1.5 studs into asphalt (stealthy visual, physically hits 28-stud CP box)
+						surfaceY = groundY - 1.5
 					end
-				else
-					if i < #checkpoints and Config.raceUnderground ~= false then
-						currentPos = Vector3.new(currentPos.X, math.max(currentPos.Y - 50, -100), currentPos.Z)
-					end
+					currentPos = Vector3.new(currentPos.X, surfaceY, currentPos.Z)
 				end
 
 				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
@@ -865,8 +868,7 @@ local success, err = pcall(function()
 
 				local totalElapsed = now - raceStartTime
 				local speedKmh = math.floor(legSpeedStuds * 1.097)
-				local depthText = (i == #checkpoints and alpha > 0.55) and "Mendarat Finish" or ((Config.raceUnderground ~= false) and "Underground (-50m)" or "Surface")
-				raceStatusCard.Set(string.format("CP %d/%d (%.0f%% | %s | %d km/h | %02d:%02d)", i, #checkpoints, alpha * 100, depthText, speedKmh, math.floor(totalElapsed / 60), math.floor(totalElapsed % 60)))
+				raceStatusCard.Set(string.format("CP %d/%d (%.0f%% | %d km/h | %02d:%02d)", i, #checkpoints, alpha * 100, speedKmh, math.floor(totalElapsed / 60), math.floor(totalElapsed % 60)))
 
 				if alpha >= 1 then
 					break
@@ -875,9 +877,15 @@ local success, err = pcall(function()
 				RunService.Heartbeat:Wait()
 			end
 
-			-- Pastikan motor persis di atas waypoint di akhir segmen
+			-- Pastikan motor persis menyentuh checkpoint part di akhir segmen
+			local cpPos = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.Position or endPos
+			local targetY = currentPos.Y
+			if typeof(cp) == "Instance" and cp:IsA("BasePart") then
+				-- Sentuh checkpoint hitbox langsung untuk garansi 100% trigger server
+				targetY = cp.Position.Y
+			end
 			local cpLook = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.CFrame.LookVector or dir
-			local finalCPPos = (i == #checkpoints or Config.raceUnderground == false) and endPos or Vector3.new(endPos.X, math.max(endPos.Y - 50, -100), endPos.Z)
+			local finalCPPos = Vector3.new(cpPos.X, targetY, cpPos.Z)
 			bike:PivotTo(CFrame.lookAt(finalCPPos, finalCPPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
