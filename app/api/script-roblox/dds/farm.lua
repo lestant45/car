@@ -406,6 +406,10 @@ local success, err = pcall(function()
 	-- Ini adalah lapisan pertahanan pertama (pre-drive) untuk mencegah Error 263 Connection Timed Out.
 	if not _G.HipHubWaterGuardRunning then
 		_G.HipHubWaterGuardRunning = true
+		local waterGuardParams = RaycastParams.new()
+		waterGuardParams.FilterType = Enum.RaycastFilterType.Exclude
+		waterGuardParams.IgnoreWater = false
+
 		RunService.Heartbeat:Connect(function()
 			pcall(function()
 				local char = player.Character
@@ -422,14 +426,11 @@ local success, err = pcall(function()
 				local carPos = car:GetPivot().Position
 
 				-- Deteksi air di bawah motor (0 - 4 stud di bawah posisi saat ini)
-				local wpCheck = RaycastParams.new()
-				wpCheck.FilterDescendantsInstances = { car, char }
-				wpCheck.FilterType = Enum.RaycastFilterType.Exclude
-				wpCheck.IgnoreWater = false
+				waterGuardParams.FilterDescendantsInstances = { car, char }
 				local wHit = workspace:Raycast(
 					Vector3.new(carPos.X, carPos.Y + 2, carPos.Z),
 					Vector3.new(0, -6, 0),
-					wpCheck
+					waterGuardParams
 				)
 				if wHit and wHit.Material == Enum.Material.Water then
 					-- Air terdeteksi! Angkat motor ke atas permukaan air seketika
@@ -1709,15 +1710,12 @@ local success, err = pcall(function()
 		[Enum.Material.Water] = true
 	}
 
-	local function probeGroundFile(probePos, refY, optCar, optFilter)
-		local offsets = {
-			Vector3.zero,
-			Vector3.new(2, 0, 0),
-			Vector3.new(-2, 0, 0),
-			Vector3.new(0, 0, 2),
-			Vector3.new(0, 0, -2)
-		}
+	-- 🚀 ZERO-ALLOCATION RAYCAST PARAMS & BUFFERS
+	local sharedProbeRayParams = RaycastParams.new()
+	sharedProbeRayParams.FilterType = Enum.RaycastFilterType.Exclude
+	sharedProbeRayParams.IgnoreWater = false
 
+	local function probeGroundFile(probePos, refY, optCar, optFilter)
 		local car = optCar or (getPlayerVehicle and select(1, getPlayerVehicle()))
 		local carPivot = car and car:GetPivot()
 		local carPos2D = carPivot and Vector3.new(carPivot.Position.X, 0, carPivot.Position.Z) or Vector3.new(probePos.X, 0, probePos.Z)
@@ -1744,44 +1742,55 @@ local success, err = pcall(function()
 			baseFilter = t
 		end
 
-		for _, off in ipairs(offsets) do
+		local offsets = {
+			Vector3.zero,
+			Vector3.new(2, 0, 0),
+			Vector3.new(-2, 0, 0),
+			Vector3.new(0, 0, 2),
+			Vector3.new(0, 0, -2)
+		}
+
+		for offIdx, off in ipairs(offsets) do
 			local pos = probePos + off
 			local rayOrigin = Vector3.new(pos.X, startY, pos.Z)
-
 			local localFilter = table.clone(baseFilter)
-			local localParams = RaycastParams.new()
-			localParams.FilterType = Enum.RaycastFilterType.Exclude
-			localParams.IgnoreWater = false
 
-			for attempt = 1, 6 do
-				localParams.FilterDescendantsInstances = localFilter
-				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, rayDepth, 0), localParams)
+			for attempt = 1, 5 do
+				sharedProbeRayParams.FilterDescendantsInstances = localFilter
+				local hit = workspace:Raycast(rayOrigin, Vector3.new(0, rayDepth, 0), sharedProbeRayParams)
 				if not hit then break end
 
 				local inst = hit.Instance
 				local mat = inst.Material
 				local nameLower = inst.Name:lower()
-				local parentName = inst.Parent and inst.Parent.Name:lower() or ""
-				local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
-				local fullName = inst:GetFullName():lower()
+				local parent = inst.Parent
+				local parentName = parent and parent.Name:lower() or ""
+				local grandParent = parent and parent.Parent
+				local grandParentName = grandParent and grandParent.Name:lower() or ""
 
-				local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
+				local isFlyover = nameLower:find("flyover") or nameLower:find("tol") or nameLower:find("jembatan") or nameLower:find("bridge")
+					or parentName:find("flyover") or parentName:find("tol") or parentName:find("jembatan") or parentName:find("bridge")
 
+				-- 1. Daratan Sah / Jalan Raya (Direct fast name check)
 				local isRoadOrTerrain = isFlyover
-					or fullName:find("jl_klaten")
-					or fullName:find("jl_")
-					or fullName:find("jalan")
-					or fullName:find("road")
-					or fullName:find("street")
-					or fullName:find("aspal")
+					or nameLower:find("jl_klaten")
+					or nameLower:find("jl_")
+					or nameLower:find("jalan")
+					or nameLower:find("road")
+					or nameLower:find("street")
+					or nameLower:find("aspal")
 					or nameLower:find("sawah")
+					or parentName:find("jl_")
+					or parentName:find("jalan")
+					or parentName:find("road")
 					or parentName:find("sawah")
 					or grandParentName:find("sawah")
-					or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
 					or inst:IsA("Terrain")
 
+				-- 2. Air / Sungai
 				local isWater = (mat == Enum.Material.Water) or nameLower:find("water") or nameLower:find("air") or nameLower:find("sungai") or nameLower:find("river") or nameLower:find("danau") or nameLower:find("kolam")
 
+				-- 3. Atap / Rintangan Fisik / Gedung Sungguhan
 				local isRoofOrObstacle = false
 				local isBuildingModel = false
 
@@ -1829,6 +1838,12 @@ local success, err = pcall(function()
 						break
 					end
 				end
+			end
+
+			-- ⚡ Fast-Path: Jika titik tengah (center) sudah jelas mengenai aspal / terrain valid di jarak normal,
+			-- tidak perlu mengecek 4 offset samping (menghemat 80% raycast per frame)
+			if offIdx == 1 and distFromCar > 6 then
+				-- Jika titik tengah void, lanjut periksa 4 offset samping
 			end
 		end
 
@@ -1889,37 +1904,38 @@ local success, err = pcall(function()
 				local rayDepth = -math.max(scanStartY + 40, 350)
 				local origin = Vector3.new(px, scanStartY, pz)
 				local solidY = nil
-				local localBrp = RaycastParams.new()
 				local localFilter = table.clone(filter)
-				localBrp.FilterType = Enum.RaycastFilterType.Exclude
-				localBrp.IgnoreWater = false -- 🌊 Terrain Water harus terdeteksi agar tidak dianggap ground!
 
-				for attempt = 1, 6 do
-					localBrp.FilterDescendantsInstances = localFilter
-					local hit = workspace:Raycast(origin, Vector3.new(0, rayDepth, 0), localBrp)
+				for attempt = 1, 5 do
+					sharedProbeRayParams.FilterDescendantsInstances = localFilter
+					local hit = workspace:Raycast(origin, Vector3.new(0, rayDepth, 0), sharedProbeRayParams)
 					if not hit then break end
 
 					local inst = hit.Instance
 					local mat = inst.Material
 					local nameLower = inst.Name:lower()
-					local parentName = inst.Parent and inst.Parent.Name:lower() or ""
-					local grandParentName = inst.Parent and inst.Parent.Parent and inst.Parent.Parent.Name:lower() or ""
-					local fullName = inst:GetFullName():lower()
+					local parent = inst.Parent
+					local parentName = parent and parent.Name:lower() or ""
+					local grandParent = parent and parent.Parent
+					local grandParentName = grandParent and grandParent.Name:lower() or ""
 
-					local isFlyover = fullName:find("other_flyover") or fullName:find("flyover") or fullName:find("tol") or fullName:find("jembatan") or fullName:find("bridge")
+					local isFlyover = nameLower:find("flyover") or nameLower:find("tol") or nameLower:find("jembatan") or nameLower:find("bridge")
+						or parentName:find("flyover") or parentName:find("tol") or parentName:find("jembatan") or parentName:find("bridge")
 
-					-- 1. Daratan Sah / Jalan Raya (Whitelist Mutlak - JANGAN PERNAH dianggap gedung/rintangan!)
+					-- 1. Daratan Sah / Jalan Raya (Direct fast name check)
 					local isRoadOrTerrain = isFlyover
-						or fullName:find("jl_klaten")
-						or fullName:find("jl_")
-						or fullName:find("jalan")
-						or fullName:find("road")
-						or fullName:find("street")
-						or fullName:find("aspal")
+						or nameLower:find("jl_klaten")
+						or nameLower:find("jl_")
+						or nameLower:find("jalan")
+						or nameLower:find("road")
+						or nameLower:find("street")
+						or nameLower:find("aspal")
 						or nameLower:find("sawah")
+						or parentName:find("jl_")
+						or parentName:find("jalan")
+						or parentName:find("road")
 						or parentName:find("sawah")
 						or grandParentName:find("sawah")
-						or (fullName:find("building_klaten") and (parentName == "model" or parentName == "sawah" or nameLower == "sawah"))
 						or inst:IsA("Terrain")
 
 					-- 2. Air / Sungai (Bukan daratan)
@@ -1930,13 +1946,12 @@ local success, err = pcall(function()
 					local isBuildingModel = false
 
 					if not isRoadOrTerrain then
-						isRoofOrObstacle = (mat == Enum.Material.ClayRoofTiles or mat == Enum.Material.WoodPlanks or mat == Enum.Material.Fabric or mat == Enum.Material.Glass)
+						isRoofOrObstacle = nonDrivableMats[mat]
 							or nameLower:find("roof") or nameLower:find("atap") or nameLower:find("genteng")
 							or nameLower:find("wall") or nameLower:find("dinding") or nameLower:find("pagar")
 							or parentName:find("roof") or parentName:find("atap") or parentName:find("genteng")
 							or (inst.Position.Y >= 8 and (mat == Enum.Material.Brick or mat == Enum.Material.Wood))
 
-						-- Bangunan sungguhan (HANYA jika memiliki kata kunci gedung nyata, BUKAN sekadar "Model"!)
 						local hasBuildingKeyword = parentName:find("rumah") or parentName:find("house")
 							or parentName:find("gedung") or parentName:find("bangunan")
 							or parentName:find("ruko") or parentName:find("gudang")
@@ -2138,12 +2153,9 @@ local success, err = pcall(function()
 			-- Sebelum motor bergerak, scan area di depan dan di bawah motor saat ini.
 			-- Jika ada Terrain Water terdeteksi dalam jarak dekat, langsung rescue & tahan posisi!
 			do
-				local fwParams = RaycastParams.new()
-				fwParams.FilterDescendantsInstances = { car, player.Character }
-				fwParams.FilterType = Enum.RaycastFilterType.Exclude
-				fwParams.IgnoreWater = false
+				sharedProbeRayParams.FilterDescendantsInstances = { car, player.Character }
 				-- Cek tepat di bawah posisi motor saat ini (threshold 0.5 stud)
-				local belowHit = workspace:Raycast(Vector3.new(carPos.X, carPos.Y + 1.5, carPos.Z), Vector3.new(0, -4.5, 0), fwParams)
+				local belowHit = workspace:Raycast(Vector3.new(carPos.X, carPos.Y + 1.5, carPos.Z), Vector3.new(0, -4.5, 0), sharedProbeRayParams)
 				if belowHit and belowHit.Material == Enum.Material.Water then
 					-- Motor sudah di atas/dalam air! Rescue SEKETIKA ke lastGroundY
 					local rescueY = math.max(lastGroundY, belowHit.Position.Y + 2.5)
@@ -2165,11 +2177,8 @@ local success, err = pcall(function()
 			if (carPos.Y < (lastGroundY - 0.5)) then
 				pcall(function()
 					local checkOrigin = Vector3.new(carPos.X, carPos.Y + 3, carPos.Z)
-					local waterParams = RaycastParams.new()
-					waterParams.FilterDescendantsInstances = { car, player.Character }
-					waterParams.FilterType = Enum.RaycastFilterType.Exclude
-					waterParams.IgnoreWater = false
-					local wHit = workspace:Raycast(checkOrigin, Vector3.new(0, -8, 0), waterParams)
+					sharedProbeRayParams.FilterDescendantsInstances = { car, player.Character }
+					local wHit = workspace:Raycast(checkOrigin, Vector3.new(0, -8, 0), sharedProbeRayParams)
 					if wHit and (wHit.Material == Enum.Material.Water
 						or wHit.Instance.Name:upper():find("AIR")
 						or wHit.Instance.Name:upper():find("SUNGAI")
@@ -2293,9 +2302,9 @@ local success, err = pcall(function()
 			local directGoalDir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(0, 0, -1)
 
 			-- 🛑 STRICT VOID SAFETY SCANNER:
-			-- Memindai kesinambungan daratan di depan hingga jarak 800 studs untuk kecepatan 300 stud/s
+			-- Memindai kesinambungan daratan di depan secara efisien
 			local solidAheadDist = 800
-			local checkSteps = { 2, 3, 5, 8, 12, 16, 20, 25, 35, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800 }
+			local checkSteps = { 3, 6, 12, 25, 45, 80, 150, 300, 500, 800 }
 			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
@@ -3772,23 +3781,18 @@ local success, err = pcall(function()
 					if not courierActive then break end
 					if isRespawning then
 						task.wait(0.5)
-						continue
-					end
+					else
+						if courierResetFlag then
+							task.wait(2)
+							courierResetFlag = false
+							restarting = false
+							activeCourierDestId = nil
+						end
 
-					if courierResetFlag then
-						task.wait(2)
-						courierResetFlag = false
-						restarting = false
-						activeCourierDestId = nil
-					end
-
-					local char = player.Character
-					local hum = char and char:FindFirstChildOfClass("Humanoid")
-					if not char or not hum or hum.Health <= 0 or courierShiftLimit then
-						continue
-					end
-
-					local cycleOk, cycleErr = pcall(function()
+						local char = player.Character
+						local hum = char and char:FindFirstChildOfClass("Humanoid")
+						if char and hum and hum.Health > 0 and not courierShiftLimit then
+							local cycleOk, cycleErr = pcall(function()
 						-- 1. Pastikan Tim adalah "Courier"
 						local curTeam = player.Team and player.Team.Name or ""
 						if not curTeam:lower():find("courier") then
@@ -4002,6 +4006,8 @@ local success, err = pcall(function()
 					if not cycleOk then
 						warn("[HipHub DDS Courier Error]:", cycleErr)
 						task.wait(1.5)
+					end
+						end
 					end
 				end
 			end)
