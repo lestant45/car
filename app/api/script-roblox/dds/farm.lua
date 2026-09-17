@@ -193,7 +193,7 @@ local success, err = pcall(function()
 	local startPhoneOverlayPoller = nil
 
 	local function updateBotActivity(statusText, customColor)
-		_G.HipHubBotActivityStatus = statusText or "🟢 Menunggu Orderan Masuk..."
+		_G.HipHubBotActivityStatus = statusText or "Menunggu Orderan Masuk..."
 		_G.HipHubBotActivityColor  = customColor or Color3.fromRGB(0, 255, 170)
 	end
 
@@ -202,19 +202,19 @@ local success, err = pcall(function()
 		if customText then
 			updateBotActivity(customText, customColor)
 		elseif newState == "CONNECTING" then
-			updateBotActivity("🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
+			updateBotActivity("Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 		elseif newState == "WAITING_FOR_NEXT_ORDER" then
-			updateBotActivity("🟢 Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
+			updateBotActivity("Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
 		elseif newState == "PICKING_UP" then
-			updateBotActivity("🛵 Sedang Menjemput Penumpang...", Color3.fromRGB(0, 212, 255))
+			updateBotActivity("Sedang Menjemput Penumpang...", Color3.fromRGB(0, 212, 255))
 		elseif newState == "DRIVING_TO_DESTINATION" then
-			updateBotActivity("📍 Mengantar Penumpang ke Tujuan...", Color3.fromRGB(0, 212, 255))
+			updateBotActivity("Mengantar Penumpang ke Tujuan...", Color3.fromRGB(0, 212, 255))
 		elseif newState == "PACING" then
-			updateBotActivity("⏱️ Pacing Waktu Sah Server...", Color3.fromRGB(255, 180, 50))
+			updateBotActivity("Pacing Waktu Sah Server...", Color3.fromRGB(255, 180, 50))
 		elseif newState == "DROPPING_OFF" then
-			updateBotActivity("🏁 Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
+			updateBotActivity("Menunggu Penumpang Turun...", Color3.fromRGB(150, 110, 255))
 		elseif newState == "IDLE" then
-			updateBotActivity("⚪ Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
+			updateBotActivity("Bot Idle (Auto-Farm OFF)", Color3.fromRGB(160, 175, 200))
 		end
 	end
 
@@ -939,7 +939,7 @@ local success, err = pcall(function()
 			-- 1. Pastikan Tim adalah "RideGO Driver"
 			local curTeam = player.Team and player.Team.Name or ""
 			if not curTeam:lower():find("ridego") then
-				updateBotActivity("🚕 Bergabung ke Tim RideGO...", Color3.fromRGB(0, 212, 255))
+				updateBotActivity("Bergabung ke Tim RideGO...", Color3.fromRGB(0, 212, 255))
 				if changeTeam then
 					changeTeam("RideGO Driver")
 				end
@@ -957,7 +957,7 @@ local success, err = pcall(function()
 			-- 🛡️ Verifikasi Mutlak: Jika masih belum berada di tim RideGO Driver, JANGAN tembak GoOnline!
 			local verifyTeam = player.Team and player.Team.Name or ""
 			if not verifyTeam:lower():find("ridego") then
-				updateBotActivity("⏳ Menunggu Cooldown Tim RideGO...", Color3.fromRGB(255, 180, 50))
+				updateBotActivity("Menunggu Cooldown Tim RideGO...", Color3.fromRGB(255, 180, 50))
 				task.delay(2.0, function()
 					if taxiActive and not taxiBusy and recoverRideGoDuty then
 						recoverRideGoDuty()
@@ -970,7 +970,7 @@ local success, err = pcall(function()
 			local char = player.Character
 			local hum  = char and char:FindFirstChildOfClass("Humanoid")
 			if not (hum and hum.SeatPart) then
-				updateBotActivity("🛵 Redfinger: Menaiki Motor...", Color3.fromRGB(0, 212, 255))
+				updateBotActivity("Redfinger: Menaiki Motor...", Color3.fromRGB(0, 212, 255))
 				local ok = ensureDriverSeated()
 				if not ok then
 					spawnTaxiBike()
@@ -999,7 +999,7 @@ local success, err = pcall(function()
 				task.wait(0.4)
 				ev:FireServer("GoOnline")
 				isRideGoDutyOnline = true
-				updateBotActivity("🚕 RideGO Online (Menunggu Order)", Color3.fromRGB(0, 255, 140))
+				updateBotActivity("RideGO Online (Menunggu Order)", Color3.fromRGB(0, 255, 140))
 			end
 		end)
 	end
@@ -1675,7 +1675,7 @@ local success, err = pcall(function()
 			local now = os.clock()
 			if now - lastNotifyTime >= 0.5 then
 				lastNotifyTime = now
-				updateBotActivity(string.format("🪑 Seat Carrier: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
+				updateBotActivity(string.format("Seat Carrier: sisa %.0fm...", flatDist), Color3.fromRGB(0, 212, 255))
 			end
 		end
 
@@ -2754,10 +2754,10 @@ local success, err = pcall(function()
 
 		local isAnomalyTrip = (isAnomaly == true)
 		if isAnomalyTrip then
-			updateBotActivity("👻 Mengantar Anomali (+Rp 25M)...", Color3.fromRGB(255, 100, 100))
-			UI.Notify("👻 ANOMALY ORDER AKTIF", "Mode Proteksi Anomali Aktif (+Rp 25M)...", 4, "warning")
+			updateBotActivity("Mengantar Anomali (+Rp 25M)...", Color3.fromRGB(255, 100, 100))
+			UI.Notify("ANOMALY ORDER AKTIF", "Mode Proteksi Anomali Aktif (+Rp 25M)...", 4, "warning")
 		else
-			updateBotActivity("🛵 Menjemput Penumpang (" .. tostring(name or "Passenger") .. ")...", Color3.fromRGB(0, 212, 255))
+			updateBotActivity("Menjemput Penumpang (" .. tostring(name or "Passenger") .. ")...", Color3.fromRGB(0, 212, 255))
 		end
 
 		setTaxiState("NEW_ORDER_DETECTED")
@@ -3360,7 +3360,7 @@ local success, err = pcall(function()
 						if targetEarn > 0 then
 							local curM = getLiveMoneyRaw()
 							if curM >= targetEarn then
-								UI.Notify("🎉 Target Earn Tercapai!", string.format("Total Uang: %s (Target: %s). Auto-Farm selesai!", formatRupiah(curM), formatRupiah(targetEarn)), 5, "success")
+								UI.Notify("Target Earn Tercapai!", string.format("Total Uang: %s (Target: %s). Auto-Farm selesai!", formatRupiah(curM), formatRupiah(targetEarn)), 5, "success")
 								if autoRideGoToggle and autoRideGoToggle.Set then
 									autoRideGoToggle.Set(false)
 								end
@@ -3409,7 +3409,7 @@ local success, err = pcall(function()
 			if _G.HipHubSaveConfig then
 				_G.HipHubSaveConfig(true)
 			end
-			setTaxiState("CONNECTING", "🟡 Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
+			setTaxiState("CONNECTING", "Menghubungkan ke RideGO...", Color3.fromRGB(255, 200, 50))
 
 			if startPhoneOverlayPoller then
 				startPhoneOverlayPoller()
@@ -3796,7 +3796,7 @@ local success, err = pcall(function()
 						-- 1. Pastikan Tim adalah "Courier"
 						local curTeam = player.Team and player.Team.Name or ""
 						if not curTeam:lower():find("courier") then
-							updateBotActivity("📦 Ganti Tim ke Kurir...", Color3.fromRGB(0, 212, 255))
+							updateBotActivity("Ganti Tim ke Kurir...", Color3.fromRGB(0, 212, 255))
 							pcall(function()
 								local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
 								local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
@@ -3813,7 +3813,7 @@ local success, err = pcall(function()
 						if not currentTarget and not hasCourierPackage() then
 							if not restarting then
 								local takeCF = CFrame.new(-5108, 5, -3759)
-								updateBotActivity("🛵 Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
+								updateBotActivity("Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 								
 								-- Berkendara motor ke Depot
 								local takeArrived = driveCourierTo(takeCF, Config.courierSpeed or 85, 14, function()
@@ -3880,7 +3880,7 @@ local success, err = pcall(function()
 							end
 						else
 							-- 3. Antar Paket ke Titik Pengantaran
-							updateBotActivity("🔍 Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
+							updateBotActivity("Mencari Titik Pengantaran...", Color3.fromRGB(0, 212, 255))
 							local dropCF, dropPrompt, destId = getCourierDestination()
 
 							local tWaitDest = tick()
