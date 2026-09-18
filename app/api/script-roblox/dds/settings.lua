@@ -347,14 +347,50 @@ local success, err = pcall(function()
 
 	local blackScreenGui = nil
 	local blackScreenLoop = nil
+	local savedGlobalShadows = nil
+	local disabledLightingEffects = {}
 
 	local function toggleBlackScreen(state)
 		_G.HipHubConfig.misc.blackScreenEnabled = state
-		pcall(function()
-			RunService:Set3dRenderingEnabled(true)
-		end)
+		saveConfig(true)
 
 		if state then
+			-- 1. Matikan 3D Rendering Viewport (Sangat drastis memangkas RAM & GPU VRAM)
+			pcall(function()
+				RunService:Set3dRenderingEnabled(false)
+			end)
+
+			-- 2. Cap FPS ke 30 (Mencegah CPU overheating, throttling & OOM spikes pada cloud VM)
+			pcall(function()
+				if setfpscap then
+					setfpscap(30)
+				end
+			end)
+
+			-- 3. Matikan Shadows & Post-Processing Lighting yang membebani memori
+			pcall(function()
+				local Lighting = game:GetService("Lighting")
+				if savedGlobalShadows == nil then
+					savedGlobalShadows = Lighting.GlobalShadows
+				end
+				Lighting.GlobalShadows = false
+
+				disabledLightingEffects = {}
+				for _, child in ipairs(Lighting:GetChildren()) do
+					if child:IsA("PostProcessEffect") or child:IsA("Atmosphere") or child:IsA("Clouds") or child:IsA("DepthOfFieldEffect") or child:IsA("BlurEffect") or child:IsA("SunRaysEffect") or child:IsA("BloomEffect") or child:IsA("ColorCorrectionEffect") then
+						if child.Enabled then
+							table.insert(disabledLightingEffects, child)
+							child.Enabled = false
+						end
+					end
+				end
+			end)
+
+			-- 4. Initial Garbage Collection Sweep
+			pcall(function()
+				collectgarbage("collect")
+			end)
+
 			if blackScreenGui then
 				blackScreenGui:Destroy()
 				blackScreenGui = nil
@@ -642,7 +678,7 @@ local success, err = pcall(function()
 			statusBadge.Size = UDim2.new(1, -40, 0, 22)
 			statusBadge.Position = UDim2.new(0, 20, 0, 290)
 			statusBadge.BackgroundTransparency = 1
-			statusBadge.Text = "Auto-Farm Active | Anti-AFK: ON"
+			statusBadge.Text = "Auto-Farm Active | Anti-Crash & Low-RAM: ACTIVE"
 			statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
 			statusBadge.Font = Enum.Font.GothamMedium
 			statusBadge.TextSize = 12
@@ -654,7 +690,7 @@ local success, err = pcall(function()
 			footer.Size = UDim2.new(1, -40, 0, 32)
 			footer.Position = UDim2.new(0, 20, 0, 318)
 			footer.BackgroundTransparency = 1
-			footer.Text = "Tip: Buka menu UI HipHub atau matikan 'Black Screen' untuk kembali ke grafis normal."
+			footer.Text = "Tip: 3D View dimatikan, FPS di-cap 30 & Auto-GC aktif (Mencegah Force Close). Matikan Black Screen untuk kembali ke visual normal."
 			footer.TextColor3 = Color3.fromRGB(120, 135, 160)
 			footer.Font = Enum.Font.Gotham
 			footer.TextSize = 11
@@ -663,9 +699,17 @@ local success, err = pcall(function()
 			footer.Parent = card
 
 			-- Live Updating Loop
+			local gcCounter = 0
 			blackScreenLoop = task.spawn(function()
 				while _G.HipHubConfig.misc.blackScreenEnabled and blackScreenGui do
 					pcall(function()
+						-- Periodic GC Sweep every 20s to prevent RAM accumulation & Linux OOM killer crashes
+						gcCounter = gcCounter + 1
+						if gcCounter >= 20 then
+							gcCounter = 0
+							collectgarbage("collect")
+						end
+
 						local now = tick()
 						local elapsed = math.max(1, math.floor(now - (_G.HipHubScriptStartTime or now)))
 						local hrs = math.floor(elapsed / 3600)
@@ -730,7 +774,7 @@ local success, err = pcall(function()
 								barFill.BackgroundColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 212, 255)
 							else
 								local antiPText = _G.HipHubConfig.misc.antiPlayerJoin and "Anti-Player: ON" or "Anti-Player: OFF"
-								statusBadge.Text = "Auto-Farm Active | Anti-AFK: ON | " .. antiPText
+								statusBadge.Text = "Auto-Farm Active | Anti-Crash: ON | " .. antiPText
 								statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
 								barFill.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
 							end
@@ -746,7 +790,7 @@ local success, err = pcall(function()
 								barFill.BackgroundColor3 = _G.HipHubBotActivityColor or Color3.fromRGB(0, 212, 255)
 							else
 								local antiPText = _G.HipHubConfig.misc.antiPlayerJoin and "Anti-Player: ON" or "Anti-Player: OFF"
-								statusBadge.Text = "Auto-Farm Active | Anti-AFK: ON | " .. antiPText
+								statusBadge.Text = "Auto-Farm Active | Anti-Crash: ON | " .. antiPText
 								statusBadge.TextColor3 = Color3.fromRGB(0, 255, 170)
 							end
 						end
@@ -755,9 +799,40 @@ local success, err = pcall(function()
 				end
 			end)
 		else
+			-- 1. Kembalikan 3D Viewport Rendering
 			pcall(function()
 				RunService:Set3dRenderingEnabled(true)
 			end)
+
+			-- 2. Kembalikan FPS Target Normal
+			pcall(function()
+				if setfpscap then
+					local targetFps = tonumber(_G.HipHubConfig.misc.targetFps) or 60
+					if _G.HipHubConfig.misc.capFpsEnabled then
+						targetFps = 15
+					end
+					setfpscap(targetFps)
+				end
+			end)
+
+			-- 3. Kembalikan Efek Lighting & Shadows
+			pcall(function()
+				local Lighting = game:GetService("Lighting")
+				if savedGlobalShadows ~= nil then
+					Lighting.GlobalShadows = savedGlobalShadows
+					savedGlobalShadows = nil
+				end
+				if disabledLightingEffects then
+					for _, effect in ipairs(disabledLightingEffects) do
+						if effect and effect.Parent then
+							pcall(function() effect.Enabled = true end)
+						end
+					end
+					disabledLightingEffects = {}
+				end
+			end)
+
+			-- 4. Hentikan Loop & Bersihkan GUI
 			if blackScreenLoop then
 				task.cancel(blackScreenLoop)
 				blackScreenLoop = nil
@@ -795,7 +870,7 @@ local success, err = pcall(function()
 		UI.Notify("Target Earn Diatur", val > 0 and ("Target: " .. formatRupiah(val)) or "Target: No Limit (∞)", 3, "success")
 	end)
 
-	local blackScreenToggle = UI.AddToggle(tab, "Black Screen (Overnight AFK)", "Disables 3D viewport rendering with a live stats dashboard", _G.HipHubConfig.misc.blackScreenEnabled, function(state)
+	local blackScreenToggle = UI.AddToggle(tab, "Black Screen (Anti-Crash & AFK)", "Matikan 3D viewport, cap 30 FPS, & auto-clean RAM (Mencegah Force Close di Redfinger/HP kentang)", _G.HipHubConfig.misc.blackScreenEnabled, function(state)
 		toggleBlackScreen(state)
 	end)
 
