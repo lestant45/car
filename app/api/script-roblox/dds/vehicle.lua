@@ -155,31 +155,72 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🚗 QUICK SPAWNER & DESPAWNER
 	------------------------------------------------
-	local ownedVehicles = {}
-	local selectedVehicle = nil
+	local ownedVehicles = _G.HipHubOwnedVehicles or {}
+	local selectedVehicle = (_G.HipHubConfig and _G.HipHubConfig.vehicle and _G.HipHubConfig.vehicle.selectedVehicle) or (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.selectedVehicle) or ""
+	local vehicleDropdown = nil
 
-	local function fetchOwnedCars()
+	local function fetchOwnedCars(silent)
 		pcall(function()
 			local initCar = ReplicatedStorage:FindFirstChild("DealershipEvents") and ReplicatedStorage.DealershipEvents:FindFirstChild("InitializeCarData")
 			if initCar then
 				local data = initCar:InvokeServer()
-				if data then
-					ownedVehicles = {}
+				if data and type(data) == "table" then
+					local newList = {}
 					for _, car in ipairs(data) do
-						table.insert(ownedVehicles, car.Name)
+						local name = nil
+						if type(car) == "table" then
+							name = car.Name or car.CarName or car.VehicleName or car.ModelName or car[1]
+						elseif type(car) == "string" then
+							name = car
+						end
+						if name and tostring(name) ~= "" then
+							table.insert(newList, tostring(name))
+						end
 					end
-					if #ownedVehicles > 0 then
-						selectedVehicle = ownedVehicles[1]
+
+					if #newList > 0 then
+						ownedVehicles = newList
+						_G.HipHubOwnedVehicles = newList
+
+						local found = false
+						for _, v in ipairs(ownedVehicles) do
+							if v == selectedVehicle then
+								found = true
+								break
+							end
+						end
+						if not found or selectedVehicle == "" then
+							selectedVehicle = ownedVehicles[1]
+							if _G.HipHubConfig and _G.HipHubConfig.vehicle then
+								_G.HipHubConfig.vehicle.selectedVehicle = selectedVehicle
+							end
+							if _G.HipHubConfig and _G.HipHubConfig.farm then
+								_G.HipHubConfig.farm.selectedVehicle = selectedVehicle
+							end
+							if _G.HipHubSaveConfig then
+								_G.HipHubSaveConfig(true)
+							end
+						end
+
+						if vehicleDropdown and vehicleDropdown.Refresh then
+							vehicleDropdown.Refresh(ownedVehicles)
+						end
+						if not silent and UI and UI.Notify then
+							UI.Notify("Vehicles Refreshed", string.format("Ditemukan %d kendaraan milik akun.", #ownedVehicles), 2.5, "success")
+						end
 					end
 				end
 			end
 		end)
 	end
-	task.spawn(fetchOwnedCars)
+	task.spawn(function()
+		task.wait(0.5)
+		fetchOwnedCars(true)
+	end)
 
 	local function spawnCurrentVehicle()
-		if not selectedVehicle then
-			UI.Notify("No Vehicle Selected", "Fetch owned vehicles first.", 2, "warning")
+		if not selectedVehicle or selectedVehicle == "" or selectedVehicle == "Loading..." then
+			UI.Notify("No Vehicle Selected", "Pilih kendaraan terlebih dahulu.", 2, "warning")
 			return
 		end
 
@@ -199,7 +240,7 @@ local success, err = pcall(function()
 			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
 			if despawnEvent then
 				despawnEvent:FireServer()
-				UI.Notify("Vehicle Despawned", "Returned vehicle to garage.", 2, "warning")
+				UI.Notify("Vehicle Despawned", "Kendaraan dimasukkan ke garasi.", 2, "warning")
 			end
 		end)
 	end
@@ -225,9 +266,28 @@ local success, err = pcall(function()
 	end)
 
 	UI.AddSection(tab, "Quick Spawner & Garage")
+
+	local initialItems = #ownedVehicles > 0 and ownedVehicles or { (selectedVehicle ~= "" and selectedVehicle) or "Loading..." }
+	local initialSelected = (selectedVehicle ~= "" and selectedVehicle) or (ownedVehicles[1] or "Select Vehicle")
+
+	vehicleDropdown = UI.AddDropdown(tab, "Select Vehicle", initialItems, initialSelected, function(chosen)
+		if chosen and chosen ~= "Loading..." and chosen ~= "No Vehicles Found" and chosen ~= "Select Vehicle" then
+			selectedVehicle = chosen
+			if _G.HipHubConfig and _G.HipHubConfig.vehicle then
+				_G.HipHubConfig.vehicle.selectedVehicle = chosen
+			end
+			if _G.HipHubConfig and _G.HipHubConfig.farm then
+				_G.HipHubConfig.farm.selectedVehicle = chosen
+			end
+			if _G.HipHubSaveConfig then
+				_G.HipHubSaveConfig(true)
+			end
+			UI.Notify("Vehicle Selected", "Kendaraan Aktif: " .. tostring(chosen), 2, "info")
+		end
+	end)
+
 	UI.AddButton(tab, "Refresh Owned Vehicles", "Refresh", function()
-		fetchOwnedCars()
-		UI.Notify("Vehicles Refreshed", "Updated owned vehicles list.", 2, "success")
+		fetchOwnedCars(false)
 	end)
 
 	UI.AddButton(tab, "Spawn Selected Vehicle", "Spawn Car", function()

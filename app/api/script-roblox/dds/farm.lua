@@ -116,6 +116,7 @@ local success, err = pcall(function()
 	end
 
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
+		selectedVehicle = "",
 		autoRideGO = false,
 		taxiSpeed = 90,
 		passengerBoardDelay = 3,
@@ -127,6 +128,7 @@ local success, err = pcall(function()
 		courierPacing = true,
 		courierAutoRejoinOrders = 10
 	}
+	if Config.selectedVehicle == nil then Config.selectedVehicle = "" end
 	Config.tripPacing = true
 	if _G.HipHubConfig and _G.HipHubConfig.farm then
 		_G.HipHubConfig.farm.tripPacing = true
@@ -136,6 +138,80 @@ local success, err = pcall(function()
 	if Config.courierSpeed == nil then Config.courierSpeed = 85 end
 	if Config.courierDropDelay == nil then Config.courierDropDelay = 4 end
 	if Config.courierAutoRejoinOrders == nil then Config.courierAutoRejoinOrders = 10 end
+
+	------------------------------------------------
+	-- 🛵 DYNAMIC OWNED VEHICLE MANAGER
+	------------------------------------------------
+	local ownedVehiclesList = {}
+	local selectedFarmVehicle = (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.selectedVehicle) or (Config.selectedVehicle) or ""
+	local farmVehicleDropdown = nil
+
+	local function getFarmVehicleName()
+		if selectedFarmVehicle and selectedFarmVehicle ~= "" and selectedFarmVehicle ~= "Loading..." and selectedFarmVehicle ~= "No Vehicles Found" and selectedFarmVehicle ~= "Select Vehicle" then
+			return selectedFarmVehicle
+		end
+		if #ownedVehiclesList > 0 then
+			return ownedVehiclesList[1]
+		end
+		return "Yamahax-MioSporty"
+	end
+
+	local function fetchFarmOwnedVehicles(silent)
+		pcall(function()
+			local initCar = ReplicatedStorage:FindFirstChild("DealershipEvents") and ReplicatedStorage.DealershipEvents:FindFirstChild("InitializeCarData")
+			if initCar then
+				local data = initCar:InvokeServer()
+				if data and type(data) == "table" then
+					local newList = {}
+					for _, car in ipairs(data) do
+						local name = nil
+						if type(car) == "table" then
+							name = car.Name or car.CarName or car.VehicleName or car.ModelName or car[1]
+						elseif type(car) == "string" then
+							name = car
+						end
+						if name and tostring(name) ~= "" then
+							table.insert(newList, tostring(name))
+						end
+					end
+
+					if #newList > 0 then
+						ownedVehiclesList = newList
+						_G.HipHubOwnedVehicles = newList
+
+						local found = false
+						for _, v in ipairs(ownedVehiclesList) do
+							if v == selectedFarmVehicle then
+								found = true
+								break
+							end
+						end
+						if not found or selectedFarmVehicle == "" then
+							selectedFarmVehicle = ownedVehiclesList[1]
+							Config.selectedVehicle = selectedFarmVehicle
+							if _G.HipHubConfig and _G.HipHubConfig.farm then
+								_G.HipHubConfig.farm.selectedVehicle = selectedFarmVehicle
+							end
+							if _G.HipHubSaveConfig then
+								_G.HipHubSaveConfig(true)
+							end
+						end
+
+						if farmVehicleDropdown and farmVehicleDropdown.Refresh then
+							farmVehicleDropdown.Refresh(ownedVehiclesList)
+						end
+						if not silent and UI and UI.Notify then
+							UI.Notify("Kendaraan Terdeteksi", string.format("Ditemukan %d kendaraan milik akun.", #ownedVehiclesList), 2.5, "success")
+						end
+					end
+				end
+			end
+		end)
+	end
+	task.spawn(function()
+		task.wait(0.5)
+		fetchFarmOwnedVehicles(true)
+	end)
 
 	------------------------------------------------
 	-- 🚕 SHARED RIDEGO TAXI STATE & REMOTE CONTROLLER
@@ -176,6 +252,7 @@ local success, err = pcall(function()
 
 	local triggerSafeRespawn      = nil
 	local getPlayerVehicle        = nil
+	local spawnFarmVehicle        = nil
 	local spawnTaxiBike           = nil
 	local changeTeam              = nil
 	local mountBike               = nil
@@ -607,8 +684,13 @@ local success, err = pcall(function()
 	local function isUnwantedVehicle(model)
 		if not model then return false end
 		local n = model.Name:lower()
+		local activeVehicle = getFarmVehicleName():lower()
+		-- Jika nama model cocok dengan kendaraan yang dipilih user, whitelist langsung
+		if activeVehicle ~= "" and (n:find(activeVehicle, 1, true) or activeVehicle:find(n, 1, true)) then
+			return false
+		end
 		-- Jika nama mengandung motor/bike/montor yang jelas, ini bukan unwanted
-		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("mio") or n:find("yamaha") or n:find("beat") or n:find("vario") or n:find("nmax") or n:find("aerox") or n:find("scoopy") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") then
+		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("mio") or n:find("yamaha") or n:find("beat") or n:find("vario") or n:find("nmax") or n:find("aerox") or n:find("scoopy") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") or n:find("cbr") or n:find("herex") or n:find("tiger") or n:find("hando") or n:find("ninja") or n:find("kawasaki") or n:find("suzuki") then
 			return false
 		end
 		-- Kata kunci kendaraan berat / mobil / truk / bus
@@ -622,7 +704,11 @@ local success, err = pcall(function()
 		if not model or not model:IsA("Model") then return false end
 		if isUnwantedVehicle(model) then return false end
 		local n = model.Name:lower()
-		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("yamaha") or n:find("mio") or n:find("beat") or n:find("vario") or n:find("scoopy") or n:find("nmax") or n:find("aerox") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") or n:find("rx") then
+		local activeVehicle = getFarmVehicleName():lower()
+		if activeVehicle ~= "" and (n:find(activeVehicle, 1, true) or activeVehicle:find(n, 1, true)) then
+			return true
+		end
+		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("yamaha") or n:find("mio") or n:find("beat") or n:find("vario") or n:find("scoopy") or n:find("nmax") or n:find("aerox") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") or n:find("rx") or n:find("cbr") or n:find("herex") or n:find("tiger") or n:find("hando") or n:find("ninja") or n:find("kawasaki") or n:find("suzuki") then
 			return true
 		end
 		if n:find(player.Name:lower()) and not (n:find("canter") or n:find("truck") or n:find("bus") or n:find("mobil") or n:find("car")) then
@@ -715,21 +801,21 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local TAXI_BIKE_NAME = "Yamahax-MioSporty"
-
-	spawnTaxiBike = function()
+	spawnFarmVehicle = function()
 		local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 		local remote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
 		if not remote then return end
-		-- Despawn kendaraan truk/mobil terlebih dahulu sebelum spawn motor
+		-- Despawn kendaraan truk/mobil terlebih dahulu sebelum spawn motor baru
 		pcall(function()
 			local despawn = SpawnCarEvt:FindFirstChild("DespawnCar")
 			if despawn then despawn:FireServer() end
 		end)
 		task.wait(0.5)
-		pcall(function() remote:FireServer(TAXI_BIKE_NAME) end)
+		local targetBike = getFarmVehicleName()
+		pcall(function() remote:FireServer(targetBike) end)
 		task.wait(1.5)
 	end
+	spawnTaxiBike = spawnFarmVehicle
 
 	local function findRidePrompt()
 		local car, seat = getPlayerVehicle()
@@ -4034,6 +4120,48 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🖼️ 3. UI COMPONENTS IN FARM TAB
 	------------------------------------------------
+	------------------------------------------------
+	-- 🛵 1. FARM VEHICLE CONFIGURATION
+	------------------------------------------------
+	UI.AddSection(tab, "Farm Vehicle Configuration")
+
+	local initialList = #ownedVehiclesList > 0 and ownedVehiclesList or { (selectedFarmVehicle ~= "" and selectedFarmVehicle) or "Loading..." }
+	local initialSelected = (selectedFarmVehicle ~= "" and selectedFarmVehicle) or (ownedVehiclesList[1] or "Select Vehicle")
+
+	farmVehicleDropdown = UI.AddDropdown(tab, "Selected Farm Vehicle", initialList, initialSelected, function(chosen)
+		if chosen and chosen ~= "Loading..." and chosen ~= "No Vehicles Found" and chosen ~= "Select Vehicle" then
+			selectedFarmVehicle = chosen
+			Config.selectedVehicle = chosen
+			if _G.HipHubConfig and _G.HipHubConfig.farm then
+				_G.HipHubConfig.farm.selectedVehicle = chosen
+			end
+			if _G.HipHubSaveConfig then
+				_G.HipHubSaveConfig(true)
+			end
+			UI.Notify("Vehicle Selected", "Kendaraan Auto-Farm: " .. tostring(chosen), 2.5, "success")
+		end
+	end)
+
+	UI.AddButton(tab, "Refresh Owned Vehicles", "Refresh List", function()
+		fetchFarmOwnedVehicles(false)
+	end)
+
+	UI.AddButton(tab, "Spawn Farm Vehicle", "Spawn Car", function()
+		spawnFarmVehicle()
+		UI.Notify("Spawn Vehicle", "Memanggil: " .. tostring(getFarmVehicleName()), 2.5, "success")
+	end)
+
+	UI.AddButton(tab, "Despawn Vehicle", "Despawn Car", function()
+		pcall(function()
+			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
+			if despawnEvent then
+				despawnEvent:FireServer()
+				UI.Notify("Despawn Vehicle", "Kendaraan dimasukkan ke garasi.", 2, "warning")
+			end
+		end)
+	end)
+
 	UI.AddSection(tab, "RideGO Taxi Auto-Driver")
 	autoRideGoToggle = UI.AddToggle(tab, "Auto RideGO Taxi", "Goes online, auto-accepts orders & smoothly navigates to drops", Config.autoRideGO, function(state)
 		toggleAutoRideGO(state)

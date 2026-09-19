@@ -23,6 +23,7 @@ local success, err = pcall(function()
 			infiniteStamina = false
 		},
 		farm = {
+			selectedVehicle = "",
 			autoBarista = false,
 			baristaMinigameDelay = 2.2,
 			autoRideGO = false,
@@ -40,6 +41,7 @@ local success, err = pcall(function()
 			autoRedeemCodes = false
 		},
 		vehicle = {
+			selectedVehicle = "",
 			antiFall = true,
 			speedMultiplier = 1,
 			torqueMultiplier = 1,
