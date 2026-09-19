@@ -143,15 +143,21 @@ local success, err = pcall(function()
 	-- 🛵 DYNAMIC OWNED VEHICLE MANAGER
 	------------------------------------------------
 	local ownedVehiclesList = {}
+	local vehicleDisplayToName = {}
+	local vehicleNameToDisplay = {}
 	local selectedFarmVehicle = (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.selectedVehicle) or (Config.selectedVehicle) or ""
 	local farmVehicleDropdown = nil
 
 	local function getFarmVehicleName()
 		if selectedFarmVehicle and selectedFarmVehicle ~= "" and selectedFarmVehicle ~= "Loading..." and selectedFarmVehicle ~= "No Vehicles Found" and selectedFarmVehicle ~= "Select Vehicle" then
+			if vehicleDisplayToName[selectedFarmVehicle] then
+				return vehicleDisplayToName[selectedFarmVehicle]
+			end
 			return selectedFarmVehicle
 		end
 		if #ownedVehiclesList > 0 then
-			return ownedVehiclesList[1]
+			local first = ownedVehiclesList[1]
+			return vehicleDisplayToName[first] or first
 		end
 		return "Yamahax-MioSporty"
 	end
@@ -163,25 +169,37 @@ local success, err = pcall(function()
 				local data = initCar:InvokeServer()
 				if data and type(data) == "table" then
 					local newList = {}
+					local d2n = {}
+					local n2d = {}
 					for _, car in ipairs(data) do
-						local name = nil
+						local internalName = nil
+						local displayName = nil
 						if type(car) == "table" then
-							name = car.Name or car.CarName or car.VehicleName or car.ModelName or car[1]
+							internalName = car.Name or car.CarName or car.VehicleName or car.ModelName or car[1]
+							displayName = car.DisplayName or internalName
 						elseif type(car) == "string" then
-							name = car
+							internalName = car
+							displayName = car
 						end
-						if name and tostring(name) ~= "" then
-							table.insert(newList, tostring(name))
+						if internalName and tostring(internalName) ~= "" then
+							internalName = tostring(internalName)
+							displayName = tostring(displayName or internalName)
+							table.insert(newList, internalName)
+							d2n[displayName] = internalName
+							d2n[internalName] = internalName
+							n2d[internalName] = displayName
 						end
 					end
 
 					if #newList > 0 then
 						ownedVehiclesList = newList
+						vehicleDisplayToName = d2n
+						vehicleNameToDisplay = n2d
 						_G.HipHubOwnedVehicles = newList
 
 						local found = false
 						for _, v in ipairs(ownedVehiclesList) do
-							if v == selectedFarmVehicle then
+							if v == selectedFarmVehicle or d2n[selectedFarmVehicle] == v then
 								found = true
 								break
 							end
@@ -681,42 +699,6 @@ local success, err = pcall(function()
 		return char and char:FindFirstChild("HumanoidRootPart")
 	end
 
-	local function isUnwantedVehicle(model)
-		if not model then return false end
-		local n = model.Name:lower()
-		local activeVehicle = getFarmVehicleName():lower()
-		-- Jika nama model cocok dengan kendaraan yang dipilih user, whitelist langsung
-		if activeVehicle ~= "" and (n:find(activeVehicle, 1, true) or activeVehicle:find(n, 1, true)) then
-			return false
-		end
-		-- Jika nama mengandung motor/bike/montor yang jelas, ini bukan unwanted
-		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("mio") or n:find("yamaha") or n:find("beat") or n:find("vario") or n:find("nmax") or n:find("aerox") or n:find("scoopy") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") or n:find("cbr") or n:find("herex") or n:find("tiger") or n:find("hando") or n:find("ninja") or n:find("kawasaki") or n:find("suzuki") then
-			return false
-		end
-		-- Kata kunci kendaraan berat / mobil / truk / bus
-		if n:find("canter") or n:find("mestibisa") or n:find("truk") or n:find("truck") or n:find("bus") or n:find("fuso") or n:find("angkot") or n:find("pickup") or n:find("mobil") or n:find("car") or n:find("sedan") or n:find("suv") or n:find("avanza") or n:find("innova") or n:find("pajero") or n:find("fortuner") or n:find("brio") or n:find("civic") then
-			return true
-		end
-		return false
-	end
-
-	local function isMotorcycle(model)
-		if not model or not model:IsA("Model") then return false end
-		if isUnwantedVehicle(model) then return false end
-		local n = model.Name:lower()
-		local activeVehicle = getFarmVehicleName():lower()
-		if activeVehicle ~= "" and (n:find(activeVehicle, 1, true) or activeVehicle:find(n, 1, true)) then
-			return true
-		end
-		if n:find("montor") or n:find("motor") or n:find("bike") or n:find("yamaha") or n:find("mio") or n:find("beat") or n:find("vario") or n:find("scoopy") or n:find("nmax") or n:find("aerox") or n:find("pcx") or n:find("vespa") or n:find("klx") or n:find("crf") or n:find("supra") or n:find("satria") or n:find("rx") or n:find("cbr") or n:find("herex") or n:find("tiger") or n:find("hando") or n:find("ninja") or n:find("kawasaki") or n:find("suzuki") then
-			return true
-		end
-		if n:find(player.Name:lower()) and not (n:find("canter") or n:find("truck") or n:find("bus") or n:find("mobil") or n:find("car")) then
-			return true
-		end
-		return false
-	end
-
 	local function despawnUnwantedVehicle(model)
 		pcall(function()
 			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
@@ -728,6 +710,53 @@ local success, err = pcall(function()
 				model:Destroy()
 			end
 		end)
+	end
+
+	local function isUnwantedVehicle(model)
+		if not model or not model:IsA("Model") or model == player.Character then return false end
+		local mName = model.Name:lower()
+		local pName = player.Name:lower()
+		local isOwner = (mName:sub(1, #pName) == pName) or (mName:find(pName, 1, true) ~= nil)
+		if not isOwner then return true end
+
+		local carNameData = (model:GetAttribute("CarNameData") or ""):lower()
+		local activeVehicle = getFarmVehicleName():lower()
+
+		-- Jika cocok dengan kendaraan yang dipilih user, whitelist 100%
+		if activeVehicle ~= "" and activeVehicle ~= "loading..." and activeVehicle ~= "no vehicles found" and activeVehicle ~= "select vehicle" then
+			if carNameData ~= "" and (carNameData == activeVehicle or carNameData:find(activeVehicle, 1, true) or activeVehicle:find(carNameData, 1, true)) then
+				return false
+			end
+			if mName:find(activeVehicle, 1, true) or activeVehicle:find(mName, 1, true) then
+				return false
+			end
+		end
+
+		-- Jika bukan kendaraan yang dipilih dan ada kendaraan lain yang jelas truk / canter saat user memilih motor:
+		if activeVehicle ~= "" and not (activeVehicle:find("canter") or activeVehicle:find("truk") or activeVehicle:find("truck") or activeVehicle:find("fuso") or activeVehicle:find("bus")) then
+			if carNameData:find("canter") or carNameData:find("truk") or carNameData:find("truck") or carNameData:find("fuso") or carNameData:find("bus") then
+				return true
+			end
+			if mName:find("canter") or mName:find("truk") or mName:find("truck") or mName:find("fuso") or mName:find("bus") then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	local function isMotorcycle(model)
+		if not model or not model:IsA("Model") or model == player.Character then return false end
+		local mName = model.Name:lower()
+		local pName = player.Name:lower()
+		local isOwner = (mName:sub(1, #pName) == pName) or (mName:find(pName, 1, true) ~= nil)
+		if not isOwner then return false end
+		if isUnwantedVehicle(model) then return false end
+
+		local hasDriveSeat = model:FindFirstChild("DriveSeat", true) ~= nil or model:FindFirstChildWhichIsA("VehicleSeat", true) ~= nil
+		if not hasDriveSeat then return false end
+
+		return true
 	end
 
 	getPlayerVehicle = function()
@@ -747,21 +776,34 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 1. Cari motor yang sah milik player di workspace (dalam radius wajar <= 150 studs)
+		-- 1. Cari kendaraan milik player di workspace (dalam radius wajar <= 200 studs)
 		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local pName = player.Name
+		local bestModel, bestSeat, bestDist = nil, nil, 999999
+
 		for _, c in ipairs(workspace:GetChildren()) do
-			if c:IsA("Model") and c ~= char and isMotorcycle(c) then
-				local dist = hrp and (c:GetPivot().Position - hrp.Position).Magnitude or 0
-				if dist <= 150 then
-					-- 🎯 Prioritaskan DriveSeat sebelum VehicleSeat agar tidak menduduki kursi penumpang!
-					local seat = c:FindFirstChild("DriveSeat", true)
-						or c:FindFirstChildWhichIsA("VehicleSeat", true)
-					if seat then return c, seat end
+			if c:IsA("Model") and c ~= char then
+				local mName = c.Name
+				local isOwner = (mName:sub(1, #pName):lower() == pName:lower()) or (mName:find(pName, 1, true) ~= nil)
+				if isOwner then
+					if not isUnwantedVehicle(c) then
+						local seat = c:FindFirstChild("DriveSeat", true)
+							or c:FindFirstChildWhichIsA("VehicleSeat", true)
+						if seat then
+							local dist = hrp and (c:GetPivot().Position - hrp.Position).Magnitude or 0
+							if dist < bestDist and dist <= 200 then
+								bestDist = dist
+								bestModel = c
+								bestSeat = seat
+							end
+						end
+					end
 				end
-			elseif c:IsA("Model") and c ~= char and isUnwantedVehicle(c) and c.Name:find(player.Name) then
-				-- Jika ada truk/bus milik player yang masih tersisa di workspace -> despawn
-				despawnUnwantedVehicle(c)
 			end
+		end
+
+		if bestModel and bestSeat then
+			return bestModel, bestSeat
 		end
 
 		return nil, nil
@@ -805,13 +847,10 @@ local success, err = pcall(function()
 		local SpawnCarEvt = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 		local remote = SpawnCarEvt and SpawnCarEvt:FindFirstChild("SpawnCar")
 		if not remote then return end
-		-- Despawn kendaraan truk/mobil terlebih dahulu sebelum spawn motor baru
-		pcall(function()
-			local despawn = SpawnCarEvt:FindFirstChild("DespawnCar")
-			if despawn then despawn:FireServer() end
-		end)
-		task.wait(0.5)
 		local targetBike = getFarmVehicleName()
+		if not targetBike or targetBike == "" or targetBike == "Loading..." or targetBike == "No Vehicles Found" or targetBike == "Select Vehicle" then
+			return
+		end
 		pcall(function() remote:FireServer(targetBike) end)
 		task.wait(1.5)
 	end
@@ -819,15 +858,23 @@ local success, err = pcall(function()
 
 	local function findRidePrompt()
 		local car, seat = getPlayerVehicle()
-		if not car or not seat or isUnwantedVehicle(car) then
+		if not car or not seat then
 			local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+			local pName = player.Name
 			for _, c in ipairs(workspace:GetChildren()) do
-				if c:IsA("Model") and c ~= player.Character and isMotorcycle(c) then
-					local dist = hrp and (c:GetPivot().Position - hrp.Position).Magnitude or 0
-					if dist <= 150 then
-						car = c
-						seat = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
-						if seat then break end
+				if c:IsA("Model") and c ~= player.Character then
+					local mName = c.Name
+					local isOwner = (mName:sub(1, #pName):lower() == pName:lower()) or (mName:find(pName, 1, true) ~= nil)
+					if isOwner and not isUnwantedVehicle(c) then
+						local s = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
+						if s then
+							local dist = hrp and (c:GetPivot().Position - hrp.Position).Magnitude or 0
+							if dist <= 200 then
+								car = c
+								seat = s
+								break
+							end
+						end
 					end
 				end
 			end
@@ -839,14 +886,14 @@ local success, err = pcall(function()
 		-- 1. Search prompt inside DriveSeat directly
 		local prompt = seatPart:FindFirstChildWhichIsA("ProximityPrompt", true)
 
-		-- 2. Search prompt in entire car excluding Lock, Tuner, Kickstand, Trunk
+		-- 2. Search prompt in entire car prioritizing driver action text and excluding Lock, Tuner, Kickstand, Trunk, Passenger
 		if not prompt and car then
 			for _, p in ipairs(car:GetDescendants()) do
 				if p:IsA("ProximityPrompt") then
 					local pn = p.Name:lower()
 					local an = (p.ActionText or ""):lower()
 					local on = (p.ObjectText or ""):lower()
-					if not (pn:find("lock") or pn:find("tuner") or pn:find("trunk") or pn:find("bagasi") or pn:find("kickstand") or an:find("lock") or on:find("lock")) then
+					if not (pn:find("lock") or pn:find("tuner") or pn:find("trunk") or pn:find("bagasi") or pn:find("kickstand") or an:find("lock") or on:find("lock") or an:find("penumpang") or an:find("passenger")) then
 						prompt = p
 						break
 					end

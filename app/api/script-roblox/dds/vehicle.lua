@@ -156,6 +156,8 @@ local success, err = pcall(function()
 	-- 🚗 QUICK SPAWNER & DESPAWNER
 	------------------------------------------------
 	local ownedVehicles = _G.HipHubOwnedVehicles or {}
+	local vehicleDisplayToName = {}
+	local vehicleNameToDisplay = {}
 	local selectedVehicle = (_G.HipHubConfig and _G.HipHubConfig.vehicle and _G.HipHubConfig.vehicle.selectedVehicle) or (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.selectedVehicle) or ""
 	local vehicleDropdown = nil
 
@@ -166,25 +168,37 @@ local success, err = pcall(function()
 				local data = initCar:InvokeServer()
 				if data and type(data) == "table" then
 					local newList = {}
+					local d2n = {}
+					local n2d = {}
 					for _, car in ipairs(data) do
-						local name = nil
+						local internalName = nil
+						local displayName = nil
 						if type(car) == "table" then
-							name = car.Name or car.CarName or car.VehicleName or car.ModelName or car[1]
+							internalName = car.Name or car.CarName or car.VehicleName or car.ModelName or car[1]
+							displayName = car.DisplayName or internalName
 						elseif type(car) == "string" then
-							name = car
+							internalName = car
+							displayName = car
 						end
-						if name and tostring(name) ~= "" then
-							table.insert(newList, tostring(name))
+						if internalName and tostring(internalName) ~= "" then
+							internalName = tostring(internalName)
+							displayName = tostring(displayName or internalName)
+							table.insert(newList, internalName)
+							d2n[displayName] = internalName
+							d2n[internalName] = internalName
+							n2d[internalName] = displayName
 						end
 					end
 
 					if #newList > 0 then
 						ownedVehicles = newList
+						vehicleDisplayToName = d2n
+						vehicleNameToDisplay = n2d
 						_G.HipHubOwnedVehicles = newList
 
 						local found = false
 						for _, v in ipairs(ownedVehicles) do
-							if v == selectedVehicle then
+							if v == selectedVehicle or d2n[selectedVehicle] == v then
 								found = true
 								break
 							end
@@ -219,7 +233,7 @@ local success, err = pcall(function()
 	end)
 
 	local function spawnCurrentVehicle()
-		if not selectedVehicle or selectedVehicle == "" or selectedVehicle == "Loading..." then
+		if not selectedVehicle or selectedVehicle == "" or selectedVehicle == "Loading..." or selectedVehicle == "No Vehicles Found" or selectedVehicle == "Select Vehicle" then
 			UI.Notify("No Vehicle Selected", "Pilih kendaraan terlebih dahulu.", 2, "warning")
 			return
 		end
@@ -228,8 +242,9 @@ local success, err = pcall(function()
 			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 			local spawnEvent = sc and sc:FindFirstChild("SpawnCar")
 			if spawnEvent then
-				spawnEvent:FireServer(selectedVehicle)
-				UI.Notify("Vehicle Spawned", "Spawned: " .. tostring(selectedVehicle), 3, "success")
+				local target = vehicleDisplayToName[selectedVehicle] or selectedVehicle
+				spawnEvent:FireServer(target)
+				UI.Notify("Vehicle Spawned", "Spawned: " .. tostring(target), 3, "success")
 			end
 		end)
 	end
