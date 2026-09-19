@@ -2741,14 +2741,21 @@ local success, err = pcall(function()
 				local oldOpen = ChoicePicker.open
 				ChoicePicker.open = function(self, title, items, onPick)
 					if Config.farm.janjiJiwa or _G.HipHubAutoPickChoice then
-						local targetValue = _G.HipHubTargetMenu or _G.HipHubTargetFlavour
+						local tTitle = tostring(title or ""):lower()
+						local targetValue = nil
+						if tTitle:find("rasa") or tTitle:find("flavour") then
+							targetValue = _G.HipHubTargetFlavour
+						else
+							targetValue = _G.HipHubTargetMenu
+						end
+
 						local selected = nil
 						if targetValue and items then
 							for _, itm in ipairs(items) do
 								local cleanVal = tostring(itm.value):gsub("%s+", ""):lower()
 								local cleanTarget = tostring(targetValue):gsub("%s+", ""):lower()
 								local cleanText = itm.text and tostring(itm.text):gsub("%s+", ""):lower() or ""
-								if cleanVal == cleanTarget or cleanText == cleanTarget or cleanText:find(cleanTarget, 1, true) then
+								if cleanVal == cleanTarget or cleanText == cleanTarget or cleanText:find(cleanTarget, 1, true) or cleanTarget:find(cleanText, 1, true) then
 									selected = itm.value
 									break
 								end
@@ -2854,44 +2861,54 @@ local success, err = pcall(function()
 				baristaRemote = game:GetService("ReplicatedStorage"):WaitForChild("NetworkContainer", 5):WaitForChild("RemoteEvents", 5):WaitForChild("Barista", 5)
 			end)
 
+			local function handleBaristaClientEvent(action, p1, p2, p3)
+				if action == "OrderTaken" then
+					activeOrder = { slot = p1, menuId = p2, flavour = p3 }
+					targetFlavour = p3
+					_G.HipHubTargetMenu = p2
+					_G.HipHubTargetFlavour = p3
+				elseif action == "CupState" then
+					currentCupState = p1
+				elseif action == "BrewStart" then
+					isBrewing = true
+					task.spawn(function()
+						if baristaNoMinigame then
+							task.wait(0.15)
+							fireRemote("Barista", "BrewResult", 1.0)
+							task.wait(0.15)
+							isBrewing = false
+						end
+					end)
+				elseif action == "PickPrompt" then
+					task.wait(0.06)
+					if p1 == "Menu" then
+						local chosenMenu = (activeOrder and activeOrder.menuId) or _G.HipHubTargetMenu or (p2 and p2[1]) or "Cappuccino"
+						fireRemote("Barista", "Pick", "Menu", chosenMenu)
+					elseif p1 == "Flavour" then
+						local chosenFlavour = targetFlavour or _G.HipHubTargetFlavour or (p2 and p2[1]) or "Vanilla"
+						fireRemote("Barista", "Pick", "Flavour", chosenFlavour)
+					else
+						local val = (p2 and p2[1]) or "Vanilla"
+						fireRemote("Barista", "Pick", p1, val)
+					end
+				elseif action == "OrderDone" then
+					activeOrder = nil
+					currentCupState = nil
+				end
+			end
+
 			local eventConn = nil
 			if baristaRemote then
-				eventConn = baristaRemote.OnClientEvent:Connect(function(action, p1, p2, p3)
-					if action == "OrderTaken" then
-						activeOrder = { slot = p1, menuId = p2, flavour = p3 }
-						targetFlavour = p3
-						_G.HipHubTargetMenu = p2
-						_G.HipHubTargetFlavour = p3
-					elseif action == "CupState" then
-						currentCupState = p1
-					elseif action == "BrewStart" then
-						isBrewing = true
-						task.spawn(function()
-							if baristaNoMinigame then
-								task.wait(0.15)
-								fireRemote("Barista", "BrewResult", 1.0)
-								task.wait(0.15)
-								isBrewing = false
-							end
-						end)
-					elseif action == "PickPrompt" then
-						task.wait(0.06)
-						if p1 == "Menu" then
-							local chosenMenu = (activeOrder and activeOrder.menuId) or _G.HipHubTargetMenu or (p2 and p2[1]) or "EsKopiSusu"
-							fireRemote("Barista", "Pick", "Menu", chosenMenu)
-						elseif p1 == "Flavour" then
-							local chosenFlavour = targetFlavour or _G.HipHubTargetFlavour or (p2 and p2[1]) or "Vanilla"
-							fireRemote("Barista", "Pick", "Flavour", chosenFlavour)
-						else
-							local val = (p2 and p2[1]) or "Vanilla"
-							fireRemote("Barista", "Pick", p1, val)
-						end
-					elseif action == "OrderDone" then
-						activeOrder = nil
-						currentCupState = nil
-					end
-				end)
+				eventConn = baristaRemote.OnClientEvent:Connect(handleBaristaClientEvent)
 			end
+
+			-- Also hook through game's Network module if available
+			pcall(function()
+				local Network = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Network"))
+				if Network and Network.OnClientEvent then
+					Network.OnClientEvent("Barista", handleBaristaClientEvent)
+				end
+			end)
 
 			while baristaActive do
 				pcall(function()
@@ -2971,10 +2988,15 @@ local success, err = pcall(function()
 
 					if not baristaActive then return end
 
+					-- Clear previous order cache BEFORE taking the new order
+					activeOrder = nil
+					_G.HipHubTargetMenu = nil
+					_G.HipHubTargetFlavour = nil
+
 					-- Tanya Pesanan ke Pelanggan Terdepan
 					updateBaristaActivity("📋 Tanya Pesanan Pelanggan di Kasir...")
 					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
-					task.wait(0.15)
+					task.wait(0.12)
 
 					local customerSlot = 1
 					if frontCustomer then
@@ -2988,22 +3010,37 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- Clear previous order cache before taking new order
-					activeOrder = nil
-					_G.HipHubTargetMenu = nil
-					_G.HipHubTargetFlavour = nil
-
 					-- Fire TakeOrder for that slot
 					fireRemote("Barista", "TakeOrder", customerSlot)
 
-					-- Wait for server OrderTaken event to populate target menu
+					-- Wait for server OrderTaken event or UI sync
 					local tOrderWait = os.clock()
-					while not activeOrder and (os.clock() - tOrderWait < 2.0) and baristaActive do
+					while not activeOrder and (os.clock() - tOrderWait < 2.5) and baristaActive do
+						-- Fallback: check UI Orders frame
+						pcall(function()
+							local pGui = player:FindFirstChild("PlayerGui")
+							local ordersFrame = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("Barista") and pGui.Job.Barista:FindFirstChild("Orders")
+							if ordersFrame then
+								for _, row in ipairs(ordersFrame:GetChildren()) do
+									if row:IsA("Frame") and row.Name ~= "OrderRow" then
+										local numText = row:FindFirstChild("Number") and row.Number.Text
+										local menuText = row:FindFirstChild("Menu") and row.Menu.Text
+										if menuText and menuText ~= "" then
+											local sNum = numText and tonumber(numText:match("%d+")) or customerSlot
+											local clean = menuText:lower():gsub("%s+", "")
+											local mId = RECIPE_NAME_ALIASES[clean] or menuText
+											activeOrder = { slot = sNum, menuId = mId }
+											_G.HipHubTargetMenu = mId
+										end
+									end
+								end
+							end
+						end)
 						task.wait(0.08)
 					end
 
 					if not activeOrder then
-						activeOrder = { slot = customerSlot, menuId = _G.HipHubTargetMenu or "EsKopiSusu", flavour = _G.HipHubTargetFlavour }
+						activeOrder = { slot = customerSlot, menuId = _G.HipHubTargetMenu or "Cappuccino", flavour = _G.HipHubTargetFlavour }
 						_G.HipHubTargetMenu = activeOrder.menuId
 					end
 
