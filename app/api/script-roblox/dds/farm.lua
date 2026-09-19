@@ -712,12 +712,38 @@ local success, err = pcall(function()
 		end)
 	end
 
-	local function isUnwantedVehicle(model)
+	local function getVehicleRootModel(inst)
+		if not inst then return nil end
+		local cur = inst
+		while cur and cur.Parent and cur.Parent ~= workspace and cur.Parent ~= game do
+			cur = cur.Parent
+		end
+		if cur and cur:IsA("Model") and cur ~= player.Character then
+			return cur
+		end
+		return nil
+	end
+
+	local function despawnUnwantedVehicle(model)
+		pcall(function()
+			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
+			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
+			if despawnEvent then
+				despawnEvent:FireServer()
+			end
+			if model and model.Parent then
+				model:Destroy()
+			end
+		end)
+	end
+
+	local function isUnwantedVehicle(inst)
+		local model = getVehicleRootModel(inst) or inst
 		if not model or not model:IsA("Model") or model == player.Character then return false end
 		local mName = model.Name:lower()
 		local pName = player.Name:lower()
 		local isOwner = (mName:sub(1, #pName) == pName) or (mName:find(pName, 1, true) ~= nil)
-		if not isOwner then return true end
+		if not isOwner then return false end
 
 		local carNameData = (model:GetAttribute("CarNameData") or ""):lower()
 		local activeVehicle = getFarmVehicleName():lower()
@@ -766,25 +792,26 @@ local success, err = pcall(function()
 		local humanoid = char:FindFirstChildOfClass("Humanoid")
 		if humanoid and humanoid.SeatPart then
 			local seat = humanoid.SeatPart
-			local model = seat:FindFirstAncestorOfClass("Model")
+			local model = getVehicleRootModel(seat) or seat:FindFirstAncestorOfClass("Model")
 			if model and not isUnwantedVehicle(model) then
-				return model or seat.Parent, seat
+				return model, seat
 			else
-				-- Duduk di kendaraan yang salah (seperti Canter/Truk/Bus) -> turunkan dan hapus
 				humanoid.Sit = false
-				despawnUnwantedVehicle(model)
+				if model and model ~= char then
+					despawnUnwantedVehicle(model)
+				end
 			end
 		end
 
 		-- 1. Cari kendaraan milik player di workspace (dalam radius wajar <= 200 studs)
 		local hrp = char:FindFirstChild("HumanoidRootPart")
-		local pName = player.Name
+		local pName = player.Name:lower()
 		local bestModel, bestSeat, bestDist = nil, nil, 999999
 
 		for _, c in ipairs(workspace:GetChildren()) do
 			if c:IsA("Model") and c ~= char then
-				local mName = c.Name
-				local isOwner = (mName:sub(1, #pName):lower() == pName:lower()) or (mName:find(pName, 1, true) ~= nil)
+				local mName = c.Name:lower()
+				local isOwner = (mName:sub(1, #pName) == pName) or (mName:find(pName, 1, true) ~= nil)
 				if isOwner then
 					if not isUnwantedVehicle(c) then
 						local seat = c:FindFirstChild("DriveSeat", true)
@@ -797,6 +824,8 @@ local success, err = pcall(function()
 								bestSeat = seat
 							end
 						end
+					else
+						despawnUnwantedVehicle(c)
 					end
 				end
 			end
@@ -860,11 +889,11 @@ local success, err = pcall(function()
 		local car, seat = getPlayerVehicle()
 		if not car or not seat then
 			local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-			local pName = player.Name
+			local pName = player.Name:lower()
 			for _, c in ipairs(workspace:GetChildren()) do
 				if c:IsA("Model") and c ~= player.Character then
-					local mName = c.Name
-					local isOwner = (mName:sub(1, #pName):lower() == pName:lower()) or (mName:find(pName, 1, true) ~= nil)
+					local mName = c.Name:lower()
+					local isOwner = (mName:sub(1, #pName) == pName) or (mName:find(pName, 1, true) ~= nil)
 					if isOwner and not isUnwantedVehicle(c) then
 						local s = c:FindFirstChild("DriveSeat", true) or c:FindFirstChildWhichIsA("VehicleSeat", true)
 						if s then
@@ -880,13 +909,15 @@ local success, err = pcall(function()
 			end
 		end
 
-		local seatPart = seat or (car and (car:FindFirstChild("DriveSeat", true) or car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)))
+		if not car then return nil, nil end
+
+		local seatPart = (car and car:FindFirstChild("DriveSeat", true)) or seat or (car and (car:FindFirstChildWhichIsA("VehicleSeat", true) or car:FindFirstChildWhichIsA("Seat", true)))
 		if not seatPart then return nil, nil end
 
 		-- 1. Search prompt inside DriveSeat directly
 		local prompt = seatPart:FindFirstChildWhichIsA("ProximityPrompt", true)
 
-		-- 2. Search prompt in entire car prioritizing driver action text and excluding Lock, Tuner, Kickstand, Trunk, Passenger
+		-- 2. Search prompt in entire car prioritizing driver action text
 		if not prompt and car then
 			for _, p in ipairs(car:GetDescendants()) do
 				if p:IsA("ProximityPrompt") then
@@ -963,15 +994,15 @@ local success, err = pcall(function()
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not root then return false end
 
-		-- Jika sedang duduk tapi di kendaraan yang salah (seperti Canter/Truk/Bus):
+		-- Jika sudah duduk di kendaraan yang sah:
 		if hum.SeatPart then
-			local currentModel = hum.SeatPart:FindFirstAncestorOfClass("Model")
-			if currentModel and isUnwantedVehicle(currentModel) then
-				hum.Sit = false
-				despawnUnwantedVehicle(currentModel)
-				task.wait(0.5)
-			else
+			local rootModel = getVehicleRootModel(hum.SeatPart)
+			if rootModel and not isUnwantedVehicle(rootModel) then
 				return true
+			else
+				hum.Sit = false
+				if rootModel then despawnUnwantedVehicle(rootModel) end
+				task.wait(0.3)
 			end
 		end
 
@@ -980,19 +1011,19 @@ local success, err = pcall(function()
 
 		local prompt, seatPart = findRidePrompt()
 		if not seatPart then
-			spawnTaxiBike()
+			spawnFarmVehicle()
 			local spawnWait = os.clock()
 			while not seatPart and (os.clock() - spawnWait < 4.0) do
 				task.wait(0.25)
 				prompt, seatPart = findRidePrompt()
 			end
 			if not seatPart then
-				warn("[HipHub DDS] mountBike: seatPart tetap tidak ditemukan setelah spawnTaxiBike")
+				warn("[HipHub DDS] mountBike: seatPart tetap tidak ditemukan setelah spawnFarmVehicle")
 				return false
 			end
 		end
 
-		local car = seatPart:FindFirstAncestorOfClass("Model") or seatPart.Parent
+		local car = getVehicleRootModel(seatPart) or seatPart.Parent
 		if car then
 			neutralizeBikeHazards(car)
 		end
@@ -1000,8 +1031,8 @@ local success, err = pcall(function()
 		pcall(function() seatPart.Disabled = false end)
 
 		-- Pindahkan posisi player tepat menempel di atas kursi motor
-		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
-		task.wait(0.1)
+		root.CFrame = seatPart.CFrame + Vector3.new(0, 0.5, 0)
+		task.wait(0.08)
 
 		-- Loop agresif verifikasi duduk (maksimal 3.0 detik)
 		local sitStart = os.clock()
@@ -1028,13 +1059,13 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- 3. Native seat sit call (tanpa hum.Sit = true agar tidak duduk di udara)
+			-- 3. Native seat sit call
 			pcall(function()
 				seatPart:Sit(hum)
 			end)
 
-			root.CFrame = seatPart.CFrame + Vector3.new(0, 0.3, 0)
-			task.wait(0.25)
+			root.CFrame = seatPart.CFrame + Vector3.new(0, 0.5, 0)
+			task.wait(0.2)
 		end
 
 		local isSeated = (hum.SeatPart ~= nil)
@@ -1240,17 +1271,25 @@ local success, err = pcall(function()
 		if char and (obj == char or obj:IsDescendantOf(char)) then return true end
 		if obj:IsA("VehicleSeat") or obj:IsA("Seat") or obj:IsA("ProximityPrompt") then return true end
 
+		local rootModel = getVehicleRootModel(obj)
+		if rootModel then
+			local rName = rootModel.Name:upper()
+			if rName:find("MONTOR") or rName:find("MOTOR") or rName:find("CAR") or rName:find("VEHICLE") or rName:find("BIKE") or rName:find(player.Name:upper()) or rootModel:GetAttribute("CarNameData") or rootModel:FindFirstChild("DriveSeat", true) or rootModel:FindFirstChildWhichIsA("VehicleSeat", true) then
+				return true
+			end
+		end
+
 		-- Check if obj is or is inside any Vehicle/Motor model in workspace
 		local cur = obj
 		while cur and cur ~= workspace and cur ~= game do
 			if cur:IsA("Model") then
-				if cur:FindFirstChildWhichIsA("VehicleSeat", true) or cur:FindFirstChild("DriveSeat", true) then
+				if cur:FindFirstChildWhichIsA("VehicleSeat", true) or cur:FindFirstChild("DriveSeat", true) or cur:GetAttribute("CarNameData") then
 					return true
 				end
 				local n = cur.Name:upper()
-				if n:find("MONTOR") or n:find("YAHAMAX") or n:find("MIO") or n:find("HANDO") or n:find("BEAT")
+				if n:find("MONTOR") or n:find("YAMAHA") or n:find("MIO") or n:find("HONDA") or n:find("BEAT")
 					or n:find("VARIO") or n:find("NMAX") or n:find("PCX") or n:find("MOTOR") or n:find("BIKE")
-					or n:find("CAR") or n:find("MOBIL") or n:find("VEHICLE") or n:find(player.Name:upper())
+					or n:find("CAR") or n:find("MOBIL") or n:find("VEHICLE") or n:find("HANDO") or n:find("HEREX") or n:find("TIGER") or n:find(player.Name:upper())
 				then
 					return true
 				end
@@ -1334,11 +1373,13 @@ local success, err = pcall(function()
 		if not (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.destroyBuildings) then return end
 		pcall(function()
 			for _, c in ipairs(workspace:GetChildren()) do
-				if shouldDestroyBuilding(c) then
+				if isVehicleOrSeatOrPlayer(c) then
+					-- Proteksi mutlak: Jangan pernah sentuh kendaraan atau player!
+				elseif shouldDestroyBuilding(c) then
 					pcall(function() c:Destroy() end)
 				elseif c:IsA("Folder") or c:IsA("Model") then
 					for _, ch in ipairs(c:GetDescendants()) do
-						if shouldDestroyBuilding(ch) then
+						if not isVehicleOrSeatOrPlayer(ch) and shouldDestroyBuilding(ch) then
 							pcall(function() ch:Destroy() end)
 						end
 					end
@@ -1351,9 +1392,9 @@ local success, err = pcall(function()
 	-- Auto-destroy newly streamed buildings & obstacles across all districts (hanya jika toggle aktif)
 	workspace.DescendantAdded:Connect(function(descendant)
 		if not (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.destroyBuildings) then return end
-		if shouldDestroyBuilding(descendant) then
+		if not isVehicleOrSeatOrPlayer(descendant) and shouldDestroyBuilding(descendant) then
 			task.wait(0.05)
-			if descendant and descendant.Parent and shouldDestroyBuilding(descendant) then
+			if descendant and descendant.Parent and not isVehicleOrSeatOrPlayer(descendant) and shouldDestroyBuilding(descendant) then
 				pcall(function() descendant:Destroy() end)
 			end
 		end
@@ -3902,6 +3943,20 @@ local success, err = pcall(function()
 			courierRejoinPending = false
 			updateBotActivity("Memulai Auto Kurir...", Color3.fromRGB(0, 212, 255))
 			UI.Notify("Auto-Courier ON", "Courier Auto-Worker aktif.", 2.5, "success")
+
+			task.spawn(function()
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if not (hum and hum.SeatPart) then
+					updateBotActivity("Mempersiapkan Kendaraan...", Color3.fromRGB(0, 212, 255))
+					local ok = ensureDriverSeated()
+					if not ok then
+						spawnFarmVehicle()
+						task.wait(1.5)
+						ensureDriverSeated()
+					end
+				end
+			end)
 
 			if courierLoopThread then
 				pcall(function() task.cancel(courierLoopThread) end)
