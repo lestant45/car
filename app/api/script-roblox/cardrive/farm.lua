@@ -150,21 +150,23 @@ local success, err = pcall(function()
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
+		local elevatedCF = cframe + Vector3.new(0, 1.0, 0)
+
 		if useTween then
 			speed = speed or 120
-			local dist = (root.Position - cframe.Position).Magnitude
+			local dist = (root.Position - elevatedCF.Position).Magnitude
 			local time = math.clamp(dist / speed, 0.1, 8.0)
-			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = cframe })
+			local tw = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Linear), { CFrame = elevatedCF })
 			tw:Play()
 			tw.Completed:Wait()
 		else
-			root.CFrame = cframe
+			root.CFrame = elevatedCF
 		end
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
-		if cframe.Position.Y > 15 then
-			lastSafeGroundCFrame = cframe
+		if elevatedCF.Position.Y > 15 then
+			lastSafeGroundCFrame = elevatedCF
 		end
 	end
 
@@ -2446,54 +2448,54 @@ local success, err = pcall(function()
 	local baristaActivityLabel = nil
 	local baristaStatsLabel = nil
 
-	-- Cafe Kanji Jawa Coordinates
-	local KANJI_JAWA_COUNTER        = Vector3.new(-35.98, 21.0, 8419.95)
-	local KANJI_JAWA_COUNTER_INSIDE = Vector3.new(-34.68, 23.0, 8422.75)
-	local KANJI_JAWA_COUNTER_FRONT  = Vector3.new(-36.20, 23.0, 8419.50)
-	local KANJI_JAWA_MANAGER        = Vector3.new(-13.5, 23.0, 8450.0)
-	local KANJI_JAWA_PHONE          = Vector3.new(-7.87, 23.0, 8425.5)
+	-- Cafe Kanji Jawa Coordinates (Safe Ground Altitude Y = 25.0)
+	local KANJI_JAWA_COUNTER        = Vector3.new(-35.98, 25.0, 8419.95)
+	local KANJI_JAWA_COUNTER_INSIDE = Vector3.new(-34.68, 25.0, 8422.75)
+	local KANJI_JAWA_COUNTER_FRONT  = Vector3.new(-36.20, 25.0, 8419.50)
+	local KANJI_JAWA_MANAGER        = Vector3.new(-13.5, 25.0, 8450.0)
+	local KANJI_JAWA_PHONE          = Vector3.new(-7.87, 25.0, 8425.5)
 
 	local BARISTA_STATIONS = {
-		CupRack         = Vector3.new(-11.64, 24.61, 8409.11),
-		IceMaker        = Vector3.new(-5.73, 24.63, 8415.39),
-		BeanHopper      = Vector3.new(-27.46, 24.61, 8416.72),
-		Brewer          = Vector3.new(-25.40, 24.61, 8415.33),
-		Steamer         = Vector3.new(-23.85, 24.61, 8413.78),
-		Milk            = Vector3.new(-13.96, 24.01, 8427.20),
-		FlavourBottle   = Vector3.new(-25.90, 24.57, 8441.20),
-		LemonBoard      = Vector3.new(-28.25, 24.57, 8443.58),
-		Carbonator      = Vector3.new(-36.30, 24.57, 8441.02),
-		WaterTap        = Vector3.new(-41.09, 23.02, 8436.42),
-		CreamDispenser  = Vector3.new(-34.14, 24.57, 8443.18),
-		ChocolateJar    = Vector3.new(-20.89, 24.57, 8436.18),
-		MatchaJar       = Vector3.new(-18.60, 24.57, 8433.67),
-		BobaPot         = Vector3.new(-23.34, 24.57, 8438.54),
-		TeaBox          = Vector3.new(-16.11, 24.57, 8431.05),
-		Trash           = Vector3.new(-9.76, 21.39, 8426.67),
-		Counter         = Vector3.new(-35.98, 21.0, 8419.95)
+		CupRack         = Vector3.new(-11.64, 25.0, 8409.11),
+		IceMaker        = Vector3.new(-5.73, 25.0, 8415.39),
+		BeanHopper      = Vector3.new(-27.46, 25.0, 8416.72),
+		Brewer          = Vector3.new(-25.40, 25.0, 8415.33),
+		Steamer         = Vector3.new(-23.85, 25.0, 8413.78),
+		Milk            = Vector3.new(-13.96, 25.0, 8427.20),
+		FlavourBottle   = Vector3.new(-25.90, 25.0, 8441.20),
+		LemonBoard      = Vector3.new(-28.25, 25.0, 8443.58),
+		Carbonator      = Vector3.new(-36.30, 25.0, 8441.02),
+		WaterTap        = Vector3.new(-41.09, 25.0, 8436.42),
+		CreamDispenser  = Vector3.new(-34.14, 25.0, 8443.18),
+		ChocolateJar    = Vector3.new(-20.89, 25.0, 8436.18),
+		MatchaJar       = Vector3.new(-18.60, 25.0, 8433.67),
+		BobaPot         = Vector3.new(-23.34, 25.0, 8438.54),
+		TeaBox          = Vector3.new(-16.11, 25.0, 8431.05),
+		Trash           = Vector3.new(-9.76, 25.0, 8426.67),
+		Counter         = Vector3.new(-35.98, 25.0, 8419.95)
 	}
 
-	-- Precise player standing positions and look-at targets for counter & machines (within < 2 studs)
+	-- Precise player standing positions and look-at targets for counter & machines (Safe Ground Altitude Y = 25.0)
 	local BARISTA_STATION_POSITIONS = {
-		CupRack         = { stand = Vector3.new(-11.65, 23.0, 8411.0), look = Vector3.new(-11.65, 24.60, 8409.11) },
-		IceMaker        = { stand = Vector3.new(-7.30, 23.0, 8415.39),  look = Vector3.new(-5.73, 24.63, 8415.39) },
-		BeanHopper      = { stand = Vector3.new(-27.47, 23.0, 8418.3), look = Vector3.new(-27.47, 24.60, 8416.71) },
-		Brewer          = { stand = Vector3.new(-25.41, 23.0, 8416.9), look = Vector3.new(-25.41, 24.60, 8415.32) },
-		Steamer         = { stand = Vector3.new(-23.86, 23.0, 8415.3), look = Vector3.new(-23.86, 24.60, 8413.77) },
-		Milk            = { stand = Vector3.new(-15.40, 23.0, 8427.19), look = Vector3.new(-13.96, 24.01, 8427.19) },
-		FlavourBottle   = { stand = Vector3.new(-25.91, 23.0, 8439.6), look = Vector3.new(-25.91, 24.56, 8441.20) },
-		LemonBoard      = { stand = Vector3.new(-28.25, 23.0, 8442.0), look = Vector3.new(-28.25, 24.56, 8443.57) },
-		Carbonator      = { stand = Vector3.new(-36.30, 23.0, 8439.5), look = Vector3.new(-36.30, 24.56, 8441.02) },
-		WaterTap        = { stand = Vector3.new(-39.50, 23.0, 8436.41), look = Vector3.new(-41.09, 23.01, 8436.41) },
-		CreamDispenser  = { stand = Vector3.new(-34.14, 23.0, 8441.6), look = Vector3.new(-34.14, 24.56, 8443.18) },
-		ChocolateJar    = { stand = Vector3.new(-20.89, 23.0, 8434.6), look = Vector3.new(-20.89, 24.56, 8436.17) },
-		MatchaJar       = { stand = Vector3.new(-18.61, 23.0, 8432.1), look = Vector3.new(-18.61, 24.56, 8433.67) },
-		BobaPot         = { stand = Vector3.new(-23.35, 23.0, 8437.0), look = Vector3.new(-23.35, 24.56, 8438.54) },
-		TeaBox          = { stand = Vector3.new(-16.11, 23.0, 8429.5), look = Vector3.new(-16.11, 24.56, 8431.04) },
-		Trash           = { stand = Vector3.new(-11.30, 23.0, 8426.67), look = Vector3.new(-9.76, 21.38, 8426.67) },
-		CounterInside   = { stand = Vector3.new(-34.68, 23.0, 8422.75), look = Vector3.new(-36.20, 23.0, 8419.50) },
-		Manager         = { stand = Vector3.new(-13.50, 23.0, 8450.0), look = Vector3.new(-13.50, 23.10, 8451.7) },
-		Phone           = { stand = Vector3.new(-7.87, 23.0, 8425.5),  look = Vector3.new(-7.87, 24.08, 8427.23) }
+		CupRack         = { stand = Vector3.new(-11.65, 25.0, 8411.0), look = Vector3.new(-11.65, 25.0, 8409.11) },
+		IceMaker        = { stand = Vector3.new(-7.30, 25.0, 8415.39),  look = Vector3.new(-5.73, 25.0, 8415.39) },
+		BeanHopper      = { stand = Vector3.new(-27.47, 25.0, 8418.3), look = Vector3.new(-27.47, 25.0, 8416.71) },
+		Brewer          = { stand = Vector3.new(-25.41, 25.0, 8416.9), look = Vector3.new(-25.41, 25.0, 8415.32) },
+		Steamer         = { stand = Vector3.new(-23.86, 25.0, 8415.3), look = Vector3.new(-23.86, 25.0, 8413.77) },
+		Milk            = { stand = Vector3.new(-15.40, 25.0, 8427.19), look = Vector3.new(-13.96, 25.0, 8427.19) },
+		FlavourBottle   = { stand = Vector3.new(-25.91, 25.0, 8439.6), look = Vector3.new(-25.91, 25.0, 8441.20) },
+		LemonBoard      = { stand = Vector3.new(-28.25, 25.0, 8442.0), look = Vector3.new(-28.25, 25.0, 8443.57) },
+		Carbonator      = { stand = Vector3.new(-36.30, 25.0, 8439.5), look = Vector3.new(-36.30, 25.0, 8441.02) },
+		WaterTap        = { stand = Vector3.new(-39.50, 25.0, 8436.41), look = Vector3.new(-41.09, 25.0, 8436.41) },
+		CreamDispenser  = { stand = Vector3.new(-34.14, 25.0, 8441.6), look = Vector3.new(-34.14, 25.0, 8443.18) },
+		ChocolateJar    = { stand = Vector3.new(-20.89, 25.0, 8434.6), look = Vector3.new(-20.89, 25.0, 8436.17) },
+		MatchaJar       = { stand = Vector3.new(-18.61, 25.0, 8432.1), look = Vector3.new(-18.61, 25.0, 8433.67) },
+		BobaPot         = { stand = Vector3.new(-23.35, 25.0, 8437.0), look = Vector3.new(-23.35, 25.0, 8438.54) },
+		TeaBox          = { stand = Vector3.new(-16.11, 25.0, 8429.5), look = Vector3.new(-16.11, 25.0, 8431.04) },
+		Trash           = { stand = Vector3.new(-11.30, 25.0, 8426.67), look = Vector3.new(-9.76, 25.0, 8426.67) },
+		CounterInside   = { stand = Vector3.new(-34.68, 25.0, 8422.75), look = Vector3.new(-36.20, 25.0, 8419.50) },
+		Manager         = { stand = Vector3.new(-13.50, 25.0, 8450.0), look = Vector3.new(-13.50, 25.0, 8451.7) },
+		Phone           = { stand = Vector3.new(-7.87, 25.0, 8425.5),  look = Vector3.new(-7.87, 25.0, 8427.23) }
 	}
 
 	-- Map Step Name to Station Name
@@ -2662,9 +2664,13 @@ local success, err = pcall(function()
 			plate.Transparency = 1
 			plate.CastShadow = false
 			plate.Material = Enum.Material.SmoothPlastic
-			plate.Size = Vector3.new(100, 2, 100)
-			plate.Position = Vector3.new(-25, 21.5, 8430)
+			plate.Size = Vector3.new(250, 2, 250)
+			plate.Position = Vector3.new(-25, 18.5, 8430)
 			pcall(function() plate.Parent = workspace end)
+		else
+			plate.Position = Vector3.new(-25, 18.5, 8430)
+			plate.Size = Vector3.new(250, 2, 250)
+			plate.CanCollide = true
 		end
 		return plate
 	end
@@ -2681,13 +2687,17 @@ local success, err = pcall(function()
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
+		-- Elevate slightly (+1.2 studs) so physics engine drops character onto ground cleanly without clipping into mesh
+		local safeTargetPos = Vector3.new(targetPos.X, math.max(targetPos.Y, 25.5) + 1.2, targetPos.Z)
+
 		if facePos then
-			root.CFrame = CFrame.lookAt(targetPos, facePos)
+			local safeFacePos = Vector3.new(facePos.X, math.max(facePos.Y, 25.5), facePos.Z)
+			root.CFrame = CFrame.lookAt(safeTargetPos, safeFacePos)
 			pcall(function()
-				workspace.CurrentCamera.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 2, 0), facePos + Vector3.new(0, 1.5, 0))
+				workspace.CurrentCamera.CFrame = CFrame.lookAt(safeTargetPos + Vector3.new(0, 2, 0), safeFacePos + Vector3.new(0, 1.5, 0))
 			end)
 		else
-			root.CFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
+			root.CFrame = CFrame.new(safeTargetPos)
 		end
 		root.AssemblyLinearVelocity = Vector3.zero
 	end
