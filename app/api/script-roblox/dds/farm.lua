@@ -3801,13 +3801,13 @@ local success, err = pcall(function()
 	local function getCourierPackageTool()
 		local char = player.Character
 		if char then
-			local t = char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool")
-			if t then return t end
+			local t = char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChild("Paket")
+			if t and t:IsA("Tool") then return t end
 		end
 		local bp = player:FindFirstChild("Backpack")
 		if bp then
-			local t = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChildWhichIsA("Tool")
-			if t then return t end
+			local t = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChild("Paket")
+			if t and t:IsA("Tool") then return t end
 		end
 		return nil
 	end
@@ -3821,13 +3821,14 @@ local success, err = pcall(function()
 		local hum  = char and char:FindFirstChildOfClass("Humanoid")
 		local bp   = player:FindFirstChild("Backpack")
 		if hum and bp then
-			local tool = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChildWhichIsA("Tool")
-			if tool then
+			local tool = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChild("Paket")
+			if tool and tool:IsA("Tool") then
 				hum:EquipTool(tool)
 				task.wait(0.2)
 			end
 		end
-		return char and (char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChildWhichIsA("Tool"))
+		local active = char and (char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChild("Paket"))
+		return active and active:IsA("Tool") and active or nil
 	end
 
 	-- 🛵 Official Vehicle Courier Navigation (Ground-to-Ground & Road Driving)
@@ -4000,7 +4001,7 @@ local success, err = pcall(function()
 						local currentTarget = getActiveCourierTarget()
 						if not currentTarget and not hasCourierPackage() then
 							if not restarting then
-								local takeCF = CFrame.new(-5108, 5, -3759)
+								local takeCF = CFrame.new(-5105.6, 4.5, -3759.0)
 								updateBotActivity("Menuju Depot Paket...", Color3.fromRGB(0, 212, 255))
 								
 								-- Berkendara motor ke Depot
