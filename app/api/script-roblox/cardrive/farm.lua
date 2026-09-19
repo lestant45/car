@@ -2422,7 +2422,7 @@ local success, err = pcall(function()
 	end, 16)
 
 	------------------------------------------------
-	-- ☕ BARISTA (JANJI JAWA) AUTO FARM CONTROLLER
+	-- ☕ BARISTA (KANJI JAWA) AUTO FARM CONTROLLER
 	------------------------------------------------
 	local BARISTA_STATE = {
 		IDLE = "Idle",
@@ -2445,8 +2445,60 @@ local success, err = pcall(function()
 	local baristaActivityLabel = nil
 	local baristaStatsLabel = nil
 
-	-- Janji Jawa Known Branch Locations
-	local JANJI_JAWA_MAIN_POS = Vector3.new(-22778.883, 26.077, 15431.812)
+	-- Cafe Kanji Jawa Verified Target Coordinates
+	local KANJI_JAWA_COUNTER = Vector3.new(-35.98, 21.0, 8419.95)
+	local KANJI_JAWA_MANAGER = Vector3.new(-13.5, 23.1, 8451.7)
+	local KANJI_JAWA_PHONE   = Vector3.new(-7.87, 24.08, 8427.23)
+
+	local BARISTA_STATIONS = {
+		CupRack         = Vector3.new(-11.64, 24.61, 8409.11),
+		IceMaker        = Vector3.new(-5.73, 24.63, 8415.39),
+		BeanHopper      = Vector3.new(-27.46, 24.61, 8416.72),
+		Brewer          = Vector3.new(-25.40, 24.61, 8415.33),
+		Steamer         = Vector3.new(-23.85, 24.61, 8413.78),
+		Milk            = Vector3.new(-13.96, 24.01, 8427.20),
+		FlavourBottle   = Vector3.new(-25.90, 24.57, 8441.20),
+		LemonBoard      = Vector3.new(-28.25, 24.57, 8443.58),
+		Carbonator      = Vector3.new(-36.30, 24.57, 8441.02),
+		WaterTap        = Vector3.new(-41.09, 23.02, 8436.42),
+		CreamDispenser  = Vector3.new(-34.14, 24.57, 8443.18),
+		ChocolateJar    = Vector3.new(-20.89, 24.57, 8436.18),
+		MatchaJar       = Vector3.new(-18.60, 24.57, 8433.67),
+		BobaPot         = Vector3.new(-23.34, 24.57, 8438.54),
+		TeaBox          = Vector3.new(-16.11, 24.57, 8431.05),
+		Trash           = Vector3.new(-9.76, 21.39, 8426.67),
+		Counter         = Vector3.new(-35.98, 21.0, 8419.95)
+	}
+
+	-- Map Step Name to Station Name
+	local STEP_TO_STATION = {
+		Cup             = "CupRack",
+		Beans           = "BeanHopper",
+		LoadBeans       = "Brewer",
+		Brew            = "Brewer",
+		Pour            = "Brewer",
+		Milk            = "Milk",
+		Foam            = "Steamer",
+		Flavour         = "FlavourBottle",
+		Ice             = "IceMaker",
+		Water           = "WaterTap",
+		TeaBag          = "TeaBox",
+		Boba            = "BobaPot",
+		MatchaPowder    = "MatchaJar",
+		ChocolatePowder = "ChocolateJar",
+		Carbonate       = "Carbonator",
+		LemonSlice      = "LemonBoard",
+		Cream           = "CreamDispenser"
+	}
+
+	local function getLiveHubCash()
+		local pGui = player:FindFirstChild("PlayerGui")
+		local cashLabel = pGui and pGui:FindFirstChild("Main") and pGui.Main:FindFirstChild("Container") and pGui.Main.Container:FindFirstChild("Hub") and pGui.Main.Container.Hub:FindFirstChild("CashFrame") and pGui.Main.Container.Hub.CashFrame:FindFirstChild("Frame") and pGui.Main.Container.Hub.CashFrame.Frame:FindFirstChild("TextLabel")
+		if cashLabel and cashLabel.Text ~= "" then
+			return cashLabel.Text
+		end
+		return formatRupiah(getPocketRupiahCash())
+	end
 
 	local function updateBaristaActivity(act)
 		baristaActivity = act or "Idle"
@@ -2460,8 +2512,8 @@ local success, err = pcall(function()
 	local function updateBaristaStats()
 		if baristaStatsLabel then
 			pcall(function()
-				local liveMoney = getPocketRupiahCash()
-				baristaStatsLabel.Text = string.format("Orders Served: %d  |  Pocket: %s", baristaOrdersCompleted, formatRupiah(liveMoney))
+				local liveCash = getLiveHubCash()
+				baristaStatsLabel.Text = string.format("Orders Served: %d  |  Cash: %s", baristaOrdersCompleted, liveCash)
 			end)
 		end
 	end
@@ -2484,156 +2536,15 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Bypass NPC Dialog (Auto-skip Janji Jawa conversation)
-	local function bypassBaristaDialog()
-		pcall(function()
-			local pGui = player:FindFirstChild("PlayerGui")
-			if not pGui then return end
-
-			-- Search standard CDID dialog Guis
-			for _, guiName in ipairs({"Dialog", "NpcDialog", "ConversationGui", "InteractionGui", "JobDialog"}) do
-				local gui = pGui:FindFirstChild(guiName)
-				if gui and gui.Enabled then
-					-- Search for Finish / Continue / Skip buttons
-					for _, btn in ipairs(gui:GetDescendants()) do
-						if btn:IsA("TextButton") or btn:IsA("ImageButton") then
-							local n = btn.Name:lower()
-							local t = (btn:IsA("TextButton") and btn.Text:lower()) or ""
-							if n:find("skip") or n:find("next") or n:find("finish") or n:find("close") or n:find("ok") or n:find("terima")
-								or t:find("terima") or t:find("mulai") or t:find("ambil") or t:find("ya") or t:find("lanjut") then
-								pcall(function()
-									for _, con in pairs(getconnections(btn.MouseButton1Click)) do con:Fire() end
-								end)
-							end
-						end
-					end
-				end
-			end
-
-			-- Fire server network finish signals
-			fireRemote("Job", "JanjiJawa")
-			fireRemote("Job", "Barista")
-			fireRemote("NpcDialog", "Finish", 1)
-			fireRemote("NpcDialog", "Finish", "JanjiJawa")
-			fireRemote("NpcDialog", "Finish", "Barista")
-		end)
-	end
-
-	-- Minigame Auto-Bypass / Auto-Win Engine
-	local function bypassBrewMinigame()
-		pcall(function()
-			-- 1. Direct Remote completion if available
-			fireRemote("BaristaAction", "BrewComplete", true)
-			fireRemote("BaristaAction", "Complete", true)
-			fireRemote("BrewCoffee", "Finish", 100)
-			fireRemote("Minigame", "Complete", true)
-
-			-- 2. GUI Minigame detection and auto-resolve
-			local pGui = player:FindFirstChild("PlayerGui")
-			if not pGui then return end
-
-			for _, gName in ipairs({"BaristaMinigame", "JanjiJawaMinigame", "MinigameGui", "BrewMinigame", "Minigame", "BaristaGui"}) do
-				local mgGui = pGui:FindFirstChild(gName)
-				if mgGui and mgGui.Enabled then
-					for _, item in ipairs(mgGui:GetDescendants()) do
-						if item:IsA("RemoteEvent") or item:IsA("BindableEvent") then
-							pcall(function() item:FireServer(100, true) end)
-						elseif item:IsA("TextButton") or item:IsA("ImageButton") then
-							local iname = item.Name:lower()
-							if iname:find("win") or iname:find("done") or iname:find("finish") or iname:find("brew") or iname:find("hit") or iname:find("press") then
-								pcall(function()
-									for _, con in pairs(getconnections(item.MouseButton1Click)) do con:Fire() end
-								end)
-							end
-						end
-					end
-					mgGui.Enabled = false
-				end
-			end
-		end)
-	end
-
-	-- Dynamic Janji Jawa Station Scanner
-	local function findJanjiJawaStations()
-		local stations = {
-			order = nil,
-			orderPos = nil,
-			brew = nil,
-			brewPos = nil,
-			serve = nil,
-			servePos = nil,
-			manager = nil,
-			managerPos = nil
-		}
-
-		-- 1. Search dedicated Workspace folders
-		local cafeFolder = workspace:FindFirstChild("JanjiJawa")
-			or (workspace:FindFirstChild("Map") and (workspace.Map:FindFirstChild("JanjiJawa") or workspace.Map:FindFirstChild("Janji_Jawa")))
-			or (workspace:FindFirstChild("Etc") and (workspace.Etc:FindFirstChild("JanjiJawa") or workspace.Etc:FindFirstChild("Janji_Jawa")))
-			or (workspace:FindFirstChild("Jobs") and (workspace.Jobs:FindFirstChild("JanjiJawa") or workspace.Jobs:FindFirstChild("Barista")))
-			or (workspace:FindFirstChild("Buildings") and workspace.Buildings:FindFirstChild("JanjiJawa"))
-
-		local searchRoots = {}
-		if cafeFolder then table.insert(searchRoots, cafeFolder) end
-		table.insert(searchRoots, workspace)
-
-		for _, root in ipairs(searchRoots) do
-			for _, desc in ipairs(root:GetDescendants()) do
-				if desc:IsA("ProximityPrompt") and desc.Enabled then
-					local pName = desc.Name:lower()
-					local act = desc.ActionText:lower()
-					local obj = desc.ObjectText:lower()
-					local parentName = desc.Parent and desc.Parent.Name:lower() or ""
-					local part = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart", true)
-					local pos = part and part.Position or nil
-
-					-- Order Station (Take Menu / Kasir / Pesanan)
-					if not stations.order and (pName:find("order") or pName:find("menu") or pName:find("kasir") or pName:find("take")
-						or act:find("pesan") or act:find("order") or act:find("menu") or act:find("ambil") or obj:find("pesanan") or obj:find("kasir")) then
-						stations.order = desc
-						stations.orderPos = pos
-					end
-
-					-- Brew Station (Mesin Kopi / Brew / Machine)
-					if not stations.brew and (pName:find("brew") or pName:find("kopi") or pName:find("coffee") or pName:find("mesin") or pName:find("machine")
-						or act:find("seduh") or act:find("brew") or act:find("buat") or act:find("masak") or obj:find("kopi") or obj:find("mesin")) then
-						stations.brew = desc
-						stations.brewPos = pos
-					end
-
-					-- Serve Station (Antar / Saji / Serve / Customer / Meja)
-					if not stations.serve and (pName:find("serve") or pName:find("saji") or pName:find("antar") or pName:find("meja") or pName:find("table")
-						or act:find("saji") or act:find("antar") or act:find("serve") or act:find("beri") or obj:find("pelanggan") or obj:find("customer")) then
-						stations.serve = desc
-						stations.servePos = pos
-					end
-
-					-- Manager / Job starter NPC
-					if not stations.manager and (pName:find("manager") or pName:find("bos") or pName:find("job") or pName:find("daftar")
-						or act:find("kerja") or act:find("daftar") or act:find("barista") or parentName:find("manager") or parentName:find("npc")) then
-						stations.manager = desc
-						stations.managerPos = pos
-					end
-				end
-			end
-			if stations.order and stations.brew and stations.serve then
-				break
-			end
-		end
-
-		return stations
-	end
-
-	-- Smooth Character Noclip Teleporter
-	local function baristaMoveTo(targetPos, useSmooth)
+	-- Move Character with Noclip
+	local function baristaMoveTo(targetPos)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root or not targetPos then return end
 
-		ensureSafetyPlate(targetPos, 25)
+		ensureSafetyPlate(targetPos, 20)
 
-		-- Apply Noclip on all character limbs
 		if baristaNoclip then
 			for _, part in ipairs(char:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -2644,32 +2555,33 @@ local success, err = pcall(function()
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
-
-		local destCF = CFrame.new(targetPos.X, targetPos.Y + 0.5, targetPos.Z)
-		if useSmooth then
-			local dist = (root.Position - targetPos).Magnitude
-			local duration = math.clamp(dist / 90, 0.1, 1.2)
-			local tw = TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = destCF })
-			tw:Play()
-			tw.Completed:Wait()
-		else
-			root.CFrame = destCF
-		end
-
+		root.CFrame = CFrame.new(targetPos.X, targetPos.Y + 0.3, targetPos.Z)
 		root.AssemblyLinearVelocity = Vector3.zero
 	end
 
-	-- Check if Janji Jawa Job is Active
-	local function isBaristaJobActive()
+	-- Check if Barista Job is Active
+	local function isBaristaJobGuiOpen()
 		local pGui = player:FindFirstChild("PlayerGui")
-		if not pGui then return false end
-		for _, g in ipairs(pGui:GetChildren()) do
-			local n = g.Name:lower()
-			if (n:find("janjijawa") or n:find("barista") or n:find("coffeeshop")) and g:IsA("ScreenGui") and g.Enabled then
-				return true
-			end
+		local pJob = pGui and pGui:FindFirstChild("Job")
+		local bGui = pJob and pJob:FindFirstChild("Barista")
+		return bGui and bGui.Visible == true
+	end
+
+	-- Trigger a specific Station
+	local function interactStation(stationName)
+		local pos = BARISTA_STATIONS[stationName] or KANJI_JAWA_COUNTER
+		baristaMoveTo(pos)
+		task.wait(0.1)
+
+		local stFolder = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("Stations")
+		local stationPart = stFolder and stFolder:FindFirstChild(stationName)
+		local prompt = stationPart and stationPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt then
+			triggerInstantPrompt(prompt)
 		end
-		return false
+
+		fireRemote("Barista", "Station", stationName)
+		task.wait(0.2)
 	end
 
 	-- Main Barista Autofarm Execution Loop
@@ -2686,106 +2598,116 @@ local success, err = pcall(function()
 
 					if checkTargetEarningAndDisconnect() then return end
 
-					-- Scan active prompts & stations in cafe
-					local stations = findJanjiJawaStations()
-
-					-- STEP 1: Verify player is at Janji Jawa branch, otherwise teleport
-					local distToCafe = (root.Position - JANJI_JAWA_MAIN_POS).Magnitude
-					if distToCafe > 500 and not stations.order and not stations.brew then
-						updateBaristaActivity("🚀 Teleporting to Janji Jawa Cafe...")
-						safeTeleport(CFrame.new(JANJI_JAWA_MAIN_POS + Vector3.new(0, 3, 0)), false)
-						task.wait(1.0)
+					-- STEP 1: Verify player is near Kanji Jawa Cafe
+					local distToCafe = (root.Position - KANJI_JAWA_COUNTER).Magnitude
+					if distToCafe > 300 then
+						updateBaristaActivity("🚀 Teleporting to Kanji Jawa Cafe...")
+						safeTeleport(CFrame.new(KANJI_JAWA_COUNTER + Vector3.new(0, 1.5, 0)), false)
+						task.wait(0.8)
 						return
 					end
 
-					-- STEP 2: Ensure Barista Job is Accepted
-					if not isBaristaJobActive() and stations.manager and stations.managerPos then
+					-- STEP 2: Ensure Job is started from Mbak Surti & Tutorial Phone answered
+					if not isBaristaJobGuiOpen() then
 						baristaState = BARISTA_STATE.STARTING_JOB
-						updateBaristaActivity("👔 Talking to Manager to Start Barista Job...")
-						baristaMoveTo(stations.managerPos + Vector3.new(0, 0, 2), false)
+						updateBaristaActivity("👔 Talking to Mbak Surti to Start Job...")
+						baristaMoveTo(KANJI_JAWA_MANAGER)
 						task.wait(0.2)
-						triggerInstantPrompt(stations.manager)
-						bypassBaristaDialog()
+
+						local mgrPrompt = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("NPC_BARISTA_MANAGER") and workspace.Barista.NPC_BARISTA_MANAGER:FindFirstChild("Head") and workspace.Barista.NPC_BARISTA_MANAGER.Head:FindFirstChild("DialogPrompt")
+						if mgrPrompt then
+							triggerInstantPrompt(mgrPrompt)
+						end
+
+						fireRemote("Job", "Barista")
+						fireRemote("Barista", "TutorialDone")
 						task.wait(0.8)
 					end
 
-					-- STEP 3: Take Menu / Order Station (Instant Take Menu)
-					if stations.order and stations.orderPos then
-						baristaState = BARISTA_STATE.TAKING_ORDER
-						updateBaristaActivity("📋 Taking Customer Order...")
-						baristaMoveTo(stations.orderPos + Vector3.new(0, 0, 1.5), false)
+					-- Answer Phone if prompt is ringing
+					local phoneObj = workspace:FindFirstChild("NEW_JOB") and workspace.NEW_JOB:FindFirstChild("Cafe") and workspace.NEW_JOB.Cafe:FindFirstChild("Cafe_Kanji_Jawa") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa:FindFirstChild("Telphone") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa.Telphone:FindFirstChild("Telephone")
+					local phonePrompt = phoneObj and phoneObj:FindFirstChild("BaristaPhonePrompt")
+					if phonePrompt and phonePrompt.Enabled then
+						baristaMoveTo(KANJI_JAWA_PHONE)
 						task.wait(0.15)
-						triggerInstantPrompt(stations.order)
-						bypassBaristaDialog()
-						task.wait(baristaDelay * 0.4)
-					else
-						-- Fallback: Search all active prompts near order counter
-						for _, p in ipairs(workspace:GetDescendants()) do
-							if p:IsA("ProximityPrompt") and p.Enabled and (root.Position - (p.Parent:IsA("BasePart") and p.Parent.Position or root.Position)).Magnitude < 40 then
-								local txt = (p.ActionText .. " " .. p.ObjectText):lower()
-								if txt:find("order") or txt:find("menu") or txt:find("pesan") or txt:find("ambil") then
-									triggerInstantPrompt(p)
-									bypassBaristaDialog()
-									break
-								end
+						triggerInstantPrompt(phonePrompt)
+						fireRemote("Barista", "TutorialDone")
+						task.wait(0.3)
+					end
+
+					-- STEP 3: Take Customer Order at Counter
+					baristaState = BARISTA_STATE.TAKING_ORDER
+					baristaMoveTo(KANJI_JAWA_COUNTER)
+					task.wait(0.15)
+
+					local activeCustomer = nil
+					local custFolder = workspace:FindFirstChild("BaristaCustomers")
+					if custFolder then
+						for _, cust in ipairs(custFolder:GetChildren()) do
+							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
+							if p and p.Enabled then
+								activeCustomer = cust.Name
+								triggerInstantPrompt(p)
+								fireRemote("Barista", "TakeOrder", activeCustomer)
+								break
 							end
 						end
 					end
 
-					-- STEP 4: Brew Coffee at Coffee Machine (NoMinigame on Brew)
-					if stations.brew and stations.brewPos then
-						baristaState = BARISTA_STATE.BREWING
-						updateBaristaActivity("☕ Brewing Coffee (Bypassing Minigame)...")
-						baristaMoveTo(stations.brewPos + Vector3.new(0, 0, 1.2), false)
-						task.wait(0.15)
-						triggerInstantPrompt(stations.brew)
+					task.wait(0.25)
 
-						if baristaNoMinigame then
-							task.wait(0.1)
-							bypassBrewMinigame()
-						end
+					-- STEP 4: Recipe Solving & Station Interaction Loop
+					baristaState = BARISTA_STATE.BREWING
+					updateBaristaActivity("☕ Crafting Drink at Stations...")
 
-						task.wait(baristaDelay * 0.5)
-					else
-						-- Fallback brew prompt search
-						for _, p in ipairs(workspace:GetDescendants()) do
-							if p:IsA("ProximityPrompt") and p.Enabled and (root.Position - (p.Parent:IsA("BasePart") and p.Parent.Position or root.Position)).Magnitude < 40 then
-								local txt = (p.ActionText .. " " .. p.ObjectText):lower()
-								if txt:find("brew") or txt:find("kopi") or txt:find("coffee") or txt:find("seduh") or txt:find("mesin") then
-									triggerInstantPrompt(p)
-									if baristaNoMinigame then bypassBrewMinigame() end
-									break
-								end
+					-- Sequence 1: Cup
+					interactStation("CupRack")
+
+					-- Sequence 2: Beans
+					interactStation("BeanHopper")
+
+					-- Sequence 3: Brewer & Brew
+					interactStation("Brewer")
+					interactStation("Brewer")
+					if baristaNoMinigame then
+						fireRemote("Barista", "BrewResult", 100)
+						fireRemote("Barista", "Brew", "Perfect")
+					end
+					task.wait(0.2)
+					interactStation("Brewer")
+
+					-- Sequence 4: Milk / Flavour / Extras
+					interactStation("Milk")
+					interactStation("FlavourBottle")
+					fireRemote("Barista", "Pick", "Vanilla")
+					fireRemote("Barista", "Pick", 1)
+					task.wait(0.1)
+					interactStation("IceMaker")
+
+					-- STEP 5: Instant Serve Order to Customer
+					baristaState = BARISTA_STATE.SERVING
+					updateBaristaActivity("🍽️ Serving Order to Customer...")
+					baristaMoveTo(KANJI_JAWA_COUNTER)
+					task.wait(0.2)
+
+					if custFolder then
+						for _, cust in ipairs(custFolder:GetChildren()) do
+							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
+							if p then
+								triggerInstantPrompt(p)
 							end
+							fireRemote("Barista", "Serve", cust.Name)
 						end
 					end
 
-					-- STEP 5: Instant Serve to Table / Customer Counter
-					if baristaInstantServe and stations.serve and stations.servePos then
-						baristaState = BARISTA_STATE.SERVING
-						updateBaristaActivity("🍽️ Serving Order to Customer...")
-						baristaMoveTo(stations.servePos + Vector3.new(0, 0, 1.5), false)
-						task.wait(0.15)
-						triggerInstantPrompt(stations.serve)
-						task.wait(baristaDelay * 0.4)
-					elseif baristaInstantServe then
-						-- Fallback serve prompt search
-						for _, p in ipairs(workspace:GetDescendants()) do
-							if p:IsA("ProximityPrompt") and p.Enabled and (root.Position - (p.Parent:IsA("BasePart") and p.Parent.Position or root.Position)).Magnitude < 40 then
-								local txt = (p.ActionText .. " " .. p.ObjectText):lower()
-								if txt:find("serve") or txt:find("saji") or txt:find("antar") or txt:find("table") or txt:find("meja") then
-									triggerInstantPrompt(p)
-									break
-								end
-							end
-						end
-					end
+					task.wait(0.5)
 
 					-- Cycle Completed
 					baristaOrdersCompleted = baristaOrdersCompleted + 1
 					baristaState = BARISTA_STATE.COMPLETED
-					updateBaristaActivity("✅ Order Delivered! Ready for next...")
+					updateBaristaActivity("✅ Order Delivered! +Money Earned")
 					updateBaristaStats()
+
 					task.wait(baristaDelay)
 				end)
 				task.wait(0.2)
@@ -2799,7 +2721,7 @@ local success, err = pcall(function()
 	local baristaSec = UI.AddSection(farmFrame, "Janji Jawa Cafe & Barista Autofarm", 2)
 
 	baristaActivityLabel = UI.AddLabel(baristaSec, "Action: Idle (Toggle Barista to start)", 1, UI.COLORS.accentCyan)
-	baristaStatsLabel = UI.AddLabel(baristaSec, "Orders Served: 0  |  Pocket: Rp 0", 2, UI.COLORS.successGreen)
+	baristaStatsLabel = UI.AddLabel(baristaSec, "Orders Served: 0  |  Cash: Rp 0", 2, UI.COLORS.successGreen)
 
 	-- Barista Auto-Stats Background Updater
 	task.spawn(function()
@@ -2852,7 +2774,7 @@ local success, err = pcall(function()
 
 	UI.AddButton(baristaSec, "Teleport to Janji Jawa Cafe", function()
 		pcall(function()
-			safeTeleport(CFrame.new(JANJI_JAWA_MAIN_POS + Vector3.new(0, 3, 0)), false)
+			safeTeleport(CFrame.new(KANJI_JAWA_COUNTER + Vector3.new(0, 1.5, 0)), false)
 			UI.Notify("Teleport", "Tiba di Janji Jawa Cafe.", 2, "success")
 		end)
 	end, 8)
@@ -2880,4 +2802,5 @@ end)
 if not success then
 	warn("[HipHub CDID Farm Error]:", err)
 end
+
 
