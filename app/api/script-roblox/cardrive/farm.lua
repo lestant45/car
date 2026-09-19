@@ -2651,26 +2651,32 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Move Character with Noclip & Exact Orientation
+	-- Spawns a permanent collision safety floor underneath Cafe Kanji Jawa so player never falls through map
+	local function ensureCafeSafetyFloor()
+		local plate = workspace:FindFirstChild("__CafeFloorSafetyPlate")
+		if not plate then
+			plate = Instance.new("Part")
+			plate.Name = "__CafeFloorSafetyPlate"
+			plate.Anchored = true
+			plate.CanCollide = true
+			plate.Transparency = 1
+			plate.CastShadow = false
+			plate.Material = Enum.Material.SmoothPlastic
+			plate.Size = Vector3.new(100, 2, 100)
+			plate.Position = Vector3.new(-25, 21.5, 8430)
+			pcall(function() plate.Parent = workspace end)
+		end
+		return plate
+	end
+
+	-- Move Character with Exact Orientation & Solid Anti-Fall Floor
 	local function baristaMoveTo(targetPos, facePos)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root or not targetPos then return end
 
-		ensureSafetyPlate(targetPos, 40)
-
-		if baristaNoclip then
-			for _, part in ipairs(char:GetDescendants()) do
-				if part:IsA("BasePart") then
-					if part == root or part.Name == "UpperTorso" or part.Name == "Torso" then
-						part.CanCollide = true
-					else
-						part.CanCollide = false
-					end
-				end
-			end
-		end
+		ensureCafeSafetyFloor()
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
@@ -2768,7 +2774,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Single Station Interaction Helper with Exact Proximity Navigation
+	-- Single Station Interaction Helper (Clean Single Remote Trigger, Prevents Duplicate Action)
 	local function triggerStationInteraction(stationName)
 		local info = BARISTA_STATION_POSITIONS[stationName]
 		if info then
@@ -2779,49 +2785,15 @@ local success, err = pcall(function()
 		end
 		task.wait(0.12)
 
-		-- Auto-dismiss or select ChoicePicker if open
+		-- Auto-dismiss ChoicePicker if open
 		pcall(function()
 			local pGui = player:FindFirstChild("PlayerGui")
 			local choicePicker = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("ChoicePicker")
 			if choicePicker and choicePicker.Visible then
-				local grid = choicePicker:FindFirstChild("Grid")
-				if grid then
-					local targetVal = _G.HipHubTargetMenu or _G.HipHubTargetFlavour
-					local targetBtn = targetVal and grid:FindFirstChild(targetVal)
-					if not targetBtn and targetVal then
-						for _, btn in ipairs(grid:GetChildren()) do
-							if btn:IsA("GuiButton") and btn.Visible and btn.Name ~= "Template" then
-								local lbl = btn:FindFirstChild("Label") or btn:FindFirstChild("TextLabel")
-								if lbl and lbl.Text and lbl.Text:gsub("%s+", ""):lower():find(targetVal:lower(), 1, true) then
-									targetBtn = btn
-									break
-								end
-							end
-						end
-					end
-					if not targetBtn then
-						for _, btn in ipairs(grid:GetChildren()) do
-							if btn:IsA("GuiButton") and btn.Visible and btn.Name ~= "Template" then
-								targetBtn = btn
-								break
-							end
-						end
-					end
-					if targetBtn then
-						for _, c in pairs(getconnections(targetBtn.Activated)) do c:Fire() end
-						for _, c in pairs(getconnections(targetBtn.MouseButton1Click)) do c:Fire() end
-					end
-				end
 				choicePicker.Visible = false
 			end
 		end)
 
-		local stFolder = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("Stations")
-		local stPart = stFolder and stFolder:FindFirstChild(stationName)
-		local prompt = stPart and stPart:FindFirstChildWhichIsA("ProximityPrompt", true)
-		if prompt then
-			triggerInstantPrompt(prompt)
-		end
 		fireRemote("Barista", "Station", stationName)
 	end
 
@@ -2858,6 +2830,9 @@ local success, err = pcall(function()
 			local targetFlavour = nil
 			local isBrewing = false
 
+			-- Ensure permanent cafe safety floor is active
+			ensureCafeSafetyFloor()
+
 			-- Apply Brew Minigame and ChoicePicker hooks immediately
 			hookBaristaBrewMinigame()
 			hookBaristaChoicePicker()
@@ -2882,14 +2857,14 @@ local success, err = pcall(function()
 						isBrewing = true
 						task.spawn(function()
 							if baristaNoMinigame then
-								task.wait(0.2)
+								task.wait(0.15)
 								fireRemote("Barista", "BrewResult", 1.0)
-								task.wait(0.2)
+								task.wait(0.15)
 								isBrewing = false
 							end
 						end)
 					elseif action == "PickPrompt" then
-						task.wait(0.08)
+						task.wait(0.06)
 						if p1 == "Menu" then
 							local chosenMenu = (activeOrder and activeOrder.menuId) or _G.HipHubTargetMenu or (p2 and p2[1]) or "EsKopiSusu"
 							fireRemote("Barista", "Pick", "Menu", chosenMenu)
@@ -2917,6 +2892,8 @@ local success, err = pcall(function()
 					end
 
 					if checkTargetEarningAndDisconnect() then return end
+
+					ensureCafeSafetyFloor()
 
 					-- Ensure BrewMinigame and ChoicePicker are hooked
 					hookBaristaBrewMinigame()
@@ -3026,7 +3003,10 @@ local success, err = pcall(function()
 					-- 2. AMBIL GELAS DI CUP RACK SESUAI ORDERAN PELANGGAN
 					-- ============================================================
 					updateBaristaActivity(string.format("🥤 Mengambil Gelas [%s] di Rak Gelas...", tostring(activeOrder.menuId)))
-					triggerStationInteraction("CupRack")
+					local cupInfo = BARISTA_STATION_POSITIONS.CupRack
+					baristaMoveTo(cupInfo.stand, cupInfo.look)
+					task.wait(0.12)
+					fireRemote("Barista", "Station", "CupRack")
 					if _G.HipHubTargetMenu then
 						fireRemote("Barista", "Pick", "Menu", _G.HipHubTargetMenu)
 					end
@@ -3047,11 +3027,14 @@ local success, err = pcall(function()
 
 						if isBrewing then
 							updateBaristaActivity("☕ Brewing Espresso Extraction (100% Instant)...")
-							task.wait(0.25)
+							task.wait(0.2)
 						elseif not currentCupState then
 							-- Ambil gelas jika belum ada gelas
 							updateBaristaActivity(string.format("🥤 Ambil Gelas [%s] di CupRack...", tostring(activeOrder and activeOrder.menuId or "Drink")))
-							triggerStationInteraction("CupRack")
+							local cInfo = BARISTA_STATION_POSITIONS.CupRack
+							baristaMoveTo(cInfo.stand, cInfo.look)
+							task.wait(0.12)
+							fireRemote("Barista", "Station", "CupRack")
 							if _G.HipHubTargetMenu then
 								fireRemote("Barista", "Pick", "Menu", _G.HipHubTargetMenu)
 							end
@@ -3059,13 +3042,12 @@ local success, err = pcall(function()
 						elseif currentCupState.ruined then
 							-- Buang gelas rusak ke tempat sampah & ambil baru
 							updateBaristaActivity("🗑️ Gelas Rusak -> Buang ke Tong Sampah...")
-							triggerStationInteraction("Trash")
-							task.wait(0.25)
-							triggerStationInteraction("CupRack")
-							if _G.HipHubTargetMenu then
-								fireRemote("Barista", "Pick", "Menu", _G.HipHubTargetMenu)
-							end
-							task.wait(0.35)
+							local trInfo = BARISTA_STATION_POSITIONS.Trash
+							baristaMoveTo(trInfo.stand, trInfo.look)
+							task.wait(0.15)
+							fireRemote("Barista", "Station", "Trash")
+							task.wait(0.3)
+							currentCupState = nil
 						elseif currentCupState.nextStep == nil then
 							-- Minuman selesai diracik!
 							updateBaristaActivity("✨ Minuman Siap Diantar!")
@@ -3078,7 +3060,10 @@ local success, err = pcall(function()
 							updateBaristaActivity(string.format("☕ [%s] %s di %s...", menuName, nextStep, nextStation))
 
 							if nextStep == "Brew" then
-								triggerStationInteraction("Brewer")
+								local brewInfo = BARISTA_STATION_POSITIONS.Brewer
+								baristaMoveTo(brewInfo.stand, brewInfo.look)
+								task.wait(0.12)
+								fireRemote("Barista", "Station", "Brewer")
 								task.wait(0.1)
 								if baristaNoMinigame then
 									fireRemote("Barista", "BrewResult", 1.0)
@@ -3086,36 +3071,31 @@ local success, err = pcall(function()
 								local brewWait = 10
 								while brewWait > 0 and baristaActive and (isBrewing or (currentCupState and currentCupState.nextStep == "Brew")) do
 									brewWait = brewWait - 1
-									triggerStationInteraction("Brewer")
 									if baristaNoMinigame then
 										fireRemote("Barista", "BrewResult", 1.0)
 									end
 									task.wait(0.2)
 								end
-							elseif nextStep == "LoadBeans" then
-								triggerStationInteraction("Brewer")
-								local loadWait = 8
-								while loadWait > 0 and baristaActive and (currentCupState and currentCupState.nextStep == "LoadBeans") do
-									loadWait = loadWait - 1
-									triggerStationInteraction("Brewer")
-									task.wait(0.2)
-								end
-							elseif nextStep == "Pour" then
-								triggerStationInteraction("Brewer")
-								local pourWait = 8
-								while pourWait > 0 and baristaActive and (currentCupState and currentCupState.nextStep == "Pour") do
-									pourWait = pourWait - 1
-									triggerStationInteraction("Brewer")
-									task.wait(0.2)
-								end
 							elseif nextStep == "Flavour" then
-								triggerStationInteraction("FlavourBottle")
+								local flvInfo = BARISTA_STATION_POSITIONS.FlavourBottle
+								baristaMoveTo(flvInfo.stand, flvInfo.look)
+								task.wait(0.12)
+								fireRemote("Barista", "Station", "FlavourBottle")
+								task.wait(0.1)
 								local flv = targetFlavour or _G.HipHubTargetFlavour or "Vanilla"
 								fireRemote("Barista", "Pick", "Flavour", flv)
-								task.wait(0.25)
-							else
-								triggerStationInteraction(nextStation)
 								task.wait(0.3)
+							else
+								local info = BARISTA_STATION_POSITIONS[nextStation]
+								if info then
+									baristaMoveTo(info.stand, info.look)
+								else
+									local pos = BARISTA_STATIONS[nextStation] or KANJI_JAWA_COUNTER_INSIDE
+									baristaMoveTo(pos)
+								end
+								task.wait(0.12)
+								fireRemote("Barista", "Station", nextStation)
+								task.wait(0.35)
 							end
 						end
 					end
