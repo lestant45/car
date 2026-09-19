@@ -15,59 +15,50 @@ local success, err = pcall(function()
 
 	------------------------------------------------
 	-- 🛡️ ADONIS & CLIENT ANTI-CHEAT MEMORY NEUTRALIZER
-	-- Deteksi thread .Core.Anti & .Plugins.Anti_Cheat, tutup coroutine,
-	-- dan pasang hookfunction pada callback 'Detected' agar anti-cheat lumpuh total.
+	-- Hook HANYA callback 'Detected' & 'Kill' agar deteksi lumpuh,
+	-- TANPA mematikan thread/fungsi Remote Ping Heartbeat (cegah kick >300s).
 	------------------------------------------------
 	local function neutralizeAdonisAntiCheat()
-		local hookedThreads = {}
-		if getreg then
-			for _, thread in getreg() do
-				if typeof(thread) == "thread" then
-					local info = debug.info(thread, 1, "s")
-					if info and (info:match("%.Core%.Anti") or info:match("%.Plugins%.Anti_Cheat")) then
-						table.insert(hookedThreads, thread)
-					end
-				end
-			end
-		end
-
-		for _, thread in ipairs(hookedThreads) do
-			pcall(coroutine.close, thread)
-		end
+		if not (hookfunction and (getgc or filtergc)) then return end
 
 		local targets = {}
-		if getgc then
-			for _, tbl in getgc(true) do
-				if typeof(tbl) == "table" then
-					local isTarget = typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked")
-					if isTarget then
-						table.insert(targets, tbl)
-					end
+		if filtergc then
+			local tables = filtergc("table", { Keys = { "Detected", "RLocked" } }, false)
+			for _, tbl in ipairs(tables or {}) do
+				if typeof(rawget(tbl, "Detected")) == "function" then
+					table.insert(targets, tbl)
 				end
 			end
 		end
 
-		local count = 0
-		if hookfunction then
-			for _, tbl in ipairs(targets) do
-				for k, fn in pairs(tbl) do
-					if typeof(fn) == "function" and (not isfunctionhooked or not isfunctionhooked(fn)) then
-						pcall(hookfunction, fn, function(...)
-							coroutine.yield(coroutine.running())
-							return task.wait(9000000000)
-						end)
-						count = count + 1
-					end
+		if #targets == 0 and getgc then
+			for _, tbl in ipairs(getgc(true)) do
+				if typeof(tbl) == "table" and typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked") then
+					table.insert(targets, tbl)
 				end
 			end
 		end
 
-		return #hookedThreads > 0 or count > 0
+		for _, tbl in ipairs(targets) do
+			local detectedFn = rawget(tbl, "Detected")
+			if typeof(detectedFn) == "function" and (not isfunctionhooked or not isfunctionhooked(detectedFn)) then
+				pcall(hookfunction, detectedFn, function(action, info, ...)
+					return true
+				end)
+			end
+
+			local killFn = rawget(tbl, "Kill")
+			if typeof(killFn) == "function" and (not isfunctionhooked or not isfunctionhooked(killFn)) then
+				pcall(hookfunction, killFn, function(...)
+					return true
+				end)
+			end
+		end
 	end
 
 	pcall(neutralizeAdonisAntiCheat)
 	task.spawn(function()
-		while task.wait(3) do
+		while task.wait(5) do
 			pcall(neutralizeAdonisAntiCheat)
 		end
 	end)

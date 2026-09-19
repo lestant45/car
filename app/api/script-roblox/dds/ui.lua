@@ -18,16 +18,7 @@ end
 --=====================================================================
 pcall(function()
 	local function neutralizeAntiCheat()
-		if not (getreg and getgc and isfunctionhooked and hookfunction) then return end
-		
-		for _, thread in ipairs(getreg()) do
-			if typeof(thread) == "thread" then
-				local s, info = pcall(debug.info, thread, 1, "s")
-				if s and info and (info:match("%.Core%.Anti") or info:match("%.Plugins%.Anti_Cheat")) then
-					pcall(coroutine.close, thread)
-				end
-			end
-		end
+		if not (hookfunction and (getgc or filtergc)) then return end
 
 		local targets = {}
 		if filtergc then
@@ -37,7 +28,9 @@ pcall(function()
 					table.insert(targets, tbl)
 				end
 			end
-		else
+		end
+
+		if #targets == 0 and getgc then
 			for _, tbl in ipairs(getgc(true)) do
 				if typeof(tbl) == "table" and typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked") then
 					table.insert(targets, tbl)
@@ -46,13 +39,18 @@ pcall(function()
 		end
 
 		for _, tbl in ipairs(targets) do
-			for k, fn in pairs(tbl) do
-				if typeof(fn) == "function" and not isfunctionhooked(fn) then
-					hookfunction(fn, function(...)
-						coroutine.yield(coroutine.running())
-						return task.wait(9000000000)
-					end)
-				end
+			local detectedFn = rawget(tbl, "Detected")
+			if typeof(detectedFn) == "function" and (not isfunctionhooked or not isfunctionhooked(detectedFn)) then
+				pcall(hookfunction, detectedFn, function(action, info, ...)
+					return true
+				end)
+			end
+
+			local killFn = rawget(tbl, "Kill")
+			if typeof(killFn) == "function" and (not isfunctionhooked or not isfunctionhooked(killFn)) then
+				pcall(hookfunction, killFn, function(...)
+					return true
+				end)
 			end
 		end
 	end
