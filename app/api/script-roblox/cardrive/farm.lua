@@ -2653,53 +2653,41 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Spawns a permanent collision safety floor underneath Cafe Kanji Jawa so player never falls through map
-	local function ensureCafeSafetyFloor()
-		local plate = workspace:FindFirstChild("__CafeFloorSafetyPlate")
-		if not plate then
-			plate = Instance.new("Part")
-			plate.Name = "__CafeFloorSafetyPlate"
-			plate.Anchored = true
-			plate.CanCollide = true
-			plate.Transparency = 1
-			plate.CastShadow = false
-			plate.Material = Enum.Material.SmoothPlastic
-			plate.Size = Vector3.new(250, 2, 250)
-			plate.Position = Vector3.new(-25, 18.5, 8430)
-			pcall(function() plate.Parent = workspace end)
-		else
-			plate.Position = Vector3.new(-25, 18.5, 8430)
-			plate.Size = Vector3.new(250, 2, 250)
-			plate.CanCollide = true
-		end
-		return plate
+	-- Cleans up any collision safety plates so NPCs can queue and walk naturally without getting displaced
+	local function removeSafetyPlates()
+		pcall(function()
+			local p1 = workspace:FindFirstChild("__CafeFloorSafetyPlate")
+			if p1 then p1:Destroy() end
+			local p2 = workspace:FindFirstChild("__SafetyPlate")
+			if p2 then p2:Destroy() end
+		end)
 	end
 
-	-- Move Character with Exact Orientation & Solid Anti-Fall Floor
+	-- Move Character with Exact Orientation & Safe Ground Altitude
 	local function baristaMoveTo(targetPos, facePos)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root or not targetPos then return end
 
-		ensureCafeSafetyFloor()
+		removeSafetyPlates()
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 
-		-- Elevate slightly (+1.2 studs) so physics engine drops character onto ground cleanly without clipping into mesh
-		local safeTargetPos = Vector3.new(targetPos.X, math.max(targetPos.Y, 25.5) + 1.2, targetPos.Z)
+		local standPos = Vector3.new(targetPos.X, 25.0, targetPos.Z)
 
 		if facePos then
-			local safeFacePos = Vector3.new(facePos.X, math.max(facePos.Y, 25.5), facePos.Z)
-			root.CFrame = CFrame.lookAt(safeTargetPos, safeFacePos)
+			local lookPos = Vector3.new(facePos.X, 25.0, facePos.Z)
+			root.CFrame = CFrame.lookAt(standPos, lookPos)
 			pcall(function()
-				workspace.CurrentCamera.CFrame = CFrame.lookAt(safeTargetPos + Vector3.new(0, 2, 0), safeFacePos + Vector3.new(0, 1.5, 0))
+				workspace.CurrentCamera.CFrame = CFrame.lookAt(standPos + Vector3.new(0, 1.8, 0), lookPos + Vector3.new(0, 1.2, 0))
 			end)
 		else
-			root.CFrame = CFrame.new(safeTargetPos)
+			root.CFrame = CFrame.new(standPos)
 		end
 		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
 	end
 
 	-- Check if Barista Job is Active
@@ -2815,21 +2803,34 @@ local success, err = pcall(function()
 		local frontCust = nil
 		local closestDist = 999
 
+		-- Priority 1: Customer whose prompt is active/enabled
 		for _, cust in ipairs(custFolder:GetChildren()) do
-			local hrp = cust:FindFirstChild("HumanoidRootPart")
-			if hrp then
+			local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
+			local hrp = cust:FindFirstChild("HumanoidRootPart") or cust:FindFirstChild("Torso") or cust:FindFirstChild("Head")
+			if p and p.Enabled and hrp then
 				local dist = (hrp.Position - KANJI_JAWA_COUNTER_FRONT).Magnitude
-				if dist < closestDist then
+				if dist < closestDist and dist < 14.0 then
 					closestDist = dist
 					frontCust = cust
 				end
 			end
 		end
 
-		if frontCust and closestDist < 7.0 then
-			return frontCust
+		if frontCust then return frontCust end
+
+		-- Priority 2: Closest customer physically to front counter
+		for _, cust in ipairs(custFolder:GetChildren()) do
+			local hrp = cust:FindFirstChild("HumanoidRootPart") or cust:FindFirstChild("Torso")
+			if hrp then
+				local dist = (hrp.Position - KANJI_JAWA_COUNTER_FRONT).Magnitude
+				if dist < closestDist and dist < 8.0 then
+					closestDist = dist
+					frontCust = cust
+				end
+			end
 		end
-		return nil
+
+		return frontCust
 	end
 
 	-- Main Barista Autofarm Execution Loop
@@ -2840,8 +2841,8 @@ local success, err = pcall(function()
 			local targetFlavour = nil
 			local isBrewing = false
 
-			-- Ensure permanent cafe safety floor is active
-			ensureCafeSafetyFloor()
+			-- Ensure no rogue collision plates disrupt NPC queue
+			removeSafetyPlates()
 
 			-- Apply Brew Minigame and ChoicePicker hooks immediately
 			hookBaristaBrewMinigame()
@@ -2903,7 +2904,7 @@ local success, err = pcall(function()
 
 					if checkTargetEarningAndDisconnect() then return end
 
-					ensureCafeSafetyFloor()
+					removeSafetyPlates()
 
 					-- Ensure BrewMinigame and ChoicePicker are hooked
 					hookBaristaBrewMinigame()
