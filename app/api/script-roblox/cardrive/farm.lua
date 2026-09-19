@@ -2447,9 +2447,11 @@ local success, err = pcall(function()
 	local baristaStatsLabel = nil
 
 	-- Cafe Kanji Jawa Coordinates
-	local KANJI_JAWA_COUNTER = Vector3.new(-35.98, 21.0, 8419.95)
-	local KANJI_JAWA_MANAGER = Vector3.new(-13.5, 23.1, 8451.7)
-	local KANJI_JAWA_PHONE   = Vector3.new(-7.87, 24.08, 8427.23)
+	local KANJI_JAWA_COUNTER        = Vector3.new(-35.98, 21.0, 8419.95)
+	local KANJI_JAWA_COUNTER_INSIDE = Vector3.new(-34.68, 23.5, 8422.75)
+	local KANJI_JAWA_COUNTER_FRONT  = Vector3.new(-36.20, 23.5, 8419.50)
+	local KANJI_JAWA_MANAGER        = Vector3.new(-13.5, 23.1, 8451.7)
+	local KANJI_JAWA_PHONE          = Vector3.new(-7.87, 24.08, 8427.23)
 
 	local BARISTA_STATIONS = {
 		CupRack         = Vector3.new(-11.64, 24.61, 8409.11),
@@ -2626,7 +2628,7 @@ local success, err = pcall(function()
 	end
 
 	-- Move Character with Noclip
-	local function baristaMoveTo(targetPos)
+	local function baristaMoveTo(targetPos, facePos)
 		local char = player.Character
 		if not char then return end
 		local root = char:FindFirstChild("HumanoidRootPart")
@@ -2644,7 +2646,15 @@ local success, err = pcall(function()
 
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
-		root.CFrame = CFrame.new(targetPos.X, targetPos.Y + 0.3, targetPos.Z)
+
+		if facePos then
+			root.CFrame = CFrame.lookAt(targetPos, facePos)
+			pcall(function()
+				workspace.CurrentCamera.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 2, 0), facePos + Vector3.new(0, 1.5, 0))
+			end)
+		else
+			root.CFrame = CFrame.new(targetPos.X, targetPos.Y + 0.3, targetPos.Z)
+		end
 		root.AssemblyLinearVelocity = Vector3.zero
 	end
 
@@ -2654,6 +2664,34 @@ local success, err = pcall(function()
 		local pJob = pGui and pGui:FindFirstChild("Job")
 		local bGui = pJob and pJob:FindFirstChild("Barista")
 		return bGui and bGui.Visible == true
+	end
+
+	-- Hook BrewMinigame module for 100% instant extraction without manual minigame
+	local function hookBaristaBrewMinigame()
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			local bModule = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("Barista") and pGui.Job.Barista:FindFirstChild("BrewMinigame")
+			if bModule and not _G.HipHubBaristaBrewHooked then
+				local BrewMinigame = require(bModule)
+				local oldStart = BrewMinigame.start
+				BrewMinigame.start = function(self, duration, onFinished)
+					if Config.farm.baristaNoMinigame ~= false then
+						self.inZoneSeconds = duration or 5
+						self.fillSeconds = duration or 5
+						self.isRunning = true
+						task.defer(function()
+							if onFinished then
+								onFinished(1.0)
+							end
+							pcall(function() self:stop() end)
+						end)
+						return
+					end
+					return oldStart(self, duration, onFinished)
+				end
+				_G.HipHubBaristaBrewHooked = true
+			end
+		end)
 	end
 
 	-- Single Station Interaction Helper
@@ -2672,6 +2710,31 @@ local success, err = pcall(function()
 		end
 	end
 
+	-- Find the front customer standing directly at counter
+	local function findFrontCustomerAtCounter()
+		local custFolder = workspace:FindFirstChild("BaristaCustomers")
+		if not custFolder then return nil end
+
+		local frontCust = nil
+		local closestDist = 999
+
+		for _, cust in ipairs(custFolder:GetChildren()) do
+			local hrp = cust:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local dist = (hrp.Position - KANJI_JAWA_COUNTER_FRONT).Magnitude
+				if dist < closestDist then
+					closestDist = dist
+					frontCust = cust
+				end
+			end
+		end
+
+		if frontCust and closestDist < 7.0 then
+			return frontCust
+		end
+		return nil
+	end
+
 	-- Main Barista Autofarm Execution Loop
 	local function runBaristaFarm()
 		task.spawn(function()
@@ -2679,6 +2742,9 @@ local success, err = pcall(function()
 			local activeOrder = nil
 			local targetFlavour = nil
 			local isBrewing = false
+
+			-- Apply Brew Minigame hook immediately
+			hookBaristaBrewMinigame()
 
 			-- Hook RemoteEvents.Barista for Real-Time Event Sync
 			local baristaRemote = nil
@@ -2698,7 +2764,7 @@ local success, err = pcall(function()
 						isBrewing = true
 						task.spawn(function()
 							if baristaNoMinigame then
-								task.wait(0.4)
+								task.wait(0.3)
 								fireRemote("Barista", "BrewResult", 1.0)
 								task.wait(0.2)
 								isBrewing = false
@@ -2734,11 +2800,14 @@ local success, err = pcall(function()
 
 					if checkTargetEarningAndDisconnect() then return end
 
+					-- Ensure BrewMinigame is hooked
+					hookBaristaBrewMinigame()
+
 					-- STEP 1: Verify player is near Cafe Kanji Jawa
 					local distToCafe = (root.Position - KANJI_JAWA_COUNTER).Magnitude
 					if distToCafe > 300 then
 						updateBaristaActivity("🚀 Teleporting to Kanji Jawa Cafe...")
-						safeTeleport(CFrame.new(KANJI_JAWA_COUNTER + Vector3.new(0, 1.5, 0)), false)
+						safeTeleport(CFrame.new(KANJI_JAWA_COUNTER_INSIDE), false)
 						task.wait(0.8)
 						return
 					end
@@ -2776,49 +2845,59 @@ local success, err = pcall(function()
 					end
 
 					-- ============================================================
-					-- 1. KE DEPAN PELANGGAN DI MEJA KASIR & TANYA PESANAN
+					-- 1. STAND BEHIND CASHIER & WAIT FOR CUSTOMER
 					-- ============================================================
 					baristaState = BARISTA_STATE.TAKING_ORDER
-					updateBaristaActivity("🚶 Moving to Cashier Counter...")
-					baristaMoveTo(KANJI_JAWA_COUNTER)
-					task.wait(0.25)
+					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
 
-					updateBaristaActivity("📋 Tanya Pesanan Pelanggan...")
-					local custFolder = workspace:FindFirstChild("BaristaCustomers")
-					if custFolder and #custFolder:GetChildren() > 0 then
-						for _, cust in ipairs(custFolder:GetChildren()) do
-							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
-							if p and p.Enabled and p.ActionText:lower():find("tanya") then
-								triggerInstantPrompt(p)
-								break
-							end
+					local frontCustomer = findFrontCustomerAtCounter()
+					local waitCustomerCounter = 0
+
+					while not frontCustomer and baristaActive do
+						waitCustomerCounter = waitCustomerCounter + 1
+						updateBaristaActivity(string.format("⏳ Menunggu pelanggan tiba di kasir (%ds)...", waitCustomerCounter))
+						task.wait(0.5)
+						frontCustomer = findFrontCustomerAtCounter()
+					end
+
+					if not baristaActive then return end
+
+					-- Tanya Pesanan ke Pelanggan Terdepan
+					updateBaristaActivity("📋 Tanya Pesanan Pelanggan di Kasir...")
+					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
+					task.wait(0.15)
+
+					if frontCustomer then
+						local p = frontCustomer:FindFirstChildWhichIsA("ProximityPrompt", true)
+						if p and p.Enabled and p.ActionText:lower():find("tanya") then
+							triggerInstantPrompt(p)
 						end
 					end
 
-					-- Fire take order on active slots
+					-- Fire take order
 					for slot = 1, 4 do
 						fireRemote("Barista", "TakeOrder", slot)
 					end
 					task.wait(0.4)
 
 					-- ============================================================
-					-- 2. AMBIL GELAS DULU DI CUP RACK (MANDATORY STEP)
+					-- 2. AMBIL GELAS DI CUP RACK (ONLY AFTER CUSTOMER ORDERED)
 					-- ============================================================
 					updateBaristaActivity("🥤 Mengambil Gelas di Rak Gelas (CupRack)...")
 					triggerStationInteraction("CupRack")
 					task.wait(0.4)
 
 					-- ============================================================
-					-- 3. KERJAIN PESANAN SESUAI RESEP (DYNAMIC CUP EXECUTION)
+					-- 3. KERJAIN PESANAN SESUAI RESEP (DYNAMIC STEP EXECUTION)
 					-- ============================================================
 					baristaState = BARISTA_STATE.BREWING
-					local loopSafety = 20
+					local loopSafety = 25
 
 					while loopSafety > 0 and baristaActive do
 						loopSafety = loopSafety - 1
 
 						if isBrewing then
-							updateBaristaActivity("☕ Brewing Espresso Extraction (100%)...")
+							updateBaristaActivity("☕ Brewing Espresso Extraction (100% Instant)...")
 							task.wait(0.3)
 						elseif not currentCupState then
 							-- Ambil gelas jika belum ada gelas
@@ -2846,31 +2925,30 @@ local success, err = pcall(function()
 							triggerStationInteraction(nextStation)
 
 							if nextStep == "LoadBeans" or nextStep == "Brew" then
-								local brewWait = 10
+								local brewWait = 8
 								while brewWait > 0 and (isBrewing or (currentCupState and (currentCupState.nextStep == "LoadBeans" or currentCupState.nextStep == "Brew"))) do
 									brewWait = brewWait - 1
 									task.wait(0.25)
 								end
 							else
-								task.wait(0.3)
+								task.wait(0.35)
 							end
 						end
 					end
 
 					-- ============================================================
-					-- 4. ANTAR KE PELANGGAN (SERVE & GAJIAN)
+					-- 4. ANTAR KE PELANGGAN DEPAN (BEHIND COUNTER ONLY)
 					-- ============================================================
 					baristaState = BARISTA_STATE.SERVING
 					updateBaristaActivity("🍽️ Antar Pesanan ke Pelanggan di Kasir...")
-					baristaMoveTo(KANJI_JAWA_COUNTER)
+					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
 					task.wait(0.25)
 
-					if custFolder and #custFolder:GetChildren() > 0 then
-						for _, cust in ipairs(custFolder:GetChildren()) do
-							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
-							if p and p.Enabled then
-								triggerInstantPrompt(p)
-							end
+					local targetServeCust = findFrontCustomerAtCounter() or frontCustomer
+					if targetServeCust then
+						local p = targetServeCust:FindFirstChildWhichIsA("ProximityPrompt", true)
+						if p and p.Enabled then
+							triggerInstantPrompt(p)
 						end
 					end
 
@@ -2882,7 +2960,7 @@ local success, err = pcall(function()
 						end
 					end
 
-					task.wait(0.5)
+					task.wait(0.6)
 
 					-- Selesai 1 siklus & update live stats
 					baristaOrdersCompleted = baristaOrdersCompleted + 1
