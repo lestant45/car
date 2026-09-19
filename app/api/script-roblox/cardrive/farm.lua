@@ -2632,19 +2632,20 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Super Instant Proximity Prompt Trigger
+	-- Super Instant & Reliable Proximity Prompt Trigger (Handles Engine Hold Timing)
 	local function triggerInstantPrompt(prompt)
 		if not prompt or not prompt:IsA("ProximityPrompt") then return end
 		pcall(function()
 			prompt.Enabled = true
 			prompt.RequiresLineOfSight = false
 			prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 45)
-			prompt.HoldDuration = 0
+			local holdTime = tonumber(prompt.HoldDuration) or 0.35
 			if fireproximityprompt then
-				fireproximityprompt(prompt, 0)
-			elseif prompt.InputHoldBegin then
+				fireproximityprompt(prompt, holdTime)
+			end
+			if prompt.InputHoldBegin then
 				prompt:InputHoldBegin()
-				task.wait(0.02)
+				task.wait(math.max(holdTime + 0.05, 0.08))
 				prompt:InputHoldEnd()
 			end
 		end)
@@ -2657,12 +2658,16 @@ local success, err = pcall(function()
 		local root = char:FindFirstChild("HumanoidRootPart")
 		if not root or not targetPos then return end
 
-		ensureSafetyPlate(targetPos, 20)
+		ensureSafetyPlate(targetPos, 40)
 
 		if baristaNoclip then
 			for _, part in ipairs(char:GetDescendants()) do
 				if part:IsA("BasePart") then
-					part.CanCollide = false
+					if part == root or part.Name == "UpperTorso" or part.Name == "Torso" then
+						part.CanCollide = true
+					else
+						part.CanCollide = false
+					end
 				end
 			end
 		end
@@ -2676,7 +2681,7 @@ local success, err = pcall(function()
 				workspace.CurrentCamera.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 2, 0), facePos + Vector3.new(0, 1.5, 0))
 			end)
 		else
-			root.CFrame = CFrame.new(targetPos.X, targetPos.Y + 0.3, targetPos.Z)
+			root.CFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
 		end
 		root.AssemblyLinearVelocity = Vector3.zero
 	end
@@ -3072,19 +3077,44 @@ local success, err = pcall(function()
 							local menuName = currentCupState.menuId or (activeOrder and activeOrder.menuId) or "Drink"
 							updateBaristaActivity(string.format("☕ [%s] %s di %s...", menuName, nextStep, nextStation))
 
-							triggerStationInteraction(nextStation)
-
-							if nextStep == "Flavour" then
-								local flv = targetFlavour or _G.HipHubTargetFlavour or "Vanilla"
-								fireRemote("Barista", "Pick", "Flavour", flv)
-								task.wait(0.2)
-							elseif nextStep == "LoadBeans" or nextStep == "Brew" then
-								local brewWait = 8
-								while brewWait > 0 and (isBrewing or (currentCupState and (currentCupState.nextStep == "LoadBeans" or currentCupState.nextStep == "Brew"))) do
+							if nextStep == "Brew" then
+								triggerStationInteraction("Brewer")
+								task.wait(0.1)
+								if baristaNoMinigame then
+									fireRemote("Barista", "BrewResult", 1.0)
+								end
+								local brewWait = 10
+								while brewWait > 0 and baristaActive and (isBrewing or (currentCupState and currentCupState.nextStep == "Brew")) do
 									brewWait = brewWait - 1
+									triggerStationInteraction("Brewer")
+									if baristaNoMinigame then
+										fireRemote("Barista", "BrewResult", 1.0)
+									end
 									task.wait(0.2)
 								end
+							elseif nextStep == "LoadBeans" then
+								triggerStationInteraction("Brewer")
+								local loadWait = 8
+								while loadWait > 0 and baristaActive and (currentCupState and currentCupState.nextStep == "LoadBeans") do
+									loadWait = loadWait - 1
+									triggerStationInteraction("Brewer")
+									task.wait(0.2)
+								end
+							elseif nextStep == "Pour" then
+								triggerStationInteraction("Brewer")
+								local pourWait = 8
+								while pourWait > 0 and baristaActive and (currentCupState and currentCupState.nextStep == "Pour") do
+									pourWait = pourWait - 1
+									triggerStationInteraction("Brewer")
+									task.wait(0.2)
+								end
+							elseif nextStep == "Flavour" then
+								triggerStationInteraction("FlavourBottle")
+								local flv = targetFlavour or _G.HipHubTargetFlavour or "Vanilla"
+								fireRemote("Barista", "Pick", "Flavour", flv)
+								task.wait(0.25)
 							else
+								triggerStationInteraction(nextStation)
 								task.wait(0.3)
 							end
 						end
