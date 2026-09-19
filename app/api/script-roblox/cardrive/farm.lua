@@ -2971,80 +2971,75 @@ local success, err = pcall(function()
 					end
 
 					-- ============================================================
-					-- 1. STAND BEHIND CASHIER & WAIT FOR CUSTOMER
+					-- 1. STAND BEHIND CASHIER & WAIT / TAKE ORDER
 					-- ============================================================
 					baristaState = BARISTA_STATE.TAKING_ORDER
 					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
 
-					local frontCustomer = findFrontCustomerAtCounter()
-					local waitCustomerCounter = 0
-
-					while not frontCustomer and baristaActive do
-						waitCustomerCounter = waitCustomerCounter + 1
-						updateBaristaActivity(string.format("⏳ Menunggu pelanggan tiba di kasir (%ds)...", waitCustomerCounter))
-						task.wait(0.5)
-						frontCustomer = findFrontCustomerAtCounter()
-					end
-
-					if not baristaActive then return end
-
-					-- Clear previous order cache BEFORE taking the new order
 					activeOrder = nil
 					_G.HipHubTargetMenu = nil
 					_G.HipHubTargetFlavour = nil
 
-					-- Tanya Pesanan ke Pelanggan Terdepan
-					updateBaristaActivity("📋 Tanya Pesanan Pelanggan di Kasir...")
-					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
-					task.wait(0.12)
+					local orderWaitAttempts = 0
+					while not activeOrder and baristaActive do
+						orderWaitAttempts = orderWaitAttempts + 1
 
-					local customerSlot = 1
-					if frontCustomer then
-						local p = frontCustomer:FindFirstChildWhichIsA("ProximityPrompt", true)
-						if p then
-							local num = tonumber(p.ObjectText:match("%d+"))
-							if num then customerSlot = num end
-							if p.Enabled and (p.ActionText:lower():find("tanya") or p.ActionText:lower():find("ambil")) then
-								triggerInstantPrompt(p)
+						local frontCustomer = findFrontCustomerAtCounter()
+						if frontCustomer then
+							local custHRP = frontCustomer:FindFirstChild("HumanoidRootPart") or frontCustomer:FindFirstChild("Head")
+							if custHRP then
+								baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, custHRP.Position)
+							else
+								baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
 							end
+
+							updateBaristaActivity(string.format("📋 Tanya Pesanan Pelanggan di Kasir (Coba %d)...", orderWaitAttempts))
+
+							local customerSlot = 1
+							local p = frontCustomer:FindFirstChildWhichIsA("ProximityPrompt", true)
+							if p then
+								local num = tonumber(p.ObjectText:match("%d+"))
+								if num then customerSlot = num end
+								if p.Enabled then
+									triggerInstantPrompt(p)
+								end
+							end
+
+							fireRemote("Barista", "TakeOrder", customerSlot)
+						else
+							updateBaristaActivity(string.format("⏳ Menunggu pelanggan tiba di kasir (%ds)...", orderWaitAttempts))
+							baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
 						end
-					end
 
-					-- Fire TakeOrder for that slot
-					fireRemote("Barista", "TakeOrder", customerSlot)
-
-					-- Wait for server OrderTaken event or UI sync
-					local tOrderWait = os.clock()
-					while not activeOrder and (os.clock() - tOrderWait < 2.5) and baristaActive do
-						-- Fallback: check UI Orders frame
-						pcall(function()
-							local pGui = player:FindFirstChild("PlayerGui")
-							local ordersFrame = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("Barista") and pGui.Job.Barista:FindFirstChild("Orders")
-							if ordersFrame then
-								for _, row in ipairs(ordersFrame:GetChildren()) do
-									if row:IsA("Frame") and row.Name ~= "OrderRow" then
-										local numText = row:FindFirstChild("Number") and row.Number.Text
-										local menuText = row:FindFirstChild("Menu") and row.Menu.Text
-										if menuText and menuText ~= "" then
-											local sNum = numText and tonumber(numText:match("%d+")) or customerSlot
-											local clean = menuText:lower():gsub("%s+", "")
-											local mId = RECIPE_NAME_ALIASES[clean] or menuText
-											activeOrder = { slot = sNum, menuId = mId }
-											_G.HipHubTargetMenu = mId
+						-- Wait for server OrderTaken event or check UI Orders frame
+						for _ = 1, 5 do
+							if activeOrder then break end
+							pcall(function()
+								local pGui = player:FindFirstChild("PlayerGui")
+								local ordersFrame = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("Barista") and pGui.Job.Barista:FindFirstChild("Orders")
+								if ordersFrame then
+									for _, row in ipairs(ordersFrame:GetChildren()) do
+										if row:IsA("Frame") and row.Name ~= "OrderRow" then
+											local numText = row:FindFirstChild("Number") and row.Number.Text
+											local menuText = row:FindFirstChild("Menu") and row.Menu.Text
+											if menuText and menuText ~= "" then
+												local sNum = numText and tonumber(numText:match("%d+")) or 1
+												local clean = menuText:lower():gsub("%s+", "")
+												local mId = RECIPE_NAME_ALIASES[clean] or menuText
+												activeOrder = { slot = sNum, menuId = mId }
+												_G.HipHubTargetMenu = mId
+											end
 										end
 									end
 								end
-							end
-						end)
-						task.wait(0.08)
+							end)
+							task.wait(0.1)
+						end
 					end
 
-					if not activeOrder then
-						activeOrder = { slot = customerSlot, menuId = _G.HipHubTargetMenu or "Cappuccino", flavour = _G.HipHubTargetFlavour }
-						_G.HipHubTargetMenu = activeOrder.menuId
-					end
+					if not baristaActive or not activeOrder then return end
 
-					updateBaristaActivity(string.format("📋 Pesanan: %s (Pelanggan #%s)", tostring(activeOrder.menuId), tostring(activeOrder.slot)))
+					updateBaristaActivity(string.format("📋 Pesanan Diterima: %s (Pelanggan #%s)", tostring(activeOrder.menuId), tostring(activeOrder.slot)))
 					task.wait(0.2)
 
 					-- ============================================================
