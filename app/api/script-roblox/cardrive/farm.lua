@@ -2656,83 +2656,73 @@ local success, err = pcall(function()
 		return bGui and bGui.Visible == true
 	end
 
-	-- Execute one station action
-	local function executeStationStep(stepName)
-		local stationName = STEP_TO_STATION[stepName] or stepName
+	-- Single Station Interaction Helper
+	local function triggerStationInteraction(stationName)
 		local pos = BARISTA_STATIONS[stationName] or KANJI_JAWA_COUNTER
-
 		baristaMoveTo(pos)
-		task.wait(0.12)
+		task.wait(0.15)
 
 		local stFolder = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("Stations")
-		local stationPart = stFolder and stFolder:FindFirstChild(stationName)
-		local prompt = stationPart and stationPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+		local stPart = stFolder and stFolder:FindFirstChild(stationName)
+		local prompt = stPart and stPart:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt then
 			triggerInstantPrompt(prompt)
+		else
+			fireRemote("Barista", "Station", stationName)
 		end
-
-		fireRemote("Barista", "Station", stationName)
-
-		-- If brewing step, handle minigame extraction score
-		if stepName == "Brew" or stepName == "LoadBeans" or stationName == "Brewer" then
-			if baristaNoMinigame then
-				fireRemote("Barista", "BrewResult", 100)
-				fireRemote("Barista", "Brew", "Perfect")
-			end
-		end
-
-		-- If flavour bottle, pick syrup
-		if stepName == "Flavour" or stationName == "FlavourBottle" then
-			fireRemote("Barista", "Pick", "Vanilla")
-			fireRemote("Barista", "Pick", "Caramel")
-			fireRemote("Barista", "Pick", 1)
-		end
-
-		task.wait(0.2)
-	end
-
-	-- Resolve Ordered Drink ID from GUI or Dialog
-	local function detectActiveOrderDrink()
-		local pGui = player:FindFirstChild("PlayerGui")
-		if not pGui then return "EsKopiSusu" end
-
-		local pJob = pGui:FindFirstChild("Job")
-		local bGui = pJob and pJob:FindFirstChild("Barista")
-
-		-- 1. Check Orders GUI List
-		if bGui and bGui:FindFirstChild("Orders") then
-			for _, row in ipairs(bGui.Orders:GetChildren()) do
-				if row:IsA("Frame") and row.Visible and row:FindFirstChild("Menu") then
-					local text = row.Menu.Text:lower()
-					for alias, rId in pairs(RECIPE_NAME_ALIASES) do
-						if text:find(alias) then
-							return rId
-						end
-					end
-				end
-			end
-		end
-
-		-- 2. Check ChoicePicker if open
-		local picker = pJob and pJob:FindFirstChild("ChoicePicker")
-		if picker and picker.Visible and picker:FindFirstChild("Grid") then
-			for _, btn in ipairs(picker.Grid:GetChildren()) do
-				if btn:IsA("TextButton") and btn.Name ~= "Template" and btn.Visible then
-					for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
-					fireRemote("Barista", "Pick", btn.Name)
-					picker.Visible = false
-					return btn.Name
-				end
-			end
-		end
-
-		-- Fallback default
-		return "EsKopiSusu"
 	end
 
 	-- Main Barista Autofarm Execution Loop
 	local function runBaristaFarm()
 		task.spawn(function()
+			local currentCupState = nil
+			local activeOrder = nil
+			local targetFlavour = nil
+			local isBrewing = false
+
+			-- Hook RemoteEvents.Barista for Real-Time Event Sync
+			local baristaRemote = nil
+			pcall(function()
+				baristaRemote = game:GetService("ReplicatedStorage"):WaitForChild("NetworkContainer", 5):WaitForChild("RemoteEvents", 5):WaitForChild("Barista", 5)
+			end)
+
+			local eventConn = nil
+			if baristaRemote then
+				eventConn = baristaRemote.OnClientEvent:Connect(function(action, p1, p2, p3)
+					if action == "OrderTaken" then
+						activeOrder = { slot = p1, menuId = p2, flavour = p3 }
+						targetFlavour = p3
+					elseif action == "CupState" then
+						currentCupState = p1
+					elseif action == "BrewStart" then
+						isBrewing = true
+						task.spawn(function()
+							if baristaNoMinigame then
+								task.wait(0.4)
+								fireRemote("Barista", "BrewResult", 1.0)
+								task.wait(0.2)
+								isBrewing = false
+							end
+						end)
+					elseif action == "PickPrompt" then
+						task.wait(0.1)
+						if p1 == "Menu" then
+							local chosenMenu = (activeOrder and activeOrder.menuId) or (p2 and p2[1]) or "EsKopiSusu"
+							fireRemote("Barista", "Pick", "Menu", chosenMenu)
+						elseif p1 == "Flavour" then
+							local chosenFlavour = targetFlavour or (p2 and p2[1]) or "Vanilla"
+							fireRemote("Barista", "Pick", "Flavour", chosenFlavour)
+						else
+							local val = (p2 and p2[1]) or "Vanilla"
+							fireRemote("Barista", "Pick", p1, val)
+						end
+					elseif action == "OrderDone" then
+						activeOrder = nil
+						currentCupState = nil
+					end
+				end)
+			end
+
 			while baristaActive do
 				pcall(function()
 					local char = player.Character
@@ -2786,83 +2776,127 @@ local success, err = pcall(function()
 					end
 
 					-- ============================================================
-					-- 1. KE DEPAN PELANGGAN DI MEJA KASIR
+					-- 1. KE DEPAN PELANGGAN DI MEJA KASIR & TANYA PESANAN
 					-- ============================================================
 					baristaState = BARISTA_STATE.TAKING_ORDER
 					updateBaristaActivity("🚶 Moving to Cashier Counter...")
 					baristaMoveTo(KANJI_JAWA_COUNTER)
-					task.wait(0.2)
+					task.wait(0.25)
 
-					-- ============================================================
-					-- 2. TANYA PESANAN (TOMBOL DI BADAN PELANGGAN)
-					-- ============================================================
-					updateBaristaActivity("📋 Taking Customer Order...")
+					updateBaristaActivity("📋 Tanya Pesanan Pelanggan...")
 					local custFolder = workspace:FindFirstChild("BaristaCustomers")
-					local targetCustomer = nil
-
 					if custFolder and #custFolder:GetChildren() > 0 then
 						for _, cust in ipairs(custFolder:GetChildren()) do
 							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
 							if p and p.Enabled and p.ActionText:lower():find("tanya") then
-								targetCustomer = cust.Name
 								triggerInstantPrompt(p)
-								fireRemote("Barista", "TakeOrder", targetCustomer)
 								break
 							end
 						end
-						if not targetCustomer then
-							targetCustomer = custFolder:GetChildren()[1].Name
-							fireRemote("Barista", "TakeOrder", targetCustomer)
-						end
 					end
 
-					task.wait(0.3)
-
-					-- Auto-Select choice if popup appeared
-					local orderedDrinkId = detectActiveOrderDrink()
-					local recipe = BARISTA_RECIPES[orderedDrinkId] or BARISTA_RECIPES["EsKopiSusu"]
+					-- Fire take order on active slots
+					for slot = 1, 4 do
+						fireRemote("Barista", "TakeOrder", slot)
+					end
+					task.wait(0.4)
 
 					-- ============================================================
-					-- 3. KERJAIN PESANAN SESUAI RESEP (URUTAN BAHAN)
+					-- 2. AMBIL GELAS DULU DI CUP RACK (MANDATORY STEP)
+					-- ============================================================
+					updateBaristaActivity("🥤 Mengambil Gelas di Rak Gelas (CupRack)...")
+					triggerStationInteraction("CupRack")
+					task.wait(0.4)
+
+					-- ============================================================
+					-- 3. KERJAIN PESANAN SESUAI RESEP (DYNAMIC CUP EXECUTION)
 					-- ============================================================
 					baristaState = BARISTA_STATE.BREWING
-					updateBaristaActivity("☕ Brewing: " .. orderedDrinkId .. " (" .. #recipe.steps .. " steps)...")
+					local loopSafety = 20
 
-					for stepIdx, stepName in ipairs(recipe.steps) do
-						if not baristaActive then break end
-						updateBaristaActivity(string.format("☕ [%s] Step %d/%d: %s", orderedDrinkId, stepIdx, #recipe.steps, stepName))
-						executeStationStep(stepName)
+					while loopSafety > 0 and baristaActive do
+						loopSafety = loopSafety - 1
+
+						if isBrewing then
+							updateBaristaActivity("☕ Brewing Espresso Extraction (100%)...")
+							task.wait(0.3)
+						elseif not currentCupState then
+							-- Ambil gelas jika belum ada gelas
+							updateBaristaActivity("🥤 Ambil Gelas di CupRack...")
+							triggerStationInteraction("CupRack")
+							task.wait(0.4)
+						elseif currentCupState.ruined then
+							-- Buang gelas rusak ke tempat sampah & ambil baru
+							updateBaristaActivity("🗑️ Gelas Rusak -> Buang ke Tong Sampah...")
+							triggerStationInteraction("Trash")
+							task.wait(0.3)
+							triggerStationInteraction("CupRack")
+							task.wait(0.4)
+						elseif currentCupState.nextStep == nil then
+							-- Minuman selesai diracik!
+							updateBaristaActivity("✨ Minuman Siap Diantar!")
+							break
+						else
+							-- Kerjakan stasiun berikutnya sesuai petunjuk server
+							local nextStation = currentCupState.nextStation or "CupRack"
+							local nextStep = currentCupState.nextStep or "Cup"
+							local menuName = currentCupState.menuId or "Drink"
+							updateBaristaActivity(string.format("☕ [%s] %s di %s...", menuName, nextStep, nextStation))
+
+							triggerStationInteraction(nextStation)
+
+							if nextStep == "LoadBeans" or nextStep == "Brew" then
+								local brewWait = 10
+								while brewWait > 0 and (isBrewing or (currentCupState and (currentCupState.nextStep == "LoadBeans" or currentCupState.nextStep == "Brew"))) do
+									brewWait = brewWait - 1
+									task.wait(0.25)
+								end
+							else
+								task.wait(0.3)
+							end
+						end
 					end
 
 					-- ============================================================
 					-- 4. ANTAR KE PELANGGAN (SERVE & GAJIAN)
 					-- ============================================================
 					baristaState = BARISTA_STATE.SERVING
-					updateBaristaActivity("🍽️ Serving Order to Customer...")
+					updateBaristaActivity("🍽️ Antar Pesanan ke Pelanggan di Kasir...")
 					baristaMoveTo(KANJI_JAWA_COUNTER)
 					task.wait(0.25)
 
 					if custFolder and #custFolder:GetChildren() > 0 then
 						for _, cust in ipairs(custFolder:GetChildren()) do
 							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
-							if p then
+							if p and p.Enabled then
 								triggerInstantPrompt(p)
 							end
-							fireRemote("Barista", "Serve", cust.Name)
+						end
+					end
+
+					if activeOrder and activeOrder.slot then
+						fireRemote("Barista", "Serve", activeOrder.slot)
+					else
+						for slot = 1, 4 do
+							fireRemote("Barista", "Serve", slot)
 						end
 					end
 
 					task.wait(0.5)
 
-					-- Selesai 1 siklus & update live cash
+					-- Selesai 1 siklus & update live stats
 					baristaOrdersCompleted = baristaOrdersCompleted + 1
 					baristaState = BARISTA_STATE.COMPLETED
-					updateBaristaActivity("✅ Order Delivered! +Gajian Berhasil")
+					updateBaristaActivity("✅ Pesanan Terkirim! +Gajian Berhasil")
 					updateBaristaStats()
 
 					task.wait(baristaDelay)
 				end)
 				task.wait(0.2)
+			end
+
+			if eventConn then
+				eventConn:Disconnect()
 			end
 		end)
 	end
