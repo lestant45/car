@@ -2448,10 +2448,10 @@ local success, err = pcall(function()
 
 	-- Cafe Kanji Jawa Coordinates
 	local KANJI_JAWA_COUNTER        = Vector3.new(-35.98, 21.0, 8419.95)
-	local KANJI_JAWA_COUNTER_INSIDE = Vector3.new(-34.68, 23.5, 8422.75)
-	local KANJI_JAWA_COUNTER_FRONT  = Vector3.new(-36.20, 23.5, 8419.50)
-	local KANJI_JAWA_MANAGER        = Vector3.new(-13.5, 23.1, 8451.7)
-	local KANJI_JAWA_PHONE          = Vector3.new(-7.87, 24.08, 8427.23)
+	local KANJI_JAWA_COUNTER_INSIDE = Vector3.new(-34.68, 23.0, 8422.75)
+	local KANJI_JAWA_COUNTER_FRONT  = Vector3.new(-36.20, 23.0, 8419.50)
+	local KANJI_JAWA_MANAGER        = Vector3.new(-13.5, 23.0, 8450.0)
+	local KANJI_JAWA_PHONE          = Vector3.new(-7.87, 23.0, 8425.5)
 
 	local BARISTA_STATIONS = {
 		CupRack         = Vector3.new(-11.64, 24.61, 8409.11),
@@ -2471,6 +2471,29 @@ local success, err = pcall(function()
 		TeaBox          = Vector3.new(-16.11, 24.57, 8431.05),
 		Trash           = Vector3.new(-9.76, 21.39, 8426.67),
 		Counter         = Vector3.new(-35.98, 21.0, 8419.95)
+	}
+
+	-- Precise player standing positions and look-at targets for counter & machines (within < 2 studs)
+	local BARISTA_STATION_POSITIONS = {
+		CupRack         = { stand = Vector3.new(-11.65, 23.0, 8411.0), look = Vector3.new(-11.65, 24.60, 8409.11) },
+		IceMaker        = { stand = Vector3.new(-7.30, 23.0, 8415.39),  look = Vector3.new(-5.73, 24.63, 8415.39) },
+		BeanHopper      = { stand = Vector3.new(-27.47, 23.0, 8418.3), look = Vector3.new(-27.47, 24.60, 8416.71) },
+		Brewer          = { stand = Vector3.new(-25.41, 23.0, 8416.9), look = Vector3.new(-25.41, 24.60, 8415.32) },
+		Steamer         = { stand = Vector3.new(-23.86, 23.0, 8415.3), look = Vector3.new(-23.86, 24.60, 8413.77) },
+		Milk            = { stand = Vector3.new(-15.40, 23.0, 8427.19), look = Vector3.new(-13.96, 24.01, 8427.19) },
+		FlavourBottle   = { stand = Vector3.new(-25.91, 23.0, 8439.6), look = Vector3.new(-25.91, 24.56, 8441.20) },
+		LemonBoard      = { stand = Vector3.new(-28.25, 23.0, 8442.0), look = Vector3.new(-28.25, 24.56, 8443.57) },
+		Carbonator      = { stand = Vector3.new(-36.30, 23.0, 8439.5), look = Vector3.new(-36.30, 24.56, 8441.02) },
+		WaterTap        = { stand = Vector3.new(-39.50, 23.0, 8436.41), look = Vector3.new(-41.09, 23.01, 8436.41) },
+		CreamDispenser  = { stand = Vector3.new(-34.14, 23.0, 8441.6), look = Vector3.new(-34.14, 24.56, 8443.18) },
+		ChocolateJar    = { stand = Vector3.new(-20.89, 23.0, 8434.6), look = Vector3.new(-20.89, 24.56, 8436.17) },
+		MatchaJar       = { stand = Vector3.new(-18.61, 23.0, 8432.1), look = Vector3.new(-18.61, 24.56, 8433.67) },
+		BobaPot         = { stand = Vector3.new(-23.35, 23.0, 8437.0), look = Vector3.new(-23.35, 24.56, 8438.54) },
+		TeaBox          = { stand = Vector3.new(-16.11, 23.0, 8429.5), look = Vector3.new(-16.11, 24.56, 8431.04) },
+		Trash           = { stand = Vector3.new(-11.30, 23.0, 8426.67), look = Vector3.new(-9.76, 21.38, 8426.67) },
+		CounterInside   = { stand = Vector3.new(-34.68, 23.0, 8422.75), look = Vector3.new(-36.20, 23.0, 8419.50) },
+		Manager         = { stand = Vector3.new(-13.50, 23.0, 8450.0), look = Vector3.new(-13.50, 23.10, 8451.7) },
+		Phone           = { stand = Vector3.new(-7.87, 23.0, 8425.5),  look = Vector3.new(-7.87, 24.08, 8427.23) }
 	}
 
 	-- Map Step Name to Station Name
@@ -2627,7 +2650,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Move Character with Noclip
+	-- Move Character with Noclip & Exact Orientation
 	local function baristaMoveTo(targetPos, facePos)
 		local char = player.Character
 		if not char then return end
@@ -2699,7 +2722,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Hook ChoicePicker module for instant auto-selection without modal popup blocking screen
+	-- Hook ChoicePicker module for instant auto-selection matching customer's exact order
 	local function hookBaristaChoicePicker()
 		pcall(function()
 			local pGui = player:FindFirstChild("PlayerGui")
@@ -2713,7 +2736,10 @@ local success, err = pcall(function()
 						local selected = nil
 						if targetValue and items then
 							for _, itm in ipairs(items) do
-								if itm.value == targetValue or (itm.text and itm.text:lower():find(targetValue:lower())) then
+								local cleanVal = tostring(itm.value):gsub("%s+", ""):lower()
+								local cleanTarget = tostring(targetValue):gsub("%s+", ""):lower()
+								local cleanText = itm.text and tostring(itm.text):gsub("%s+", ""):lower() or ""
+								if cleanVal == cleanTarget or cleanText == cleanTarget or cleanText:find(cleanTarget, 1, true) then
 									selected = itm.value
 									break
 								end
@@ -2737,13 +2763,18 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Single Station Interaction Helper
+	-- Single Station Interaction Helper with Exact Proximity Navigation
 	local function triggerStationInteraction(stationName)
-		local pos = BARISTA_STATIONS[stationName] or KANJI_JAWA_COUNTER
-		baristaMoveTo(pos)
-		task.wait(0.15)
+		local info = BARISTA_STATION_POSITIONS[stationName]
+		if info then
+			baristaMoveTo(info.stand, info.look)
+		else
+			local pos = BARISTA_STATIONS[stationName] or KANJI_JAWA_COUNTER_INSIDE
+			baristaMoveTo(pos)
+		end
+		task.wait(0.12)
 
-		-- Auto-dismiss ChoicePicker if open
+		-- Auto-dismiss or select ChoicePicker if open
 		pcall(function()
 			local pGui = player:FindFirstChild("PlayerGui")
 			local choicePicker = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("ChoicePicker")
@@ -2752,6 +2783,17 @@ local success, err = pcall(function()
 				if grid then
 					local targetVal = _G.HipHubTargetMenu or _G.HipHubTargetFlavour
 					local targetBtn = targetVal and grid:FindFirstChild(targetVal)
+					if not targetBtn and targetVal then
+						for _, btn in ipairs(grid:GetChildren()) do
+							if btn:IsA("GuiButton") and btn.Visible and btn.Name ~= "Template" then
+								local lbl = btn:FindFirstChild("Label") or btn:FindFirstChild("TextLabel")
+								if lbl and lbl.Text and lbl.Text:gsub("%s+", ""):lower():find(targetVal:lower(), 1, true) then
+									targetBtn = btn
+									break
+								end
+							end
+						end
+					end
 					if not targetBtn then
 						for _, btn in ipairs(grid:GetChildren()) do
 							if btn:IsA("GuiButton") and btn.Visible and btn.Name ~= "Template" then
@@ -2774,9 +2816,8 @@ local success, err = pcall(function()
 		local prompt = stPart and stPart:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt then
 			triggerInstantPrompt(prompt)
-		else
-			fireRemote("Barista", "Station", stationName)
 		end
+		fireRemote("Barista", "Station", stationName)
 	end
 
 	-- Find the front customer standing directly at counter
@@ -2836,14 +2877,14 @@ local success, err = pcall(function()
 						isBrewing = true
 						task.spawn(function()
 							if baristaNoMinigame then
-								task.wait(0.3)
+								task.wait(0.2)
 								fireRemote("Barista", "BrewResult", 1.0)
 								task.wait(0.2)
 								isBrewing = false
 							end
 						end)
 					elseif action == "PickPrompt" then
-						task.wait(0.1)
+						task.wait(0.08)
 						if p1 == "Menu" then
 							local chosenMenu = (activeOrder and activeOrder.menuId) or _G.HipHubTargetMenu or (p2 and p2[1]) or "EsKopiSusu"
 							fireRemote("Barista", "Pick", "Menu", chosenMenu)
@@ -2889,7 +2930,8 @@ local success, err = pcall(function()
 					if not isBaristaJobGuiOpen() then
 						baristaState = BARISTA_STATE.STARTING_JOB
 						updateBaristaActivity("👔 Talking to Mbak Surti to Start Job...")
-						baristaMoveTo(KANJI_JAWA_MANAGER)
+						local mgrInfo = BARISTA_STATION_POSITIONS.Manager
+						baristaMoveTo(mgrInfo.stand, mgrInfo.look)
 						task.wait(0.2)
 
 						local mgrPrompt = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("NPC_BARISTA_MANAGER") and workspace.Barista.NPC_BARISTA_MANAGER:FindFirstChild("Head") and workspace.Barista.NPC_BARISTA_MANAGER.Head:FindFirstChild("DialogPrompt")
@@ -2906,7 +2948,8 @@ local success, err = pcall(function()
 						local phoneObj = workspace:FindFirstChild("NEW_JOB") and workspace.NEW_JOB:FindFirstChild("Cafe") and workspace.NEW_JOB.Cafe:FindFirstChild("Cafe_Kanji_Jawa") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa:FindFirstChild("Telphone") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa.Telphone:FindFirstChild("Telephone")
 						local phonePrompt = phoneObj and phoneObj:FindFirstChild("BaristaPhonePrompt")
 						if phonePrompt and phonePrompt.Enabled then
-							baristaMoveTo(KANJI_JAWA_PHONE)
+							local phoneInfo = BARISTA_STATION_POSITIONS.Phone
+							baristaMoveTo(phoneInfo.stand, phoneInfo.look)
 							task.wait(0.15)
 							triggerInstantPrompt(phonePrompt)
 							fireRemote("Barista", "TutorialDone")
@@ -2940,50 +2983,84 @@ local success, err = pcall(function()
 					baristaMoveTo(KANJI_JAWA_COUNTER_INSIDE, KANJI_JAWA_COUNTER_FRONT)
 					task.wait(0.15)
 
+					local customerSlot = 1
 					if frontCustomer then
 						local p = frontCustomer:FindFirstChildWhichIsA("ProximityPrompt", true)
-						if p and p.Enabled and p.ActionText:lower():find("tanya") then
-							triggerInstantPrompt(p)
+						if p then
+							local num = tonumber(p.ObjectText:match("%d+"))
+							if num then customerSlot = num end
+							if p.Enabled and (p.ActionText:lower():find("tanya") or p.ActionText:lower():find("ambil")) then
+								triggerInstantPrompt(p)
+							end
 						end
 					end
 
-					-- Fire take order
-					for slot = 1, 4 do
-						fireRemote("Barista", "TakeOrder", slot)
+					-- Clear previous order cache before taking new order
+					activeOrder = nil
+					_G.HipHubTargetMenu = nil
+					_G.HipHubTargetFlavour = nil
+
+					-- Fire TakeOrder for that slot
+					fireRemote("Barista", "TakeOrder", customerSlot)
+
+					-- Wait for server OrderTaken event to populate target menu
+					local tOrderWait = os.clock()
+					while not activeOrder and (os.clock() - tOrderWait < 2.0) and baristaActive do
+						task.wait(0.08)
 					end
-					task.wait(0.4)
+
+					if not activeOrder then
+						activeOrder = { slot = customerSlot, menuId = _G.HipHubTargetMenu or "EsKopiSusu", flavour = _G.HipHubTargetFlavour }
+						_G.HipHubTargetMenu = activeOrder.menuId
+					end
+
+					updateBaristaActivity(string.format("📋 Pesanan: %s (Pelanggan #%s)", tostring(activeOrder.menuId), tostring(activeOrder.slot)))
+					task.wait(0.2)
 
 					-- ============================================================
-					-- 2. AMBIL GELAS DI CUP RACK (ONLY AFTER CUSTOMER ORDERED)
+					-- 2. AMBIL GELAS DI CUP RACK SESUAI ORDERAN PELANGGAN
 					-- ============================================================
-					updateBaristaActivity("🥤 Mengambil Gelas di Rak Gelas (CupRack)...")
+					updateBaristaActivity(string.format("🥤 Mengambil Gelas [%s] di Rak Gelas...", tostring(activeOrder.menuId)))
 					triggerStationInteraction("CupRack")
-					task.wait(0.4)
+					if _G.HipHubTargetMenu then
+						fireRemote("Barista", "Pick", "Menu", _G.HipHubTargetMenu)
+					end
+
+					local tCupWait = os.clock()
+					while (not currentCupState or currentCupState.ruined) and (os.clock() - tCupWait < 1.8) and baristaActive do
+						task.wait(0.1)
+					end
 
 					-- ============================================================
 					-- 3. KERJAIN PESANAN SESUAI RESEP (DYNAMIC STEP EXECUTION)
 					-- ============================================================
 					baristaState = BARISTA_STATE.BREWING
-					local loopSafety = 25
+					local loopSafety = 30
 
 					while loopSafety > 0 and baristaActive do
 						loopSafety = loopSafety - 1
 
 						if isBrewing then
 							updateBaristaActivity("☕ Brewing Espresso Extraction (100% Instant)...")
-							task.wait(0.3)
+							task.wait(0.25)
 						elseif not currentCupState then
 							-- Ambil gelas jika belum ada gelas
-							updateBaristaActivity("🥤 Ambil Gelas di CupRack...")
+							updateBaristaActivity(string.format("🥤 Ambil Gelas [%s] di CupRack...", tostring(activeOrder and activeOrder.menuId or "Drink")))
 							triggerStationInteraction("CupRack")
-							task.wait(0.4)
+							if _G.HipHubTargetMenu then
+								fireRemote("Barista", "Pick", "Menu", _G.HipHubTargetMenu)
+							end
+							task.wait(0.35)
 						elseif currentCupState.ruined then
 							-- Buang gelas rusak ke tempat sampah & ambil baru
 							updateBaristaActivity("🗑️ Gelas Rusak -> Buang ke Tong Sampah...")
 							triggerStationInteraction("Trash")
-							task.wait(0.3)
+							task.wait(0.25)
 							triggerStationInteraction("CupRack")
-							task.wait(0.4)
+							if _G.HipHubTargetMenu then
+								fireRemote("Barista", "Pick", "Menu", _G.HipHubTargetMenu)
+							end
+							task.wait(0.35)
 						elseif currentCupState.nextStep == nil then
 							-- Minuman selesai diracik!
 							updateBaristaActivity("✨ Minuman Siap Diantar!")
@@ -2992,19 +3069,23 @@ local success, err = pcall(function()
 							-- Kerjakan stasiun berikutnya sesuai petunjuk server
 							local nextStation = currentCupState.nextStation or "CupRack"
 							local nextStep = currentCupState.nextStep or "Cup"
-							local menuName = currentCupState.menuId or "Drink"
+							local menuName = currentCupState.menuId or (activeOrder and activeOrder.menuId) or "Drink"
 							updateBaristaActivity(string.format("☕ [%s] %s di %s...", menuName, nextStep, nextStation))
 
 							triggerStationInteraction(nextStation)
 
-							if nextStep == "LoadBeans" or nextStep == "Brew" then
+							if nextStep == "Flavour" then
+								local flv = targetFlavour or _G.HipHubTargetFlavour or "Vanilla"
+								fireRemote("Barista", "Pick", "Flavour", flv)
+								task.wait(0.2)
+							elseif nextStep == "LoadBeans" or nextStep == "Brew" then
 								local brewWait = 8
 								while brewWait > 0 and (isBrewing or (currentCupState and (currentCupState.nextStep == "LoadBeans" or currentCupState.nextStep == "Brew"))) do
 									brewWait = brewWait - 1
-									task.wait(0.25)
+									task.wait(0.2)
 								end
 							else
-								task.wait(0.35)
+								task.wait(0.3)
 							end
 						end
 					end
@@ -3033,7 +3114,7 @@ local success, err = pcall(function()
 						end
 					end
 
-					task.wait(0.6)
+					task.wait(0.5)
 
 					-- Selesai 1 siklus & update live stats
 					baristaOrdersCompleted = baristaOrdersCompleted + 1
