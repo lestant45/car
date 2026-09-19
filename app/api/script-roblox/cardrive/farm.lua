@@ -2684,6 +2684,11 @@ local success, err = pcall(function()
 								onFinished(1.0)
 							end
 							pcall(function() self:stop() end)
+							pcall(function()
+								local PlayerScripts = player:WaitForChild("PlayerScripts")
+								local controls = require(PlayerScripts:WaitForChild("PlayerModule")):GetControls()
+								controls:Enable()
+							end)
 						end)
 						return
 					end
@@ -2694,11 +2699,75 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Hook ChoicePicker module for instant auto-selection without modal popup blocking screen
+	local function hookBaristaChoicePicker()
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			local cpModule = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("Barista") and pGui.Job.Barista:FindFirstChild("ChoicePicker")
+			if cpModule and not _G.HipHubChoicePickerHooked then
+				local ChoicePicker = require(cpModule)
+				local oldOpen = ChoicePicker.open
+				ChoicePicker.open = function(self, title, items, onPick)
+					if Config.farm.janjiJiwa or _G.HipHubAutoPickChoice then
+						local targetValue = _G.HipHubTargetMenu or _G.HipHubTargetFlavour
+						local selected = nil
+						if targetValue and items then
+							for _, itm in ipairs(items) do
+								if itm.value == targetValue or (itm.text and itm.text:lower():find(targetValue:lower())) then
+									selected = itm.value
+									break
+								end
+							end
+						end
+						if not selected and items and #items > 0 then
+							selected = items[1].value
+						end
+						task.defer(function()
+							if onPick then
+								onPick(selected)
+							end
+							pcall(function() self:close() end)
+						end)
+						return
+					end
+					return oldOpen(self, title, items, onPick)
+				end
+				_G.HipHubChoicePickerHooked = true
+			end
+		end)
+	end
+
 	-- Single Station Interaction Helper
 	local function triggerStationInteraction(stationName)
 		local pos = BARISTA_STATIONS[stationName] or KANJI_JAWA_COUNTER
 		baristaMoveTo(pos)
 		task.wait(0.15)
+
+		-- Auto-dismiss ChoicePicker if open
+		pcall(function()
+			local pGui = player:FindFirstChild("PlayerGui")
+			local choicePicker = pGui and pGui:FindFirstChild("Job") and pGui.Job:FindFirstChild("ChoicePicker")
+			if choicePicker and choicePicker.Visible then
+				local grid = choicePicker:FindFirstChild("Grid")
+				if grid then
+					local targetVal = _G.HipHubTargetMenu or _G.HipHubTargetFlavour
+					local targetBtn = targetVal and grid:FindFirstChild(targetVal)
+					if not targetBtn then
+						for _, btn in ipairs(grid:GetChildren()) do
+							if btn:IsA("GuiButton") and btn.Visible and btn.Name ~= "Template" then
+								targetBtn = btn
+								break
+							end
+						end
+					end
+					if targetBtn then
+						for _, c in pairs(getconnections(targetBtn.Activated)) do c:Fire() end
+						for _, c in pairs(getconnections(targetBtn.MouseButton1Click)) do c:Fire() end
+					end
+				end
+				choicePicker.Visible = false
+			end
+		end)
 
 		local stFolder = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("Stations")
 		local stPart = stFolder and stFolder:FindFirstChild(stationName)
@@ -2743,8 +2812,9 @@ local success, err = pcall(function()
 			local targetFlavour = nil
 			local isBrewing = false
 
-			-- Apply Brew Minigame hook immediately
+			-- Apply Brew Minigame and ChoicePicker hooks immediately
 			hookBaristaBrewMinigame()
+			hookBaristaChoicePicker()
 
 			-- Hook RemoteEvents.Barista for Real-Time Event Sync
 			local baristaRemote = nil
@@ -2758,6 +2828,8 @@ local success, err = pcall(function()
 					if action == "OrderTaken" then
 						activeOrder = { slot = p1, menuId = p2, flavour = p3 }
 						targetFlavour = p3
+						_G.HipHubTargetMenu = p2
+						_G.HipHubTargetFlavour = p3
 					elseif action == "CupState" then
 						currentCupState = p1
 					elseif action == "BrewStart" then
@@ -2773,10 +2845,10 @@ local success, err = pcall(function()
 					elseif action == "PickPrompt" then
 						task.wait(0.1)
 						if p1 == "Menu" then
-							local chosenMenu = (activeOrder and activeOrder.menuId) or (p2 and p2[1]) or "EsKopiSusu"
+							local chosenMenu = (activeOrder and activeOrder.menuId) or _G.HipHubTargetMenu or (p2 and p2[1]) or "EsKopiSusu"
 							fireRemote("Barista", "Pick", "Menu", chosenMenu)
 						elseif p1 == "Flavour" then
-							local chosenFlavour = targetFlavour or (p2 and p2[1]) or "Vanilla"
+							local chosenFlavour = targetFlavour or _G.HipHubTargetFlavour or (p2 and p2[1]) or "Vanilla"
 							fireRemote("Barista", "Pick", "Flavour", chosenFlavour)
 						else
 							local val = (p2 and p2[1]) or "Vanilla"
@@ -2800,8 +2872,9 @@ local success, err = pcall(function()
 
 					if checkTargetEarningAndDisconnect() then return end
 
-					-- Ensure BrewMinigame is hooked
+					-- Ensure BrewMinigame and ChoicePicker are hooked
 					hookBaristaBrewMinigame()
+					hookBaristaChoicePicker()
 
 					-- STEP 1: Verify player is near Cafe Kanji Jawa
 					local distToCafe = (root.Position - KANJI_JAWA_COUNTER).Magnitude
