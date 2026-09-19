@@ -2441,11 +2441,12 @@ local success, err = pcall(function()
 	local baristaNoclip = Config.farm.baristaNoclip ~= false
 	local baristaOrdersCompleted = 0
 	local baristaActivity = "Idle"
+	local baristaTutorialAnswered = false
 
 	local baristaActivityLabel = nil
 	local baristaStatsLabel = nil
 
-	-- Cafe Kanji Jawa Verified Target Coordinates
+	-- Cafe Kanji Jawa Coordinates
 	local KANJI_JAWA_COUNTER = Vector3.new(-35.98, 21.0, 8419.95)
 	local KANJI_JAWA_MANAGER = Vector3.new(-13.5, 23.1, 8451.7)
 	local KANJI_JAWA_PHONE   = Vector3.new(-7.87, 24.08, 8427.23)
@@ -2489,6 +2490,94 @@ local success, err = pcall(function()
 		Carbonate       = "Carbonator",
 		LemonSlice      = "LemonBoard",
 		Cream           = "CreamDispenser"
+	}
+
+	-- Full Official CDID Barista Recipes
+	local BARISTA_RECIPES = {
+		Latte = {
+			pay = 5600000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Milk" }
+		},
+		BubbleTea = {
+			pay = 12000000,
+			steps = { "Cup", "Water", "TeaBag", "Milk", "Boba", "Ice" }
+		},
+		Matcha = {
+			pay = 9600000,
+			steps = { "Cup", "Water", "MatchaPowder", "Milk" }
+		},
+		Lemonade = {
+			pay = 11200000,
+			steps = { "Cup", "Water", "Carbonate", "LemonSlice", "Ice" }
+		},
+		Soda = {
+			pay = 7200000,
+			steps = { "Cup", "Water", "Carbonate", "Ice" }
+		},
+		ThaiTea = {
+			pay = 8000000,
+			steps = { "Cup", "Water", "TeaBag", "Milk", "Ice" }
+		},
+		Frappuccino = {
+			pay = 10400000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Milk", "Cream", "Ice" }
+		},
+		Tea = {
+			pay = 3600000,
+			steps = { "Cup", "Water", "TeaBag" }
+		},
+		Macchiato = {
+			pay = 6000000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Foam" }
+		},
+		EsKopiSusu = {
+			pay = 8000000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Milk", "Flavour", "Ice" }
+		},
+		HotChocolate = {
+			pay = 4000000,
+			steps = { "Cup", "Milk", "ChocolatePowder" }
+		},
+		KopiHitam = {
+			pay = 4800000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour" }
+		},
+		Americano = {
+			pay = 5200000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Water" }
+		},
+		Cappuccino = {
+			pay = 7200000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Milk", "Flavour", "Foam" }
+		},
+		Mocha = {
+			pay = 8800000,
+			steps = { "Cup", "Beans", "LoadBeans", "Brew", "Pour", "Milk", "ChocolatePowder" }
+		}
+	}
+
+	-- Indonesian display name aliases to Internal recipe IDs
+	local RECIPE_NAME_ALIASES = {
+		["kopi hitam"]      = "KopiHitam",
+		["black coffee"]    = "KopiHitam",
+		["es kopi susu"]    = "EsKopiSusu",
+		["iced milk coffee"]= "EsKopiSusu",
+		["cappuccino"]      = "Cappuccino",
+		["latte"]           = "Latte",
+		["americano"]       = "Americano",
+		["mocha"]           = "Mocha",
+		["macchiato"]       = "Macchiato",
+		["frappuccino"]     = "Frappuccino",
+		["bubble tea"]      = "BubbleTea",
+		["boba"]            = "BubbleTea",
+		["matcha"]          = "Matcha",
+		["lemonade"]        = "Lemonade",
+		["soda"]            = "Soda",
+		["thai tea"]        = "ThaiTea",
+		["teh"]             = "Tea",
+		["tea"]             = "Tea",
+		["cokelat panas"]   = "HotChocolate",
+		["hot chocolate"]   = "HotChocolate"
 	}
 
 	local function getLiveHubCash()
@@ -2567,11 +2656,13 @@ local success, err = pcall(function()
 		return bGui and bGui.Visible == true
 	end
 
-	-- Trigger a specific Station
-	local function interactStation(stationName)
+	-- Execute one station action
+	local function executeStationStep(stepName)
+		local stationName = STEP_TO_STATION[stepName] or stepName
 		local pos = BARISTA_STATIONS[stationName] or KANJI_JAWA_COUNTER
+
 		baristaMoveTo(pos)
-		task.wait(0.1)
+		task.wait(0.12)
 
 		local stFolder = workspace:FindFirstChild("Barista") and workspace.Barista:FindFirstChild("Stations")
 		local stationPart = stFolder and stFolder:FindFirstChild(stationName)
@@ -2581,7 +2672,62 @@ local success, err = pcall(function()
 		end
 
 		fireRemote("Barista", "Station", stationName)
+
+		-- If brewing step, handle minigame extraction score
+		if stepName == "Brew" or stepName == "LoadBeans" or stationName == "Brewer" then
+			if baristaNoMinigame then
+				fireRemote("Barista", "BrewResult", 100)
+				fireRemote("Barista", "Brew", "Perfect")
+			end
+		end
+
+		-- If flavour bottle, pick syrup
+		if stepName == "Flavour" or stationName == "FlavourBottle" then
+			fireRemote("Barista", "Pick", "Vanilla")
+			fireRemote("Barista", "Pick", "Caramel")
+			fireRemote("Barista", "Pick", 1)
+		end
+
 		task.wait(0.2)
+	end
+
+	-- Resolve Ordered Drink ID from GUI or Dialog
+	local function detectActiveOrderDrink()
+		local pGui = player:FindFirstChild("PlayerGui")
+		if not pGui then return "EsKopiSusu" end
+
+		local pJob = pGui:FindFirstChild("Job")
+		local bGui = pJob and pJob:FindFirstChild("Barista")
+
+		-- 1. Check Orders GUI List
+		if bGui and bGui:FindFirstChild("Orders") then
+			for _, row in ipairs(bGui.Orders:GetChildren()) do
+				if row:IsA("Frame") and row.Visible and row:FindFirstChild("Menu") then
+					local text = row.Menu.Text:lower()
+					for alias, rId in pairs(RECIPE_NAME_ALIASES) do
+						if text:find(alias) then
+							return rId
+						end
+					end
+				end
+			end
+		end
+
+		-- 2. Check ChoicePicker if open
+		local picker = pJob and pJob:FindFirstChild("ChoicePicker")
+		if picker and picker.Visible and picker:FindFirstChild("Grid") then
+			for _, btn in ipairs(picker.Grid:GetChildren()) do
+				if btn:IsA("TextButton") and btn.Name ~= "Template" and btn.Visible then
+					for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+					fireRemote("Barista", "Pick", btn.Name)
+					picker.Visible = false
+					return btn.Name
+				end
+			end
+		end
+
+		-- Fallback default
+		return "EsKopiSusu"
 	end
 
 	-- Main Barista Autofarm Execution Loop
@@ -2598,7 +2744,7 @@ local success, err = pcall(function()
 
 					if checkTargetEarningAndDisconnect() then return end
 
-					-- STEP 1: Verify player is near Kanji Jawa Cafe
+					-- STEP 1: Verify player is near Cafe Kanji Jawa
 					local distToCafe = (root.Position - KANJI_JAWA_COUNTER).Magnitude
 					if distToCafe > 300 then
 						updateBaristaActivity("🚀 Teleporting to Kanji Jawa Cafe...")
@@ -2607,7 +2753,7 @@ local success, err = pcall(function()
 						return
 					end
 
-					-- STEP 2: Ensure Job is started from Mbak Surti & Tutorial Phone answered
+					-- Ensure Barista Job is Active
 					if not isBaristaJobGuiOpen() then
 						baristaState = BARISTA_STATE.STARTING_JOB
 						updateBaristaActivity("👔 Talking to Mbak Surti to Start Job...")
@@ -2620,77 +2766,83 @@ local success, err = pcall(function()
 						end
 
 						fireRemote("Job", "Barista")
-						fireRemote("Barista", "TutorialDone")
 						task.wait(0.8)
 					end
 
-					-- Answer Phone if prompt is ringing
-					local phoneObj = workspace:FindFirstChild("NEW_JOB") and workspace.NEW_JOB:FindFirstChild("Cafe") and workspace.NEW_JOB.Cafe:FindFirstChild("Cafe_Kanji_Jawa") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa:FindFirstChild("Telphone") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa.Telphone:FindFirstChild("Telephone")
-					local phonePrompt = phoneObj and phoneObj:FindFirstChild("BaristaPhonePrompt")
-					if phonePrompt and phonePrompt.Enabled then
-						baristaMoveTo(KANJI_JAWA_PHONE)
-						task.wait(0.15)
-						triggerInstantPrompt(phonePrompt)
-						fireRemote("Barista", "TutorialDone")
-						task.wait(0.3)
-					end
-
-					-- STEP 3: Take Customer Order at Counter
-					baristaState = BARISTA_STATE.TAKING_ORDER
-					baristaMoveTo(KANJI_JAWA_COUNTER)
-					task.wait(0.15)
-
-					local activeCustomer = nil
-					local custFolder = workspace:FindFirstChild("BaristaCustomers")
-					if custFolder then
-						for _, cust in ipairs(custFolder:GetChildren()) do
-							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
-							if p and p.Enabled then
-								activeCustomer = cust.Name
-								triggerInstantPrompt(p)
-								fireRemote("Barista", "TakeOrder", activeCustomer)
-								break
-							end
+					-- Answer Phone ONCE if tutorial ringing
+					if not baristaTutorialAnswered then
+						local phoneObj = workspace:FindFirstChild("NEW_JOB") and workspace.NEW_JOB:FindFirstChild("Cafe") and workspace.NEW_JOB.Cafe:FindFirstChild("Cafe_Kanji_Jawa") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa:FindFirstChild("Telphone") and workspace.NEW_JOB.Cafe.Cafe_Kanji_Jawa.Telphone:FindFirstChild("Telephone")
+						local phonePrompt = phoneObj and phoneObj:FindFirstChild("BaristaPhonePrompt")
+						if phonePrompt and phonePrompt.Enabled then
+							baristaMoveTo(KANJI_JAWA_PHONE)
+							task.wait(0.15)
+							triggerInstantPrompt(phonePrompt)
+							fireRemote("Barista", "TutorialDone")
+							baristaTutorialAnswered = true
+							task.wait(0.3)
+						else
+							baristaTutorialAnswered = true
 						end
 					end
 
-					task.wait(0.25)
-
-					-- STEP 4: Recipe Solving & Station Interaction Loop
-					baristaState = BARISTA_STATE.BREWING
-					updateBaristaActivity("☕ Crafting Drink at Stations...")
-
-					-- Sequence 1: Cup
-					interactStation("CupRack")
-
-					-- Sequence 2: Beans
-					interactStation("BeanHopper")
-
-					-- Sequence 3: Brewer & Brew
-					interactStation("Brewer")
-					interactStation("Brewer")
-					if baristaNoMinigame then
-						fireRemote("Barista", "BrewResult", 100)
-						fireRemote("Barista", "Brew", "Perfect")
-					end
-					task.wait(0.2)
-					interactStation("Brewer")
-
-					-- Sequence 4: Milk / Flavour / Extras
-					interactStation("Milk")
-					interactStation("FlavourBottle")
-					fireRemote("Barista", "Pick", "Vanilla")
-					fireRemote("Barista", "Pick", 1)
-					task.wait(0.1)
-					interactStation("IceMaker")
-
-					-- STEP 5: Instant Serve Order to Customer
-					baristaState = BARISTA_STATE.SERVING
-					updateBaristaActivity("🍽️ Serving Order to Customer...")
+					-- ============================================================
+					-- 1. KE DEPAN PELANGGAN DI MEJA KASIR
+					-- ============================================================
+					baristaState = BARISTA_STATE.TAKING_ORDER
+					updateBaristaActivity("🚶 Moving to Cashier Counter...")
 					baristaMoveTo(KANJI_JAWA_COUNTER)
 					task.wait(0.2)
 
-					if custFolder then
+					-- ============================================================
+					-- 2. TANYA PESANAN (TOMBOL DI BADAN PELANGGAN)
+					-- ============================================================
+					updateBaristaActivity("📋 Taking Customer Order...")
+					local custFolder = workspace:FindFirstChild("BaristaCustomers")
+					local targetCustomer = nil
+
+					if custFolder and #custFolder:GetChildren() > 0 then
+						for _, cust in ipairs(custFolder:GetChildren()) do
+							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
+							if p and p.Enabled and p.ActionText:lower():find("tanya") then
+								targetCustomer = cust.Name
+								triggerInstantPrompt(p)
+								fireRemote("Barista", "TakeOrder", targetCustomer)
+								break
+							end
+						end
+						if not targetCustomer then
+							targetCustomer = custFolder:GetChildren()[1].Name
+							fireRemote("Barista", "TakeOrder", targetCustomer)
+						end
+					end
+
+					task.wait(0.3)
+
+					-- Auto-Select choice if popup appeared
+					local orderedDrinkId = detectActiveOrderDrink()
+					local recipe = BARISTA_RECIPES[orderedDrinkId] or BARISTA_RECIPES["EsKopiSusu"]
+
+					-- ============================================================
+					-- 3. KERJAIN PESANAN SESUAI RESEP (URUTAN BAHAN)
+					-- ============================================================
+					baristaState = BARISTA_STATE.BREWING
+					updateBaristaActivity("☕ Brewing: " .. orderedDrinkId .. " (" .. #recipe.steps .. " steps)...")
+
+					for stepIdx, stepName in ipairs(recipe.steps) do
+						if not baristaActive then break end
+						updateBaristaActivity(string.format("☕ [%s] Step %d/%d: %s", orderedDrinkId, stepIdx, #recipe.steps, stepName))
+						executeStationStep(stepName)
+					end
+
+					-- ============================================================
+					-- 4. ANTAR KE PELANGGAN (SERVE & GAJIAN)
+					-- ============================================================
+					baristaState = BARISTA_STATE.SERVING
+					updateBaristaActivity("🍽️ Serving Order to Customer...")
+					baristaMoveTo(KANJI_JAWA_COUNTER)
+					task.wait(0.25)
+
+					if custFolder and #custFolder:GetChildren() > 0 then
 						for _, cust in ipairs(custFolder:GetChildren()) do
 							local p = cust:FindFirstChildWhichIsA("ProximityPrompt", true)
 							if p then
@@ -2702,10 +2854,10 @@ local success, err = pcall(function()
 
 					task.wait(0.5)
 
-					-- Cycle Completed
+					-- Selesai 1 siklus & update live cash
 					baristaOrdersCompleted = baristaOrdersCompleted + 1
 					baristaState = BARISTA_STATE.COMPLETED
-					updateBaristaActivity("✅ Order Delivered! +Money Earned")
+					updateBaristaActivity("✅ Order Delivered! +Gajian Berhasil")
 					updateBaristaStats()
 
 					task.wait(baristaDelay)
@@ -2802,5 +2954,6 @@ end)
 if not success then
 	warn("[HipHub CDID Farm Error]:", err)
 end
+
 
 
