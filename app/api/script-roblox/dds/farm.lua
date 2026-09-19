@@ -1248,7 +1248,7 @@ local success, err = pcall(function()
 					return true
 				end
 				local n = cur.Name:upper()
-				if n:find("MONTOR") or n:find("YAMAHA") or n:find("MIO") or n:find("HONDA") or n:find("BEAT")
+				if n:find("MONTOR") or n:find("YAHAMAX") or n:find("MIO") or n:find("HANDO") or n:find("BEAT")
 					or n:find("VARIO") or n:find("NMAX") or n:find("PCX") or n:find("MOTOR") or n:find("BIKE")
 					or n:find("CAR") or n:find("MOBIL") or n:find("VEHICLE") or n:find(player.Name:upper())
 				then
