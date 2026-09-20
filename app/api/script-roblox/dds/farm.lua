@@ -31,6 +31,11 @@ local success, err = pcall(function()
 							if cam then cam.CFrame = cf end
 						end)
 					end
+
+					-- 2. Hardware OS Input Micro-Nudge
+					if mousemoverel then
+						mousemoverel(0, 0)
+					end
 				end)
 			end
 		end)
@@ -4235,6 +4240,16 @@ local success, err = pcall(function()
 		end
 	end)
 
+	UI.AddToggle(tab, "RideGO Smart Pacing", "Menyesuaikan waktu tempuh taxi agar sesuai kecepatan organik server", Config.tripPacing, function(state)
+		Config.tripPacing = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.tripPacing = state
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
 	------------------------------------------------
 	-- 📦 COURIER DELIVERY UI SECTION
 	------------------------------------------------
@@ -4248,6 +4263,16 @@ local success, err = pcall(function()
 		Config.courierSpeed = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierSpeed = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddToggle(tab, "Courier Smart Pacing", "Menahan penyerahan paket sesaat jika perjalanan terlalu cepat agar bebas ban server", Config.courierPacing, function(state)
+		Config.courierPacing = state
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.courierPacing = state
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)

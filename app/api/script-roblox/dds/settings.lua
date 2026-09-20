@@ -130,18 +130,6 @@ local success, err = pcall(function()
 		end
 
 		if state then
-			pcall(function()
-				if getconnections then
-					for _, conn in ipairs(getconnections(player.Idled)) do
-						if conn.Disable then
-							conn:Disable()
-						elseif conn.Disconnect then
-							conn:Disconnect()
-						end
-					end
-				end
-			end)
-
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
 				if tick() - lastTick > 25 then
@@ -162,6 +150,11 @@ local success, err = pcall(function()
 						local hum = char and char:FindFirstChildOfClass("Humanoid")
 						if hum and not hum.SeatPart then
 							hum:ChangeState(Enum.HumanoidStateType.Running)
+						end
+
+						-- 3. Hardware OS Input Micro-Nudge (100% undetected by Adonis, resets Roblox C++ idle timer)
+						if mousemoverel then
+							mousemoverel(0, 0)
 						end
 					end)
 				end
