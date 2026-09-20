@@ -152,9 +152,19 @@ local success, err = pcall(function()
 							hum:ChangeState(Enum.HumanoidStateType.Running)
 						end
 
-						-- 3. Hardware OS Input Micro-Nudge (100% undetected by Adonis, resets Roblox C++ idle timer)
+						-- 3. Hardware OS Input Micro-Nudge (Cross-platform Android / Windows, resets Roblox C++ idle timer)
 						if mousemoverel then
-							mousemoverel(0, 0)
+							pcall(mousemoverel, 0, 0)
+						end
+						if mouse1click then
+							pcall(mouse1click)
+						end
+						if keypress and keyrelease then
+							pcall(function()
+								keypress(0x20)
+								task.wait(0.02)
+								keyrelease(0x20)
+							end)
 						end
 					end)
 				end
@@ -324,9 +334,9 @@ local success, err = pcall(function()
 		saveConfig(true)
 
 		if state then
-			-- 1. Matikan 3D Rendering Viewport (Sangat drastis memangkas RAM & GPU VRAM)
+			-- 1. Pertahankan 3D Rendering Viewport TETAP AKTIF (Wajib agar network replication & terrain streaming tidak mati)
 			pcall(function()
-				RunService:Set3dRenderingEnabled(false)
+				RunService:Set3dRenderingEnabled(true)
 			end)
 
 			-- 2. Cap FPS ke 30 (Mencegah CPU overheating, throttling & OOM spikes pada cloud VM)
@@ -353,11 +363,6 @@ local success, err = pcall(function()
 						end
 					end
 				end
-			end)
-
-			-- 4. Initial Garbage Collection Sweep
-			pcall(function()
-				collectgarbage("collect")
 			end)
 
 			if blackScreenGui then
@@ -659,7 +664,7 @@ local success, err = pcall(function()
 			footer.Size = UDim2.new(1, -40, 0, 32)
 			footer.Position = UDim2.new(0, 20, 0, 318)
 			footer.BackgroundTransparency = 1
-			footer.Text = "Tip: 3D View dimatikan, FPS di-cap 30 & Auto-GC aktif (Mencegah Force Close). Matikan Black Screen untuk kembali ke visual normal."
+			footer.Text = "Tip: Visual Blackout aktif, 3D Streaming & Network Replication terjaga, FPS di-cap 30. Bebas kick 24/7."
 			footer.TextColor3 = Color3.fromRGB(120, 135, 160)
 			footer.Font = Enum.Font.Gotham
 			footer.TextSize = 11
@@ -668,17 +673,9 @@ local success, err = pcall(function()
 			footer.Parent = card
 
 			-- Live Updating Loop
-			local gcCounter = 0
 			blackScreenLoop = task.spawn(function()
 				while _G.HipHubConfig.misc.blackScreenEnabled and blackScreenGui do
 					pcall(function()
-						-- Periodic GC Sweep every 20s to prevent RAM accumulation & Linux OOM killer crashes
-						gcCounter = gcCounter + 1
-						if gcCounter >= 20 then
-							gcCounter = 0
-							collectgarbage("collect")
-						end
-
 						local now = tick()
 						local elapsed = math.max(1, math.floor(now - (_G.HipHubScriptStartTime or now)))
 						local hrs = math.floor(elapsed / 3600)

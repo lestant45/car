@@ -32,9 +32,19 @@ local success, err = pcall(function()
 						end)
 					end
 
-					-- 2. Hardware OS Input Micro-Nudge
+					-- 2. Hardware OS Input Micro-Nudge (Cross-platform Android / Windows)
 					if mousemoverel then
-						mousemoverel(0, 0)
+						pcall(mousemoverel, 0, 0)
+					end
+					if mouse1click then
+						pcall(mouse1click)
+					end
+					if keypress and keyrelease then
+						pcall(function()
+							keypress(0x20)
+							task.wait(0.02)
+							keyrelease(0x20)
+						end)
 					end
 				end)
 			end
@@ -2515,8 +2525,13 @@ local success, err = pcall(function()
 				end
 
 
-				-- 3. ⏱️ Timeout di Tepi Jurang (Ground seberang belum/tidak ter-render):
-				if cliffWaitDuration >= 4.5 then
+				-- 3. ⏱️ Timeout di Tepi Jurang (Tunggu chunk terrain seberang streaming-in):
+				if (nowClock - (lastChunkStreamReq or 0)) >= 2.0 then
+					lastChunkStreamReq = nowClock
+					requestStreamAsync(destP)
+				end
+
+				if cliffWaitDuration >= 10.0 then
 					cliffWaitStartTime = nil
 					cancelActiveDrive()
 					if courierActive then
