@@ -1972,8 +1972,11 @@ local success, err = pcall(function()
 		if totalDistToDest < 25 then return nil end
 		local baseDir = flatDiff.Unit
 
-		-- Pre-stream daratan tujuan di seberang
-		requestStreamAsync(toPos)
+		-- Pre-stream daratan lokal di depan seberang jurang (bukan titik dropoff jauh)
+		requestStreamAsync(fromPos + baseDir * 60)
+		requestStreamAsync(fromPos + baseDir * 120)
+		requestStreamAsync(fromPos + baseDir * 200)
+		requestStreamAsync(fromPos + baseDir * 300)
 
 		local brp = RaycastParams.new()
 		local safetyPlate = workspace:FindFirstChild("__DdsSafetyPlate")
@@ -1982,14 +1985,13 @@ local success, err = pcall(function()
 		brp.FilterDescendantsInstances = filter
 		brp.FilterType = Enum.RaycastFilterType.Exclude
 
-		-- Scan sampai jarak penuh ke destination (maksimal 3000 stud)
-		local maxScan = math.min(totalDistToDest * 1.05, 3000)
-		local stepSize = 25
-
-		-- 🌉 Void Bridge Scan: Cari daratan seberang celah jurang lokal.
-		-- JANGAN PERNAH teleport langsung ribuan stud ke toPos pengantaran paket (menyebabkan strike/kick)!
-		-- Semua mode (termasuk kurir) harus melompati celah jurang lokal ke daratan seberang terdekat,
-		-- lalu melanjutkan perjalanan secara mulus di atas jalan raya Klaten.
+		-- 🌉 Void Bridge Scan: Cari tepi daratan seberang celah jurang/sungai lokal.
+		-- JANGAN PERNAH melompat langsung ke titik dropoff pengantaran paket (toPos)!
+		-- Batasi scan maksimal 350 stud agar HANYA menyeberangi celah jurang lokal ke tepi daratan seberang,
+		-- lalu kendaraan melanjutkan perjalanan darat secara alami di atas jalan raya ke tujuan.
+		local maxVoidScan = 350
+		local maxScan = math.min(totalDistToDest, maxVoidScan)
+		local stepSize = 15 -- Step rapat (15 stud) agar akurat menangkap bibir daratan terdekat seberang jurang
 
 		-- Scan HANYA sudut maju ke arah tujuan (0, ±10, ±20, ±30 deg).
 		-- JANGAN PERNAH SCAN KE SAMPING / BELAKANG (±45, ±60, ±75, ±90) agar tidak melompat liar ke pulau lain!
@@ -2104,11 +2106,17 @@ local success, err = pcall(function()
 
 					if isVoidGap or isElevatedLedge then
 						local landDistToDest = (Vector3.new(toPos.X, 0, toPos.Z) - Vector3.new(px, 0, pz)).Magnitude
+						
+						-- 🛡️ Anti-Dropoff-Leap Protection:
+						-- Jika ini perjalanan jauh (totalDistToDest > 150 stud), dilarang mendarat terlalu dekat ke titik tujuan (< 60 stud)!
+						-- Kendaraan WAJIB mendarat di tepi daratan seberang dan berkendara alami di atas jalan raya ke tujuan.
+						local tooCloseToFarDest = (totalDistToDest > 150) and (landDistToDest < 60)
+
 						-- 🛡️ Forward Progress Gate:
 						-- Untuk elevated ledge (tebing/tanggul): cukup maju 4 stud karena tujuan utamanya adalah naik ke daratan atas!
 						-- Untuk jurang samudra: adaptif berdasarkan jarak total
 						local minProgress = isElevatedLedge and 4 or (totalDistToDest > 200 and 35 or 5)
-						if landDistToDest < totalDistToDest - minProgress then
+						if not tooCloseToFarDest and (landDistToDest < totalDistToDest - minProgress) then
 							local landPos = Vector3.new(px, solidY + MOTOR_PIVOT_HEIGHT_OFFSET, pz)
 							local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
 							local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
@@ -2124,21 +2132,9 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 🌉 Fallback untuk Jurang Samudra Sangat Luas (Ocean / Chasm Crossing):
-		-- Hanya lakukan leap jika daratan seberang BENAR-BENAR terdeteksi solid oleh probeGround!
-		if totalDistToDest >= 60 then
-			local approachDist = math.max(15, math.min(35, totalDistToDest * 0.1))
-			local nearDestPos = toPos - baseDir * approachDist
-			requestStreamAsync(nearDestPos)
-			local destGroundY = probeGroundFile(nearDestPos, fromPos.Y, car) or probeGroundFile(toPos, fromPos.Y, car)
-			if destGroundY then
-				local landPos = Vector3.new(nearDestPos.X, destGroundY, nearDestPos.Z)
-				local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
-				local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
-				return landed, jumpDist
-			end
-		end
-
+		-- Jika dalam radius maxScan (350 stud) belum ditemukan daratan seberang,
+		-- biarkan return nil agar sistem pengereman di tepi jurang menunggu chunk streaming masuk.
+		-- JANGAN PERNAH membuat fallback teleport langsung ke dekat toPos!
 		return nil
 	end
 
@@ -2530,9 +2526,13 @@ local success, err = pcall(function()
 
 
 				-- 3. ⏱️ Timeout di Tepi Jurang (Tunggu chunk terrain seberang streaming-in):
-				if (nowClock - (lastChunkStreamReq or 0)) >= 2.0 then
+				if (nowClock - (lastChunkStreamReq or 0)) >= 1.5 then
 					lastChunkStreamReq = nowClock
-					requestStreamAsync(destP)
+					local probeDir = directGoalDir
+					requestStreamAsync(carPos + probeDir * 80)
+					requestStreamAsync(carPos + probeDir * 160)
+					requestStreamAsync(carPos + probeDir * 260)
+					requestStreamAsync(carPos + probeDir * 350)
 				end
 
 				if cliffWaitDuration >= 10.0 then
