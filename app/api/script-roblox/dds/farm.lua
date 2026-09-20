@@ -3205,17 +3205,22 @@ local success, err = pcall(function()
 					end)
 				end
 
-				-- Pastikan autoRejoin aktif di config agar modal disconnect memicu auto-reconnect
-				if _G.HipHubConfig and _G.HipHubConfig.misc then
-					_G.HipHubConfig.misc.autoRejoin = true
+				-- Pastikan autoRideGO tetap AKTIF di config agar saat rejoin langsung lanjut otomatis
+				if _G.HipHubConfig and _G.HipHubConfig.farm then
+					_G.HipHubConfig.farm.autoRideGO = true
+				end
+				if _G.HipHubSaveConfig then
+					_G.HipHubSaveConfig(true)
 				end
 
+				-- Reconnect via TeleportService
 				task.wait(1.0)
 				pcall(function()
-					player:Kick("Limit order sudah tercapai, Rejoin...")
+					local TeleportService = game:GetService("TeleportService")
+					TeleportService:Teleport(game.PlaceId, player)
 				end)
 
-				task.wait(2.5)
+				task.wait(4.0)
 				pcall(function()
 					local TeleportService = game:GetService("TeleportService")
 					TeleportService:Teleport(game.PlaceId, player)
@@ -3647,12 +3652,9 @@ local success, err = pcall(function()
 		UI.Notify("Auto-Rejoin", "Menghubungkan ulang ke server...", 3, "info")
 		updateBotActivity("Auto-Rejoining Server...", Color3.fromRGB(255, 120, 50))
 
-		-- 🛑 Matikan cycle kurir agar loop tidak mengambil pesanan baru
+		-- 🛑 Hentikan loop kurir lokal tanpa mematikan config auto-resume
 		courierActive = false
 		_G.HipHubCourierActive = false
-		if autoCourierToggle and autoCourierToggle.Set then
-			pcall(function() autoCourierToggle.Set(false) end)
-		end
 
 		-- 1. Berhenti total motor di tempat (tanpa turun dari motor & tanpa pindah ke civilian)
 		pcall(function()
@@ -3667,7 +3669,15 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- 2. Inject queue_on_teleport untuk Auto-Resume Courier di server baru
+		-- 2. Pastikan autoCourier tetap AKTIF di Config agar saat auto-rejoin langsung jalan lagi
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.autoCourier = true
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+
+		-- 3. Inject queue_on_teleport untuk Auto-Resume Courier di server baru
 		local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
 		if queueTeleport then
 			pcall(function()
@@ -3696,17 +3706,14 @@ local success, err = pcall(function()
 			end)
 		end
 
-		-- 3. Jeda 1.0 detik, pastikan autoRejoin aktif di config, lalu kick untuk memicu auto-rejoin
-		if _G.HipHubConfig and _G.HipHubConfig.misc then
-			_G.HipHubConfig.misc.autoRejoin = true
-		end
-
+		-- 4. Reconnect via TeleportService
 		task.wait(1.0)
 		pcall(function()
-			player:Kick("Limit order sudah tercapai, Rejoin...")
+			local TeleportService = game:GetService("TeleportService")
+			TeleportService:Teleport(game.PlaceId, player)
 		end)
 
-		task.wait(2.5)
+		task.wait(4.0)
 		pcall(function()
 			local TeleportService = game:GetService("TeleportService")
 			TeleportService:Teleport(game.PlaceId, player)
@@ -3759,32 +3766,38 @@ local success, err = pcall(function()
 		end
 	end)
 
-	-- Monitor NOTIF UI untuk pelacakan akumulasi pendapatan real-time & shift limit
-	pcall(function()
-		local pg = player:WaitForChild("PlayerGui", 9e9)
-		local mainUI = pg:WaitForChild("MainUI", 9e9)
-		local frame4 = mainUI:WaitForChild("Frame4", 9e9)
-		local notif = frame4:WaitForChild("NOTIF", 9e9)
+	-- Monitor NOTIF UI untuk pelacakan akumulasi pendapatan real-time & shift limit (Non-blocking)
+	task.spawn(function()
+		pcall(function()
+			local pg = player:WaitForChild("PlayerGui", 10)
+			if not pg then return end
+			local mainUI = pg:WaitForChild("MainUI", 10)
+			if not mainUI then return end
+			local frame4 = mainUI:WaitForChild("Frame4", 10)
+			if not frame4 then return end
+			local notif = frame4:WaitForChild("NOTIF", 10)
+			if not notif then return end
 
-		local lastNotifText = ""
-		notif:GetPropertyChangedSignal("Text"):Connect(function()
-			if not (courierActive or _G.HipHubCourierActive) then return end
-			local text = notif.Text
-			if text == "" or text == lastNotifText then return end
-			lastNotifText = text
+			local lastNotifText = ""
+			notif:GetPropertyChangedSignal("Text"):Connect(function()
+				if not (courierActive or _G.HipHubCourierActive) then return end
+				local text = notif.Text
+				if text == "" or text == lastNotifText then return end
+				lastNotifText = text
 
-			if text:find("NC_SHIFT_LIMIT") or text:find("shift kurir tercapai") or text:lower():find("courier shift") then
-				task.spawn(handleCourierShiftLimit)
-				return
-			end
-
-			local digits = text:gsub("[^%d]", "")
-			if digits ~= "" then
-				local amount = tonumber(digits) or 0
-				if amount > 1000 and amount < 15000000 then
-					courierTotalEarn = courierTotalEarn + amount
+				if text:find("NC_SHIFT_LIMIT") or text:find("shift kurir tercapai") or text:lower():find("courier shift") then
+					task.spawn(handleCourierShiftLimit)
+					return
 				end
-			end
+
+				local digits = text:gsub("[^%d]", "")
+				if digits ~= "" then
+					local amount = tonumber(digits) or 0
+					if amount > 1000 and amount < 15000000 then
+						courierTotalEarn = courierTotalEarn + amount
+					end
+				end
+			end)
 		end)
 	end)
 
@@ -4334,9 +4347,16 @@ local success, err = pcall(function()
 	-- 🚀 Auto-resume Auto RideGO / Courier jika aktif pada config tersimpan atau dari queue_on_teleport
 	task.defer(function()
 		-- 🛡️ Tunggu karakter dan HumanoidRootPart siap agar tidak gagal akses physics / seat
-		local char = player.Character or player.CharacterAdded:Wait()
+		local char = player.Character
+		if not char then
+			local t0 = os.clock()
+			while not char and (os.clock() - t0 < 8) do
+				char = player.Character
+				task.wait(0.5)
+			end
+		end
 		if char then
-			pcall(function() char:WaitForChild("HumanoidRootPart", 10) end)
+			pcall(function() char:WaitForChild("HumanoidRootPart", 5) end)
 		end
 		task.wait(2)
 
@@ -4370,30 +4390,14 @@ local success, err = pcall(function()
 			UI.Notify("Auto-Resume", "Melanjutkan sesi farm RideGO...", 3, "info")
 		end
 
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			if shouldResumeCourier or _G.HipHubConfig.farm.autoCourier then
-				if autoCourierToggle and autoCourierToggle.Set then
-					autoCourierToggle.Set(true, true)
-				end
-				if not courierActive and toggleAutoCourier then
-					toggleAutoCourier(true)
-				end
-			elseif shouldResumeRideGO or _G.HipHubConfig.farm.autoRideGO then
-				if autoRideGoToggle and autoRideGoToggle.Set then
-					autoRideGoToggle.Set(true, true)
-				end
-				if not taxiActive and toggleAutoRideGO then
-					toggleAutoRideGO(true)
-				end
-			end
-		elseif shouldResumeCourier then
+		if shouldResumeCourier or (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoCourier) then
 			if autoCourierToggle and autoCourierToggle.Set then
 				autoCourierToggle.Set(true, true)
 			end
 			if not courierActive and toggleAutoCourier then
 				toggleAutoCourier(true)
 			end
-		elseif shouldResumeRideGO then
+		elseif shouldResumeRideGO or (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO) then
 			if autoRideGoToggle and autoRideGoToggle.Set then
 				autoRideGoToggle.Set(true, true)
 			end
