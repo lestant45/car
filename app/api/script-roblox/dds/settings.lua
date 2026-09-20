@@ -116,10 +116,11 @@ local success, err = pcall(function()
 	loadConfig(true)
 
 	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE ANTI-AFK ENGINE
+	-- 🛡️ SAFE ANTI-AFK ENGINE (UNIVERSAL & MOBILE SAFE)
 	------------------------------------------------
-	-- Adonis-Safe Camera Oscillation (Resets idle timer naturally without disallowed services or physics changes)
 	local antiAfkConn = nil
+	local idledConn = nil
+
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
 		saveConfig(true)
@@ -127,45 +128,41 @@ local success, err = pcall(function()
 			antiAfkConn:Disconnect()
 			antiAfkConn = nil
 		end
+		if idledConn then
+			idledConn:Disconnect()
+			idledConn = nil
+		end
 
 		if state then
-			if not _G.HipHubServiceMasked then
-				_G.HipHubServiceMasked = true
-				pcall(function()
-					if hookfunction and checkcaller then
-						local oldFindService
-						oldFindService = hookfunction(game.FindService, newcclosure(function(self, serviceName, ...)
-							local sName = tostring(serviceName or "")
-							if sName == "VirtualUser" or sName == "VirtualInputManager" or sName == "UGCValidationService" then
-								if not checkcaller() then return nil end
-							end
-							return oldFindService(self, serviceName, ...)
-						end))
+			-- 1. Native Idled Connection (Primary Anti-Idle)
+			pcall(function()
+				idledConn = player.Idled:Connect(function()
+					local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
+					if vu then
+						vu:CaptureController()
+						vu:ClickButton2(Vector2.zero)
 					end
 				end)
-			end
+			end)
 
+			-- 2. Periodic Engine Activity Reset
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
-				if tick() - lastTick > 25 then
+				if tick() - lastTick > 30 then
 					lastTick = tick()
 					pcall(function()
-						-- 1. Engine C++ Inactivity Reset (100% Anti-20 Min Kick)
 						local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
 						if vu then
 							vu:CaptureController()
 							vu:ClickButton2(Vector2.zero)
 						end
-
-						-- 2. Safe Camera Oscillation
 						local cam = workspace.CurrentCamera
 						if cam then
 							local cf = cam.CFrame
 							cam.CFrame = cf * CFrame.Angles(0, 0.0004, 0)
-							task.wait(0.04)
-							if cam then
-								cam.CFrame = cf
-							end
+							task.delay(0.05, function()
+								if cam then cam.CFrame = cf end
+							end)
 						end
 					end)
 				end

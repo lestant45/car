@@ -14,92 +14,22 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ ADONIS & CLIENT ANTI-CHEAT MEMORY NEUTRALIZER
-	-- Hook HANYA callback 'Detected' & 'Kill' agar deteksi lumpuh,
-	-- TANPA mematikan thread/fungsi Remote Ping Heartbeat (cegah kick >300s).
-	------------------------------------------------
-	local function neutralizeAdonisAntiCheat()
-		if not (hookfunction and (getgc or filtergc)) then return end
-
-		local targets = {}
-		if filtergc then
-			local tables = filtergc("table", { Keys = { "Detected", "RLocked" } }, false)
-			for _, tbl in ipairs(tables or {}) do
-				if typeof(rawget(tbl, "Detected")) == "function" then
-					table.insert(targets, tbl)
-				end
-			end
-		end
-
-		if #targets == 0 and getgc then
-			for _, tbl in ipairs(getgc(true)) do
-				if typeof(tbl) == "table" and typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked") then
-					table.insert(targets, tbl)
-				end
-			end
-		end
-
-		for _, tbl in ipairs(targets) do
-			local detectedFn = rawget(tbl, "Detected")
-			if typeof(detectedFn) == "function" and (not isfunctionhooked or not isfunctionhooked(detectedFn)) then
-				pcall(hookfunction, detectedFn, function(action, info, ...)
-					return true
-				end)
-			end
-
-			local killFn = rawget(tbl, "Kill")
-			if typeof(killFn) == "function" and (not isfunctionhooked or not isfunctionhooked(killFn)) then
-				pcall(hookfunction, killFn, function(...)
-					return true
-				end)
-			end
-		end
-	end
-
-	pcall(neutralizeAdonisAntiCheat)
-	task.spawn(function()
-		while task.wait(5) do
-			pcall(neutralizeAdonisAntiCheat)
-		end
-	end)
-
-	------------------------------------------------
-	-- 🛡️ ADONIS-SAFE HARDWARE & INPUT HEARTBEAT
-	-- Native Mouse & Touch Nudge untuk anti-idle
+	-- 🛡️ SAFE PLATFORM IDLE NUDGE
 	------------------------------------------------
 	if not _G.HipHubNativeInputHeartbeatRunning then
 		_G.HipHubNativeInputHeartbeatRunning = true
 		task.spawn(function()
 			while true do
-				task.wait(20)
+				task.wait(25)
 				pcall(function()
-					-- 1. Mobile & Redfinger Touch Tap Simulation
-					if touchpress and touchrelease then
-						touchpress(Vector2.new(120, 120), 1)
-						task.wait(0.02)
-						touchrelease(Vector2.new(120, 120), 1)
-					elseif mouse1click then
-						mouse1click()
-					end
-
-					-- 2. PC Native Mouse Nudge (Tingkat OS C++)
-					if mousemoverel then
-						mousemoverel(1, 1)
-						task.wait(0.02)
-						mousemoverel(-1, -1)
-					end
-
-					-- 3. PC Native Micro Keyclick (Shift key)
-					if keypress and keyrelease then
-						keypress(0x10)
-						task.wait(0.03)
-						keyrelease(0x10)
-					end
-
-					-- 4. Universal Camera Packet (Reset Engine Idle Timer di Semua Platform)
+					-- 1. Universal Camera Nudge (Reset Engine Idle Timer)
 					local cam = workspace.CurrentCamera
 					if cam then
-						cam.CFrame = cam.CFrame * CFrame.Angles(0, 0.00005, 0)
+						local cf = cam.CFrame
+						cam.CFrame = cf * CFrame.Angles(0, 0.0001, 0)
+						task.delay(0.04, function()
+							if cam then cam.CFrame = cf end
+						end)
 					end
 				end)
 			end
@@ -4393,15 +4323,13 @@ local success, err = pcall(function()
 		if shouldResumeCourier or (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoCourier) then
 			if autoCourierToggle and autoCourierToggle.Set then
 				autoCourierToggle.Set(true, true)
-			end
-			if not courierActive and toggleAutoCourier then
+			elseif not courierActive and toggleAutoCourier then
 				toggleAutoCourier(true)
 			end
 		elseif shouldResumeRideGO or (_G.HipHubConfig and _G.HipHubConfig.farm and _G.HipHubConfig.farm.autoRideGO) then
 			if autoRideGoToggle and autoRideGoToggle.Set then
 				autoRideGoToggle.Set(true, true)
-			end
-			if not taxiActive and toggleAutoRideGO then
+			elseif not taxiActive and toggleAutoRideGO then
 				toggleAutoRideGO(true)
 			end
 		end

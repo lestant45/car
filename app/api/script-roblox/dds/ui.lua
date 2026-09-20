@@ -13,55 +13,8 @@ while not player do
 	player = Players.LocalPlayer
 end
 
---=====================================================================
--- ADONIS & GAME ANTI-CHEAT NEUTRALIZER
---=====================================================================
-pcall(function()
-	local function neutralizeAntiCheat()
-		if not (hookfunction and (getgc or filtergc)) then return end
+-- UI Initialization
 
-		local targets = {}
-		if filtergc then
-			local tables = filtergc("table", { Keys = { "Detected", "RLocked" } }, false)
-			for _, tbl in ipairs(tables or {}) do
-				if typeof(rawget(tbl, "Detected")) == "function" then
-					table.insert(targets, tbl)
-				end
-			end
-		end
-
-		if #targets == 0 and getgc then
-			for _, tbl in ipairs(getgc(true)) do
-				if typeof(tbl) == "table" and typeof(rawget(tbl, "Detected")) == "function" and rawget(tbl, "RLocked") then
-					table.insert(targets, tbl)
-				end
-			end
-		end
-
-		for _, tbl in ipairs(targets) do
-			local detectedFn = rawget(tbl, "Detected")
-			if typeof(detectedFn) == "function" and (not isfunctionhooked or not isfunctionhooked(detectedFn)) then
-				pcall(hookfunction, detectedFn, function(action, info, ...)
-					return true
-				end)
-			end
-
-			local killFn = rawget(tbl, "Kill")
-			if typeof(killFn) == "function" and (not isfunctionhooked or not isfunctionhooked(killFn)) then
-				pcall(hookfunction, killFn, function(...)
-					return true
-				end)
-			end
-		end
-	end
-
-	neutralizeAntiCheat()
-	task.spawn(function()
-		while task.wait(5) do
-			pcall(neutralizeAntiCheat)
-		end
-	end)
-end)
 
 local success, err = pcall(function()
 	-- Pre-loader optimization check (Ensure 3D rendering is active)

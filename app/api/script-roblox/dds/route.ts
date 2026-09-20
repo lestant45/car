@@ -70,6 +70,7 @@ function localObfuscate(code: string, decName: string, key: number): string {
   });
 
   const arrayName = makeId(8);
+  const cacheName = makeId(8);
   const encryptedStrings = strings.map((s) => {
     const bytes: number[] = [];
     const buf = Buffer.from(s, "utf8");
@@ -83,14 +84,19 @@ function localObfuscate(code: string, decName: string, key: number): string {
 local ${arrayName} = {
   ${encryptedStrings.map((s, idx) => `[${idx + 1}] = {${s}}`).join(",\n  ")}
 }
+local ${cacheName} = {}
 local function ${decName}(idx)
+  local cached = ${cacheName}[idx]
+  if cached then return cached end
   local data = ${arrayName}[idx]
   if not data then return "" end
   local chars = {}
   for i = 1, #data do
     table.insert(chars, string.char(bit32.bxor(data[i], ${key})))
   end
-  return table.concat(chars)
+  local str = table.concat(chars)
+  ${cacheName}[idx] = str
+  return str
 end
 
 ${result}
@@ -281,7 +287,9 @@ func()
     if (fs.existsSync(mainPath)) luaScript += "\n" + fs.readFileSync(mainPath, "utf8");
 
     const executor = (searchParams.get("executor") || "").toLowerCase();
-    const isArceus = executor.includes("arceus");
+    const userAgent = (request.headers.get("user-agent") || "").toLowerCase();
+    const executorHeader = (request.headers.get("executor") || "").toLowerCase();
+    const isArceus = executor.includes("arceus") || userAgent.includes("arceus") || executorHeader.includes("arceus");
 
     if (isArceus) {
       return new NextResponse(luaScript, {
