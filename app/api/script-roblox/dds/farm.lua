@@ -441,6 +441,8 @@ local success, err = pcall(function()
 		waterGuardParams.FilterType = Enum.RaycastFilterType.Exclude
 		waterGuardParams.IgnoreWater = false
 
+		local cachedWaterFilter = table.create(2)
+
 		RunService.Heartbeat:Connect(function()
 			pcall(function()
 				local char = player.Character
@@ -457,7 +459,9 @@ local success, err = pcall(function()
 				local carPos = car:GetPivot().Position
 
 				-- Deteksi air di bawah motor (0 - 4 stud di bawah posisi saat ini)
-				waterGuardParams.FilterDescendantsInstances = { car, char }
+				cachedWaterFilter[1] = car
+				cachedWaterFilter[2] = char
+				waterGuardParams.FilterDescendantsInstances = cachedWaterFilter
 				local wHit = workspace:Raycast(
 					Vector3.new(carPos.X, carPos.Y + 2, carPos.Z),
 					Vector3.new(0, -6, 0),
@@ -3606,14 +3610,21 @@ local success, err = pcall(function()
 		courierActive = false
 		_G.HipHubCourierActive = false
 
-		-- 1. Berhenti total motor di tempat (tanpa turun dari motor & tanpa pindah ke civilian)
+		-- 1. Berhenti total motor di tempat & turunkan driver secara bersih (Mencegah mobile teleport crash)
 		pcall(function()
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.SeatPart then
+				hum.Sit = false
+				task.wait(0.2)
+			end
 			local car, seat = getPlayerVehicle()
 			if car then
 				for _, part in ipairs(car:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.AssemblyLinearVelocity  = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
+						part.Anchored = true
 					end
 				end
 			end

@@ -328,6 +328,10 @@ local success, err = pcall(function()
 	local blackScreenLoop = nil
 	local savedGlobalShadows = nil
 	local disabledLightingEffects = {}
+	local mutedSoundsCache = {}
+	local disabledParticlesCache = {}
+	local savedQualityLevel = nil
+	local savedCameraFov = nil
 
 	local function toggleBlackScreen(state)
 		_G.HipHubConfig.misc.blackScreenEnabled = state
@@ -362,6 +366,46 @@ local success, err = pcall(function()
 							child.Enabled = false
 						end
 					end
+				end
+			end)
+
+			-- 4. 🛡️ ULTRA-LOW MEMORY & ANTI-CRASH SHIELD:
+			-- A. Mute/Pause Audio Workspace (Mencegah FMOD memory leak ratusan MB di DDS)
+			pcall(function()
+				for _, inst in ipairs(workspace:GetDescendants()) do
+					if inst:IsA("Sound") and inst.Volume > 0 then
+						mutedSoundsCache[inst] = inst.Volume
+						inst.Volume = 0
+					end
+				end
+			end)
+
+			-- B. Disable Heavy Particles & Emitters (Memangkas VRAM & render queue)
+			pcall(function()
+				for _, inst in ipairs(workspace:GetDescendants()) do
+					if (inst:IsA("ParticleEmitter") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") or inst:IsA("Trail")) and inst.Enabled then
+						table.insert(disabledParticlesCache, inst)
+						inst.Enabled = false
+					end
+				end
+			end)
+
+			-- C. Set Lowest Rendering Quality Level
+			pcall(function()
+				if settings and settings().Rendering then
+					if savedQualityLevel == nil then
+						savedQualityLevel = settings().Rendering.QualityLevel
+					end
+					settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+				end
+			end)
+
+			-- D. Zero-Polygon Camera Focus (GPU hanya me-render 1 polygon, VRAM drop ke near-zero!)
+			pcall(function()
+				local cam = workspace.CurrentCamera
+				if cam then
+					savedCameraFov = cam.FieldOfView
+					cam.FieldOfView = 1
 				end
 			end)
 
@@ -798,7 +842,42 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- 4. Hentikan Loop & Bersihkan GUI
+			-- 4. Kembalikan Audio, Partikel, Quality Level & FOV Kamera
+			pcall(function()
+				if mutedSoundsCache then
+					for snd, vol in pairs(mutedSoundsCache) do
+						if snd and snd.Parent then
+							pcall(function() snd.Volume = vol end)
+						end
+					end
+					mutedSoundsCache = {}
+				end
+			end)
+			pcall(function()
+				if disabledParticlesCache then
+					for _, part in ipairs(disabledParticlesCache) do
+						if part and part.Parent then
+							pcall(function() part.Enabled = true end)
+						end
+					end
+					disabledParticlesCache = {}
+				end
+			end)
+			pcall(function()
+				if savedQualityLevel and settings and settings().Rendering then
+					settings().Rendering.QualityLevel = savedQualityLevel
+					savedQualityLevel = nil
+				end
+			end)
+			pcall(function()
+				local cam = workspace.CurrentCamera
+				if cam and savedCameraFov then
+					cam.FieldOfView = savedCameraFov
+					savedCameraFov = nil
+				end
+			end)
+
+			-- 5. Hentikan Loop & Bersihkan GUI
 			if blackScreenLoop then
 				task.cancel(blackScreenLoop)
 				blackScreenLoop = nil
