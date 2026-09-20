@@ -119,7 +119,7 @@ errGui.ResetOnSpawn = false
 errGui.DisplayOrder = 2147483647
 
 pcall(function()
-    local parentGui = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
+    local parentGui = (gethui and gethui()) or player:WaitForChild("PlayerGui")
     errGui.Parent = parentGui
     
     local COLORS = {
@@ -211,13 +211,21 @@ local function findGuiInParents(name)
     local pGui = player:FindFirstChild("PlayerGui")
     if pGui and pGui:FindFirstChild(name) then return pGui:FindFirstChild(name) end
     if gethui and gethui():FindFirstChild(name) then return gethui():FindFirstChild(name) end
-    local coreGui = game:GetService("CoreGui")
-    if coreGui:FindFirstChild(name) then return coreGui:FindFirstChild(name) end
     return nil
 end
 
 for i = 1, 3 do
     local s, res = pcall(function()
+        if request then
+            local r = request({ Url = "${baseUrl}/api/script-roblox/dds", Method = "GET" })
+            if r and r.Body and #r.Body > 50 then return r.Body end
+        elseif syn and syn.request then
+            local r = syn.request({ Url = "${baseUrl}/api/script-roblox/dds", Method = "GET" })
+            if r and r.Body and #r.Body > 50 then return r.Body end
+        elseif http_request then
+            local r = http_request({ Url = "${baseUrl}/api/script-roblox/dds", Method = "GET" })
+            if r and r.Body and #r.Body > 50 then return r.Body end
+        end
         return game:HttpGet("${baseUrl}/api/script-roblox/dds")
     end)
     if s and type(res) == "string" and #res > 50 then

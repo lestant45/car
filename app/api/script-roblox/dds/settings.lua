@@ -116,10 +116,10 @@ local success, err = pcall(function()
 	loadConfig(true)
 
 	------------------------------------------------
-	-- 🛡️ SAFE ANTI-AFK ENGINE (UNIVERSAL & MOBILE SAFE)
+	-- 🛡️ 100% STEALTH & UNDETECTED ANTI-AFK ENGINE
+	-- Zero Disallowed Services (No VirtualUser/VIM)
 	------------------------------------------------
 	local antiAfkConn = nil
-	local idledConn = nil
 
 	local function toggleAntiAfk(state)
 		_G.HipHubConfig.misc.antiAfk = state
@@ -128,41 +128,40 @@ local success, err = pcall(function()
 			antiAfkConn:Disconnect()
 			antiAfkConn = nil
 		end
-		if idledConn then
-			idledConn:Disconnect()
-			idledConn = nil
-		end
 
 		if state then
-			-- 1. Native Idled Connection (Primary Anti-Idle)
 			pcall(function()
-				idledConn = player.Idled:Connect(function()
-					local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
-					if vu then
-						vu:CaptureController()
-						vu:ClickButton2(Vector2.zero)
+				if getconnections then
+					for _, conn in ipairs(getconnections(player.Idled)) do
+						if conn.Disable then
+							conn:Disable()
+						elseif conn.Disconnect then
+							conn:Disconnect()
+						end
 					end
-				end)
+				end
 			end)
 
-			-- 2. Periodic Engine Activity Reset
 			local lastTick = tick()
 			antiAfkConn = RunService.Heartbeat:Connect(function()
-				if tick() - lastTick > 30 then
+				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
-						local vu = cloneref and cloneref(game:GetService("VirtualUser")) or game:GetService("VirtualUser")
-						if vu then
-							vu:CaptureController()
-							vu:ClickButton2(Vector2.zero)
-						end
+						-- 1. Camera Micro-Rotation (Resets Idle Timer natively via camera packet)
 						local cam = workspace.CurrentCamera
 						if cam then
 							local cf = cam.CFrame
 							cam.CFrame = cf * CFrame.Angles(0, 0.0004, 0)
-							task.delay(0.05, function()
+							task.delay(0.04, function()
 								if cam then cam.CFrame = cf end
 							end)
+						end
+
+						-- 2. Humanoid State Nudge (If not in vehicle)
+						local char = player.Character
+						local hum = char and char:FindFirstChildOfClass("Humanoid")
+						if hum and not hum.SeatPart then
+							hum:ChangeState(Enum.HumanoidStateType.Running)
 						end
 					end)
 				end
@@ -171,44 +170,22 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🕶️ STEALTH LOG & ERROR SHIELDING
-	------------------------------------------------
-	-- Prevents script injection signatures or runtime errors from leaking into Adonis LogService.MessageOut / ScriptContext.Error
-	local function enableStealthShield()
-		pcall(function()
-			local LogService = game:GetService("LogService")
-			local ScriptContext = game:GetService("ScriptContext")
-			-- Hook or isolate executor error logs
-			if hookmetamethod and checkcaller then
-				-- Safe caller check
-			end
-		end)
-	end
-	enableStealthShield()
-
-	------------------------------------------------
 	-- ⚡ AUTO REJOIN ON ERROR / DISCONNECT
 	------------------------------------------------
 	local function setupAutoRejoin()
-		-- 1. Deteksi via CoreGui Prompt Overlay (ErrorPrompt / Disconnect modal)
+		-- 1. Deteksi resmi via GuiService (Standard public service, 0% disallowed services risk)
 		pcall(function()
-			local cGui = game:GetService("CoreGui")
-			local promptGui = cGui:WaitForChild("RobloxPromptGui", 5)
-			local overlay = promptGui and promptGui:WaitForChild("promptOverlay", 5)
-			if overlay then
-				local function onChild(child)
+			local GuiService = game:GetService("GuiService")
+			if GuiService and GuiService.ErrorMessageChanged then
+				GuiService.ErrorMessageChanged:Connect(function(msg)
 					local isAutoRejoin = (_G.HipHubConfig and _G.HipHubConfig.misc and _G.HipHubConfig.misc.autoRejoin)
-					if isAutoRejoin and (child.Name == "ErrorPrompt" or child.Name:find("Prompt") or child.Name:find("Error")) then
+					if isAutoRejoin and msg and #msg > 0 then
 						task.wait(2.0)
 						pcall(function()
 							TeleportService:Teleport(game.PlaceId, player)
 						end)
 					end
-				end
-				overlay.ChildAdded:Connect(onChild)
-				for _, c in ipairs(overlay:GetChildren()) do
-					task.spawn(onChild, c)
-				end
+				end)
 			end
 		end)
 

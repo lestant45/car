@@ -269,10 +269,10 @@ local success, err = pcall(function()
 	local function isRouteVerificationStuck()
 		local found = false
 
-		-- 1. Scan NotificationFrame di CoreGui (Sangat cepat & zero-lag: hanya memeriksa toast notifikasi aktif)
+		-- 1. Scan NotificationFrame di PlayerGui (Sangat cepat & zero-lag)
 		pcall(function()
-			local cGui = game:GetService("CoreGui")
-			local notifFrame = cGui and cGui:FindFirstChild("RobloxGui") and cGui.RobloxGui:FindFirstChild("NotificationFrame")
+			local pGui = player:FindFirstChild("PlayerGui")
+			local notifFrame = pGui and (pGui:FindFirstChild("NotificationFrame", true) or pGui:FindFirstChild("Notification", true))
 			if notifFrame then
 				for _, g in ipairs(notifFrame:GetDescendants()) do
 					if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Visible then

@@ -165,11 +165,16 @@ local success, err = pcall(function()
 	end)
 
 	local isStudio = RunService:IsStudio()
-	if not isStudio and syn and syn.protect_gui then
-		syn.protect_gui(gui)
-		gui.Parent = game:GetService("CoreGui")
-	elseif not isStudio and gethui then
+	if not isStudio and gethui then
 		gui.Parent = gethui()
+	elseif not isStudio and syn and syn.protect_gui then
+		pcall(function()
+			syn.protect_gui(gui)
+			gui.Parent = game:GetService("CoreGui")
+		end)
+		if not gui.Parent then
+			gui.Parent = player:WaitForChild("PlayerGui")
+		end
 	else
 		gui.Parent = player:WaitForChild("PlayerGui")
 	end
