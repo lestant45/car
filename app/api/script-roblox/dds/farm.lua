@@ -3986,13 +3986,8 @@ local success, err = pcall(function()
 									return
 								end
 
-								-- Turun motor sejenak untuk mengambil paket di Depot
-								local curChar = player.Character
-								local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
-								if curHum and curHum.SeatPart then
-									curHum.Sit = false
-									task.wait(0.3)
-								end
+								-- Ambil paket di Depot langsung dari atas motor (Tetap duduk di jok kemudi)
+								ensureDriverSeated()
 
 								pcall(function()
 									local livrason = workspace:FindFirstChild("Livrason")
@@ -4002,10 +3997,6 @@ local success, err = pcall(function()
 									end
 								end)
 								restarting = true
-
-								-- Naik kembali ke motor
-								task.wait(0.5)
-								mountBike()
 							end
 
 							local waited = 0
@@ -4090,13 +4081,8 @@ local success, err = pcall(function()
 								end
 							end
 
-							-- Turun motor di dekat titik pengantaran
-							local curChar = player.Character
-							local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
-							if curHum and curHum.SeatPart then
-								curHum.Sit = false
-								task.wait(0.4)
-							end
+							-- Tetap duduk aman di atas motor saat serah terima paket (100% Anti-Jatuh ke void)
+							ensureDriverSeated()
 
 							-- Jeda dropoff alami
 							local dropDelay = tonumber(Config.courierDropDelay) or 4
@@ -4129,9 +4115,8 @@ local success, err = pcall(function()
 								return
 							end
 
-							-- Naik kembali ke motor untuk orderan berikutnya
-							task.wait(0.5)
-							mountBike()
+							-- Pastikan driver tetap duduk stabil untuk orderan berikutnya
+							ensureDriverSeated()
 
 							-- Menunggu server menetapkan order berikutnya (1-3.5s) agar langsung lanjut tanpa pulang ke depot
 							local lastCompletedId = tostring(destId or "")
