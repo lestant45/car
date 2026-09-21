@@ -222,8 +222,6 @@ local success, err = pcall(function()
 	local persistentCarrierWeld = nil
 	local arrivedViaSeatCarrier = false
 	local startPhoneOverlayPoller = nil
-	local restoreCharacterCollision = nil
-	local safeDismountVehicle       = nil
 
 	local function updateBotActivity(statusText, customColor)
 		_G.HipHubBotActivityStatus = statusText or "Menunggu Orderan Masuk..."
@@ -782,23 +780,8 @@ local success, err = pcall(function()
 
 	local MOTOR_PIVOT_HEIGHT_OFFSET = 2.05
 
-	local function findGroundAtPosition(pos, filterInstances)
-		local rayOrigin = Vector3.new(pos.X, pos.Y + 8, pos.Z)
-		local rayDirection = Vector3.new(0, -45, 0)
-		local rp = RaycastParams.new()
-		rp.FilterType = Enum.RaycastFilterType.Exclude
-		rp.FilterDescendantsInstances = filterInstances or {}
-		rp.IgnoreWater = true
-
-		local hit = workspace:Raycast(rayOrigin, rayDirection, rp)
-		if hit and hit.Position then
-			return hit.Position.Y, hit.Normal, hit.Instance
-		end
-		return nil, nil, nil
-	end
-
-	-- Spawns an invisible collision safety plate underneath destination/vehicle/ground
-	local function ensureSafetyPlate(pos, width, explicitGroundY)
+	-- Spawns an invisible collision safety plate underneath destination/vehicle
+	local function ensureSafetyPlate(pos, width)
 		width = width or 80
 		local plate = workspace:FindFirstChild("__DdsSafetyPlate")
 		if not plate then
@@ -812,24 +795,10 @@ local success, err = pcall(function()
 			pcall(function() plate.Parent = workspace end)
 		end
 		plate.Size = Vector3.new(width, 4, width)
-
-		local groundLevel = explicitGroundY
-		if not groundLevel then
-			local char = player.Character
-			local car = getPlayerVehicle and select(1, getPlayerVehicle())
-			local filter = {plate}
-			if char then table.insert(filter, char) end
-			if car then table.insert(filter, car) end
-			local hitY = findGroundAtPosition(pos, filter)
-			if hitY then
-				groundLevel = hitY
-			else
-				groundLevel = pos.Y - MOTOR_PIVOT_HEIGHT_OFFSET
-			end
-		end
-
-		-- Posisikan permukaan atas safety plate tepat 0.05 stud di bawah elevasi tanah
-		local plateTopY = groundLevel - 0.05
+		-- Posisikan permukaan atas safety plate tepat 0.2 stud di bawah permukaan tanah / ban motor:
+		-- pos.Y adalah target pivot motor, sehingga ground level = pos.Y - MOTOR_PIVOT_HEIGHT_OFFSET
+		local groundLevel = pos.Y - MOTOR_PIVOT_HEIGHT_OFFSET
+		local plateTopY = groundLevel - 0.2
 		plate.CFrame = CFrame.new(pos.X, plateTopY - 2.0, pos.Z)
 		return plate
 	end
@@ -841,118 +810,6 @@ local success, err = pcall(function()
 				plate:Destroy()
 			end
 		end)
-	end
-
-	restoreCharacterCollision = function(char)
-		char = char or player.Character
-		if not char then return end
-
-		for _, part in ipairs(char:GetDescendants()) do
-			if part:IsA("BasePart") then
-				local name = part.Name
-				if name == "HumanoidRootPart" or name:find("Torso") or name == "Head" then
-					part.CanCollide = true
-				end
-			end
-		end
-
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-			hum.PlatformStand = false
-		end
-	end
-
-	safeDismountVehicle = function(targetDestPos)
-		local char = player.Character
-		local hum  = char and char:FindFirstChildOfClass("Humanoid")
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local car, seat = getPlayerVehicle and getPlayerVehicle()
-
-		if not hum then return end
-
-		-- 1. Pulihkan collision karakter SEBELUM unseat agar tidak tembus tanah
-		restoreCharacterCollision(char)
-
-		if not hum.SeatPart and not hum.Sit then
-			return
-		end
-
-		-- 2. Tentukan posisi acuan motor/seat
-		local seatPos = (seat and seat.Position) or (root and root.Position) or Vector3.zero
-		local refPos  = seatPos
-
-		-- 3. Cari ketinggian tanah aktual di bawah motor menggunakan raycast
-		local filterList = {char}
-		if car then table.insert(filterList, car) end
-		local groundY = findGroundAtPosition(refPos, filterList)
-
-		if not groundY then
-			if seat then
-				groundY = seat.Position.Y - 1.8
-			elseif car then
-				groundY = car:GetPivot().Position.Y - MOTOR_PIVOT_HEIGHT_OFFSET
-			else
-				groundY = refPos.Y - 1.8
-			end
-		end
-
-		-- 4. Pasang safety plate solid 60x4x60 stud tepat di bawah permukaan tanah
-		ensureSafetyPlate(refPos, 60, groundY)
-
-		-- 5. Hitung titik mendarat aman di samping motor di atas tanah
-		local sideOffset
-		if targetDestPos and (Vector3.new(targetDestPos.X, 0, targetDestPos.Z) - Vector3.new(refPos.X, 0, refPos.Z)).Magnitude > 1 then
-			local toTarget2D = (Vector3.new(targetDestPos.X, 0, targetDestPos.Z) - Vector3.new(refPos.X, 0, refPos.Z)).Unit
-			sideOffset = toTarget2D * 2.5
-		elseif seat then
-			sideOffset = seat.CFrame.RightVector * 2.5
-		else
-			sideOffset = Vector3.new(2.5, 0, 0)
-		end
-
-		local hipHeight = (hum.HipHeight > 0 and hum.HipHeight) or 2.0
-		local targetLandingY = groundY + hipHeight + 0.5
-		local safeLandingPos = Vector3.new(refPos.X + sideOffset.X, targetLandingY, refPos.Z + sideOffset.Z)
-
-		-- 6. Hentikan kecepatan motor dan karakter
-		if car then
-			for _, p in ipairs(car:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.AssemblyLinearVelocity = Vector3.zero
-					p.AssemblyAngularVelocity = Vector3.zero
-				end
-			end
-		end
-		if root then
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-
-		-- 7. Unseat secara teratur dan posisikan karakter mendarat di tanah
-		hum.Sit = false
-		task.wait(0.06)
-
-		if root then
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			local lookTarget = targetDestPos or (safeLandingPos + (seat and seat.CFrame.LookVector or Vector3.new(0, 0, -1)))
-			root.CFrame = CFrame.new(safeLandingPos, Vector3.new(lookTarget.X, safeLandingPos.Y, lookTarget.Z))
-		end
-		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-		task.wait(0.12)
-
-		-- 8. Safeguard anti-tembus: jika karena lag posisi karakter turun di bawah groundY, kembalikan ke safeLandingPos
-		if root and root.Position.Y < (groundY - 1.2) then
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			root.CFrame = CFrame.new(safeLandingPos)
-			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-		end
 	end
 
 	spawnFarmVehicle = function()
@@ -1057,36 +914,6 @@ local success, err = pcall(function()
 				if isRespawning then return end
 				if newH < hum.MaxHealth and (courierActive or taxiActive) then
 					pcall(function() hum.Health = hum.MaxHealth end)
-				end
-			end)
-
-			-- 🛡️ Anti-Void Fallback: Segera selamatkan karakter jika tembus ke bawah laut/void
-			task.spawn(function()
-				while char and char.Parent and hum and hum.Health > 0 do
-					task.wait(0.2)
-					local rootPart = char:FindFirstChild("HumanoidRootPart")
-					if rootPart and (courierActive or taxiActive or _G.HipHubCourierActive or _G.HipHubTaxiActive) and not isRespawning then
-						if rootPart.Position.Y < 5.0 then
-							warn("[HipHub DDS Guard] Deteksi karakter tembus ke void (Y: " .. math.floor(rootPart.Position.Y) .. ")! Menyelamatkan...")
-							rootPart.AssemblyLinearVelocity = Vector3.zero
-							rootPart.AssemblyAngularVelocity = Vector3.zero
-							if restoreCharacterCollision then
-								restoreCharacterCollision(char)
-							end
-							local car, seat = getPlayerVehicle and getPlayerVehicle()
-							if car and seat and seat.Parent then
-								local carPos = car:GetPivot().Position
-								ensureSafetyPlate(carPos, 50)
-								rootPart.CFrame = seat.CFrame + Vector3.new(0, 2.0, 0)
-								pcall(function() seat:Sit(hum) end)
-							else
-								local safeY = math.max(rootPart.Position.Y, 20.0)
-								ensureSafetyPlate(rootPart.Position, 50, safeY)
-								rootPart.CFrame = CFrame.new(rootPart.Position.X, safeY + 3.0, rootPart.Position.Z)
-								hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-							end
-						end
-					end
 				end
 			end)
 		end
@@ -1983,9 +1810,6 @@ local success, err = pcall(function()
 			end
 			hrp.CFrame = CFrame.new(curPos, lookAtTarget)
 			hum.Sit = true
-			if restoreCharacterCollision then
-				restoreCharacterCollision(char)
-			end
 		end)
 
 		task.wait(0.2)
@@ -2857,9 +2681,6 @@ local success, err = pcall(function()
 			if root and seat then
 				root.AssemblyLinearVelocity = Vector3.zero
 				root.AssemblyAngularVelocity = Vector3.zero
-			end
-			if char and restoreCharacterCollision then
-				restoreCharacterCollision(char)
 			end
 		end)
 
@@ -3789,16 +3610,12 @@ local success, err = pcall(function()
 
 		-- 1. Berhenti total motor di tempat & turunkan driver secara bersih (Mencegah mobile teleport crash)
 		pcall(function()
-			if safeDismountVehicle then
-				safeDismountVehicle()
-			else
-				local char = player.Character
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				if hum and hum.SeatPart then
-					hum.Sit = false
-				end
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.SeatPart then
+				hum.Sit = false
+				task.wait(0.2)
 			end
-			task.wait(0.2)
 			local car, seat = getPlayerVehicle()
 			if car then
 				for _, part in ipairs(car:GetDescendants()) do
@@ -4169,17 +3986,13 @@ local success, err = pcall(function()
 									return
 								end
 
-								-- Turun motor sejenak untuk mengambil paket di Depot secara aman (mendarat di tanah)
-								if safeDismountVehicle then
-									safeDismountVehicle()
-								else
-									local curChar = player.Character
-									local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
-									if curHum and curHum.SeatPart then
-										curHum.Sit = false
-									end
+								-- Turun motor sejenak untuk mengambil paket di Depot
+								local curChar = player.Character
+								local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+								if curHum and curHum.SeatPart then
+									curHum.Sit = false
+									task.wait(0.3)
 								end
-								task.wait(0.3)
 
 								pcall(function()
 									local livrason = workspace:FindFirstChild("Livrason")
@@ -4277,18 +4090,13 @@ local success, err = pcall(function()
 								end
 							end
 
-							-- Turun motor di dekat titik pengantaran secara aman (mendarat di tanah)
-							local dropDestPos = dropCF and dropCF.Position
-							if safeDismountVehicle then
-								safeDismountVehicle(dropDestPos)
-							else
-								local curChar = player.Character
-								local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
-								if curHum and curHum.SeatPart then
-									curHum.Sit = false
-								end
+							-- Turun motor di dekat titik pengantaran
+							local curChar = player.Character
+							local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+							if curHum and curHum.SeatPart then
+								curHum.Sit = false
+								task.wait(0.4)
 							end
-							task.wait(0.3)
 
 							-- Jeda dropoff alami
 							local dropDelay = tonumber(Config.courierDropDelay) or 4
