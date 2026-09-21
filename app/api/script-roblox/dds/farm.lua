@@ -2065,7 +2065,48 @@ local success, err = pcall(function()
 							-- Jika perjalanan jarak jauh (> 300 stud), DILARANG KERAS mendarat langsung di radius pengantaran (< 120 stud)!
 							-- Motor WAJIB mendarat di TEPI DARATAN SEBERANG TERDEKAT (coastline / edge), lalu melanjutkan berkendara di aspal.
 							if not (totalDistToDest > 300 and landDistToDest < 120) then
-								local landPos = Vector3.new(px, solidY + MOTOR_PIVOT_HEIGHT_OFFSET, pz)
+								local candidateLandPos = Vector3.new(px, solidY + MOTOR_PIVOT_HEIGHT_OFFSET, pz)
+
+								-- 🛡️ RUNWAY CHECK: Pastikan ada cukup tanah solid di depan landing point (minimal 8 stud)
+								-- Jika island terlalu sempit (ada jurang lagi < 8 stud di depan), geser landing lebih dalam.
+								local RUNWAY_MIN = 8.0
+								local runwayCheckParams = RaycastParams.new()
+								runwayCheckParams.FilterDescendantsInstances = { car, player.Character }
+								runwayCheckParams.FilterType = Enum.RaycastFilterType.Exclude
+								local finalLandPos = candidateLandPos
+								local bestRunway = 0
+								for runwayCheck = 0, 30, 2 do
+									local testLand = candidateLandPos + baseDir * runwayCheck
+									local runwaySolid = 0
+									for fwd = 1, 20, 2 do
+										local fwdTest = testLand + baseDir * fwd
+										local fwdRay = workspace:Raycast(
+											Vector3.new(fwdTest.X, solidY + 15, fwdTest.Z),
+											Vector3.new(0, -45, 0),
+											runwayCheckParams
+										)
+										if fwdRay and fwdRay.Position.Y >= -30 and fwdRay.Position.Y <= 350 then
+											runwaySolid = fwd
+										else
+											break
+										end
+									end
+									if runwaySolid >= RUNWAY_MIN then
+										-- Geser landing ke posisi lebih dalam yang punya cukup runway
+										local deeperRay = workspace:Raycast(
+											Vector3.new(testLand.X, solidY + 15, testLand.Z),
+											Vector3.new(0, -45, 0),
+											runwayCheckParams
+										)
+										if deeperRay and deeperRay.Position.Y >= -30 then
+											finalLandPos = Vector3.new(testLand.X, deeperRay.Position.Y + MOTOR_PIVOT_HEIGHT_OFFSET, testLand.Z)
+											bestRunway = runwaySolid
+											break
+										end
+								end
+								end
+
+								local landPos = finalLandPos
 								local jumpDist = (Vector3.new(landPos.X, 0, landPos.Z) - Vector3.new(fromPos.X, 0, fromPos.Z)).Magnitude
 								local landed = teleportVehicleAcrossVoid(car, landPos, baseDir, jumpDist)
 								return landed, jumpDist
@@ -2462,7 +2503,9 @@ local success, err = pcall(function()
 					lastBridgeScanTime = nowClock
 					local bridgeLanding, jumpDist = attemptVoidBridge(car, carPos, destP)
 					if bridgeLanding then
-						cliffWaitStartTime = nil
+						-- ✅ Mendarat di island seberang.
+						-- JANGAN langsung return! Kita harus scan void di depan landing spot dulu.
+						-- Kalau langsung return, frame berikutnya motor langsung gas dan bisa jatuh ke jurang ke-2!
 						lastGroundY = bridgeLanding.Y
 						targetElevY = bridgeLanding.Y
 						stuckLastDist = (destP - bridgeLanding).Magnitude
@@ -2470,7 +2513,32 @@ local success, err = pcall(function()
 						curHeadingAngle = math.atan2(newDir.X, newDir.Z)
 						stuckLastTime = os.clock()
 						currentSmoothSpeed = 0
-						return -- 🛑 Selesaikan frame ini setelah mendarat dan hold selesai!
+						lastSolidCF = car:GetPivot() -- ✅ Update safe CF ke posisi landing
+
+						-- 🛡️ POST-LANDING IMMEDIATE VOID SCAN:
+						-- Cek apakah tepat di depan landing spot ada jurang ke-2.
+						-- Kalau iya, langsung masuk cliff-wait mode SEKARANG juga (bukan frame berikutnya).
+						local landingDir = (Vector3.new(destP.X, 0, destP.Z) - Vector3.new(bridgeLanding.X, 0, bridgeLanding.Z))
+						landingDir = landingDir.Magnitude > 0.1 and landingDir.Unit or Vector3.new(0, 0, -1)
+						local postLandVoidAhead = false
+						for _, fwdCheck in ipairs({3, 5, 8}) do
+							local fwdPos = bridgeLanding + landingDir * fwdCheck
+							if not probeGround(fwdPos, bridgeLanding.Y) then
+								postLandVoidAhead = true
+								break
+							end
+						end
+
+						if postLandVoidAhead then
+							-- 🛑 Ada jurang ke-2 tepat di depan! Masuk cliff-wait langsung dari sini.
+							-- Motor WAJIB diam, jangan advance satu pun stud ke depan!
+							cliffWaitStartTime = os.clock()
+							lastBridgeScanTime = 0 -- Reset scan timer supaya bisa scan lagi di frame berikutnya
+						else
+							-- ✅ Landing spot aman, boleh lanjut berkendara normal
+							cliffWaitStartTime = nil
+						end
+						return -- Selesaikan frame ini
 					end
 				end
 
