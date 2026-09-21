@@ -135,7 +135,7 @@ local success, err = pcall(function()
 				if tick() - lastTick > 25 then
 					lastTick = tick()
 					pcall(function()
-						-- 1. Camera Micro-Rotation (Resets Idle Timer natively via camera packet)
+						-- 1. Camera Micro-Rotation (Resets Idle Timer natively via network camera packet)
 						local cam = workspace.CurrentCamera
 						if cam then
 							local cf = cam.CFrame
@@ -150,21 +150,6 @@ local success, err = pcall(function()
 						local hum = char and char:FindFirstChildOfClass("Humanoid")
 						if hum and not hum.SeatPart then
 							hum:ChangeState(Enum.HumanoidStateType.Running)
-						end
-
-						-- 3. Hardware OS Input Micro-Nudge (Cross-platform Android / Windows, resets Roblox C++ idle timer)
-						if mousemoverel then
-							pcall(mousemoverel, 0, 0)
-						end
-						if mouse1click then
-							pcall(mouse1click)
-						end
-						if keypress and keyrelease then
-							pcall(function()
-								keypress(0x20)
-								task.wait(0.02)
-								keyrelease(0x20)
-							end)
 						end
 					end)
 				end

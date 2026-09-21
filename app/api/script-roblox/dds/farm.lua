@@ -14,7 +14,7 @@ local success, err = pcall(function()
 	local player = Players.LocalPlayer
 
 	------------------------------------------------
-	-- 🛡️ SAFE PLATFORM IDLE NUDGE
+	-- 🛡️ SAFE PLATFORM IDLE NUDGE (Pure Camera Oscillation)
 	------------------------------------------------
 	if not _G.HipHubNativeInputHeartbeatRunning then
 		_G.HipHubNativeInputHeartbeatRunning = true
@@ -22,28 +22,13 @@ local success, err = pcall(function()
 			while true do
 				task.wait(25)
 				pcall(function()
-					-- 1. Universal Camera Nudge (Reset Engine Idle Timer)
+					-- Universal Camera Nudge (Reset Engine Idle Timer natively via network packet)
 					local cam = workspace.CurrentCamera
 					if cam then
 						local cf = cam.CFrame
-						cam.CFrame = cf * CFrame.Angles(0, 0.0001, 0)
+						cam.CFrame = cf * CFrame.Angles(0, 0.0002, 0)
 						task.delay(0.04, function()
 							if cam then cam.CFrame = cf end
-						end)
-					end
-
-					-- 2. Hardware OS Input Micro-Nudge (Cross-platform Android / Windows)
-					if mousemoverel then
-						pcall(mousemoverel, 0, 0)
-					end
-					if mouse1click then
-						pcall(mouse1click)
-					end
-					if keypress and keyrelease then
-						pcall(function()
-							keypress(0x20)
-							task.wait(0.02)
-							keyrelease(0x20)
 						end)
 					end
 				end)
@@ -400,37 +385,6 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local currentDriveConn = nil
 	local isDrivingActive  = false
-
-	-- 🛡️ Adonis-Safe Anti-AFK Engine (Zero Disallowed Services, 100% Undetectable)
-	task.spawn(function()
-		while true do
-			task.wait(35)
-			pcall(function()
-				if mousemoverel then
-					mousemoverel(0, 1)
-					task.wait(0.03)
-					mousemoverel(0, -1)
-				elseif mouse1press then
-					mouse1press()
-					task.wait(0.03)
-					mouse1release()
-				else
-					local char = player.Character
-					local hum = char and char:FindFirstChildOfClass("Humanoid")
-					if hum and hum.SeatPart then
-						local seat = hum.SeatPart
-						if seat:IsA("VehicleSeat") then
-							seat.SteerFloat = 0.001
-							task.wait(0.03)
-							seat.SteerFloat = 0
-						end
-					elseif hum then
-						hum:ChangeState(Enum.HumanoidStateType.Running)
-					end
-				end
-			end)
-		end
-	end)
 
 	-- 🌊 GLOBAL WATER GUARD: Heartbeat independen yang selalu aktif (bahkan di luar loop drive)
 	-- Memastikan motor & player TIDAK PERNAH menyentuh Terrain Water dalam kondisi apapun.
@@ -1511,13 +1465,6 @@ local success, err = pcall(function()
 				pcall(function() hum.Health = hum.MaxHealth end)
 			end
 			if not hum.SeatPart or hum.SeatPart ~= seat then
-				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
-				pcall(function() seat:Sit(hum) end)
-			end
-			task.wait(0.04)
-			if hum.SeatPart and hum.SeatPart ~= seat then
-				hum.Sit = false
-				task.wait(0.04)
 				if root then root.CFrame = seat.CFrame + Vector3.new(0, 0.5, 0) end
 				pcall(function() seat:Sit(hum) end)
 			end
@@ -3165,14 +3112,12 @@ local success, err = pcall(function()
 					_G.HipHubSaveConfig(true)
 				end
 
-				-- Reconnect via TeleportService
-				task.wait(1.0)
+				-- Clean Memory Purge & Reconnect via TeleportService (Single Call, Anti-OOM)
 				pcall(function()
-					local TeleportService = game:GetService("TeleportService")
-					TeleportService:Teleport(game.PlaceId, player)
+					destroySafetyPlate()
+					collectgarbage("collect")
 				end)
-
-				task.wait(4.0)
+				task.wait(0.5)
 				pcall(function()
 					local TeleportService = game:GetService("TeleportService")
 					TeleportService:Teleport(game.PlaceId, player)
@@ -3665,14 +3610,12 @@ local success, err = pcall(function()
 			end)
 		end
 
-		-- 4. Reconnect via TeleportService
-		task.wait(1.0)
+		-- 4. Clean Memory Purge & Reconnect via TeleportService (Single Call, Anti-OOM)
 		pcall(function()
-			local TeleportService = game:GetService("TeleportService")
-			TeleportService:Teleport(game.PlaceId, player)
+			destroySafetyPlate()
+			collectgarbage("collect")
 		end)
-
-		task.wait(4.0)
+		task.wait(0.5)
 		pcall(function()
 			local TeleportService = game:GetService("TeleportService")
 			TeleportService:Teleport(game.PlaceId, player)
