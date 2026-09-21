@@ -2363,7 +2363,7 @@ local success, err = pcall(function()
 			-- 🛑 STRICT VOID SAFETY SCANNER:
 			-- Memindai kesinambungan daratan di depan secara efisien
 			local solidAheadDist = 800
-			local checkSteps = { 3, 6, 12, 25, 45, 80, 150, 300, 500, 800 }
+			local checkSteps = { 5, 8, 14, 25, 45, 80, 150, 300, 500, 800 }
 			for _, lookDist in ipairs(checkSteps) do
 				if lookDist >= dist then
 					break
@@ -2375,28 +2375,29 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- 🛑 Pengereman Menjelang Tepi Jurang (Berhenti di solidAheadDist <= 3):
-			-- Kendaraan merayap mendekati tepi hingga jarak 3 stud (tepat di ujung aspal),
-			-- ban depan tetap 100% menapak di daratan asal tanpa menggantung di ruang hampa.
-			local isImmediateVoidAhead = (solidAheadDist <= 3) and (dist > solidAheadDist)
+			-- 🛑 Pengereman & Persiapan Sebelum Tepi Jurang (Buffer Aman 5 Stud):
+			-- Kendaraan berhenti 5 stud sebelum bibir jurang (tidak mepet/menggantung),
+			-- posisi motor stabil 100% di atas aspal dan langsung bersiap memindai/melompati jurang.
+			local CLIFF_STOP_BUFFER = 5.0
+			local isImmediateVoidAhead = (solidAheadDist <= CLIFF_STOP_BUFFER) and (dist > solidAheadDist)
 
 			if isImmediateVoidAhead then
 				targetSpeed = 0
 				currentSmoothSpeed = 0
 			elseif solidAheadDist < 600 and solidAheadDist < dist then
 				local cliffTargetSpeed = speed
-				if solidAheadDist <= 3 then
+				if solidAheadDist <= CLIFF_STOP_BUFFER then
 					cliffTargetSpeed = 0
-				elseif solidAheadDist < 8 then
-					local creepRatio = math.clamp((solidAheadDist - 3) / 5, 0, 1)
-					cliffTargetSpeed = 3.5 + (10.0 - 3.5) * creepRatio
-				elseif solidAheadDist < 25 then
-					local ratio = math.clamp((solidAheadDist - 8) / 17, 0, 1)
-					cliffTargetSpeed = 10.0 + (28.0 - 10.0) * ratio
+				elseif solidAheadDist < 12.0 then
+					local creepRatio = math.clamp((solidAheadDist - CLIFF_STOP_BUFFER) / 7.0, 0, 1)
+					cliffTargetSpeed = 3.0 + (9.0 - 3.0) * creepRatio
+				elseif solidAheadDist < 30.0 then
+					local ratio = math.clamp((solidAheadDist - 12.0) / 18.0, 0, 1)
+					cliffTargetSpeed = 9.0 + (25.0 - 9.0) * ratio
 				else
-					local factor = math.clamp((solidAheadDist - 25) / 575, 0, 1)
+					local factor = math.clamp((solidAheadDist - 30.0) / 570, 0, 1)
 					local sFactor = factor * factor * (3 - 2 * factor)
-					cliffTargetSpeed = 28.0 + (speed - 28.0) * sFactor
+					cliffTargetSpeed = 25.0 + (speed - 25.0) * sFactor
 				end
 				targetSpeed = math.min(targetSpeed, cliffTargetSpeed)
 			end
@@ -2413,7 +2414,7 @@ local success, err = pcall(function()
 
 			local curSpeed = isImmediateVoidAhead and 0 or currentSmoothSpeed
 			local stepDist = curSpeed * dt
-			local probeDist = math.max(stepDist * 1.6, 4)
+			local probeDist = math.max(stepDist * 1.6, CLIFF_STOP_BUFFER)
 
 			local directProbePos = carPos + directGoalDir * probeDist
 			local directHitY = (not isImmediateVoidAhead) and probeGround(directProbePos, lastGroundY) or nil
@@ -4009,12 +4010,14 @@ local success, err = pcall(function()
 							local tripDist = hrp and (dropCF.Position - hrp.Position).Magnitude or 0
 							local courierTripStartTime = tick()
 
-							-- 🛡️ Smart Adaptive Pre-Arrival Pacing Guard untuk Kurir:
-							-- Pacing aman motor (~80 km/h) agar waktu tempuh 1.5 - 2.5 menit organik
-							local baseSafeSpeed = 86.0
-							local randomJitter = math.random(-50, 40) / 10.0
-							local safeSpeed = math.clamp(baseSafeSpeed + randomJitter, 75.0, 92.0)
-							local minSafeTime = math.clamp(tripDist / safeSpeed, 45.0, 150.0)
+							-- 🛡️ Smart Dynamic Pacing Guard untuk Kurir:
+							-- Pacing murni proporsional jarak (speed motor ~82 - 96 studs/s) + buffer serah terima wajar.
+							-- Bebas ganjelan kaku 45 detik: jarak dekat (~800 stud) selesai ~10-12s, jarak jauh adaptif.
+							local baseSafeSpeed = 88.0
+							local randomJitter = math.random(-40, 40) / 10.0
+							local safeSpeed = math.clamp(baseSafeSpeed + randomJitter, 82.0, 96.0)
+							local rawCalculatedTime = (tripDist / safeSpeed) + math.random(2, 4)
+							local minSafeTime = math.clamp(rawCalculatedTime, 8.0, 120.0)
 
 							updateBotActivity(string.format("Mengantar ke Lokasi %s (%.0fm) - %s - %s", tostring(destId or "?"), tripDist, formatCourierTime(os.clock() - courierStartTime), formatRupiah(courierTotalEarn)), Color3.fromRGB(0, 212, 255))
 
