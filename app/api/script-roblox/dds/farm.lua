@@ -3786,12 +3786,33 @@ local success, err = pcall(function()
 		if hum and bp then
 			local tool = bp:FindFirstChild("Box") or bp:FindFirstChild("Package") or bp:FindFirstChild("Paket")
 			if tool and tool:IsA("Tool") then
+				for _, part in ipairs(tool:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+						part.Massless = true
+					end
+				end
 				hum:EquipTool(tool)
-				task.wait(0.2)
+				task.wait(0.15)
+				for _, part in ipairs(tool:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+						part.Massless = true
+					end
+				end
 			end
 		end
 		local active = char and (char:FindFirstChild("Box") or char:FindFirstChild("Package") or char:FindFirstChild("Paket"))
-		return active and active:IsA("Tool") and active or nil
+		if active and active:IsA("Tool") then
+			for _, part in ipairs(active:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+					part.Massless = true
+				end
+			end
+			return active
+		end
+		return nil
 	end
 
 	-- 🛵 Official Vehicle Courier Navigation (Ground-to-Ground & Road Driving)
@@ -4081,7 +4102,16 @@ local success, err = pcall(function()
 								end
 							end
 
-							-- Tetap duduk aman di atas motor saat serah terima paket (100% Anti-Jatuh ke void)
+							-- Tetap duduk aman di atas motor saat serah terima paket (100% On-Bike Delivery)
+							local curChar = player.Character
+							local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+							if curHum then
+								curHum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+								curHum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+								curHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+								curHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+								curHum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+							end
 							ensureDriverSeated()
 
 							-- Jeda dropoff alami
@@ -4089,11 +4119,11 @@ local success, err = pcall(function()
 							updateBotActivity(string.format("Menyerahkan Paket (%ds)...", dropDelay), Color3.fromRGB(255, 200, 50))
 							task.wait(dropDelay)
 
-							-- Pegang paket (Equip Box Tool)
+							-- Pegang paket (Equip Box Tool tanpa benturan physics ke motor)
 							equipCourierPackage()
-							task.wait(0.5)
+							task.wait(0.3)
 
-							-- Tembak Prompt Pengantaran
+							-- Tembak Prompt Pengantaran langsung dari atas motor
 							if not dropPrompt or not dropPrompt.Parent then
 								local _, np, _ = getCourierDestination()
 								dropPrompt = np
