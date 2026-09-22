@@ -516,6 +516,389 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
+	-- 🛣️ ROAD-FOLLOWING WAYPOINT SYSTEM & HIGHWAY BACKBONE
+	------------------------------------------------
+	local HttpService = game:GetService("HttpService")
+	local ROUTES_DIR = "HipHub/bxi_routes"
+	pcall(function()
+		if not isfolder or not isfolder("HipHub") then
+			if makefolder then makefolder("HipHub") end
+		end
+		if not isfolder or not isfolder(ROUTES_DIR) then
+			if makefolder then makefolder(ROUTES_DIR) end
+		end
+	end)
+
+	local function saveRouteWaypoints(routeName, waypoints)
+		if not writefile then return false end
+		local successSave, _ = pcall(function()
+			local filePath = ROUTES_DIR .. "/" .. routeName .. ".json"
+			local encoded = HttpService:JSONEncode(waypoints)
+			writefile(filePath, encoded)
+		end)
+		return successSave
+	end
+
+	local function loadRouteWaypoints(routeName)
+		if not readfile or not isfile then return nil end
+		local filePath = ROUTES_DIR .. "/" .. routeName .. ".json"
+		local points = nil
+		pcall(function()
+			if isfile(filePath) then
+				local content = readfile(filePath)
+				points = HttpService:JSONDecode(content)
+			end
+		end)
+		return points
+	end
+
+	-- Pre-mapped Highway Backbone Nodes along the Trans-Java / Cipali Toll Road
+	-- Ensures the bus naturally follows the asphalt corridor rather than cutting across mountains/void
+	local HIGHWAY_BACKBONE = {
+		{ name = "Baranangsiang_Exit", x = 22487.6, y = 286.9, z = -39420.7 },
+		{ name = "Gerbang_Bogor",      x = 20139.5, y = 287.6, z = -38120.9 },
+		{ name = "Tol_Sentul_Selatan", x = 20283.8, y = 286.1, z = -35000.0 },
+		{ name = "Tol_Sentul_Utara",   x = 20150.0, y = 280.0, z = -31500.0 },
+		{ name = "Citeureup",          x = 20042.8, y = 270.8, z = -27735.6 },
+		{ name = "Gunung_Putri",       x = 22000.0, y = 250.0, z = -25500.0 },
+		{ name = "Jatijajar_Depok",    x = 24322.9, y = 228.5, z = -23148.8 },
+		{ name = "Cibubur",            x = 26000.0, y = 180.0, z = -14000.0 },
+		{ name = "Rambutan",           x = 27536.3, y = 130.1, z = -3746.6 },
+		{ name = "Cakung",             x = 16053.0, y = 37.9,  z = 7200.0 },
+		{ name = "Pulogebang",         x = 20100.0, y = 65.2,  z = 12000.0 },
+		{ name = "Bekasi_Timur",       x = 6316.3,  y = -60.0, z = 20584.1 },
+		{ name = "Cikampek",           x = -2200.0, y = -138.9, z = 25000.0 },
+		{ name = "Cikamurang",         x = -15721.1, y = -212.6, z = 30866.7 },
+		{ name = "Patrol",             x = -18500.0, y = -215.0, z = 32000.0 },
+		{ name = "Cirebon_A",          x = -22296.7, y = -186.1, z = 31104.1 },
+		{ name = "Cirebon_Term",       x = -26300.5, y = -212.7, z = 33449.8 }
+	}
+
+	-- Calculate road path between start and destination following highway curves
+	local function getRoutePath(startPos, destPos, routeName)
+		-- 1. Check if user has saved custom recorded waypoints for this route
+		local customWaypoints = loadRouteWaypoints(routeName or currentRouteId)
+		if customWaypoints and #customWaypoints > 1 then
+			local startIndex, destIndex = 1, #customWaypoints
+			local minStartDist, minDestDist = 999999, 999999
+			for idx, pt in ipairs(customWaypoints) do
+				local sDist = (Vector3.new(pt.x - startPos.X, 0, pt.z - startPos.Z)).Magnitude
+				local dDist = (Vector3.new(pt.x - destPos.X, 0, pt.z - destPos.Z)).Magnitude
+				if sDist < minStartDist then minStartDist = sDist; startIndex = idx end
+				if dDist < minDestDist then minDestDist = dDist; destIndex = idx end
+			end
+
+			if math.abs(destIndex - startIndex) >= 1 then
+				local path = {}
+				local step = destIndex > startIndex and 1 or -1
+				for i = startIndex, destIndex, step do
+					table.insert(path, customWaypoints[i])
+				end
+				table.insert(path, { x = destPos.X, y = destPos.Y, z = destPos.Z })
+				return path
+			end
+		end
+
+		-- 2. Build road path using Highway Corridor Backbone
+		local flatDist = (Vector3.new(destPos.X - startPos.X, 0, destPos.Z - startPos.Z)).Magnitude
+		if flatDist <= 500 then
+			return { { x = destPos.X, y = destPos.Y, z = destPos.Z } }
+		end
+
+		local path = {}
+		local corridorDir = destPos.Z > startPos.Z and 1 or -1
+		for _, node in ipairs(HIGHWAY_BACKBONE) do
+			local isBetween = false
+			if corridorDir == 1 then
+				isBetween = node.z > (startPos.Z + 150) and node.z < (destPos.Z - 150)
+			else
+				isBetween = node.z < (startPos.Z - 150) and node.z > (destPos.Z + 150)
+			end
+			if isBetween then
+				table.insert(path, { x = node.x, y = node.y, z = node.z })
+			end
+		end
+
+		if corridorDir == -1 then
+			local rev = {}
+			for i = #path, 1, -1 do table.insert(rev, path[i]) end
+			path = rev
+		end
+
+		table.insert(path, { x = destPos.X, y = destPos.Y, z = destPos.Z })
+		return path
+	end
+
+	-- Waypoint Curve-Following Drive Engine
+	local function driveAlongWaypoints(waypoints, targetCruiseSpeed, arrivalThreshold)
+		if not waypoints or #waypoints == 0 then return false end
+		if #waypoints == 1 then
+			local pt = waypoints[1]
+			return driveToDestination(Vector3.new(pt.x, pt.y, pt.z), targetCruiseSpeed, arrivalThreshold)
+		end
+
+		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 95)
+		arrivalThreshold = arrivalThreshold or 16
+
+		local bus, seat = ensureBusAndSeat()
+		if not (bus and seat) then return false end
+
+		setHandbrake(false)
+
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+		isDrivingActive = true
+		local driveFinished = false
+
+		local originalCollides = {}
+		for _, part in ipairs(bus:GetDescendants()) do
+			if part:IsA("BasePart") then
+				originalCollides[part] = part.CanCollide
+			end
+		end
+
+		local look = seat.CFrame.LookVector
+		local curHeadingAngle = math.atan2(-look.X, -look.Z)
+		local currentSmoothSpeed = 0
+		local lastSeatY = seat.Position.Y
+
+		seat.Anchored = true
+		for _, part in ipairs(bus:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				part.Anchored = true
+			end
+		end
+
+		local currentWpIndex = 1
+		local totalWps = #waypoints
+		local currentDriveConn = nil
+
+		local driveStartTime = os.clock()
+		local totalEstDist = 0
+		for i = 1, totalWps - 1 do
+			totalEstDist = totalEstDist + (Vector3.new(waypoints[i+1].x - waypoints[i].x, 0, waypoints[i+1].z - waypoints[i].z)).Magnitude
+		end
+		local maxDriveTimeout = math.max((totalEstDist / math.max(targetCruiseSpeed * 0.4, 25)) * 2.0 + 35, 45)
+
+		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
+			if not isDrivingActive or not isFarmRunning then
+				driveFinished = true
+				return
+			end
+
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if not (curBus and curSeat) then
+				driveFinished = true
+				return
+			end
+
+			local seatPos = curSeat.Position
+			local targetWp = waypoints[currentWpIndex]
+			if not targetWp then
+				driveFinished = true
+				return
+			end
+
+			local wpVec = Vector3.new(targetWp.x - seatPos.X, 0, targetWp.z - seatPos.Z)
+			local distToWp = wpVec.Magnitude
+
+			-- Advance to next waypoint along road curve
+			local switchRadius = (currentWpIndex == totalWps) and (arrivalThreshold or 12) or 28
+			if distToWp <= switchRadius then
+				if currentWpIndex < totalWps then
+					currentWpIndex = currentWpIndex + 1
+					targetWp = waypoints[currentWpIndex]
+					wpVec = Vector3.new(targetWp.x - seatPos.X, 0, targetWp.z - seatPos.Z)
+					distToWp = wpVec.Magnitude
+				else
+					driveFinished = true
+					return
+				end
+			end
+
+			if (os.clock() - driveStartTime) >= maxDriveTimeout then
+				driveFinished = true
+				return
+			end
+
+			local maxSpeed = targetCruiseSpeed
+			if currentWpIndex == totalWps and distToWp < 70 then
+				maxSpeed = math.max(35, (distToWp / 70) * targetCruiseSpeed)
+			end
+
+			if currentSmoothSpeed < maxSpeed then
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
+			elseif currentSmoothSpeed > maxSpeed then
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
+			end
+
+			local moveDir = distToWp > 0.01 and wpVec.Unit or Vector3.zero
+			local stepDist = currentSmoothSpeed * dt
+			local newX = seatPos.X + (moveDir.X * stepDist)
+			local newZ = seatPos.Z + (moveDir.Z * stepDist)
+
+			-- 🛣️ Road-Clamped Ground Probing
+			local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 2.5, newZ))
+			local desiredSeatY
+			if currentRoadY then
+				desiredSeatY = currentRoadY + BUS_SEAT_GROUND_OFFSET
+			else
+				desiredSeatY = (targetWp.y or lastSeatY) + BUS_SEAT_GROUND_OFFSET
+			end
+
+			local maxVertStep = math.max(90 * dt, 3.0)
+			if lastSeatY < desiredSeatY then
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+			elseif lastSeatY > desiredSeatY then
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
+			end
+
+			-- Smooth Road Curve Steering
+			if moveDir.Magnitude > 0.05 then
+				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
+				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
+			end
+
+			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
+
+			pcall(function()
+				curBus:PivotTo(targetSeatCF)
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+				end
+			end)
+		end)
+
+		while not driveFinished and isDrivingActive and isFarmRunning do
+			task.wait(0.05)
+		end
+
+		if currentDriveConn then
+			currentDriveConn:Disconnect()
+			currentDriveConn = nil
+		end
+
+		pcall(function()
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if curBus then
+				for part, state in pairs(originalCollides) do
+					if part and part.Parent then
+						pcall(function()
+							part.CanCollide = state
+							part.Anchored = false
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end)
+					end
+				end
+			end
+			if curSeat then
+				curSeat.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
+				curSeat.AssemblyAngularVelocity = Vector3.zero
+				curSeat.Throttle = 0
+				curSeat.Anchored = false
+			end
+			if hrp then
+				hrp.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
+				hrp.AssemblyAngularVelocity = Vector3.zero
+			end
+		end)
+
+		isDrivingActive = false
+		return true
+	end
+
+	-- Master Drive Function: Chooses road curve pathing when enabled
+	local function navigateToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
+		local bus, seat = ensureBusAndSeat()
+		if not (bus and seat) then return false end
+
+		if Config.followRoadCurves ~= false then
+			local path = getRoutePath(seat.Position, destPos, currentRouteId)
+			if path and #path > 1 then
+				return driveAlongWaypoints(path, targetCruiseSpeed, arrivalThreshold)
+			end
+		end
+		return driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
+	end
+
+	------------------------------------------------
+	-- 📹 LIVE ROUTE WAYPOINT RECORDER
+	------------------------------------------------
+	local isRecordingRoute = false
+	local recordedWaypoints = {}
+	local recordConn = nil
+	local recordStatusLabel = nil
+
+	local function startRecordingRoute()
+		isRecordingRoute = true
+		recordedWaypoints = {}
+		local bus, seat = ensureBusAndSeat()
+		local lastRecordedPos = seat and seat.Position or Vector3.zero
+		local lastHeading = seat and seat.CFrame.LookVector or Vector3.zero
+
+		if seat then
+			table.insert(recordedWaypoints, {
+				x = math.floor(seat.Position.X * 10) / 10,
+				y = math.floor(seat.Position.Y * 10) / 10,
+				z = math.floor(seat.Position.Z * 10) / 10
+			})
+		end
+
+		if recordConn then recordConn:Disconnect(); recordConn = nil end
+		recordConn = RunService.Heartbeat:Connect(function()
+			if not isRecordingRoute then return end
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if not (curBus and curSeat) then return end
+
+			local pos = curSeat.Position
+			local dist = (Vector3.new(pos.X - lastRecordedPos.X, 0, pos.Z - lastRecordedPos.Z)).Magnitude
+			local heading = curSeat.CFrame.LookVector
+			local dot = math.clamp(heading:Dot(lastHeading), -1, 1)
+			local angleChange = math.deg(math.acos(dot))
+
+			if dist >= 40 or (dist >= 15 and angleChange >= 5) then
+				lastRecordedPos = pos
+				lastHeading = heading
+				table.insert(recordedWaypoints, {
+					x = math.floor(pos.X * 10) / 10,
+					y = math.floor(pos.Y * 10) / 10,
+					z = math.floor(pos.Z * 10) / 10
+				})
+				if recordStatusLabel then
+					pcall(function() recordStatusLabel.Set(string.format("🔴 Recording: %d curve points", #recordedWaypoints)) end)
+				end
+			end
+		end)
+	end
+
+	local function stopAndSaveRecording(routeName)
+		isRecordingRoute = false
+		if recordConn then recordConn:Disconnect(); recordConn = nil end
+		if #recordedWaypoints > 0 then
+			saveRouteWaypoints(routeName or currentRouteId, recordedWaypoints)
+			UI.Notify("Route Saved", string.format("Saved %d points for %s!", #recordedWaypoints, routeName or currentRouteId), 3, "success")
+			if recordStatusLabel then
+				pcall(function() recordStatusLabel.Set(string.format("✅ Saved: %d points (%s)", #recordedWaypoints, routeName or currentRouteId)) end)
+			end
+		else
+			UI.Notify("Recording Empty", "No waypoints recorded.", 2, "warning")
+			if recordStatusLabel then pcall(function() recordStatusLabel.Set("Route Recorder: Idle") end) end
+		end
+	end
+
+	------------------------------------------------
 	-- 🏁 FULL BUS JOB AUTO FARM PIPELINE
 	------------------------------------------------
 	local currentJobActive = false
@@ -711,7 +1094,7 @@ local success, err = pcall(function()
 
 		if distToTerm > 30 then
 			setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
-			driveToDestination(terminalTriggerPos, Config.targetSpeed or 95, 20)
+			navigateToDestination(terminalTriggerPos, Config.targetSpeed or 95, 20)
 			task.wait(0.5)
 		end
 
@@ -766,8 +1149,8 @@ local success, err = pcall(function()
 				local cpPart = findTargetPart(nextCheckpointPartName, "Checkpoints")
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					-- Drive directly to part center with tight 3-stud threshold
-					driveToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
+					-- Drive to checkpoint following road curves
+					navigateToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
 					-- Precision align bus inside checkpoint zone oriented to cpPart CFrame
 					local parkedCF = snapBusToCheckpoint(cpPart, 14)
@@ -844,7 +1227,7 @@ local success, err = pcall(function()
 
 					if isFarmRunning and currentJobActive then
 						setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-						driveToDestination(endTrigger.Position, Config.targetSpeed or 95, 12)
+						navigateToDestination(endTrigger.Position, Config.targetSpeed or 95, 12)
 					end
 				end
 				task.wait(2)
@@ -1090,6 +1473,37 @@ local success, err = pcall(function()
 
 	UI.AddToggle(tab, "Fast Respawn Loop (Instant Reset to Garage)", Config.autoRespawnLoop ~= false, function(state)
 		Config.autoRespawnLoop = state
+	end)
+
+	UI.AddToggle(tab, "Follow Road Curves (Follow Asphalt Path)", Config.followRoadCurves ~= false, function(state)
+		Config.followRoadCurves = state
+		if state then
+			UI.Notify("Road Curves Active", "Bus will steer along asphalt highway curves!", 3, "success")
+		end
+	end)
+
+	-- 3. Road Curve Recorder
+	UI.AddSection(tab, "Road Curve Recorder (GPS Waypoints)")
+
+	recordStatusLabel = UI.AddLabel(tab, "Route Recorder: Idle", "yellow")
+
+	local recordToggle = UI.AddToggle(tab, "Record Route Waypoints (Live Drive Tracker)", false, function(state)
+		if state then
+			startRecordingRoute()
+			UI.Notify("Recording Started", "Drive your bus! Points are recorded along curves.", 3, "success")
+		else
+			stopAndSaveRecording(currentRouteId)
+		end
+	end)
+
+	UI.AddButton(tab, "Clear Custom Route Waypoints", function()
+		pcall(function()
+			local filePath = ROUTES_DIR .. "/" .. currentRouteId .. ".json"
+			if isfile and isfile(filePath) and delfile then
+				delfile(filePath)
+				UI.Notify("Route Cleared", "Reset to highway backbone curves.", 2, "warning")
+			end
+		end)
 	end)
 
 	-- 3. Automation Modules

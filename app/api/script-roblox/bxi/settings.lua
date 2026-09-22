@@ -30,6 +30,7 @@ local success, err = pcall(function()
 			targetSpeed = 95,
 			arriveDelay = 180,
 			jobCooldown = 5,
+			followRoadCurves = true,
 			autoNextJob = true,
 			autoRespawnLoop = true,
 			autoClaimQuests = true,
