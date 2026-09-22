@@ -310,15 +310,13 @@ local success, err = pcall(function()
 		local lastStuckCheckTime = os.clock()
 		local lastStuckCheckPos = seat.Position
 
-		-- 🛡️ Natural Road Driving Engine: Bus remains UNANCHORED for authentic server physics replication
-		seat.Anchored = false
+		-- 🛡️ Anti-Stuck & Anti-Sink Translation Engine:
+		-- Anchor bus & disable collisions during transit to eliminate fence/pole snagging & physics sinking
+		seat.Anchored = true
 		for _, part in ipairs(bus:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.Anchored = false
-				-- Ensure collision remains active on wheels/chassis so road contacts replicate naturally
-				if part.Name:lower():find("wheel") or part.Name:lower():find("tire") or part == seat then
-					part.CanCollide = true
-				end
+				part.CanCollide = false
+				part.Anchored = true
 			end
 		end
 
@@ -332,7 +330,7 @@ local success, err = pcall(function()
 
 		local driveStartTime = os.clock()
 		local expectedSeconds = totalFlatDist / math.max(targetCruiseSpeed * 0.4, 25)
-		local maxDriveTimeout = math.max(expectedSeconds * 2.5 + 30.0, 45.0)
+		local maxDriveTimeout = math.max(expectedSeconds * 2.0 + 20.0, 35.0)
 
 		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
 			if not isDrivingActive or not isFarmRunning then
@@ -366,37 +364,48 @@ local success, err = pcall(function()
 			end
 
 			if currentSmoothSpeed < maxSpeed then
-				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (55 * dt))
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
 			elseif currentSmoothSpeed > maxSpeed then
-				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (75 * dt))
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
 			end
 
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
 
-			-- Road Ground Elevation Tracking
-			local currentGroundY = probeGround(seatPos, seatPos.Y - BUS_SEAT_GROUND_OFFSET)
-			local idealSeatY = (currentGroundY or seatPos.Y) + BUS_SEAT_GROUND_OFFSET
-			local vertDiff = idealSeatY - seatPos.Y
-			local vertVel = math.clamp(vertDiff * 8, -35, 35)
+			-- 🛣️ 3D DIRECT TRAJECTORY with Anti-Sink Road Height Floor
+			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
+			local desiredSeatY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
+
+			-- Probe ground under current prospective point to ensure bus never dips below asphalt
+			local stepDist = currentSmoothSpeed * dt
+			local newX = seatPos.X + (moveDir.X * stepDist)
+			local newZ = seatPos.Z + (moveDir.Z * stepDist)
+			local currentRoadY = probeGround(Vector3.new(newX, desiredSeatY, newZ), desiredSeatY - BUS_SEAT_GROUND_OFFSET)
+			local floorSeatY = (currentRoadY or (desiredSeatY - BUS_SEAT_GROUND_OFFSET)) + BUS_SEAT_GROUND_OFFSET
+			if desiredSeatY < floorSeatY then
+				desiredSeatY = floorSeatY
+			end
+
+			-- Adaptive vertical interpolation
+			local maxVertStep = math.max(150 * dt, 8)
+			if lastSeatY < desiredSeatY then
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+			elseif lastSeatY > desiredSeatY then
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
+			end
 
 			-- Smooth Angular Steering
 			if moveDir.Magnitude > 0.05 then
 				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
 			end
 
-			-- 🏎️ True AssemblyLinearVelocity driving: Replicates 100% genuine vehicle physics to Roblox server
-			local driveVelocity = Vector3.new(moveDir.X * currentSmoothSpeed, vertVel, moveDir.Z * currentSmoothSpeed)
-			curSeat.AssemblyLinearVelocity = driveVelocity
-			curSeat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-			curSeat.Throttle = 1
+			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
 
-			-- Smooth orientation alignment without breaking unanchored physics
 			pcall(function()
-				local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
-				-- Apply smooth rotational stabilization
-				curSeat.CFrame = CFrame.new(curSeat.Position) * currentRot
+				curBus:PivotTo(targetSeatCF)
 
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -405,13 +414,13 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- Anti-Stuck Detection (Check every 1.8s)
+			-- Anti-Stuck Detection (Check every 1.5s)
 			local now = os.clock()
-			if (now - lastStuckCheckTime) >= 1.8 then
+			if (now - lastStuckCheckTime) >= 1.5 then
 				local movedDist = (seatPos - lastStuckCheckPos).Magnitude
-				if movedDist < 5 and flatDist > arrivalThreshold then
-					-- Natural boost to overcome small road curbs
-					curSeat.AssemblyLinearVelocity = driveVelocity + Vector3.new(0, 15, 0)
+				if movedDist < 6 and flatDist > arrivalThreshold then
+					lastSeatY = desiredSeatY + 2
+					curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY + 2, seatPos.Z + moveDir.Z * 8) * currentRot)
 				end
 				lastStuckCheckTime = now
 				lastStuckCheckPos = seatPos
@@ -427,7 +436,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore collisions and bring vehicle to smooth halt
+		-- Natural stop at destination: restore exact original collisions, unanchor seat & settle on road
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
