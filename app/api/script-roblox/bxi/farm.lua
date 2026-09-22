@@ -94,7 +94,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🚌 BUS SPAWN & MOUNT HELPERS
 	------------------------------------------------
-	local BUS_SEAT_GROUND_OFFSET = 6.72 -- Measured exact height of Jetbus DriveSeat above road asphalt
+	local BUS_SEAT_GROUND_OFFSET = 6.02 -- Measured exact factory height of Jetbus DriveSeat above road asphalt
 
 	local function getMyBus()
 		local spawned = workspace:FindFirstChild("SpawnedVehicles")
@@ -255,15 +255,47 @@ local success, err = pcall(function()
 
 		rayParams.FilterDescendantsInstances = filterList
 
-		-- Safe downwards-only probe: ray starts just 0.5 stud above target to ensure it never hits overhead roofs/ceilings
-		local rayOrigin = Vector3.new(pos.X, pos.Y + 0.5, pos.Z)
-		local rayDir = Vector3.new(0, -35, 0)
+		-- Safe downwards probe: ray starts at pos.Y (near seat height, ~6 studs above road) and casts down 45 studs
+		local rayOrigin = Vector3.new(pos.X, pos.Y, pos.Z)
+		local rayDir = Vector3.new(0, -45, 0)
 		local hit = workspace:Raycast(rayOrigin, rayDir, rayParams)
 
-		if hit then
+		-- Strictly accept only surfaces below ray origin to filter out overhead roofs, overpasses, and signs
+		if hit and hit.Position.Y <= (pos.Y - 1.0) then
 			return hit.Position.Y
 		end
 		return fallbackY
+	end
+
+	-- Helper: determine exact physical road surface under a checkpoint or terminal trigger part
+	local function getPartGroundY(part)
+		if not (part and part:IsA("BasePart")) then return nil end
+		-- Checkpoint/trigger parts have Size.Y ~ 15-20 studs, with center suspended 8-10 studs in air.
+		-- The exact physical road surface is at the bottom face of the part:
+		local bottomY = part.Position.Y - (part.Size.Y / 2)
+		local probed = probeGround(Vector3.new(part.Position.X, part.Position.Y, part.Position.Z), bottomY)
+		return probed or bottomY
+	end
+
+	-- Helper: map terminal name to legitimate in-game RequestTeleport fast-travel destination key
+	local function getTeleportLocationKey(termId)
+		local t = tostring(termId or ""):lower()
+		if t:find("baranangsiang") or t:find("bogor") then
+			return "Bogor"
+		elseif t:find("rambutan") then
+			return "Rambutan"
+		elseif t:find("cirebon") then
+			return "Cirebon"
+		elseif t:find("cikampek") then
+			return "Cikampek"
+		elseif t:find("depok") or t:find("jatijajar") then
+			return "Depok"
+		elseif t:find("bekasi") then
+			return "Bekasi"
+		elseif t:find("tjpriuk") or t:find("priuk") then
+			return "Tjpriuk"
+		end
+		return "Bogor"
 	end
 
 	-- Drive from current location to target destination using AssemblyLinearVelocity
@@ -297,8 +329,20 @@ local success, err = pcall(function()
 		local startSeatY = startSeatPos.Y
 
 		-- Determine realistic road ground elevation at target destination
-		local destGroundY = probeGround(destPos, startSeatY - BUS_SEAT_GROUND_OFFSET)
-		local targetFinalSeatY = (destGroundY or (destPos.Y > -400 and destPos.Y or startSeatY)) + BUS_SEAT_GROUND_OFFSET
+		local destGroundY = probeGround(Vector3.new(destPos.X, destPos.Y + 2.0, destPos.Z), destPos.Y > -400 and (destPos.Y - 10) or (startSeatY - BUS_SEAT_GROUND_OFFSET))
+		local targetFinalSeatY = (destGroundY or (startSeatY - BUS_SEAT_GROUND_OFFSET)) + BUS_SEAT_GROUND_OFFSET
+
+		-- Snap bus down to road if initially suspended in air before starting drive
+		local initRoadY = probeGround(Vector3.new(startSeatPos.X, startSeatY, startSeatPos.Z))
+		if initRoadY then
+			local groundedY = initRoadY + BUS_SEAT_GROUND_OFFSET
+			if math.abs(startSeatY - groundedY) > 1.0 then
+				startSeatY = groundedY
+				pcall(function()
+					bus:PivotTo(CFrame.new(startSeatPos.X, groundedY, startSeatPos.Z) * (seat.CFrame - seat.Position))
+				end)
+			end
+		end
 
 		local look = seat.CFrame.LookVector
 		-- CFrame.Angles(0,Y,0) produces LookVector = (-sin Y, 0, -cos Y), so
@@ -371,22 +415,25 @@ local success, err = pcall(function()
 
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
 
-			-- 🛣️ 3D DIRECT TRAJECTORY with Anti-Sink Road Height Floor
-			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
-			local desiredSeatY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
-
-			-- Probe ground under current prospective point to ensure bus never dips below asphalt
+			-- 🛣️ STRICT GROUND-CLAMPED ROAD ELEVATION (Zero Sky-Flying, Glued to Asphalt)
 			local stepDist = currentSmoothSpeed * dt
 			local newX = seatPos.X + (moveDir.X * stepDist)
 			local newZ = seatPos.Z + (moveDir.Z * stepDist)
-			local currentRoadY = probeGround(Vector3.new(newX, desiredSeatY, newZ), desiredSeatY - BUS_SEAT_GROUND_OFFSET)
-			local floorSeatY = (currentRoadY or (desiredSeatY - BUS_SEAT_GROUND_OFFSET)) + BUS_SEAT_GROUND_OFFSET
-			if desiredSeatY < floorSeatY then
-				desiredSeatY = floorSeatY
+
+			-- Probe ground directly under prospective step point
+			local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 2.5, newZ))
+			local desiredSeatY
+			if currentRoadY then
+				-- Bus wheels strictly clamped to the road asphalt
+				desiredSeatY = currentRoadY + BUS_SEAT_GROUND_OFFSET
+			else
+				-- Only fallback to 3D interpolation if crossing unstreamed gap or bridge seam
+				local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
+				desiredSeatY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
 			end
 
-			-- Adaptive vertical interpolation
-			local maxVertStep = math.max(150 * dt, 8)
+			-- Smooth vertical following (adapts to road slope/elevation smoothly without jitter)
+			local maxVertStep = math.max(90 * dt, 3.0)
 			if lastSeatY < desiredSeatY then
 				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
 			elseif lastSeatY > desiredSeatY then
@@ -496,7 +543,7 @@ local success, err = pcall(function()
 		local targetCF = nil
 		pcall(function()
 			local cpCF = cpPart.CFrame
-			local roadY = probeGround(cpPart.Position, cpPart.Position.Y - 2.0) or (cpPart.Position.Y - 2.0)
+			local roadY = getPartGroundY(cpPart) or (cpPart.Position.Y - (cpPart.Size.Y / 2))
 			local seatTargetY = roadY + BUS_SEAT_GROUND_OFFSET
 
 			-- Align orientation along checkpoint slot axis (flip 180 deg if approach direction is reversed)
@@ -511,7 +558,11 @@ local success, err = pcall(function()
 			local targetX = cpPart.Position.X + (forwardDir.X * offset)
 			local targetZ = cpPart.Position.Z + (forwardDir.Z * offset)
 
-			targetCF = CFrame.new(targetX, seatTargetY, targetZ) * rotCF
+			-- Fine-tune ground elevation at exact forward offset position
+			local localRoadY = probeGround(Vector3.new(targetX, roadY + 2.5, targetZ), roadY) or roadY
+			local finalSeatY = localRoadY + BUS_SEAT_GROUND_OFFSET
+
+			targetCF = CFrame.new(targetX, finalSeatY, targetZ) * rotCF
 			snapBus:PivotTo(targetCF)
 
 			-- Unanchor all parts so physics replication to server registers presence in trigger zone
@@ -643,9 +694,20 @@ local success, err = pcall(function()
 
 		-- 2. Ensure Bus is physically inside Terminal Zone before Invoking StartBusJob (Distance Anti-Exploit Check)
 		local termPart = findTargetPart(currentTerminalId, "BusJobTriggers")
-		local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 286.93, -39584.0)
+		local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 294.87, -39584.0)
 		local seatPos = seat.Position
 		local distToTerm = (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude
+
+		-- 🛡️ Anti-Cross-Map Void Guard: If player/bus is far (> 3000 studs) from terminal,
+		-- fast-travel via official server remote first. NEVER attempt to drive across the void!
+		if distToTerm > 3000 then
+			setFarmState(FARM_STATE.STARTING_JOB, "Fast-Traveling to Terminal")
+			respawnToStart()
+			bus, seat = ensureBusAndSeat()
+			if not (bus and seat) then return end
+			seatPos = seat.Position
+			distToTerm = (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude
+		end
 
 		if distToTerm > 30 then
 			setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
@@ -854,17 +916,34 @@ local success, err = pcall(function()
 		end)
 		task.wait(1.5)
 
-		-- 🛡️ Safe Terminal Repositioning without character death (No hum.Health = 0)
-		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		local termPart = findTargetPart(currentTerminalId, "BusJobTriggers")
-		if hrp and termPart then
-			local dist = (Vector3.new(hrp.Position.X - termPart.Position.X, 0, hrp.Position.Z - termPart.Position.Z)).Magnitude
-			if dist > 35 then
-				hrp.CFrame = termPart.CFrame + Vector3.new(0, 3, 0)
-			end
+		-- 🛡️ Safe Official Server Teleport to Terminal (Built-in Fast Travel)
+		local targetLocKey = getTeleportLocationKey(currentTerminalId)
+		local teleportSuccess = false
+		if Remotes:FindFirstChild("RequestTeleport") then
+			pcall(function()
+				local res = Remotes.RequestTeleport:InvokeServer(targetLocKey)
+				if res == true then
+					teleportSuccess = true
+				end
+			end)
 		end
-		task.wait(1.5)
+
+		if teleportSuccess then
+			task.wait(1.8)
+		else
+			-- Fallback repositioning only if remote failed
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			local termPart = findTargetPart(currentTerminalId, "BusJobTriggers")
+			if hrp and termPart then
+				local dist = (Vector3.new(hrp.Position.X - termPart.Position.X, 0, hrp.Position.Z - termPart.Position.Z)).Magnitude
+				if dist > 35 then
+					local termRoadY = getPartGroundY(termPart) or (termPart.Position.Y - (termPart.Size.Y / 2))
+					hrp.CFrame = CFrame.new(termPart.Position.X, termRoadY + 3.5, termPart.Position.Z)
+				end
+			end
+			task.wait(1.5)
+		end
 	end
 
 	task.spawn(function()
