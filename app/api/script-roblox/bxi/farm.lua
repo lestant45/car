@@ -17,7 +17,8 @@ local success, err = pcall(function()
 	local Config = _G.HipHubConfig and _G.HipHubConfig.farm or {
 		autoBusJob = false,
 		selectedRoute = "Baranangsiang_ke_Rambutan",
-		targetSpeed = 95,
+		targetSpeed = 80,
+		tripPacing = true,
 		arriveDelay = 180,
 		jobCooldown = 5,
 		autoNextJob = true,
@@ -26,6 +27,8 @@ local success, err = pcall(function()
 		selectedBox = "Event",
 		targetEarn = 0
 	}
+	if Config.tripPacing == nil then Config.tripPacing = true end
+	if Config.targetSpeed == nil then Config.targetSpeed = 80 end
 
 	------------------------------------------------
 	-- 📊 AUTO FARM STATE & METRICS
@@ -162,6 +165,22 @@ local success, err = pcall(function()
 	-- 🛑 HANDBRAKE & ANTI-ROLL POSITION LOCK
 	------------------------------------------------
 	local checkpointHoldConn = nil
+
+	local function ensureEngineOn()
+		pcall(function()
+			local achassisGui = player.PlayerGui:FindFirstChild("A-Chassis Interface")
+			if achassisGui then
+				local isOn = achassisGui:FindFirstChild("IsOn", true)
+				if isOn and not isOn.Value then
+					isOn.Value = true
+				end
+				local pbrake = achassisGui:FindFirstChild("Values") and achassisGui.Values:FindFirstChild("PBrake")
+				if pbrake and pbrake.Value then
+					pbrake.Value = false
+				end
+			end
+		end)
+	end
 
 	local function setHandbrake(enabled)
 		pcall(function()
@@ -555,23 +574,28 @@ local success, err = pcall(function()
 	-- Pre-mapped Highway Backbone Nodes along the Trans-Java / Cipali Toll Road
 	-- Ensures the bus naturally follows the asphalt corridor rather than cutting across mountains/void
 	local HIGHWAY_BACKBONE = {
-		{ name = "Baranangsiang_Exit", x = 22487.6, y = 286.9, z = -39420.7 },
-		{ name = "Gerbang_Bogor",      x = 20139.5, y = 287.6, z = -38120.9 },
-		{ name = "Tol_Sentul_Selatan", x = 20283.8, y = 286.1, z = -35000.0 },
-		{ name = "Tol_Sentul_Utara",   x = 20150.0, y = 280.0, z = -31500.0 },
-		{ name = "Citeureup",          x = 20042.8, y = 270.8, z = -27735.6 },
-		{ name = "Gunung_Putri",       x = 22000.0, y = 250.0, z = -25500.0 },
-		{ name = "Jatijajar_Depok",    x = 24322.9, y = 228.5, z = -23148.8 },
-		{ name = "Cibubur",            x = 26000.0, y = 180.0, z = -14000.0 },
-		{ name = "Rambutan",           x = 27536.3, y = 130.1, z = -3746.6 },
-		{ name = "Cakung",             x = 16053.0, y = 37.9,  z = 7200.0 },
-		{ name = "Pulogebang",         x = 20100.0, y = 65.2,  z = 12000.0 },
-		{ name = "Bekasi_Timur",       x = 6316.3,  y = -60.0, z = 20584.1 },
-		{ name = "Cikampek",           x = -2200.0, y = -138.9, z = 25000.0 },
-		{ name = "Cikamurang",         x = -15721.1, y = -212.6, z = 30866.7 },
-		{ name = "Patrol",             x = -18500.0, y = -215.0, z = 32000.0 },
-		{ name = "Cirebon_A",          x = -22296.7, y = -186.1, z = 31104.1 },
-		{ name = "Cirebon_Term",       x = -26300.5, y = -212.7, z = 33449.8 }
+		{ name = "Baranangsiang_Exit",      x = 22487.6, y = 286.9, z = -39420.7 },
+		{ name = "Gerbang_Bogor_Approach", x = 21000.0, y = 287.0, z = -38800.0 },
+		{ name = "Gerbang_Bogor_Plaza",    x = 20300.0, y = 287.4, z = -38100.0 },
+		{ name = "Bogor_Tol_Curve_1",      x = 20035.0, y = 285.8, z = -37700.0 },
+		{ name = "Bogor_Tol_Curve_2",      x = 19165.0, y = 285.7, z = -37500.0 },
+		{ name = "Tol_Sentul_Selatan",      x = 19340.0, y = 282.7, z = -36700.0 },
+		{ name = "Tol_Sentul_Mid",          x = 19380.0, y = 282.7, z = -35000.0 },
+		{ name = "Tol_Sentul_Utara",        x = 19340.0, y = 283.1, z = -31500.0 },
+		{ name = "Citeureup_Approach",      x = 20140.0, y = 282.7, z = -29500.0 },
+		{ name = "Citeureup",               x = 20380.0, y = 275.1, z = -27765.0 },
+		{ name = "Gunung_Putri",            x = 22000.0, y = 250.0, z = -25500.0 },
+		{ name = "Jatijajar_Depok",         x = 24322.9, y = 228.5, z = -23148.8 },
+		{ name = "Cibubur",                 x = 26000.0, y = 180.0, z = -14000.0 },
+		{ name = "Rambutan",                x = 27536.3, y = 130.1, z = -3746.6 },
+		{ name = "Cakung",                  x = 16053.0, y = 37.9,  z = 7200.0 },
+		{ name = "Pulogebang",              x = 20100.0, y = 65.2,  z = 12000.0 },
+		{ name = "Bekasi_Timur",            x = 6316.3,  y = -60.0, z = 20584.1 },
+		{ name = "Cikampek",                x = -2200.0, y = -138.9, z = 25000.0 },
+		{ name = "Cikamurang",              x = -15721.1, y = -212.6, z = 30866.7 },
+		{ name = "Patrol",                  x = -18500.0, y = -215.0, z = 32000.0 },
+		{ name = "Cirebon_A",               x = -22296.7, y = -186.1, z = 31104.1 },
+		{ name = "Cirebon_Term",            x = -26300.5, y = -212.7, z = 33449.8 }
 	}
 
 	-- Calculate road path between start and destination following highway curves
@@ -1143,31 +1167,69 @@ local success, err = pcall(function()
 
 		-- 5. Route Navigation Loop (Checkpoint to Checkpoint)
 		local lastHandledCheckpoint = nil
+		local legStartTime = os.clock()
+		local lastLegStartPos = seat and seat.Position or terminalTriggerPos
+
 		while currentJobActive and isFarmRunning do
 			-- A. Driving to next checkpoint
 			if nextCheckpointPartName and nextCheckpointPartName ~= lastHandledCheckpoint then
 				local cpPart = findTargetPart(nextCheckpointPartName, "Checkpoints")
 				if cpPart and cpPart:IsA("BasePart") then
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
-					-- Drive to checkpoint following road curves
-					navigateToDestination(cpPart.Position, Config.targetSpeed or 95, 3)
 
-					-- Precision align bus inside checkpoint zone oriented to cpPart CFrame
+					-- 1. Calculate Leg Distance & Dynamic Safe Time (80 studs/s = ~75 km/h)
+					local curSeatPos = seat and seat.Position or lastLegStartPos
+					local legDist = (Vector3.new(cpPart.Position.X - curSeatPos.X, 0, cpPart.Position.Z - curSeatPos.Z)).Magnitude
+					local safeSpeed = math.clamp(tonumber(Config.targetSpeed) or 80, 60, 95)
+					local minLegTime = math.max(legDist / safeSpeed, 4.0)
+
+					-- 2. Direct Smooth Gliding to Perimeter (38 studs in front of checkpoint)
+					local approachDir = (cpPart.Position - curSeatPos).Unit
+					if approachDir.Magnitude < 0.1 then approachDir = Vector3.new(0, 0, 1) end
+					local perimeterPos = cpPart.Position - (approachDir * 38.0)
+
+					-- Request streaming around target checkpoint area early
+					requestStreamAsync(cpPart.Position)
+
+					-- Smooth glide directly to perimeter
+					driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
+
+					-- 3. Snap & Park at Perimeter on solid ground
+					local perimGroundY = probeGround(Vector3.new(perimeterPos.X, perimeterPos.Y + 2.5, perimeterPos.Z)) or perimeterPos.Y
+					local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * CFrame.lookAt(Vector3.zero, approachDir)
+					pcall(function()
+						bus:PivotTo(perimCF)
+						seat.AssemblyLinearVelocity = Vector3.zero
+						seat.AssemblyAngularVelocity = Vector3.zero
+					end)
+					ensureEngineOn()
+					setHandbrake(true)
+
+					-- 4. 🛡️ SMART ADAPTIVE PRE-ARRIVAL PACING GUARD: Wait for organic trip time before touching checkpoint
+					if Config.tripPacing ~= false then
+						local legElapsed = os.clock() - legStartTime
+						while legElapsed < minLegTime and isFarmRunning and currentJobActive do
+							local remainingSec = math.ceil(minLegTime - legElapsed)
+							setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("Pacing Waktu Sah: Sisa %ds", remainingSec))
+							task.wait(0.5)
+							legElapsed = os.clock() - legStartTime
+						end
+					end
+
+					-- 5. Advance into Checkpoint Zone (Touch Trigger with Valid Time)
+					setHandbrake(false)
 					local parkedCF = snapBusToCheckpoint(cpPart, 14)
 					task.wait(0.2)
 					parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
 					holdCheckpointPosition(parkedCF)
 
-					-- 🛡️ Natural Checkpoint Triggering: Never fire CheckpointHeartbeat (honeypot trap)
-					-- Wait naturally for server zone trigger to initiate passenger countdown
+					-- 6. Wait for Server to Initiate Passenger Countdown
 					local cpWaitStart = os.clock()
 					local lastHealTime = os.clock()
 					local nudgeCount = 0
 
 					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 22 do
 						local now = os.clock()
-
-						-- If server hasn't triggered countdown after 3.5s, gently adjust parking position inside zone
 						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 3.5 and (now - lastHealTime) >= 2.8 then
 							lastHealTime = now
 							nudgeCount = nudgeCount + 1
@@ -1176,22 +1238,18 @@ local success, err = pcall(function()
 							parkedCF = snapBusToCheckpoint(cpPart, progressiveOffset) or parkedCF
 							holdCheckpointPosition(parkedCF)
 						end
-
 						task.wait(0.2)
 					end
 
-					-- B. Waiting inside Checkpoint Zone for passenger countdown
+					-- 7. Waiting inside Checkpoint Zone for passenger countdown
 					if waitingForCheckpointCountdown and isFarmRunning and currentJobActive then
 						setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
 						local waitTimeout = os.clock()
 						local lastWaitHealTime = os.clock()
-
-						-- Ensure anti-roll position lock & handbrake stay strictly active
 						holdCheckpointPosition(parkedCF)
 
 						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 30 do
 							local now = os.clock()
-							-- If server fired CheckpointZoneExit while waiting, re-center immediately
 							if not isInCheckpointZone and (now - lastWaitHealTime) >= 1.5 then
 								lastWaitHealTime = now
 								parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
@@ -1199,36 +1257,52 @@ local success, err = pcall(function()
 							end
 							task.wait(0.25)
 						end
-						-- Only mark as completed once passenger loading actually started/finished
 						lastHandledCheckpoint = nextCheckpointPartName
+						-- Reset leg timer for next segment
+						legStartTime = os.clock()
+						lastLegStartPos = cpPart.Position
 					end
 
-					-- Release parking hold once passenger loading finishes
 					releaseCheckpointHold()
 				end
 			end
 
-			-- C. Driving to Final Destination with Safe Anti-Ban Delay
+			-- C. Driving to Final Destination with Smart Pacing Guard
 			if endTriggerPartName and currentJobActive then
 				local endTrigger = findTargetPart(endTriggerPartName, "BusJobEndTriggers")
 				if endTrigger and endTrigger:IsA("BasePart") then
-					-- 🛡️ SAFE ANTI-BAN DELAY: Dynamically scaled based on checkpoints & distance
-					local safeBaseTime = math.max((totalCheckpoints or 8) * 25 + 40, 180)
-					local minDelay = math.max(safeBaseTime, Config.arriveDelay or 180)
-					local elapsed = os.clock() - jobStartTime
-					local remaining = minDelay - elapsed
+					local curSeatPos = seat and seat.Position or lastLegStartPos
+					local legDist = (Vector3.new(endTrigger.Position.X - curSeatPos.X, 0, endTrigger.Position.Z - curSeatPos.Z)).Magnitude
+					local safeSpeed = math.clamp(tonumber(Config.targetSpeed) or 80, 60, 95)
+					local minLegTime = math.max(legDist / safeSpeed, 4.0)
 
-					while remaining > 0 and isFarmRunning and currentJobActive do
-						local secs = math.ceil(remaining)
-						setFarmState(FARM_STATE.DRIVING_FINAL, string.format("Safe Delay Finish (%ds)", secs))
-						task.wait(0.5)
-						remaining = minDelay - (os.clock() - jobStartTime)
+					local approachDir = (endTrigger.Position - curSeatPos).Unit
+					if approachDir.Magnitude < 0.1 then approachDir = Vector3.new(0, 0, 1) end
+					local perimeterPos = endTrigger.Position - (approachDir * 35.0)
+
+					requestStreamAsync(endTrigger.Position)
+					driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
+
+					local perimGroundY = probeGround(Vector3.new(perimeterPos.X, perimeterPos.Y + 2.5, perimeterPos.Z)) or perimeterPos.Y
+					local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * CFrame.lookAt(Vector3.zero, approachDir)
+					pcall(function() bus:PivotTo(perimCF) end)
+					ensureEngineOn()
+					setHandbrake(true)
+
+					-- Smart Pacing for final stop
+					if Config.tripPacing ~= false then
+						local legElapsed = os.clock() - legStartTime
+						while legElapsed < minLegTime and isFarmRunning and currentJobActive do
+							local remainingSec = math.ceil(minLegTime - legElapsed)
+							setFarmState(FARM_STATE.DRIVING_FINAL, string.format("Safe Delay Finish (%ds)", remainingSec))
+							task.wait(0.5)
+							legElapsed = os.clock() - legStartTime
+						end
 					end
 
-					if isFarmRunning and currentJobActive then
-						setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-						navigateToDestination(endTrigger.Position, Config.targetSpeed or 95, 12)
-					end
+					setHandbrake(false)
+					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
+					driveToDestination(endTrigger.Position, safeSpeed, 10)
 				end
 				task.wait(2)
 				break
@@ -1439,6 +1513,10 @@ local success, err = pcall(function()
 			setFarmState(FARM_STATE.IDLE, "Stopped")
 			UI.Notify("Auto Farm Stopped", "Farm paused.", 2, "warning")
 		end
+	end)
+
+	UI.AddToggle(tab, "Bus Smart Pacing (Anti-425 Ban Guard)", Config.tripPacing ~= false, function(state)
+		Config.tripPacing = state
 	end)
 
 	local AVAILABLE_ROUTES = {
