@@ -18,8 +18,8 @@ local success, err = pcall(function()
 		autoBusJob = false,
 		selectedRoute = "Baranangsiang_ke_Rambutan",
 		targetSpeed = 95,
-		arriveDelay = 65,
-		jobCooldown = 3,
+		arriveDelay = 180,
+		jobCooldown = 5,
 		autoNextJob = true,
 		autoClaimQuests = true,
 		autoSpinBox = false,
@@ -310,12 +310,15 @@ local success, err = pcall(function()
 		local lastStuckCheckTime = os.clock()
 		local lastStuckCheckPos = seat.Position
 
-		-- Anchor bus during smooth translation to eliminate physics solver vibration
-		seat.Anchored = true
+		-- 🛡️ Natural Road Driving Engine: Bus remains UNANCHORED for authentic server physics replication
+		seat.Anchored = false
 		for _, part in ipairs(bus:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.CanCollide = false
-				part.Anchored = true
+				part.Anchored = false
+				-- Ensure collision remains active on wheels/chassis so road contacts replicate naturally
+				if part.Name:lower():find("wheel") or part.Name:lower():find("tire") or part == seat then
+					part.CanCollide = true
+				end
 			end
 		end
 
@@ -329,7 +332,7 @@ local success, err = pcall(function()
 
 		local driveStartTime = os.clock()
 		local expectedSeconds = totalFlatDist / math.max(targetCruiseSpeed * 0.4, 25)
-		local maxDriveTimeout = math.max(expectedSeconds * 2.0 + 20.0, 35.0)
+		local maxDriveTimeout = math.max(expectedSeconds * 2.5 + 30.0, 45.0)
 
 		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
 			if not isDrivingActive or not isFarmRunning then
@@ -363,42 +366,37 @@ local success, err = pcall(function()
 			end
 
 			if currentSmoothSpeed < maxSpeed then
-				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (55 * dt))
 			elseif currentSmoothSpeed > maxSpeed then
-				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (75 * dt))
 			end
 
 			local moveDir = destVector.Magnitude > 0.01 and destVector.Unit or Vector3.zero
 
-			-- 🛣️ 3D DIRECT TRAJECTORY: Smooth linear elevation towards target checkpoint (no wall/roof climbing)
-			local progress = math.clamp(1 - (flatDist / math.max(totalFlatDist, 1)), 0, 1)
-			local desiredSeatY = startSeatY + ((targetFinalSeatY - startSeatY) * progress)
-
-			-- Adaptive vertical interpolation
-			local maxVertStep = math.max(150 * dt, 8)
-			if lastSeatY < desiredSeatY then
-				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
-			elseif lastSeatY > desiredSeatY then
-				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
-			end
+			-- Road Ground Elevation Tracking
+			local currentGroundY = probeGround(seatPos, seatPos.Y - BUS_SEAT_GROUND_OFFSET)
+			local idealSeatY = (currentGroundY or seatPos.Y) + BUS_SEAT_GROUND_OFFSET
+			local vertDiff = idealSeatY - seatPos.Y
+			local vertVel = math.clamp(vertDiff * 8, -35, 35)
 
 			-- Smooth Angular Steering
 			if moveDir.Magnitude > 0.05 then
 				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
 			end
 
-			local stepDist = currentSmoothSpeed * dt
-			local newX = seatPos.X + (moveDir.X * stepDist)
-			local newZ = seatPos.Z + (moveDir.Z * stepDist)
-			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
+			-- 🏎️ True AssemblyLinearVelocity driving: Replicates 100% genuine vehicle physics to Roblox server
+			local driveVelocity = Vector3.new(moveDir.X * currentSmoothSpeed, vertVel, moveDir.Z * currentSmoothSpeed)
+			curSeat.AssemblyLinearVelocity = driveVelocity
+			curSeat.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+			curSeat.Throttle = 1
 
-			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
-			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
-
+			-- Smooth orientation alignment without breaking unanchored physics
 			pcall(function()
-				curBus:PivotTo(targetSeatCF)
+				local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+				-- Apply smooth rotational stabilization
+				curSeat.CFrame = CFrame.new(curSeat.Position) * currentRot
 
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -407,13 +405,13 @@ local success, err = pcall(function()
 				end
 			end)
 
-			-- Anti-Stuck Detection (Check every 1.5s)
+			-- Anti-Stuck Detection (Check every 1.8s)
 			local now = os.clock()
-			if (now - lastStuckCheckTime) >= 1.5 then
+			if (now - lastStuckCheckTime) >= 1.8 then
 				local movedDist = (seatPos - lastStuckCheckPos).Magnitude
-				if movedDist < 6 and flatDist > arrivalThreshold then
-					lastSeatY = desiredSeatY
-					curBus:PivotTo(CFrame.new(seatPos.X + moveDir.X * 8, desiredSeatY, seatPos.Z + moveDir.Z * 8) * currentRot)
+				if movedDist < 5 and flatDist > arrivalThreshold then
+					-- Natural boost to overcome small road curbs
+					curSeat.AssemblyLinearVelocity = driveVelocity + Vector3.new(0, 15, 0)
 				end
 				lastStuckCheckTime = now
 				lastStuckCheckPos = seatPos
@@ -429,7 +427,7 @@ local success, err = pcall(function()
 			currentDriveConn = nil
 		end
 
-		-- Natural stop at destination: restore exact original collisions, unanchor seat & settle on road
+		-- Natural stop at destination: restore collisions and bring vehicle to smooth halt
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -706,22 +704,17 @@ local success, err = pcall(function()
 					parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
 					holdCheckpointPosition(parkedCF)
 
-					-- 💓 Send natural CheckpointHeartbeat and Wait for Trigger Activation
-					local hbRemote = Remotes:FindFirstChild("CheckpointHeartbeat")
-					local hbTimer = 0
+					-- 🛡️ Natural Checkpoint Triggering: Never fire CheckpointHeartbeat (honeypot trap)
+					-- Wait naturally for server zone trigger to initiate passenger countdown
 					local cpWaitStart = os.clock()
 					local lastHealTime = os.clock()
 					local nudgeCount = 0
 
-					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 18 do
+					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 22 do
 						local now = os.clock()
-						if hbRemote and (now - hbTimer) >= 1.0 then
-							pcall(function() hbRemote:FireServer() end)
-							hbTimer = now
-						end
 
-						-- If countdown hasn't started after 3.0s, adjust offset once and lock
-						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 3.0 and (now - lastHealTime) >= 2.5 then
+						-- If server hasn't triggered countdown after 3.5s, gently adjust parking position inside zone
+						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 3.5 and (now - lastHealTime) >= 2.8 then
 							lastHealTime = now
 							nudgeCount = nudgeCount + 1
 							local progressiveOffset = 14 + (nudgeCount * 2)
@@ -737,27 +730,20 @@ local success, err = pcall(function()
 					if waitingForCheckpointCountdown and isFarmRunning and currentJobActive then
 						setFarmState(FARM_STATE.WAITING_PASSENGERS, "Passenger Loading")
 						local waitTimeout = os.clock()
-						local hbRemoteB = Remotes:FindFirstChild("CheckpointHeartbeat")
-						local hbTimerB = 0
 						local lastWaitHealTime = os.clock()
 
 						-- Ensure anti-roll position lock & handbrake stay strictly active
 						holdCheckpointPosition(parkedCF)
 
-						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 25 do
+						while waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - waitTimeout) < 30 do
 							local now = os.clock()
 							-- If server fired CheckpointZoneExit while waiting, re-center immediately
-							if not isInCheckpointZone and (now - lastWaitHealTime) >= 1.2 then
+							if not isInCheckpointZone and (now - lastWaitHealTime) >= 1.5 then
 								lastWaitHealTime = now
 								parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
 								holdCheckpointPosition(parkedCF)
 							end
-
-							if hbRemoteB and (now - hbTimerB) >= 1.0 then
-								pcall(function() hbRemoteB:FireServer() end)
-								hbTimerB = now
-							end
-							task.wait(0.2)
+							task.wait(0.25)
 						end
 						-- Only mark as completed once passenger loading actually started/finished
 						lastHandledCheckpoint = nextCheckpointPartName
@@ -772,8 +758,9 @@ local success, err = pcall(function()
 			if endTriggerPartName and currentJobActive then
 				local endTrigger = findTargetPart(endTriggerPartName, "BusJobEndTriggers")
 				if endTrigger and endTrigger:IsA("BasePart") then
-					-- 🛡️ SAFE ANTI-BAN DELAY: Ensure minimum trip duration before touching final trigger
-					local minDelay = Config.arriveDelay or 65
+					-- 🛡️ SAFE ANTI-BAN DELAY: Dynamically scaled based on checkpoints & distance
+					local safeBaseTime = math.max((totalCheckpoints or 8) * 25 + 40, 180)
+					local minDelay = math.max(safeBaseTime, Config.arriveDelay or 180)
 					local elapsed = os.clock() - jobStartTime
 					local remaining = minDelay - elapsed
 
@@ -850,21 +837,24 @@ local success, err = pcall(function()
 	-- 🔁 MASTER AUTO FARM THREAD
 	------------------------------------------------
 	local function respawnToStart()
-		setFarmState(FARM_STATE.IDLE, "Fast Reset to Garage")
+		setFarmState(FARM_STATE.IDLE, "Preparing Next Route Loop")
 		pcall(function()
 			if Remotes:FindFirstChild("DespawnCar") then
 				Remotes.DespawnCar:FireServer()
 			end
 		end)
-		task.wait(0.5)
+		task.wait(1.5)
 
+		-- 🛡️ Safe Terminal Repositioning without character death (No hum.Health = 0)
 		local char = player.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum.Health = 0
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local termPart = findTargetPart(currentTerminalId, "BusJobTriggers")
+		if hrp and termPart then
+			local dist = (Vector3.new(hrp.Position.X - termPart.Position.X, 0, hrp.Position.Z - termPart.Position.Z)).Magnitude
+			if dist > 35 then
+				hrp.CFrame = termPart.CFrame + Vector3.new(0, 3, 0)
+			end
 		end
-
-		player.CharacterAdded:Wait()
 		task.wait(1.5)
 	end
 
