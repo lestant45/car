@@ -38,6 +38,7 @@ local success, err = pcall(function()
 		PREPARING_BUS = "PreparingBus",
 		STARTING_JOB = "StartingJob",
 		DRIVING_CHECKPOINT = "DrivingToCheckpoint",
+		PACING = "Pacing",
 		WAITING_PASSENGERS = "WaitingPassengers",
 		DRIVING_FINAL = "DrivingToFinal",
 		JOB_COMPLETED = "JobCompleted"
@@ -63,9 +64,10 @@ local success, err = pcall(function()
 	local activityLabel = nil
 
 	local function setFarmState(newState, reason)
-		if currentFarmState ~= newState then
+		local newText = tostring(newState) .. (reason and (" (" .. reason .. ")") or "")
+		if currentFarmState ~= newState or currentActivityText ~= newText then
 			currentFarmState = newState
-			currentActivityText = tostring(newState) .. (reason and (" (" .. reason .. ")") or "")
+			currentActivityText = newText
 			if activityLabel then
 				pcall(function() activityLabel.Set("📍 Status: " .. currentActivityText) end)
 			end
@@ -527,6 +529,163 @@ local success, err = pcall(function()
 			if hrp then
 				hrp.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 				hrp.AssemblyAngularVelocity = Vector3.zero
+			end
+		end)
+
+		isDrivingActive = false
+		return true
+	end
+
+	-- ✈️ Sky Transit Engine: Smooth high-altitude straight-line flight across void/mountains
+	-- Keeps bus completely safe from buildings, obstacles, and falling into the void
+	local function flyToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
+		targetCruiseSpeed = targetCruiseSpeed or 140
+		arrivalThreshold = arrivalThreshold or 12
+
+		local bus, seat = ensureBusAndSeat()
+		if not (bus and seat) then return false end
+
+		setHandbrake(false)
+
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+		isDrivingActive = true
+		local flyFinished = false
+
+		seat.Anchored = true
+		for _, part in ipairs(bus:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+				part.Anchored = true
+			end
+		end
+
+		local startSeatPos = seat.Position
+		local totalFlatDist = (Vector3.new(destPos.X - startSeatPos.X, 0, destPos.Z - startSeatPos.Z)).Magnitude
+		local safeCeilingY = math.max(startSeatPos.Y, destPos.Y) + 55
+		local currentSmoothSpeed = 0
+
+		local look = seat.CFrame.LookVector
+		local curHeadingAngle = math.atan2(-look.X, -look.Z)
+
+		requestStreamAsync(destPos)
+
+		local flyStartTime = os.clock()
+		local maxFlyTimeout = math.max((totalFlatDist / math.max(targetCruiseSpeed * 0.4, 25)) * 2.0 + 30.0, 45.0)
+
+		local flyConn = nil
+		flyConn = RunService.Heartbeat:Connect(function(dt)
+			if not isDrivingActive or not isFarmRunning then
+				flyFinished = true
+				return
+			end
+
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if not (curBus and curSeat) then
+				flyFinished = true
+				return
+			end
+
+			local seatPos = curSeat.Position
+			local toDest = destPos - seatPos
+			local flatDist = (Vector3.new(toDest.X, 0, toDest.Z)).Magnitude
+			local totalDistRem = toDest.Magnitude
+
+			if totalDistRem <= arrivalThreshold or (os.clock() - flyStartTime) >= maxFlyTimeout then
+				flyFinished = true
+				return
+			end
+
+			-- Speed Ramping
+			local maxSpeed = targetCruiseSpeed
+			local decelDist = math.max(maxSpeed * 0.8, 60)
+			if totalDistRem < decelDist then
+				maxSpeed = math.max(35, (totalDistRem / decelDist) * targetCruiseSpeed)
+			end
+
+			if currentSmoothSpeed < maxSpeed then
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (75 * dt))
+			elseif currentSmoothSpeed > maxSpeed then
+				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
+			end
+
+			-- Smooth arc altitude: Lift up early to safeCeilingY, cruise across, descend to destPos.Y near end
+			local targetY = destPos.Y
+			if totalFlatDist > 80 then
+				local progress = math.clamp(1 - (flatDist / totalFlatDist), 0, 1)
+				if progress < 0.25 then
+					local liftProg = progress / 0.25
+					targetY = startSeatPos.Y + ((safeCeilingY - startSeatPos.Y) * liftProg)
+				elseif progress < 0.75 then
+					targetY = safeCeilingY
+				else
+					local descProg = (progress - 0.75) / 0.25
+					targetY = safeCeilingY + ((destPos.Y - safeCeilingY) * descProg)
+				end
+			end
+
+			local flatDir = flatDist > 0.01 and Vector3.new(toDest.X, 0, toDest.Z).Unit or Vector3.zero
+			local stepDist = currentSmoothSpeed * dt
+
+			local newX = seatPos.X + (flatDir.X * stepDist)
+			local newZ = seatPos.Z + (flatDir.Z * stepDist)
+
+			local vertDiff = targetY - seatPos.Y
+			local vertStep = math.clamp(vertDiff, -80 * dt, 80 * dt)
+			local newY = seatPos.Y + vertStep
+
+			if flatDir.Magnitude > 0.05 then
+				local targetAngle = math.atan2(-flatDir.X, -flatDir.Z)
+				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
+			end
+
+			local newSeatPos = Vector3.new(newX, newY, newZ)
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
+
+			pcall(function()
+				curBus:PivotTo(targetSeatCF)
+				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyAngularVelocity = Vector3.zero
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+				end
+			end)
+		end)
+
+		while not flyFinished and isDrivingActive and isFarmRunning do
+			task.wait(0.05)
+		end
+
+		if flyConn then
+			flyConn:Disconnect()
+			flyConn = nil
+		end
+
+		-- Keep vehicle strictly anchored at destination (crucial for sky hover pacing!)
+		pcall(function()
+			local curBus = getMyBus()
+			local curSeat = getDriverSeat(curBus)
+			if curBus then
+				for _, part in ipairs(curBus:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+						part.Anchored = true
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+			end
+			if curSeat then
+				curSeat.Anchored = true
+				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyAngularVelocity = Vector3.zero
 			end
 		end)
 
@@ -1191,38 +1350,29 @@ local success, err = pcall(function()
 
 					-- 2. Check if Leg is Long-Distance (Intercity) or Local Gate (CP 1 / Terminal Pick)
 					if legDist > 80 then
-						-- A. Intercity Trip: Glide to Perimeter (35 studs in front of checkpoint)
-						local perimeterPos = cpPart.Position - (approachDir * 35.0)
+						-- ✈️ Sky Transit: Fly in open air directly above checkpoint (Zero building/terrain collision)
+						local hoverPos = Vector3.new(cpPart.Position.X, cpPart.Position.Y + 65, cpPart.Position.Z)
 						requestStreamAsync(cpPart.Position)
 
-						-- Smooth transit directly to perimeter
-						driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
+						-- Fly smoothly to sky hover point above checkpoint
+						flyToDestination(hoverPos, math.max(safeSpeed * 1.6, 130), 12)
 
-						-- Park safely at perimeter on ground
-						local perimGroundY = probeGround(Vector3.new(perimeterPos.X, cpPart.Position.Y + 10, perimeterPos.Z)) or cpPart.Position.Y
-						local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * flatRotCF
-						pcall(function()
-							bus:PivotTo(perimCF)
-							seat.AssemblyLinearVelocity = Vector3.zero
-							seat.AssemblyAngularVelocity = Vector3.zero
-						end)
-						ensureEngineOn()
-						setHandbrake(true)
-
-						-- 🛡️ SMART ADAPTIVE PRE-ARRIVAL PACING GUARD: Wait for organic trip time
+						-- 🛡️ SMART SKY-HOVER PACING GUARD: Hover rock-solid in the air until valid trip time
 						if Config.tripPacing ~= false then
 							local legElapsed = os.clock() - legStartTime
 							while legElapsed < minLegTime and isFarmRunning and currentJobActive do
 								local remainingSec = math.ceil(minLegTime - legElapsed)
-								setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("Pacing Waktu Sah: Sisa %ds", remainingSec))
+								setFarmState(FARM_STATE.PACING, string.format("Sisa %ds...", remainingSec))
 								task.wait(0.5)
 								legElapsed = os.clock() - legStartTime
 							end
 						end
-						setHandbrake(false)
 					end
 
 					-- 3. Advance into Checkpoint Zone (Touch Trigger with Valid Time)
+					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Docking Checkpoint...")
+					requestStreamAsync(cpPart.Position)
+					task.wait(0.2)
 					local parkedCF = snapBusToCheckpoint(cpPart, 14)
 					task.wait(0.2)
 					parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
@@ -1287,31 +1437,43 @@ local success, err = pcall(function()
 					local flatRotCF = CFrame.lookAt(Vector3.zero, approachDir)
 
 					if legDist > 80 then
-						local perimeterPos = endTrigger.Position - (approachDir * 35.0)
+						-- ✈️ Sky Transit: Fly directly above final trigger
+						local hoverPos = Vector3.new(endTrigger.Position.X, endTrigger.Position.Y + 65, endTrigger.Position.Z)
 						requestStreamAsync(endTrigger.Position)
-						driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
+						flyToDestination(hoverPos, math.max(safeSpeed * 1.6, 130), 12)
 
-						local perimGroundY = probeGround(Vector3.new(perimeterPos.X, endTrigger.Position.Y + 10, perimeterPos.Z)) or endTrigger.Position.Y
-						local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * flatRotCF
-						pcall(function() bus:PivotTo(perimCF) end)
-						ensureEngineOn()
-						setHandbrake(true)
-					end
-
-					-- Smart Pacing for final stop
-					if Config.tripPacing ~= false then
-						local legElapsed = os.clock() - legStartTime
-						while legElapsed < minLegTime and isFarmRunning and currentJobActive do
-							local remainingSec = math.ceil(minLegTime - legElapsed)
-							setFarmState(FARM_STATE.DRIVING_FINAL, string.format("Safe Delay Finish (%ds)", remainingSec))
-							task.wait(0.5)
-							legElapsed = os.clock() - legStartTime
+						-- 🛡️ Smart Sky-Hover Pacing for final stop
+						if Config.tripPacing ~= false then
+							local legElapsed = os.clock() - legStartTime
+							while legElapsed < minLegTime and isFarmRunning and currentJobActive do
+								local remainingSec = math.ceil(minLegTime - legElapsed)
+								setFarmState(FARM_STATE.PACING, string.format("Terminal Akhir: Sisa %ds...", remainingSec))
+								task.wait(0.5)
+								legElapsed = os.clock() - legStartTime
+							end
 						end
 					end
 
-					setHandbrake(false)
-					setFarmState(FARM_STATE.DRIVING_FINAL, "Approaching Final Stop")
-					driveToDestination(endTrigger.Position, safeSpeed, 10)
+					setFarmState(FARM_STATE.DRIVING_FINAL, "Docking Final Stop...")
+					requestStreamAsync(endTrigger.Position)
+					task.wait(0.2)
+					local curBus, curSeat = ensureBusAndSeat()
+					if curBus and curSeat then
+						pcall(function()
+							local endCF = endTrigger.CFrame
+							local targetCF = CFrame.new(endTrigger.Position + Vector3.new(0, 3, 0)) * (endCF - endCF.Position)
+							curBus:PivotTo(targetCF)
+							for _, p in ipairs(curBus:GetDescendants()) do
+								if p:IsA("BasePart") then
+									p.CanCollide = true
+									p.Anchored = false
+									p.AssemblyLinearVelocity = Vector3.zero
+									p.AssemblyAngularVelocity = Vector3.zero
+								end
+							end
+							curSeat.Anchored = false
+						end)
+					end
 				end
 				task.wait(2)
 				break
