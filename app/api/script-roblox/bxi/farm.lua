@@ -1179,45 +1179,50 @@ local success, err = pcall(function()
 
 					-- 1. Calculate Leg Distance & Dynamic Safe Time (80 studs/s = ~75 km/h)
 					local curSeatPos = seat and seat.Position or lastLegStartPos
-					local legDist = (Vector3.new(cpPart.Position.X - curSeatPos.X, 0, cpPart.Position.Z - curSeatPos.Z)).Magnitude
+					local flatApproach = Vector3.new(cpPart.Position.X - curSeatPos.X, 0, cpPart.Position.Z - curSeatPos.Z)
+					local legDist = flatApproach.Magnitude
 					local safeSpeed = math.clamp(tonumber(Config.targetSpeed) or 80, 60, 95)
 					local minLegTime = math.max(legDist / safeSpeed, 4.0)
 
-					-- 2. Direct Smooth Gliding to Perimeter (38 studs in front of checkpoint)
-					local approachDir = (cpPart.Position - curSeatPos).Unit
-					if approachDir.Magnitude < 0.1 then approachDir = Vector3.new(0, 0, 1) end
-					local perimeterPos = cpPart.Position - (approachDir * 38.0)
+					-- Horizontal Flat Direction (Strictly Zero Pitch & Zero Roll - Flat On Asphalt)
+					local lookVec = seat and seat.CFrame.LookVector or Vector3.new(0, 0, 1)
+					local approachDir = legDist > 1.0 and flatApproach.Unit or Vector3.new(lookVec.X, 0, lookVec.Z).Unit
+					local flatRotCF = CFrame.lookAt(Vector3.zero, approachDir)
 
-					-- Request streaming around target checkpoint area early
-					requestStreamAsync(cpPart.Position)
+					-- 2. Check if Leg is Long-Distance (Intercity) or Local Gate (CP 1 / Terminal Pick)
+					if legDist > 80 then
+						-- A. Intercity Trip: Glide to Perimeter (35 studs in front of checkpoint)
+						local perimeterPos = cpPart.Position - (approachDir * 35.0)
+						requestStreamAsync(cpPart.Position)
 
-					-- Smooth glide directly to perimeter
-					driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
+						-- Smooth transit directly to perimeter
+						driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
 
-					-- 3. Snap & Park at Perimeter on solid ground
-					local perimGroundY = probeGround(Vector3.new(perimeterPos.X, perimeterPos.Y + 2.5, perimeterPos.Z)) or perimeterPos.Y
-					local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * CFrame.lookAt(Vector3.zero, approachDir)
-					pcall(function()
-						bus:PivotTo(perimCF)
-						seat.AssemblyLinearVelocity = Vector3.zero
-						seat.AssemblyAngularVelocity = Vector3.zero
-					end)
-					ensureEngineOn()
-					setHandbrake(true)
+						-- Park safely at perimeter on ground
+						local perimGroundY = probeGround(Vector3.new(perimeterPos.X, cpPart.Position.Y + 10, perimeterPos.Z)) or cpPart.Position.Y
+						local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * flatRotCF
+						pcall(function()
+							bus:PivotTo(perimCF)
+							seat.AssemblyLinearVelocity = Vector3.zero
+							seat.AssemblyAngularVelocity = Vector3.zero
+						end)
+						ensureEngineOn()
+						setHandbrake(true)
 
-					-- 4. 🛡️ SMART ADAPTIVE PRE-ARRIVAL PACING GUARD: Wait for organic trip time before touching checkpoint
-					if Config.tripPacing ~= false then
-						local legElapsed = os.clock() - legStartTime
-						while legElapsed < minLegTime and isFarmRunning and currentJobActive do
-							local remainingSec = math.ceil(minLegTime - legElapsed)
-							setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("Pacing Waktu Sah: Sisa %ds", remainingSec))
-							task.wait(0.5)
-							legElapsed = os.clock() - legStartTime
+						-- 🛡️ SMART ADAPTIVE PRE-ARRIVAL PACING GUARD: Wait for organic trip time
+						if Config.tripPacing ~= false then
+							local legElapsed = os.clock() - legStartTime
+							while legElapsed < minLegTime and isFarmRunning and currentJobActive do
+								local remainingSec = math.ceil(minLegTime - legElapsed)
+								setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("Pacing Waktu Sah: Sisa %ds", remainingSec))
+								task.wait(0.5)
+								legElapsed = os.clock() - legStartTime
+							end
 						end
+						setHandbrake(false)
 					end
 
-					-- 5. Advance into Checkpoint Zone (Touch Trigger with Valid Time)
-					setHandbrake(false)
+					-- 3. Advance into Checkpoint Zone (Touch Trigger with Valid Time)
 					local parkedCF = snapBusToCheckpoint(cpPart, 14)
 					task.wait(0.2)
 					parkedCF = snapBusToCheckpoint(cpPart, 14) or parkedCF
@@ -1272,22 +1277,26 @@ local success, err = pcall(function()
 				local endTrigger = findTargetPart(endTriggerPartName, "BusJobEndTriggers")
 				if endTrigger and endTrigger:IsA("BasePart") then
 					local curSeatPos = seat and seat.Position or lastLegStartPos
-					local legDist = (Vector3.new(endTrigger.Position.X - curSeatPos.X, 0, endTrigger.Position.Z - curSeatPos.Z)).Magnitude
+					local flatApproach = Vector3.new(endTrigger.Position.X - curSeatPos.X, 0, endTrigger.Position.Z - curSeatPos.Z)
+					local legDist = flatApproach.Magnitude
 					local safeSpeed = math.clamp(tonumber(Config.targetSpeed) or 80, 60, 95)
 					local minLegTime = math.max(legDist / safeSpeed, 4.0)
 
-					local approachDir = (endTrigger.Position - curSeatPos).Unit
-					if approachDir.Magnitude < 0.1 then approachDir = Vector3.new(0, 0, 1) end
-					local perimeterPos = endTrigger.Position - (approachDir * 35.0)
+					local lookVec = seat and seat.CFrame.LookVector or Vector3.new(0, 0, 1)
+					local approachDir = legDist > 1.0 and flatApproach.Unit or Vector3.new(lookVec.X, 0, lookVec.Z).Unit
+					local flatRotCF = CFrame.lookAt(Vector3.zero, approachDir)
 
-					requestStreamAsync(endTrigger.Position)
-					driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
+					if legDist > 80 then
+						local perimeterPos = endTrigger.Position - (approachDir * 35.0)
+						requestStreamAsync(endTrigger.Position)
+						driveToDestination(perimeterPos, math.max(safeSpeed * 1.5, 120), 10)
 
-					local perimGroundY = probeGround(Vector3.new(perimeterPos.X, perimeterPos.Y + 2.5, perimeterPos.Z)) or perimeterPos.Y
-					local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * CFrame.lookAt(Vector3.zero, approachDir)
-					pcall(function() bus:PivotTo(perimCF) end)
-					ensureEngineOn()
-					setHandbrake(true)
+						local perimGroundY = probeGround(Vector3.new(perimeterPos.X, endTrigger.Position.Y + 10, perimeterPos.Z)) or endTrigger.Position.Y
+						local perimCF = CFrame.new(perimeterPos.X, perimGroundY + BUS_SEAT_GROUND_OFFSET, perimeterPos.Z) * flatRotCF
+						pcall(function() bus:PivotTo(perimCF) end)
+						ensureEngineOn()
+						setHandbrake(true)
+					end
 
 					-- Smart Pacing for final stop
 					if Config.tripPacing ~= false then
