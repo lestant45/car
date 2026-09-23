@@ -536,11 +536,10 @@ local success, err = pcall(function()
 		return true
 	end
 
-	-- ✈️ Sky Transit Engine: Smooth high-altitude straight-line flight across void/mountains
-	-- Keeps bus completely safe from buildings, obstacles, and falling into the void
-	local function flyToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
-		targetCruiseSpeed = targetCruiseSpeed or 140
-		arrivalThreshold = arrivalThreshold or 12
+	-- 🛣️ Ground Direct Drive Engine: Smooth ground navigation directly to target
+	local function driveToDestination(destPos, targetCruiseSpeed, arrivalThreshold)
+		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 80)
+		arrivalThreshold = arrivalThreshold or 14
 
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
@@ -552,79 +551,64 @@ local success, err = pcall(function()
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
 		isDrivingActive = true
-		local flyFinished = false
+		local driveFinished = false
 
-		seat.Anchored = true
+		local originalCollides = {}
 		for _, part in ipairs(bus:GetDescendants()) do
 			if part:IsA("BasePart") then
+				originalCollides[part] = part.CanCollide
 				part.CanCollide = false
 				part.Anchored = true
 			end
 		end
+		seat.Anchored = true
 
 		local startSeatPos = seat.Position
 		local totalFlatDist = (Vector3.new(destPos.X - startSeatPos.X, 0, destPos.Z - startSeatPos.Z)).Magnitude
-		local safeCeilingY = math.max(startSeatPos.Y, destPos.Y) + 55
 		local currentSmoothSpeed = 0
 
 		local look = seat.CFrame.LookVector
 		local curHeadingAngle = math.atan2(-look.X, -look.Z)
+		local lastSeatY = startSeatPos.Y
 
 		requestStreamAsync(destPos)
 
-		local flyStartTime = os.clock()
-		local maxFlyTimeout = math.max((totalFlatDist / math.max(targetCruiseSpeed * 0.4, 25)) * 2.0 + 30.0, 45.0)
+		local driveStartTime = os.clock()
+		local maxDriveTimeout = math.max((totalFlatDist / math.max(targetCruiseSpeed * 0.4, 25)) * 2.0 + 30.0, 45.0)
 
-		local flyConn = nil
-		flyConn = RunService.Heartbeat:Connect(function(dt)
+		local lastStatusTick = 0
+		local driveConn = nil
+		driveConn = RunService.Heartbeat:Connect(function(dt)
 			if not isDrivingActive or not isFarmRunning then
-				flyFinished = true
+				driveFinished = true
 				return
 			end
 
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
 			if not (curBus and curSeat) then
-				flyFinished = true
+				driveFinished = true
 				return
 			end
 
 			local seatPos = curSeat.Position
 			local toDest = destPos - seatPos
 			local flatDist = (Vector3.new(toDest.X, 0, toDest.Z)).Magnitude
-			local totalDistRem = toDest.Magnitude
 
-			if totalDistRem <= arrivalThreshold or (os.clock() - flyStartTime) >= maxFlyTimeout then
-				flyFinished = true
+			if flatDist <= arrivalThreshold or (os.clock() - driveStartTime) >= maxDriveTimeout then
+				driveFinished = true
 				return
 			end
 
-			-- Speed Ramping
 			local maxSpeed = targetCruiseSpeed
-			local decelDist = math.max(maxSpeed * 0.8, 60)
-			if totalDistRem < decelDist then
-				maxSpeed = math.max(35, (totalDistRem / decelDist) * targetCruiseSpeed)
+			if flatDist < 60 then
+				maxSpeed = math.max(30, (flatDist / 60) * targetCruiseSpeed)
 			end
 
 			if currentSmoothSpeed < maxSpeed then
-				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (75 * dt))
+				currentSmoothSpeed = math.min(maxSpeed, currentSmoothSpeed + (65 * dt))
 			elseif currentSmoothSpeed > maxSpeed then
 				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
-			end
-
-			-- Smooth arc altitude: Lift up early to safeCeilingY, cruise across, descend to destPos.Y near end
-			local targetY = destPos.Y
-			if totalFlatDist > 80 then
-				local progress = math.clamp(1 - (flatDist / totalFlatDist), 0, 1)
-				if progress < 0.25 then
-					local liftProg = progress / 0.25
-					targetY = startSeatPos.Y + ((safeCeilingY - startSeatPos.Y) * liftProg)
-				elseif progress < 0.75 then
-					targetY = safeCeilingY
-				else
-					local descProg = (progress - 0.75) / 0.25
-					targetY = safeCeilingY + ((destPos.Y - safeCeilingY) * descProg)
-				end
 			end
 
 			local flatDir = flatDist > 0.01 and Vector3.new(toDest.X, 0, toDest.Z).Unit or Vector3.zero
@@ -633,59 +617,78 @@ local success, err = pcall(function()
 			local newX = seatPos.X + (flatDir.X * stepDist)
 			local newZ = seatPos.Z + (flatDir.Z * stepDist)
 
-			local vertDiff = targetY - seatPos.Y
-			local vertStep = math.clamp(vertDiff, -80 * dt, 80 * dt)
-			local newY = seatPos.Y + vertStep
+			-- Stay glued to ground road
+			local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 3, newZ), lastSeatY - BUS_SEAT_GROUND_OFFSET)
+			local desiredSeatY = currentRoadY and (currentRoadY + BUS_SEAT_GROUND_OFFSET) or (destPos.Y + BUS_SEAT_GROUND_OFFSET)
+
+			local maxVertStep = math.max(90 * dt, 3.0)
+			if lastSeatY < desiredSeatY then
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+			elseif lastSeatY > desiredSeatY then
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
+			end
 
 			if flatDir.Magnitude > 0.05 then
 				local targetAngle = math.atan2(-flatDir.X, -flatDir.Z)
 				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -10 * dt, 10 * dt)
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
 			end
 
-			local newSeatPos = Vector3.new(newX, newY, newZ)
+			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
 			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
 			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
 
 			pcall(function()
 				curBus:PivotTo(targetSeatCF)
-				curSeat.AssemblyLinearVelocity = Vector3.zero
-				curSeat.AssemblyAngularVelocity = Vector3.zero
 				if hum then
 					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 				end
 			end)
+
+			-- Live status update
+			local now = os.clock()
+			if (now - lastStatusTick) >= 0.4 then
+				lastStatusTick = now
+				local estSec = math.ceil(flatDist / math.max(currentSmoothSpeed, 30))
+				setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("%s (%dm | ~%ds)", nextDestinationName or "Menuju Checkpoint", math.floor(flatDist), estSec))
+			end
 		end)
 
-		while not flyFinished and isDrivingActive and isFarmRunning do
+		while not driveFinished and isDrivingActive and isFarmRunning do
 			task.wait(0.05)
 		end
 
-		if flyConn then
-			flyConn:Disconnect()
-			flyConn = nil
+		if driveConn then
+			driveConn:Disconnect()
+			driveConn = nil
 		end
 
-		-- Keep vehicle strictly anchored at destination (crucial for sky hover pacing!)
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
 			if curBus then
-				for _, part in ipairs(curBus:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.CanCollide = false
-						part.Anchored = true
-						part.AssemblyLinearVelocity = Vector3.zero
-						part.AssemblyAngularVelocity = Vector3.zero
+				for part, state in pairs(originalCollides) do
+					if part and part.Parent then
+						pcall(function()
+							part.CanCollide = state
+							part.Anchored = false
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end)
 					end
 				end
 			end
 			if curSeat then
-				curSeat.Anchored = true
-				curSeat.AssemblyLinearVelocity = Vector3.zero
+				curSeat.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 				curSeat.AssemblyAngularVelocity = Vector3.zero
+				curSeat.Throttle = 0
+				curSeat.Anchored = false
+			end
+			if hrp then
+				hrp.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
+				hrp.AssemblyAngularVelocity = Vector3.zero
 			end
 		end)
 
@@ -865,6 +868,7 @@ local success, err = pcall(function()
 			totalEstDist = totalEstDist + (Vector3.new(waypoints[i+1].x - waypoints[i].x, 0, waypoints[i+1].z - waypoints[i].z)).Magnitude
 		end
 		local maxDriveTimeout = math.max((totalEstDist / math.max(targetCruiseSpeed * 0.4, 25)) * 2.0 + 35, 45)
+		local lastStatusTick = 0
 
 		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
 			if not isDrivingActive or not isFarmRunning then
@@ -959,6 +963,18 @@ local success, err = pcall(function()
 					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 				end
 			end)
+
+			-- Live status update
+			local now = os.clock()
+			if (now - lastStatusTick) >= 0.4 then
+				lastStatusTick = now
+				local remDist = distToWp
+				for i = currentWpIndex, totalWps - 1 do
+					remDist = remDist + (Vector3.new(waypoints[i+1].x - waypoints[i].x, 0, waypoints[i+1].z - waypoints[i].z)).Magnitude
+				end
+				local estSec = math.ceil(remDist / math.max(currentSmoothSpeed, 35))
+				setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("%s (%dm | ~%ds)", nextDestinationName or "Menuju Checkpoint", math.floor(remDist), estSec))
+			end
 		end)
 
 		while not driveFinished and isDrivingActive and isFarmRunning do
@@ -1330,10 +1346,30 @@ local success, err = pcall(function()
 		local lastLegStartPos = seat and seat.Position or terminalTriggerPos
 
 		while currentJobActive and isFarmRunning do
+			-- Fallback: auto-detect active checkpoint or end trigger from BillboardGui
+			if (not nextCheckpointPartName or nextCheckpointPartName == lastHandledCheckpoint) and not endTriggerPartName then
+				for _, cp in ipairs(workspace.Checkpoints:GetChildren()) do
+					if cp:FindFirstChildWhichIsA("BillboardGui") and cp.Name ~= lastHandledCheckpoint then
+						nextCheckpointPartName = cp.Name
+						break
+					end
+				end
+			end
+			if not endTriggerPartName then
+				for _, tr in ipairs(workspace.BusJobEndTriggers:GetChildren()) do
+					if tr:FindFirstChildWhichIsA("BillboardGui") then
+						endTriggerPartName = tr.Name
+						break
+					end
+				end
+			end
+
 			-- A. Driving to next checkpoint
 			if nextCheckpointPartName and nextCheckpointPartName ~= lastHandledCheckpoint then
 				local cpPart = findTargetPart(nextCheckpointPartName, "Checkpoints")
 				if cpPart and cpPart:IsA("BasePart") then
+					local currentLegPartName = cpPart.Name
+					lastHandledCheckpoint = currentLegPartName
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or nextCheckpointPartName)
 
 					-- 1. Calculate Leg Distance & Dynamic Safe Time (80 studs/s = ~75 km/h)
@@ -1368,7 +1404,7 @@ local success, err = pcall(function()
 							local legElapsed = os.clock() - legStartTime
 							while legElapsed < minLegTime and isFarmRunning and currentJobActive do
 								local remainingSec = math.ceil(minLegTime - legElapsed)
-								setFarmState(FARM_STATE.PACING, string.format("Sisa %ds...", remainingSec))
+								setFarmState(FARM_STATE.PACING, string.format("%s (Sisa %ds...)", nextDestinationName or "Pacing", remainingSec))
 								task.wait(0.5)
 								legElapsed = os.clock() - legStartTime
 							end
@@ -1418,13 +1454,12 @@ local success, err = pcall(function()
 							end
 							task.wait(0.25)
 						end
-						lastHandledCheckpoint = nextCheckpointPartName
-						-- Reset leg timer for next segment
-						legStartTime = os.clock()
-						lastLegStartPos = cpPart.Position
 					end
 
+					-- Release checkpoint hold and reset leg timer for next leg
 					releaseCheckpointHold()
+					legStartTime = os.clock()
+					lastLegStartPos = cpPart.Position
 				end
 			end
 
