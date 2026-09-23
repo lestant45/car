@@ -1350,14 +1350,20 @@ local success, err = pcall(function()
 
 					-- 2. Check if Leg is Long-Distance (Intercity) or Local Gate (CP 1 / Terminal Pick)
 					if legDist > 80 then
-						-- ✈️ Sky Transit: Fly in open air directly above checkpoint (Zero building/terrain collision)
-						local hoverPos = Vector3.new(cpPart.Position.X, cpPart.Position.Y + 65, cpPart.Position.Z)
+						-- 🛣️ Road-Following Navigation: Drive along asphalt corridor (Zero Fly Detection)
+						setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName or "Menuju Checkpoint")
 						requestStreamAsync(cpPart.Position)
 
-						-- Fly smoothly to sky hover point above checkpoint
-						flyToDestination(hoverPos, math.max(safeSpeed * 1.6, 130), 12)
+						-- Navigate using highway backbone curves to checkpoint proximity
+						navigateToDestination(cpPart.Position, safeSpeed, 20)
 
-						-- 🛡️ SMART SKY-HOVER PACING GUARD: Hover rock-solid in the air until valid trip time
+						-- Pre-dock parking: align on road asphalt right in front of checkpoint
+						local preDockCF = snapBusToCheckpoint(cpPart, 14)
+						if preDockCF then
+							holdCheckpointPosition(preDockCF)
+						end
+
+						-- 🛡️ SMART ROAD ASPHALT PACING GUARD: Wait remaining trip time on solid ground
 						if Config.tripPacing ~= false then
 							local legElapsed = os.clock() - legStartTime
 							while legElapsed < minLegTime and isFarmRunning and currentJobActive do
@@ -1369,7 +1375,7 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Advance into Checkpoint Zone (Touch Trigger with Valid Time)
+					-- 3. Enter Checkpoint Zone (Touch Trigger with Valid Time)
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Docking Checkpoint...")
 					requestStreamAsync(cpPart.Position)
 					task.wait(0.2)
@@ -1437,12 +1443,12 @@ local success, err = pcall(function()
 					local flatRotCF = CFrame.lookAt(Vector3.zero, approachDir)
 
 					if legDist > 80 then
-						-- ✈️ Sky Transit: Fly directly above final trigger
-						local hoverPos = Vector3.new(endTrigger.Position.X, endTrigger.Position.Y + 65, endTrigger.Position.Z)
+						-- 🛣️ Road Navigation to Final Stop Corridor
+						setFarmState(FARM_STATE.DRIVING_FINAL, "Menuju Terminal Akhir")
 						requestStreamAsync(endTrigger.Position)
-						flyToDestination(hoverPos, math.max(safeSpeed * 1.6, 130), 12)
+						navigateToDestination(endTrigger.Position, safeSpeed, 20)
 
-						-- 🛡️ Smart Sky-Hover Pacing for final stop
+						-- 🛡️ Smart Road Pacing for final stop
 						if Config.tripPacing ~= false then
 							local legElapsed = os.clock() - legStartTime
 							while legElapsed < minLegTime and isFarmRunning and currentJobActive do
