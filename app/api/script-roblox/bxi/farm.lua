@@ -397,58 +397,43 @@ local success, err = pcall(function()
 				currentSmoothSpeed = math.max(maxSpeed, currentSmoothSpeed - (80 * dt))
 			end
 
-			-- 🛡️ Anti-484 Touchdown Buffer: Unanchor 65 studs before arrival and roll on real wheels!
-			if flatDist <= 65 then
-				if curSeat.Anchored then
-					curSeat.Anchored = false
-					for _, p in ipairs(curBus:GetDescendants()) do
-						if p:IsA("BasePart") then
-							p.CanCollide = originalCollides[p] or true
-							p.Anchored = false
-						end
-					end
-					ensureEngineOn()
-					setHandbrake(false)
-				end
-				local rollSpeed = math.clamp(flatDist * 1.5, 18, 32)
-				curSeat.AssemblyLinearVelocity = Vector3.new(flatDir.X * rollSpeed, -5, flatDir.Z * rollSpeed)
-				curSeat.Throttle = 1
-			else
-				seatPos = curSeat.Position
-				local stepDist = currentSmoothSpeed * dt
-				local newX = seatPos.X + (flatDir.X * stepDist)
-				local newZ = seatPos.Z + (flatDir.Z * stepDist)
+			seatPos = curSeat.Position
+			local stepDist = currentSmoothSpeed * dt
+			local newX = seatPos.X + (flatDir.X * stepDist)
+			local newZ = seatPos.Z + (flatDir.Z * stepDist)
 
-				-- Stay glued to ground road
-				local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 3, newZ), lastSeatY - BUS_SEAT_GROUND_OFFSET)
-				local desiredSeatY = currentRoadY and (currentRoadY + BUS_SEAT_GROUND_OFFSET) or (destPos.Y + BUS_SEAT_GROUND_OFFSET)
+			-- Stay glued to ground road
+			local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 3, newZ), lastSeatY - BUS_SEAT_GROUND_OFFSET)
+			local desiredSeatY = currentRoadY and (currentRoadY + BUS_SEAT_GROUND_OFFSET) or (destPos.Y + BUS_SEAT_GROUND_OFFSET)
 
-				local maxVertStep = math.max(90 * dt, 3.0)
-				if lastSeatY < desiredSeatY then
-					lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
-				elseif lastSeatY > desiredSeatY then
-					lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
-				end
-
-				if flatDir.Magnitude > 0.05 then
-					local targetAngle = math.atan2(-flatDir.X, -flatDir.Z)
-					local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-					curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
-				end
-
-				local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
-				local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
-				local targetSeatCF = CFrame.new(newSeatPos) * currentRot
-
-				pcall(function()
-					curBus:PivotTo(targetSeatCF)
-					if hum then
-						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-					end
-				end)
+			local maxVertStep = math.max(90 * dt, 3.0)
+			if lastSeatY < desiredSeatY then
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+			elseif lastSeatY > desiredSeatY then
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
 			end
+
+			if flatDir.Magnitude > 0.05 then
+				local targetAngle = math.atan2(-flatDir.X, -flatDir.Z)
+				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
+			end
+
+			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
+
+			-- Real physics linear velocity so server sees genuine moving vehicle
+			curSeat.AssemblyLinearVelocity = Vector3.new(flatDir.X * currentSmoothSpeed, -2, flatDir.Z * currentSmoothSpeed)
+
+			pcall(function()
+				curBus:PivotTo(targetSeatCF)
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+				end
+			end)
 
 			-- Live status update
 			local now = os.clock()
@@ -734,65 +719,49 @@ local success, err = pcall(function()
 			end
 
 			local moveDir = distToWp > 0.01 and wpVec.Unit or Vector3.zero
-			-- 🛡️ Anti-484 Touchdown Buffer: Unanchor 65 studs before final waypoint and roll on real wheels!
-			local isFinalWp = (currentWpIndex == totalWps)
-			if isFinalWp and distToWp <= 65 then
-				if curSeat.Anchored then
-					curSeat.Anchored = false
-					for _, p in ipairs(curBus:GetDescendants()) do
-						if p:IsA("BasePart") then
-							p.CanCollide = originalCollides[p] or true
-							p.Anchored = false
-						end
-					end
-					ensureEngineOn()
-					setHandbrake(false)
-				end
-				local rollSpeed = math.clamp(distToWp * 1.5, 18, 32)
-				curSeat.AssemblyLinearVelocity = Vector3.new(moveDir.X * rollSpeed, -5, moveDir.Z * rollSpeed)
-				curSeat.Throttle = 1
+			seatPos = curSeat.Position
+			local stepDist = currentSmoothSpeed * dt
+			local newX = seatPos.X + (moveDir.X * stepDist)
+			local newZ = seatPos.Z + (moveDir.Z * stepDist)
+
+			-- 🛣️ Road-Clamped Ground Probing
+			local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 2.5, newZ))
+			local desiredSeatY
+			if currentRoadY then
+				desiredSeatY = currentRoadY + BUS_SEAT_GROUND_OFFSET
 			else
-				seatPos = curSeat.Position
-				local stepDist = currentSmoothSpeed * dt
-				local newX = seatPos.X + (moveDir.X * stepDist)
-				local newZ = seatPos.Z + (moveDir.Z * stepDist)
-
-				-- 🛣️ Road-Clamped Ground Probing
-				local currentRoadY = probeGround(Vector3.new(newX, lastSeatY + 2.5, newZ))
-				local desiredSeatY
-				if currentRoadY then
-					desiredSeatY = currentRoadY + BUS_SEAT_GROUND_OFFSET
-				else
-					desiredSeatY = (targetWp.y or lastSeatY) + BUS_SEAT_GROUND_OFFSET
-				end
-
-				local maxVertStep = math.max(90 * dt, 3.0)
-				if lastSeatY < desiredSeatY then
-					lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
-				elseif lastSeatY > desiredSeatY then
-					lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
-				end
-
-				-- Smooth Road Curve Steering
-				if moveDir.Magnitude > 0.05 then
-					local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
-					local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-					curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
-				end
-
-				local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
-				local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
-				local targetSeatCF = CFrame.new(newSeatPos) * currentRot
-
-				pcall(function()
-					curBus:PivotTo(targetSeatCF)
-					if hum then
-						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-					end
-				end)
+				desiredSeatY = (targetWp.y or lastSeatY) + BUS_SEAT_GROUND_OFFSET
 			end
+
+			local maxVertStep = math.max(90 * dt, 3.0)
+			if lastSeatY < desiredSeatY then
+				lastSeatY = math.min(desiredSeatY, lastSeatY + maxVertStep)
+			elseif lastSeatY > desiredSeatY then
+				lastSeatY = math.max(desiredSeatY, lastSeatY - maxVertStep)
+			end
+
+			-- Smooth Road Curve Steering
+			if moveDir.Magnitude > 0.05 then
+				local targetAngle = math.atan2(-moveDir.X, -moveDir.Z)
+				local angleDiff = (targetAngle - curHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+				curHeadingAngle = curHeadingAngle + math.clamp(angleDiff, -8 * dt, 8 * dt)
+			end
+
+			local newSeatPos = Vector3.new(newX, lastSeatY, newZ)
+			local currentRot = CFrame.Angles(0, curHeadingAngle, 0)
+			local targetSeatCF = CFrame.new(newSeatPos) * currentRot
+
+			-- Real physics linear velocity so server sees genuine moving vehicle
+			curSeat.AssemblyLinearVelocity = Vector3.new(moveDir.X * currentSmoothSpeed, -2, moveDir.Z * currentSmoothSpeed)
+
+			pcall(function()
+				curBus:PivotTo(targetSeatCF)
+				if hum then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+				end
+			end)
 
 			-- Live status update
 			local now = os.clock()
