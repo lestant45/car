@@ -438,25 +438,18 @@ local success, err = pcall(function()
 		return path
 	end
 
-	-- 🏎️ PURE PHYSICS ROAD DRIVING ENGINE (ZERO TELEPORT, ZERO ANCHOR, ZERO NOCLIP)
+	-- 🏎️ GHOST HIGHWAY GLIDER ENGINE (OPSI A: ASPHALT RAYCAST + SEGMENT INTERPOLATION + SELECTIVE NOCLIP)
 	local function driveAlongWaypoints(waypoints, targetCruiseSpeed, arrivalThreshold)
 		if not waypoints or #waypoints == 0 then return false end
 
 		targetCruiseSpeed = targetCruiseSpeed or (Config.targetSpeed or 80)
-		arrivalThreshold = arrivalThreshold or 18
+		arrivalThreshold = arrivalThreshold or 14
 
 		local bus, seat = ensureBusAndSeat()
 		if not (bus and seat) then return false end
 
-		-- Ensure vehicle is completely unanchored with full physics replication
 		ensureEngineOn()
 		setHandbrake(false)
-		seat.Anchored = false
-		for _, part in ipairs(bus:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.Anchored = false
-			end
-		end
 
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -464,188 +457,203 @@ local success, err = pcall(function()
 
 		isDrivingActive = true
 		local driveFinished = false
-		local currentWpIndex = 1
-		local totalWps = #waypoints
 
 		-- A-Chassis GUI values reference
 		local achassisGui = player.PlayerGui:FindFirstChild("A-Chassis Interface")
 		local aValues = achassisGui and achassisGui:FindFirstChild("Values")
 
-		local driveStartTime = os.clock()
-		local lastStuckTime = os.clock()
-		local lastStuckPos = seat.Position
-		local isUnsticking = false
-		local unstickStartTime = 0
+		-- Raycast parameters for probing physical road asphalt altitude
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		if waypoints[1] then
-			requestStreamAsync(Vector3.new(waypoints[1].x, waypoints[1].y or seat.Position.Y, waypoints[1].z))
+		local function refreshRayFilter()
+			local filterList = { char, bus }
+			local spawned = workspace:FindFirstChild("SpawnedVehicles")
+			if spawned then table.insert(filterList, spawned) end
+			local checkpoints = workspace:FindFirstChild("Checkpoints")
+			if checkpoints then table.insert(filterList, checkpoints) end
+			local triggers = workspace:FindFirstChild("BusJobTriggers")
+			if triggers then table.insert(filterList, triggers) end
+			local endTriggers = workspace:FindFirstChild("BusJobEndTriggers")
+			if endTriggers then table.insert(filterList, endTriggers) end
+			local cam = workspace.CurrentCamera
+			if cam then table.insert(filterList, cam) end
+			rayParams.FilterDescendantsInstances = filterList
 		end
+		refreshRayFilter()
 
 		if currentDriveConn then
 			currentDriveConn:Disconnect()
 			currentDriveConn = nil
 		end
 
+		-- Master Glider Loop: Segments through waypoints
+		local totalWps = #waypoints
 		local lastStatusTick = 0
-		currentDriveConn = RunService.Heartbeat:Connect(function(dt)
-			if not isDrivingActive or not isFarmRunning then
-				driveFinished = true
-				return
-			end
+		local lastOdoTick = 0
 
-			local curBus = getMyBus()
-			local curSeat = getDriverSeat(curBus)
-			if not (curBus and curSeat) then
-				driveFinished = true
-				return
-			end
+		task.spawn(function()
+			for wpIdx = 1, totalWps do
+				if not isDrivingActive or not isFarmRunning then break end
 
-			local seatPos = curSeat.Position
-			local targetWp = waypoints[currentWpIndex]
-			if not targetWp then
-				driveFinished = true
-				return
-			end
+				local curBus = getMyBus()
+				local curSeat = getDriverSeat(curBus)
+				if not (curBus and curSeat) then break end
 
-			local wpVec = Vector3.new(targetWp.x - seatPos.X, 0, targetWp.z - seatPos.Z)
-			local distToWp = wpVec.Magnitude
+				local targetWp = waypoints[wpIdx]
+				local startPos = curSeat.Position
+				local destPos = Vector3.new(targetWp.x, targetWp.y or startPos.Y, targetWp.z)
 
-			-- Advance to next waypoint along road curve
-			local isLastWp = (currentWpIndex == totalWps)
-			local switchRadius = isLastWp and arrivalThreshold or (targetWp.isToll and 14 or 32)
-			if distToWp <= switchRadius then
+				requestStreamAsync(destPos)
+
+				local flatDelta = Vector3.new(destPos.X - startPos.X, 0, destPos.Z - startPos.Z)
+				local flatDist = flatDelta.Magnitude
+
+				-- Check if waypoint is already reached
+				if flatDist > 2.0 then
+					local segmentSpeed = targetCruiseSpeed
+					if wpIdx == totalWps and flatDist < 60 then
+						segmentSpeed = math.max(22, (flatDist / 60) * targetCruiseSpeed)
+					end
+
+					-- Realistic highway travel duration (distance / speed)
+					local segDuration = math.max(flatDist / segmentSpeed, 0.08)
+					local segStartTime = os.clock()
+					local lastGroundY = startPos.Y
+
+					local segConn
+					local segFinished = false
+
+					segConn = RunService.Heartbeat:Connect(function(dt)
+						if not isDrivingActive or not isFarmRunning then
+							segFinished = true
+							if segConn then segConn:Disconnect(); segConn = nil end
+							return
+						end
+
+						local curB = getMyBus()
+						local curS = getDriverSeat(curB)
+						if not (curB and curS) then
+							segFinished = true
+							if segConn then segConn:Disconnect(); segConn = nil end
+							return
+						end
+
+						-- User manual override check: if player hits S (reverse), yield control
+						local aThrottle = aValues and aValues:FindFirstChild("Throttle") and aValues.Throttle.Value
+						if curS.Throttle < -0.15 or (aThrottle and aThrottle < -0.15) then
+							return
+						end
+
+						local elapsed = os.clock() - segStartTime
+						local alpha = math.clamp(elapsed / segDuration, 0, 1)
+
+						-- 1. Horizontal X and Z interpolation along road segment
+						local curX = startPos.X + (destPos.X - startPos.X) * alpha
+						local curZ = startPos.Z + (destPos.Z - startPos.Z) * alpha
+
+						-- 2. Downward Raycast: Lock bus height exactly to physical road asphalt
+						local rayOrigin = Vector3.new(curX, lastGroundY + 16, curZ)
+						local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -60, 0), rayParams)
+						local roadY = hit and (hit.Position.Y + 4.2) or (startPos.Y + (destPos.Y - startPos.Y) * alpha)
+						lastGroundY = roadY
+						local curY = roadY
+
+						local curPos = Vector3.new(curX, curY, curZ)
+
+						-- 3. Heading directly facing toward the target waypoint
+						local moveVec = Vector3.new(destPos.X - curX, 0, destPos.Z - curZ)
+						local moveDir = moveVec.Magnitude > 0.1 and moveVec.Unit or flatDelta.Unit
+						local currentYaw = math.atan2(-moveDir.X, -moveDir.Z)
+						local currentRot = CFrame.Angles(0, currentYaw, 0)
+						local targetCF = CFrame.new(curPos) * currentRot
+
+						-- 4. Smooth PivotTo glide on asphalt
+						pcall(function()
+							curB:PivotTo(targetCF)
+
+							-- Selective noclip on obstacles: prevent getting wedged by guardrails, poles, or NPC buses
+							for _, part in ipairs(curB:GetDescendants()) do
+								if part:IsA("BasePart") then
+									part.CanCollide = false
+									part.Anchored = false
+								end
+							end
+
+							-- 5. Full A-Chassis telemetry synchronization (Server sees normal active bus driving)
+							if aValues then
+								if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+								if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
+								if aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
+								if aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
+								if aValues:FindFirstChild("RPM") then aValues.RPM.Value = 4800 + math.random(-40, 40) end
+								if aValues:FindFirstChild("Steer") then aValues.Steer.Value = 0 end
+							end
+							curS.Throttle = 1
+							curS.ThrottleFloat = 1
+							curS.Steer = 0
+							curS.AssemblyLinearVelocity = moveDir * segmentSpeed
+							curS.AssemblyAngularVelocity = Vector3.zero
+
+							-- Keep player firmly seated in Driver Seat
+							local c = player.Character
+							local h = c and c:FindFirstChild("Humanoid")
+							local r = c and c:FindFirstChild("HumanoidRootPart")
+							if r and curS and (not h or not h.Sit or h.SeatPart ~= curS) then
+								r.CFrame = curS.CFrame + Vector3.new(0, 0.5, 0)
+								if h then h.Sit = true; curS:Sit(h) end
+							end
+						end)
+
+						-- Telemetry UI update
+						local now = os.clock()
+						if (now - lastStatusTick) >= 0.4 then
+							lastStatusTick = now
+							local remDist = (1 - alpha) * flatDist
+							for i = wpIdx + 1, totalWps do
+								remDist = remDist + (Vector3.new(waypoints[i].x - waypoints[i-1].x, 0, waypoints[i].z - waypoints[i-1].z)).Magnitude
+							end
+							local estSec = math.ceil(remDist / math.max(segmentSpeed, 30))
+							setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("%s (%.0fm | ~%ds)", nextDestinationName or "Menuju Checkpoint", remDist, estSec))
+						end
+
+						if alpha >= 1.0 then
+							segFinished = true
+							if segConn then segConn:Disconnect(); segConn = nil end
+						end
+					end)
+
+					while not segFinished and isDrivingActive and isFarmRunning do
+						task.wait(0.02)
+					end
+					if segConn then segConn:Disconnect(); segConn = nil end
+				end
+
+				-- Handle Toll Gate Arrival (Stop & Pay Rp 200.000)
 				if targetWp.isToll then
-					-- Stop inside Toll TriggerZone to pay toll fee and allow gate to open
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Membayar Tiket Masuk Tol (Rp 200.000)...")
-					curSeat.Throttle = 0
-					curSeat.Steer = 0
-					setHandbrake(true)
-					curSeat.AssemblyLinearVelocity = Vector3.zero
+					pcall(function()
+						local curB = getMyBus()
+						local curS = getDriverSeat(curB)
+						if curS then
+							curS.Throttle = 0
+							curS.AssemblyLinearVelocity = Vector3.zero
+							setHandbrake(true)
+						end
+					end)
 					task.wait(2.2)
 					setHandbrake(false)
 				end
-
-				if currentWpIndex < totalWps then
-					currentWpIndex = currentWpIndex + 1
-					targetWp = waypoints[currentWpIndex]
-					wpVec = Vector3.new(targetWp.x - seatPos.X, 0, targetWp.z - seatPos.Z)
-					distToWp = wpVec.Magnitude
-					requestStreamAsync(Vector3.new(targetWp.x, targetWp.y or seatPos.Y, targetWp.z))
-				else
-					driveFinished = true
-					return
-				end
 			end
 
-			-- Anti-Stuck Check: if vehicle is wedged (< 3 studs in 2s while driving)
-			local now = os.clock()
-			if not isUnsticking then
-				if (now - lastStuckTime) >= 2.0 then
-					local moved = (Vector3.new(seatPos.X - lastStuckPos.X, 0, seatPos.Z - lastStuckPos.Z)).Magnitude
-					if moved < 3.0 and distToWp > arrivalThreshold then
-						isUnsticking = true
-						unstickStartTime = now
-					end
-					lastStuckTime = now
-					lastStuckPos = seatPos
-				end
-			else
-				-- Pure physics reverse maneuver to clear curbs / guardrails
-				if (now - unstickStartTime) < 1.4 then
-					curSeat.Throttle = -1
-					curSeat.Steer = -1
-					if aValues and aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = -1 end
-					if aValues and aValues:FindFirstChild("Gear") then aValues.Gear.Value = "R" end
-					return
-				else
-					isUnsticking = false
-					lastStuckTime = now
-					lastStuckPos = seatPos
-					if aValues and aValues:FindFirstChild("Gear") then aValues.Gear.Value = "D" end
-				end
-			end
-
-			-- Check if user is manually intervening (pressing S / reverse or manual brake)
-			local aThrottle = aValues and aValues:FindFirstChild("Throttle") and aValues.Throttle.Value
-			if curSeat.Throttle < -0.15 or (aThrottle and aThrottle < -0.15) then
-				-- User is manually reversing or steering; do not fight him!
-				return
-			end
-
-			-- 1. Direction toward the target waypoint
-			local moveDir = (wpVec.Magnitude > 0.1) and wpVec.Unit or Vector3.new(look.X, 0, look.Z).Unit
-
-			-- 2. Yaw alignment via smooth PivotTo so the bus body actually rotates into curves
-			local primary = curBus.PrimaryPart or curBus:FindFirstChild("PartPrimary") or curSeat
-			local targetYaw = math.atan2(-moveDir.X, -moveDir.Z)
-			local _, curYaw, _ = (primary or curSeat).CFrame:ToOrientation()
-			local angleDiff = (targetYaw - curYaw + math.pi) % (2 * math.pi) - math.pi
-
-			-- Natural heavy bus turning speed (up to 2.4 rad/s)
-			local maxRotStep = 2.4 * dt
-			local rotStep = math.clamp(angleDiff, -maxRotStep, maxRotStep)
-			local newYaw = curYaw + rotStep
-			if primary then
-				curBus:PivotTo(CFrame.new(primary.Position) * CFrame.Angles(0, newYaw, 0))
-			else
-				curSeat.CFrame = CFrame.new(curSeat.Position) * CFrame.Angles(0, newYaw, 0)
-			end
-
-			-- Steer value for visual wheels turning
-			local steerVal = math.clamp(angleDiff * 2.0, -1, 1)
-			curSeat.Steer = steerVal
-			curSeat.SteerFloat = steerVal
-			if aValues and aValues:FindFirstChild("Steer") then
-				aValues.Steer.Value = steerVal
-			end
-
-			-- 3. Speed calculation & Arrival Deceleration
-			local maxSpeed = targetCruiseSpeed
-			if isLastWp and distToWp < 75 then
-				maxSpeed = math.max(16, (distToWp / 75) * targetCruiseSpeed)
-			elseif math.abs(angleDiff) > 0.5 then
-				maxSpeed = math.min(maxSpeed, 35)
-			end
-
-			local curVel = curSeat.AssemblyLinearVelocity
-			curSeat.Throttle = 1
-			curSeat.ThrottleFloat = 1
-			if aValues and aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
-			if aValues and aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
-			if aValues and aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
-
-			-- 4. Apply Directional Velocity along moveDir (NOT just LookVector)
-			local targetLinearVel = Vector3.new(moveDir.X * maxSpeed, curVel.Y, moveDir.Z * maxSpeed)
-			curSeat.AssemblyLinearVelocity = curVel:Lerp(targetLinearVel, math.clamp(dt * 5.0, 0, 1))
-			curSeat.AssemblyAngularVelocity = Vector3.zero
-
-			if hum then
-				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-			end
-
-			-- Status telemetry update
-			if (now - lastStatusTick) >= 0.4 then
-				lastStatusTick = now
-				local remDist = distToWp
-				for i = currentWpIndex, totalWps - 1 do
-					remDist = remDist + (Vector3.new(waypoints[i+1].x - waypoints[i].x, 0, waypoints[i+1].z - waypoints[i].z)).Magnitude
-				end
-				local estSec = math.ceil(remDist / math.max(currentFlatSpeed, 30))
-				setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("%s (%dm | ~%ds)", nextDestinationName or "Menuju Checkpoint", math.floor(remDist), estSec))
-			end
+			driveFinished = true
 		end)
 
 		while not driveFinished and isDrivingActive and isFarmRunning do
 			task.wait(0.05)
 		end
 
-		if currentDriveConn then
-			currentDriveConn:Disconnect()
-			currentDriveConn = nil
-		end
-
-		-- Settle bus upon arrival: cut throttle, apply brakes
+		-- Settle bus upon arrival: cut throttle, apply brakes, engage handbrake
 		pcall(function()
 			local curBus = getMyBus()
 			local curSeat = getDriverSeat(curBus)
@@ -654,13 +662,14 @@ local success, err = pcall(function()
 				curSeat.ThrottleFloat = 0
 				curSeat.Steer = 0
 				curSeat.SteerFloat = 0
-				curSeat.AssemblyLinearVelocity = Vector3.new(0, curSeat.AssemblyLinearVelocity.Y, 0)
+				curSeat.AssemblyLinearVelocity = Vector3.zero
 				curSeat.AssemblyAngularVelocity = Vector3.zero
 			end
 			if aValues then
 				if aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 0 end
 				if aValues:FindFirstChild("Brake") then aValues.Brake.Value = 1 end
 			end
+			setHandbrake(true)
 		end)
 
 		isDrivingActive = false
