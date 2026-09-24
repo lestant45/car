@@ -379,6 +379,7 @@ local success, err = pcall(function()
 			local seatPos = curSeat.Position
 			local toDest = destPos - seatPos
 			local flatDist = (Vector3.new(toDest.X, 0, toDest.Z)).Magnitude
+			local flatDir = flatDist > 0.01 and Vector3.new(toDest.X, 0, toDest.Z).Unit or Vector3.zero
 
 			if flatDist <= arrivalThreshold or (os.clock() - driveStartTime) >= maxDriveTimeout then
 				driveFinished = true
