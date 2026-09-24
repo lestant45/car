@@ -354,6 +354,10 @@ local success, err = pcall(function()
 	-- Pre-mapped Highway Backbone Nodes along the Trans-Java / Cipali Toll Road
 	-- Ensures the bus naturally follows the asphalt corridor rather than cutting across mountains/void
 	local HIGHWAY_BACKBONE = {
+		{ name = "Depot_Spawn_Exit",        x = 22180.0, y = 287.0, z = -39860.0 },
+		{ name = "Depot_Road_Mid",          x = 22360.0, y = 286.8, z = -39750.0 },
+		{ name = "Terminal_Plaza_In",       x = 22470.0, y = 286.8, z = -39650.0 },
+		{ name = "Terminal_Ring_Road",      x = 22700.0, y = 287.0, z = -39580.0 },
 		{ name = "Baranangsiang_Exit",      x = 22487.6, y = 286.9, z = -39420.7 },
 		{ name = "Gerbang_Bogor_Approach", x = 21000.0, y = 287.0, z = -38800.0 },
 		{ name = "Gerbang_Tol_Bogor_Bayar", x = 20128.6, y = 296.0, z = -38073.1, isToll = true },
@@ -406,7 +410,7 @@ local success, err = pcall(function()
 
 		-- 2. Build road path using Highway Corridor Backbone
 		local flatDist = (Vector3.new(destPos.X - startPos.X, 0, destPos.Z - startPos.Z)).Magnitude
-		if flatDist <= 500 then
+		if flatDist <= 120 then
 			return { { x = destPos.X, y = destPos.Y, z = destPos.Z } }
 		end
 
@@ -415,12 +419,12 @@ local success, err = pcall(function()
 		for _, node in ipairs(HIGHWAY_BACKBONE) do
 			local isBetween = false
 			if corridorDir == 1 then
-				isBetween = node.z > (startPos.Z + 150) and node.z < (destPos.Z - 150)
+				isBetween = node.z > (startPos.Z + 40) and node.z < (destPos.Z - 40)
 			else
-				isBetween = node.z < (startPos.Z - 150) and node.z > (destPos.Z + 150)
+				isBetween = node.z < (startPos.Z - 40) and node.z > (destPos.Z + 40)
 			end
 			if isBetween then
-				table.insert(path, { x = node.x, y = node.y, z = node.z })
+				table.insert(path, { x = node.x, y = node.y, z = node.z, isToll = node.isToll })
 			end
 		end
 
@@ -561,58 +565,59 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Steering calculation: heading error between bus and target waypoint
-			local look = curSeat.CFrame.LookVector
-			local busHeading = math.atan2(-look.X, -look.Z)
-			local targetHeading = math.atan2(-wpVec.X, -wpVec.Z)
-			local angleDiff = (targetHeading - busHeading + math.pi) % (2 * math.pi) - math.pi
+			-- Check if user is manually intervening (pressing S / reverse or manual brake)
+			local aThrottle = aValues and aValues:FindFirstChild("Throttle") and aValues.Throttle.Value
+			if curSeat.Throttle < -0.15 or (aThrottle and aThrottle < -0.15) then
+				-- User is manually reversing or steering; do not fight him!
+				return
+			end
 
-			-- Pure physics steering input
-			local steerVal = math.clamp(angleDiff * 2.2, -1, 1)
+			-- 1. Direction toward the target waypoint
+			local moveDir = (wpVec.Magnitude > 0.1) and wpVec.Unit or Vector3.new(look.X, 0, look.Z).Unit
+
+			-- 2. Yaw alignment via smooth PivotTo so the bus body actually rotates into curves
+			local primary = curBus.PrimaryPart or curBus:FindFirstChild("PartPrimary") or curSeat
+			local targetYaw = math.atan2(-moveDir.X, -moveDir.Z)
+			local _, curYaw, _ = (primary or curSeat).CFrame:ToOrientation()
+			local angleDiff = (targetYaw - curYaw + math.pi) % (2 * math.pi) - math.pi
+
+			-- Natural heavy bus turning speed (up to 2.4 rad/s)
+			local maxRotStep = 2.4 * dt
+			local rotStep = math.clamp(angleDiff, -maxRotStep, maxRotStep)
+			local newYaw = curYaw + rotStep
+			if primary then
+				curBus:PivotTo(CFrame.new(primary.Position) * CFrame.Angles(0, newYaw, 0))
+			else
+				curSeat.CFrame = CFrame.new(curSeat.Position) * CFrame.Angles(0, newYaw, 0)
+			end
+
+			-- Steer value for visual wheels turning
+			local steerVal = math.clamp(angleDiff * 2.0, -1, 1)
 			curSeat.Steer = steerVal
 			curSeat.SteerFloat = steerVal
 			if aValues and aValues:FindFirstChild("Steer") then
 				aValues.Steer.Value = steerVal
 			end
 
-			-- Cornering and arrival speed damping
+			-- 3. Speed calculation & Arrival Deceleration
 			local maxSpeed = targetCruiseSpeed
 			if isLastWp and distToWp < 75 then
-				maxSpeed = math.max(20, (distToWp / 75) * targetCruiseSpeed)
-			elseif math.abs(angleDiff) > 0.65 then
-				maxSpeed = math.min(maxSpeed, 38)
+				maxSpeed = math.max(16, (distToWp / 75) * targetCruiseSpeed)
+			elseif math.abs(angleDiff) > 0.5 then
+				maxSpeed = math.min(maxSpeed, 35)
 			end
 
 			local curVel = curSeat.AssemblyLinearVelocity
-			local currentFlatSpeed = Vector3.new(curVel.X, 0, curVel.Z).Magnitude
-			local forwardDir = Vector3.new(look.X, 0, look.Z).Unit
+			curSeat.Throttle = 1
+			curSeat.ThrottleFloat = 1
+			if aValues and aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
+			if aValues and aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
+			if aValues and aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
 
-			-- Pure physics throttle & forward propulsion assist
-			if currentFlatSpeed < maxSpeed then
-				curSeat.Throttle = 1
-				curSeat.ThrottleFloat = 1
-				if aValues and aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 1 end
-				if aValues and aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0 end
-				if aValues and aValues:FindFirstChild("PBrake") then aValues.PBrake.Value = false end
-
-				local speedDeficit = maxSpeed - currentFlatSpeed
-				local forwardThrust = math.clamp(speedDeficit * 1.0, 0, 25)
-				curSeat.AssemblyLinearVelocity = curVel + (forwardDir * (forwardThrust * dt * 4.0))
-			elseif currentFlatSpeed > (maxSpeed + 6) then
-				curSeat.Throttle = 0
-				curSeat.ThrottleFloat = 0
-				if aValues and aValues:FindFirstChild("Throttle") then aValues.Throttle.Value = 0 end
-				if aValues and aValues:FindFirstChild("Brake") then aValues.Brake.Value = 0.5 end
-				curSeat.AssemblyLinearVelocity = Vector3.new(curVel.X * 0.96, curVel.Y, curVel.Z * 0.96)
-			else
-				curSeat.Throttle = 1
-				curSeat.ThrottleFloat = 1
-			end
-
-			-- Pure physics yaw turning & anti-roll stability (Prevents bus tipping over on road)
-			local targetYawRate = math.clamp(angleDiff * 2.8, -1.8, 1.8)
-			local curAngVel = curSeat.AssemblyAngularVelocity
-			curSeat.AssemblyAngularVelocity = Vector3.new(curAngVel.X * 0.7, targetYawRate, curAngVel.Z * 0.7)
+			-- 4. Apply Directional Velocity along moveDir (NOT just LookVector)
+			local targetLinearVel = Vector3.new(moveDir.X * maxSpeed, curVel.Y, moveDir.Z * maxSpeed)
+			curSeat.AssemblyLinearVelocity = curVel:Lerp(targetLinearVel, math.clamp(dt * 5.0, 0, 1))
+			curSeat.AssemblyAngularVelocity = Vector3.zero
 
 			if hum then
 				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
@@ -760,22 +765,17 @@ local success, err = pcall(function()
 	local totalCheckpoints = 0
 
 	-- Helper: Physically drive and dock bus inside checkpoint zone without PivotTo
-	local function dockAtCheckpointPhysically(cpPart, forwardOffset)
+	local function dockAtCheckpointPhysically(cpPart)
 		if not (cpPart and cpPart:IsA("BasePart")) then return false end
 		local snapBus, snapSeat = ensureBusAndSeat()
 		if not (snapBus and snapSeat) then return false end
 
-		local cpCF = cpPart.CFrame
-		local dot = snapSeat.CFrame.LookVector:Dot(cpCF.LookVector)
-		local approachDir = dot < -0.2 and (cpCF * CFrame.Angles(0, math.pi, 0)).LookVector or cpCF.LookVector
-		local offset = forwardOffset or 14
-		local targetX = cpPart.Position.X + (approachDir.X * offset)
-		local targetZ = cpPart.Position.Z + (approachDir.Z * offset)
-		local targetPos = Vector3.new(targetX, cpPart.Position.Y, targetZ)
+		-- Drive directly to checkpoint center so the bus is squarely inside the trigger volume
+		local targetPos = cpPart.Position
 
-		-- Pure physics crawl into checkpoint zone at low docking speed (~20 studs/s)
+		-- Pure physics crawl into checkpoint zone at low docking speed (~22 studs/s)
 		setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Docking Checkpoint...")
-		driveToDestination(targetPos, 20, 6)
+		driveToDestination(targetPos, 22, 8)
 
 		-- Halt naturally and engage handbrake
 		holdCheckpointPosition()
@@ -1026,7 +1026,7 @@ local success, err = pcall(function()
 					-- 3. Enter Checkpoint Zone (Pure Physics Docking)
 					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Docking Checkpoint...")
 					requestStreamAsync(cpPart.Position)
-					dockAtCheckpointPhysically(cpPart, 14)
+					dockAtCheckpointPhysically(cpPart)
 
 					-- 6. Wait for Server to Initiate Passenger Countdown
 					local cpWaitStart = os.clock()
@@ -1034,19 +1034,21 @@ local success, err = pcall(function()
 
 					while not waitingForCheckpointCountdown and isFarmRunning and currentJobActive and (os.clock() - cpWaitStart) < 22 do
 						local now = os.clock()
-						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 4.0 and (now - lastHealTime) >= 3.0 then
+						if not waitingForCheckpointCountdown and (now - cpWaitStart) > 6.0 and (now - lastHealTime) >= 4.0 then
 							lastHealTime = now
-							-- Pure physics gentle crawl forward to touch trigger if not yet registered
+							-- Gently nudge toward checkpoint center if server hasn't triggered yet
 							pcall(function()
 								local curBus = getMyBus()
 								local curSeat = getDriverSeat(curBus)
-								if curSeat then
-									setHandbrake(false)
-									curSeat.Throttle = 1
-									curSeat.AssemblyLinearVelocity = curSeat.CFrame.LookVector * 12
-									task.wait(0.5)
-									curSeat.Throttle = 0
-									holdCheckpointPosition()
+								if curSeat and cpPart then
+									local toCp = Vector3.new(cpPart.Position.X - curSeat.Position.X, 0, cpPart.Position.Z - curSeat.Position.Z)
+									if toCp.Magnitude > 6 then
+										releaseCheckpointHold()
+										curSeat.AssemblyLinearVelocity = toCp.Unit * 8
+										task.wait(0.4)
+										curSeat.AssemblyLinearVelocity = Vector3.zero
+										holdCheckpointPosition()
+									end
 								end
 							end)
 						end
