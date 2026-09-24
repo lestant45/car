@@ -762,8 +762,11 @@ local success, err = pcall(function()
 
 	-- Calculate road path between start and destination following highway curves
 	local function getRoutePath(startPos, destPos, routeName)
-		-- 1. Check if user has saved custom recorded waypoints for this route
+		-- 1. Check if user has saved custom recorded waypoints for this route or master highway
 		local customWaypoints = loadRouteWaypoints(routeName or currentRouteId)
+		if not customWaypoints or #customWaypoints <= 1 then
+			customWaypoints = loadRouteWaypoints("MASTER_HIGHWAY")
+		end
 		if customWaypoints and #customWaypoints > 1 then
 			local startIndex, destIndex = 1, #customWaypoints
 			local minStartDist, minDestDist = 999999, 999999
@@ -1087,9 +1090,10 @@ local success, err = pcall(function()
 		if recordConn then recordConn:Disconnect(); recordConn = nil end
 		if #recordedWaypoints > 0 then
 			saveRouteWaypoints(routeName or currentRouteId, recordedWaypoints)
-			UI.Notify("Route Saved", string.format("Saved %d points for %s!", #recordedWaypoints, routeName or currentRouteId), 3, "success")
+			saveRouteWaypoints("MASTER_HIGHWAY", recordedWaypoints)
+			UI.Notify("Route Saved", string.format("Saved %d points as Master Highway!", #recordedWaypoints), 3, "success")
 			if recordStatusLabel then
-				pcall(function() recordStatusLabel.Set(string.format("✅ Saved: %d points (%s)", #recordedWaypoints, routeName or currentRouteId)) end)
+				pcall(function() recordStatusLabel.Set(string.format("✅ Saved: %d points (Master Highway)", #recordedWaypoints)) end)
 			end
 		else
 			UI.Notify("Recording Empty", "No waypoints recorded.", 2, "warning")
