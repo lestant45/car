@@ -356,7 +356,8 @@ local success, err = pcall(function()
 	local HIGHWAY_BACKBONE = {
 		{ name = "Baranangsiang_Exit",      x = 22487.6, y = 286.9, z = -39420.7 },
 		{ name = "Gerbang_Bogor_Approach", x = 21000.0, y = 287.0, z = -38800.0 },
-		{ name = "Gerbang_Bogor_Plaza",    x = 20300.0, y = 287.4, z = -38100.0 },
+		{ name = "Gerbang_Tol_Bogor_Bayar", x = 20128.6, y = 296.0, z = -38073.1, isToll = true },
+		{ name = "Bogor_Tol_Plaza_Exit",   x = 20080.0, y = 288.0, z = -37900.0 },
 		{ name = "Bogor_Tol_Curve_1",      x = 20035.0, y = 285.8, z = -37700.0 },
 		{ name = "Bogor_Tol_Curve_2",      x = 19165.0, y = 285.7, z = -37500.0 },
 		{ name = "Tol_Sentul_Selatan",      x = 19340.0, y = 282.7, z = -36700.0 },
@@ -507,8 +508,19 @@ local success, err = pcall(function()
 
 			-- Advance to next waypoint along road curve
 			local isLastWp = (currentWpIndex == totalWps)
-			local switchRadius = isLastWp and arrivalThreshold or 32
+			local switchRadius = isLastWp and arrivalThreshold or (targetWp.isToll and 14 or 32)
 			if distToWp <= switchRadius then
+				if targetWp.isToll then
+					-- Stop inside Toll TriggerZone to pay toll fee and allow gate to open
+					setFarmState(FARM_STATE.DRIVING_CHECKPOINT, "Membayar Tiket Masuk Tol (Rp 200.000)...")
+					curSeat.Throttle = 0
+					curSeat.Steer = 0
+					setHandbrake(true)
+					curSeat.AssemblyLinearVelocity = Vector3.zero
+					task.wait(2.2)
+					setHandbrake(false)
+				end
+
 				if currentWpIndex < totalWps then
 					currentWpIndex = currentWpIndex + 1
 					targetWp = waypoints[currentWpIndex]
@@ -879,37 +891,28 @@ local success, err = pcall(function()
 			return
 		end
 
-		-- 2. Ensure Bus is physically inside Terminal Zone before Invoking StartBusJob (Distance Anti-Exploit Check)
+		-- 2. Fast-travel back to terminal only if stranded in another city (> 3000 studs)
 		local termPart = findTargetPart(currentTerminalId, "BusJobTriggers")
 		local terminalTriggerPos = termPart and termPart.Position or Vector3.new(22771.8, 294.87, -39584.0)
 		local seatPos = seat.Position
 		local distToTerm = (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude
 
-		-- 🛡️ Anti-Cross-Map Void Guard: If player/bus is far (> 3000 studs) from terminal,
-		-- fast-travel via official server remote first. NEVER attempt to drive across the void!
 		if distToTerm > 3000 then
 			setFarmState(FARM_STATE.STARTING_JOB, "Fast-Traveling to Terminal")
 			respawnToStart()
 			bus, seat = ensureBusAndSeat()
 			if not (bus and seat) then return end
 			seatPos = seat.Position
-			distToTerm = (Vector3.new(seatPos.X - terminalTriggerPos.X, 0, seatPos.Z - terminalTriggerPos.Z)).Magnitude
-		end
-
-		if distToTerm > 30 then
-			setFarmState(FARM_STATE.STARTING_JOB, "Navigating to Terminal")
-			navigateToDestination(terminalTriggerPos, Config.targetSpeed or 95, 20)
-			task.wait(0.5)
 		end
 
 		-- Auto-clear lingering zombie job if server reports already in job
 		if player:GetAttribute("BusJobActive") then
 			pcall(function() Remotes.CancelBusJob:FireServer() end)
-			task.wait(1.5)
+			task.wait(1.0)
 		end
 
-		-- 3. Start Bus Job
-		setFarmState(FARM_STATE.STARTING_JOB, "Invoking StartBusJob")
+		-- 3. Start Bus Job immediately from driver seat (Official Server Handshake)
+		setFarmState(FARM_STATE.STARTING_JOB, string.format("Memulai Job: %s", currentRouteId))
 		local startRes = nil
 		pcall(function()
 			startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
@@ -926,21 +929,29 @@ local success, err = pcall(function()
 			pcall(function()
 				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
 			end)
+		elseif startRes == "You must be inside a valid bus vehicle." then
+			-- Re-seat humanoid and retry once
+			bus, seat = ensureBusAndSeat()
+			task.wait(0.5)
+			pcall(function()
+				startRes = Remotes.StartBusJob:InvokeServer(currentRouteId, currentTerminalId)
+			end)
 		end
 
-		-- 4. Verify Job Activation
+		-- 4. Verify Job Activation & Target Checkpoint 1 (Peron Penumpang Terminal)
 		local jobStartTime = os.clock()
 		if type(startRes) == "table" and startRes.success then
 			currentJobActive = true
 			jobStartTime = os.clock()
 			currentCheckpointIndex = startRes.checkpointIndex or 1
-			totalCheckpoints = startRes.totalCheckpoints or 8
+			totalCheckpoints = startRes.totalCheckpoints or 9
 			nextCheckpointPartName = startRes.nextCheckpointPartName
 			nextDestinationName = startRes.nextDestinationName
 			currentCheckpointText = string.format("%d / %d", currentCheckpointIndex, totalCheckpoints)
 			if statCheckpointCard then statCheckpointCard.Set(currentCheckpointText) end
-			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, nextDestinationName)
+			setFarmState(FARM_STATE.DRIVING_CHECKPOINT, string.format("CP 1: %s", nextDestinationName or nextCheckpointPartName))
 		else
+			setFarmState(FARM_STATE.IDLE, "Gagal Ambil Job: " .. tostring(startRes))
 			task.wait(2.5)
 			return
 		end
