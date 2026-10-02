@@ -43,6 +43,7 @@ local success, err = pcall(function()
 		passengerBoardDelay = 3,
 		tripPacing = true,
 		autoRejoinOrders = 30,
+		softRejoinPause = 30,
 		autoCourier = false,
 		courierSpeed = 85,
 		courierDropDelay = 4,
@@ -55,6 +56,7 @@ local success, err = pcall(function()
 		_G.HipHubConfig.farm.tripPacing = true
 	end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
+	if Config.softRejoinPause == nil then Config.softRejoinPause = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
 	if Config.courierSpeed == nil then Config.courierSpeed = 85 end
 	if Config.courierDropDelay == nil then Config.courierDropDelay = 4 end
@@ -3154,9 +3156,8 @@ local success, err = pcall(function()
 
 				-- 🔄 SOFT REJOIN: GoOffline → pause → GoOnline di server yang sama
 				-- TeleportService crash di Arceus X/Redfinger — tidak digunakan sama sekali.
-				-- Soft rejoin reset session state lokal dan memberi jeda server agar
-				-- rate limit / strike counter terhitung ulang dari fresh state.
-				local SOFT_REJOIN_PAUSE = 120 -- detik istirahat sebelum lanjut farm
+				-- Durasi pause: bisa dikontrol dari slider UI (default 30 detik).
+				local SOFT_REJOIN_PAUSE = math.max(15, math.min(120, tonumber(Config.softRejoinPause) or 30))
 
 				-- 1. Matikan toggle UI & pastikan RideGO offline di server
 				if autoRideGoToggle and autoRideGoToggle.Set then
@@ -3665,7 +3666,8 @@ local success, err = pcall(function()
 
 		-- 🔄 SOFT REJOIN: GoOffline → pause → GoOnline di server yang sama
 		-- TeleportService crash di Arceus X/Redfinger — tidak digunakan sama sekali.
-		local SOFT_REJOIN_PAUSE = 120 -- detik istirahat
+		-- Durasi pause: bisa dikontrol dari slider UI (default 30 detik).
+		local SOFT_REJOIN_PAUSE = math.max(15, math.min(120, tonumber(Config.softRejoinPause) or 30))
 
 		-- 5. Countdown istirahat dengan status di UI
 		task.spawn(function()
@@ -4284,6 +4286,16 @@ local success, err = pcall(function()
 		end
 	end)
 
+	UI.AddSlider(tab, "Soft Rejoin Pause (s)", 15, 120, math.floor(Config.softRejoinPause or 30), function(val)
+		Config.softRejoinPause = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.softRejoinPause = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
 	UI.AddSlider(tab, "Boarding Pause Delay (s)", 1, 8, math.floor(Config.passengerBoardDelay or 3), function(val)
 		Config.passengerBoardDelay = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
@@ -4337,6 +4349,16 @@ local success, err = pcall(function()
 		Config.courierAutoRejoinOrders = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierAutoRejoinOrders = val
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
+	end)
+
+	UI.AddSlider(tab, "Soft Rejoin Pause (s)", 15, 120, math.floor(Config.softRejoinPause or 30), function(val)
+		Config.softRejoinPause = val
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.softRejoinPause = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
