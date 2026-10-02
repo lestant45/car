@@ -3144,7 +3144,7 @@ local success, err = pcall(function()
 					end
 				end)
 
-				-- 🛡️ Pastikan autoRideGO tetap AKTIF di config agar saat reconnect langsung lanjut otomatis
+				-- 🛡️ Pastikan autoRideGO tetap AKTIF di config
 				if _G.HipHubConfig and _G.HipHubConfig.farm then
 					_G.HipHubConfig.farm.autoRideGO = true
 				end
@@ -3152,43 +3152,42 @@ local success, err = pcall(function()
 					_G.HipHubSaveConfig(true)
 				end
 
-				-- Cleanup sebelum teleport
-				pcall(function()
-					destroySafetyPlate()
-					collectgarbage("collect")
-				end)
+				-- 🔄 SOFT REJOIN: GoOffline → pause → GoOnline di server yang sama
+				-- TeleportService crash di Arceus X/Redfinger — tidak digunakan sama sekali.
+				-- Soft rejoin reset session state lokal dan memberi jeda server agar
+				-- rate limit / strike counter terhitung ulang dari fresh state.
+				local SOFT_REJOIN_PAUSE = 120 -- detik istirahat sebelum lanjut farm
 
-				-- Matikan toggle UI
+				-- 1. Matikan toggle UI & pastikan RideGO offline di server
 				if autoRideGoToggle and autoRideGoToggle.Set then
 					pcall(function() autoRideGoToggle.Set(false) end)
 				elseif toggleAutoRideGO then
 					pcall(function() toggleAutoRideGO(false) end)
 				end
 
-				updateBotActivity("Rejoining Server...", Color3.fromRGB(255, 120, 50))
+				-- 2. GC ringan
+				pcall(function()
+					destroySafetyPlate()
+					collectgarbage("collect")
+				end)
 
-				-- 🔗 BindableEvent Bridge: pindahkan Teleport dari executor thread ke Roblox native thread
-				-- Arceus X crash jika Teleport dipanggil langsung dari executor. Bridge ini membuat
-				-- Teleport dieksekusi dalam Roblox's own task scheduler — aman di semua executor mobile.
+				-- 3. Countdown istirahat dengan status di UI
 				task.spawn(function()
-					task.wait(1.0)
-					local bridgeOk = false
-					pcall(function()
-						local be = Instance.new("BindableEvent")
-						be.Event:Connect(function()
-							pcall(function()
-								game:GetService("TeleportService"):Teleport(game.PlaceId, player)
-							end)
-							be:Destroy()
-						end)
-						be:Fire()
-						bridgeOk = true
-					end)
-					if not bridgeOk then
-						-- Fallback langsung jika BindableEvent gagal dibuat
-						pcall(function()
-							game:GetService("TeleportService"):Teleport(game.PlaceId, player)
-						end)
+					for i = SOFT_REJOIN_PAUSE, 1, -1 do
+						updateBotActivity(
+							string.format("🔄 Soft Rejoin: Istirahat %ds...", i),
+							Color3.fromRGB(255, 170, 50)
+						)
+						task.wait(1)
+					end
+
+					-- 4. Otomatis restart RideGO setelah istirahat selesai
+					if taxiActive then return end -- sudah diaktifkan manual, skip
+					UI.Notify("Soft Rejoin", "Melanjutkan Auto-RideGO...", 2.5, "success")
+					if autoRideGoToggle and autoRideGoToggle.Set then
+						pcall(function() autoRideGoToggle.Set(true) end)
+					elseif toggleAutoRideGO then
+						pcall(function() toggleAutoRideGO(true) end)
 					end
 				end)
 				return
@@ -3615,10 +3614,9 @@ local success, err = pcall(function()
 		if courierRejoinPending then return end
 		courierRejoinPending = true
 
-		UI.Notify("Auto-Rejoin", "Menghubungkan ulang ke server...", 3, "info")
-		updateBotActivity("Auto-Rejoining Server...", Color3.fromRGB(255, 120, 50))
+		UI.Notify("Soft Rejoin", string.format("Istirahat dulu... (%s)", reason or ""), 3, "info")
 
-		-- 🛑 Hentikan loop kurir lokal tanpa mematikan config auto-resume
+		-- 🛑 Hentikan loop kurir lokal
 		courierActive = false
 		_G.HipHubCourierActive = false
 
@@ -3644,7 +3642,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- 2. Pastikan autoCourier tetap AKTIF di Config agar saat reconnect langsung jalan lagi
+		-- 2. Simpan config autoCourier = true agar tetap ON saat restart
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.autoCourier = true
 		end
@@ -3652,11 +3650,10 @@ local success, err = pcall(function()
 			_G.HipHubSaveConfig(true)
 		end
 
-		-- 3. GC agresif + cleanup
+		-- 3. GC ringan
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
-			collectgarbage("collect") -- dua kali untuk sweep generasi yang berbeda
 		end)
 
 		-- 4. Matikan toggle UI
@@ -3666,30 +3663,31 @@ local success, err = pcall(function()
 			pcall(function() toggleAutoCourier(false) end)
 		end
 
-		updateBotActivity("Rejoining Server...", Color3.fromRGB(255, 120, 50))
+		-- 🔄 SOFT REJOIN: GoOffline → pause → GoOnline di server yang sama
+		-- TeleportService crash di Arceus X/Redfinger — tidak digunakan sama sekali.
+		local SOFT_REJOIN_PAUSE = 120 -- detik istirahat
 
-		-- 🔗 BindableEvent Bridge: pindahkan Teleport dari executor thread ke Roblox native thread
-		-- Arceus X crash jika Teleport dipanggil langsung dari executor. Bridge ini membuat
-		-- Teleport dieksekusi dalam Roblox's own task scheduler — aman di semua executor mobile.
+		-- 5. Countdown istirahat dengan status di UI
 		task.spawn(function()
-			task.wait(1.0)
-			local bridgeOk = false
-			pcall(function()
-				local be = Instance.new("BindableEvent")
-				be.Event:Connect(function()
-					pcall(function()
-						game:GetService("TeleportService"):Teleport(game.PlaceId, player)
-					end)
-					be:Destroy()
-				end)
-				be:Fire()
-				bridgeOk = true
-			end)
-			if not bridgeOk then
-				-- Fallback langsung jika BindableEvent gagal dibuat
-				pcall(function()
-					game:GetService("TeleportService"):Teleport(game.PlaceId, player)
-				end)
+			for i = SOFT_REJOIN_PAUSE, 1, -1 do
+				updateBotActivity(
+					string.format("🔄 Soft Rejoin: Istirahat %ds...", i),
+					Color3.fromRGB(255, 170, 50)
+				)
+				task.wait(1)
+			end
+
+			-- 6. Otomatis restart courier setelah istirahat selesai
+			if courierActive then
+				courierRejoinPending = false
+				return -- sudah diaktifkan manual, skip
+			end
+			UI.Notify("Soft Rejoin", "Melanjutkan Auto-Courier...", 2.5, "success")
+			courierRejoinPending = false
+			if autoCourierToggle and autoCourierToggle.Set then
+				pcall(function() autoCourierToggle.Set(true) end)
+			elseif toggleAutoCourier then
+				pcall(function() toggleAutoCourier(true) end)
 			end
 		end)
 	end
