@@ -170,7 +170,7 @@ local success, err = pcall(function()
 					if isAutoRejoin and msg and #msg > 0 then
 						task.wait(2.0)
 						pcall(function()
-							TeleportService:Teleport(game.PlaceId, player)
+							TeleportService:Teleport(game.PlaceId)
 						end)
 					end
 				end)
@@ -184,7 +184,7 @@ local success, err = pcall(function()
 				if state == Enum.TeleportState.Failed and isAutoRejoin then
 					task.wait(2.5)
 					pcall(function()
-						TeleportService:Teleport(game.PlaceId, player)
+						TeleportService:Teleport(game.PlaceId)
 					end)
 				end
 			end)
