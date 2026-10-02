@@ -1,6 +1,6 @@
 -- 💰 HipHub DE -- Auto Farm System
 -- Driving Empire (Place ID: 9694510481)
--- Features: Auto Collect Cash Bags, Auto Bank Rob, Auto Delivery (Offroad Job + Fast Instant Delivery)
+-- Features: Auto Collect Cash Bags, Auto Bank Rob, Auto Delivery (Offroad Job + Full Cargo Pickup + Auto Easy Mode)
 -- Exports: _G.HipHubFarm
 
 local success, err = pcall(function()
@@ -108,7 +108,12 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function hasActiveDelivery()
+	-- Check if player is currently in a delivery job
+	local function isPlayerOnDeliveryJob()
+		if JobsUtil and JobsUtil.GetPlayerJobId then
+			local ok, id = pcall(JobsUtil.GetPlayerJobId, player)
+			if ok and id == "Delivery" then return true end
+		end
 		if DeliveryJobTask and DeliveryJobTask.HasActiveDelivery then
 			local ok, active = pcall(DeliveryJobTask.HasActiveDelivery)
 			if ok and active then return true end
@@ -342,8 +347,8 @@ local success, err = pcall(function()
 	local function ensureEasyDeliveryMode()
 		handleDeliveryModePopup()
 
-		-- Do NOT fire SetDeliveryMode if player is already in an active delivery (prevents notification warning)
-		if hasActiveDelivery() then return end
+		-- Do NOT fire SetDeliveryMode if player already has an active delivery (prevents notification warning)
+		if isPlayerOnDeliveryJob() then return end
 
 		pcall(function()
 			if DeliveryModeController and DeliveryModeController.RequestSetMode then
@@ -357,34 +362,25 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 3. Ensure player has active Delivery shift at Offroad location
-	local function ensureDeliveryShiftStarted()
-		local hasJob = false
-		if JobsUtil then
-			pcall(function()
-				hasJob = (JobsUtil.GetPlayerJobId(player) == "Delivery")
-			end)
-		end
-		if hasActiveDelivery() then
-			hasJob = true
-		end
+	-- 3. Start Delivery shift at Offroad location ONLY if player is truly not in the job
+	local function startOffroadDeliveryShift()
+		-- NEVER step on the start pad if already on Delivery job (stepping on pad while on job ends the shift!)
+		if isPlayerOnDeliveryJob() then return end
 
-		if not hasJob then
-			State.deliveryStatus = "Starting Offroad Job (Easy)..."
-			teleportTo(OFFROAD_JOB_PAD)
-			task.wait(0.4)
-			ensureEasyDeliveryMode()
+		State.deliveryStatus = "Starting Offroad Job (Easy)..."
+		teleportTo(OFFROAD_JOB_PAD)
+		task.wait(0.4)
+		ensureEasyDeliveryMode()
 
-			-- Request delivery job session with "Safe" (Easy) mode
-			pcall(function()
-				if RemotesModule and JobsConstants then
-					RemotesModule.fireServer(JobsConstants.Remotes.RequestStartJobSession, "Delivery", "jobPad", "Safe")
-				end
-			end)
+		-- Request delivery job session with "Safe" (Easy) mode
+		pcall(function()
+			if RemotesModule and JobsConstants then
+				RemotesModule.fireServer(JobsConstants.Remotes.RequestStartJobSession, "Delivery", "jobPad", "Safe")
+			end
+		end)
 
-			task.wait(0.6)
-			handleDeliveryModePopup()
-		end
+		task.wait(0.6)
+		handleDeliveryModePopup()
 	end
 
 	-- 4. Interact with DeliveryLocation Part and ProximityPrompts in range
@@ -420,7 +416,7 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 5. Main fast execution step for Auto Delivery
+	-- 5. Main execution step for Auto Delivery
 	local function executeDeliveryStep()
 		handleDeliveryModePopup()
 
@@ -434,44 +430,53 @@ local success, err = pcall(function()
 		local root = getCharRoot()
 		if not root then return end
 
-		-- If no delivery session or task active, start at offroad pad
+		-- If player does NOT have delivery job, start shift at offroad pad
+		if not isPlayerOnDeliveryJob() then
+			startOffroadDeliveryShift()
+			task.wait(1)
+			return
+		end
+
+		-- If player IS on delivery job but state is momentarily nil (transition between tasks)
 		if not state then
-			ensureDeliveryShiftStarted()
-			task.wait(0.8)
+			State.deliveryStatus = "Waiting for next task..."
+			task.wait(0.5)
 			return
 		end
 
 		local itemsCarried = state.ItemsCarried or 0
+		local maxCapacity  = state.MaxCapacity or 4
+		local remaining    = state.PackagesRemainingAtPickup
+
+		local isPickupFull = (itemsCarried >= maxCapacity) or (remaining ~= nil and remaining == 0 and itemsCarried > 0)
 
 		-- =============================================
-		-- PHASE 1: DROPOFF CARGO (FAST DELIVERY)
-		-- As soon as at least 1 package is carried and destination exists, deliver immediately!
+		-- PHASE 1: DROPOFF CARGO AT DESTINATION
+		-- Only deliver once ALL available packages at this spot are picked up!
 		-- =============================================
-		if itemsCarried > 0 and state.DestinationPosition then
-			State.deliveryStatus = "Delivering " .. itemsCarried .. " Cargo -> Dropoff"
+		if isPickupFull and state.DestinationPosition then
+			State.deliveryStatus = "Delivering " .. itemsCarried .. "/" .. maxCapacity .. " Cargo -> Dropoff"
 			teleportTo(state.DestinationPosition)
-			task.wait(0.25)
+			task.wait(0.3)
 			interactAtLocation(state.DestinationPosition)
-			task.wait(0.6)
+			task.wait(0.8)
 			return
 		end
 
 		-- =============================================
-		-- PHASE 2: PICKUP CARGO
-		-- Teleport to pickup position and interact to load cargo
+		-- PHASE 2: PICKUP ALL CARGO AT PICKUP POINT
+		-- Stay at pickup location until all packages (up to maxCapacity) are loaded
 		-- =============================================
 		if state.PickupPosition then
-			State.deliveryStatus = "Picking up Cargo..."
+			State.deliveryStatus = "Picking up Cargo (" .. itemsCarried .. "/" .. maxCapacity .. ")..."
 			teleportTo(state.PickupPosition)
-			task.wait(0.25)
+			task.wait(0.3)
 			interactAtLocation(state.PickupPosition)
-			task.wait(0.6)
+			task.wait(0.8)
 			return
 		end
 
-		-- Fallback: start new shift
-		ensureDeliveryShiftStarted()
-		task.wait(0.8)
+		task.wait(0.5)
 	end
 
 	------------------------------------------------
@@ -570,6 +575,7 @@ local success, err = pcall(function()
 		findCashObjects        = findCashObjects,
 		handleDeliveryModePopup = handleDeliveryModePopup,
 		ensureEasyDeliveryMode = ensureEasyDeliveryMode,
+		isPlayerOnDeliveryJob  = isPlayerOnDeliveryJob,
 	}
 
 	-- Apply persisted config
@@ -578,7 +584,7 @@ local success, err = pcall(function()
 		State.collectDelay = cfg.collectDelay or 0.3
 	end
 
-	print("[HipHub DE Farm] Auto farm system initialized (Offroad Delivery Fast Mode ready)!")
+	print("[HipHub DE Farm] Auto farm system initialized (Full Cargo Offroad Delivery ready)!")
 end)
 
 if not success then
