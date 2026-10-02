@@ -43,7 +43,6 @@ local success, err = pcall(function()
 		passengerBoardDelay = 3,
 		tripPacing = true,
 		autoRejoinOrders = 30,
-		softRejoinPause = 30,
 		autoCourier = false,
 		courierSpeed = 85,
 		courierDropDelay = 4,
@@ -56,7 +55,6 @@ local success, err = pcall(function()
 		_G.HipHubConfig.farm.tripPacing = true
 	end
 	if Config.autoRejoinOrders == nil then Config.autoRejoinOrders = 30 end
-	if Config.softRejoinPause == nil then Config.softRejoinPause = 30 end
 	if Config.courierPacing == nil then Config.courierPacing = true end
 	if Config.courierSpeed == nil then Config.courierSpeed = 85 end
 	if Config.courierDropDelay == nil then Config.courierDropDelay = 4 end
@@ -3146,7 +3144,36 @@ local success, err = pcall(function()
 					end
 				end)
 
-				-- 🛡️ Pastikan autoRideGO tetap AKTIF di config
+				-- 🛡️ Inject queue_on_teleport untuk Auto-Resume RideGO di server baru
+				local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+				if queueTeleport then
+					pcall(function()
+						queueTeleport([[
+							getgenv().AUTO_RESUME_RIDEGO = true
+							task.spawn(function()
+								pcall(function()
+									local Lighting = game:GetService("Lighting")
+									local blur = Lighting:FindFirstChild("menuBlur")
+									if blur then blur.Enabled = false blur.Size = 0 end
+									local player = game:GetService("Players").LocalPlayer
+									if player and player:FindFirstChild("PlayerGui") then
+										local mainUI = player.PlayerGui:FindFirstChild("MainUI")
+										if mainUI and mainUI:FindFirstChild("Holder") then
+											mainUI.Holder.Visible = false
+										end
+									end
+									local menuEvent = game:GetService("ReplicatedStorage"):WaitForChild("menuToggleRequest", 5)
+									if menuEvent and menuEvent:IsA("RemoteEvent") then
+										menuEvent:FireServer()
+									end
+									game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+								end)
+							end)
+						]])
+					end)
+				end
+
+				-- Pastikan autoRideGO tetap AKTIF di config agar saat rejoin langsung lanjut otomatis
 				if _G.HipHubConfig and _G.HipHubConfig.farm then
 					_G.HipHubConfig.farm.autoRideGO = true
 				end
@@ -3154,42 +3181,15 @@ local success, err = pcall(function()
 					_G.HipHubSaveConfig(true)
 				end
 
-				-- 🔄 SOFT REJOIN: GoOffline → pause → GoOnline di server yang sama
-				-- TeleportService crash di Arceus X/Redfinger — tidak digunakan sama sekali.
-				-- Durasi pause: bisa dikontrol dari slider UI (default 30 detik).
-				local SOFT_REJOIN_PAUSE = math.max(15, math.min(120, tonumber(Config.softRejoinPause) or 30))
-
-				-- 1. Matikan toggle UI & pastikan RideGO offline di server
-				if autoRideGoToggle and autoRideGoToggle.Set then
-					pcall(function() autoRideGoToggle.Set(false) end)
-				elseif toggleAutoRideGO then
-					pcall(function() toggleAutoRideGO(false) end)
-				end
-
-				-- 2. GC ringan
+				-- Clean Memory Purge & Reconnect via TeleportService (Single Call, Anti-OOM)
 				pcall(function()
 					destroySafetyPlate()
 					collectgarbage("collect")
 				end)
-
-				-- 3. Countdown istirahat dengan status di UI
-				task.spawn(function()
-					for i = SOFT_REJOIN_PAUSE, 1, -1 do
-						updateBotActivity(
-							string.format("🔄 Soft Rejoin: Istirahat %ds...", i),
-							Color3.fromRGB(255, 170, 50)
-						)
-						task.wait(1)
-					end
-
-					-- 4. Otomatis restart RideGO setelah istirahat selesai
-					if taxiActive then return end -- sudah diaktifkan manual, skip
-					UI.Notify("Soft Rejoin", "Melanjutkan Auto-RideGO...", 2.5, "success")
-					if autoRideGoToggle and autoRideGoToggle.Set then
-						pcall(function() autoRideGoToggle.Set(true) end)
-					elseif toggleAutoRideGO then
-						pcall(function() toggleAutoRideGO(true) end)
-					end
+				task.wait(0.5)
+				pcall(function()
+					local TeleportService = game:GetService("TeleportService")
+					TeleportService:Teleport(game.PlaceId, player)
 				end)
 				return
 			end
@@ -3615,16 +3615,17 @@ local success, err = pcall(function()
 		if courierRejoinPending then return end
 		courierRejoinPending = true
 
-		UI.Notify("Soft Rejoin", string.format("Istirahat dulu... (%s)", reason or ""), 3, "info")
+		UI.Notify("Auto-Rejoin", "Menghubungkan ulang ke server...", 3, "info")
+		updateBotActivity("Auto-Rejoining Server...", Color3.fromRGB(255, 120, 50))
 
-		-- 🛑 Hentikan loop kurir lokal
+		-- 🛑 Hentikan loop kurir lokal tanpa mematikan config auto-resume
 		courierActive = false
 		_G.HipHubCourierActive = false
 
-		-- 0. Hentikan navigasi aktif seketika
+		-- 0. Hentikan navigasi aktif seketika (cegah drive thread masih jalan pas teleport)
 		pcall(function() cancelActiveDrive() end)
 
-		-- 1. Turunkan driver & zero velocity motor
+		-- 1. Berhenti total motor di tempat & turunkan driver secara bersih (Mencegah mobile teleport crash)
 		pcall(function()
 			local char = player.Character
 			local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -3638,12 +3639,13 @@ local success, err = pcall(function()
 					if part:IsA("BasePart") then
 						part.AssemblyLinearVelocity  = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
+						-- Jangan anchor — part.Anchored = true saat teleport menyebabkan physics conflict crash di Redfinger
 					end
 				end
 			end
 		end)
 
-		-- 2. Simpan config autoCourier = true agar tetap ON saat restart
+		-- 2. Pastikan autoCourier tetap AKTIF di Config agar saat auto-rejoin langsung jalan lagi
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.autoCourier = true
 		end
@@ -3651,46 +3653,27 @@ local success, err = pcall(function()
 			_G.HipHubSaveConfig(true)
 		end
 
-		-- 3. GC ringan
+		-- 3. GC dulu SEBELUM inject queue_on_teleport (bebaskan memori, cegah OOM di Redfinger yang RAM-terbatas)
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
 		end)
+		task.wait(0.4)
 
-		-- 4. Matikan toggle UI
-		if autoCourierToggle and autoCourierToggle.Set then
-			pcall(function() autoCourierToggle.Set(false) end)
-		elseif toggleAutoCourier then
-			pcall(function() toggleAutoCourier(false) end)
+		-- 4. Inject queue_on_teleport — payload MINIMAL saja (string kompleks = crash executor di Redfinger)
+		local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+		if queueTeleport then
+			pcall(function()
+				queueTeleport([[getgenv().AUTO_RESUME_COURIER = true]])
+			end)
 		end
 
-		-- 🔄 SOFT REJOIN: GoOffline → pause → GoOnline di server yang sama
-		-- TeleportService crash di Arceus X/Redfinger — tidak digunakan sama sekali.
-		-- Durasi pause: bisa dikontrol dari slider UI (default 30 detik).
-		local SOFT_REJOIN_PAUSE = math.max(15, math.min(120, tonumber(Config.softRejoinPause) or 30))
+		-- 5. Jeda 2 detik agar Redfinger punya waktu cleanup physics & flush memory sebelum teleport
+		task.wait(2.0)
 
-		-- 5. Countdown istirahat dengan status di UI
-		task.spawn(function()
-			for i = SOFT_REJOIN_PAUSE, 1, -1 do
-				updateBotActivity(
-					string.format("🔄 Soft Rejoin: Istirahat %ds...", i),
-					Color3.fromRGB(255, 170, 50)
-				)
-				task.wait(1)
-			end
-
-			-- 6. Otomatis restart courier setelah istirahat selesai
-			if courierActive then
-				courierRejoinPending = false
-				return -- sudah diaktifkan manual, skip
-			end
-			UI.Notify("Soft Rejoin", "Melanjutkan Auto-Courier...", 2.5, "success")
-			courierRejoinPending = false
-			if autoCourierToggle and autoCourierToggle.Set then
-				pcall(function() autoCourierToggle.Set(true) end)
-			elseif toggleAutoCourier then
-				pcall(function() toggleAutoCourier(true) end)
-			end
+		pcall(function()
+			local TeleportService = game:GetService("TeleportService")
+			TeleportService:Teleport(game.PlaceId, player)
 		end)
 	end
 
@@ -4286,16 +4269,6 @@ local success, err = pcall(function()
 		end
 	end)
 
-	UI.AddSlider(tab, "Soft Rejoin Pause (s)", 15, 120, math.floor(Config.softRejoinPause or 30), function(val)
-		Config.softRejoinPause = val
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.softRejoinPause = val
-		end
-		if _G.HipHubSaveConfig then
-			_G.HipHubSaveConfig(true)
-		end
-	end)
-
 	UI.AddSlider(tab, "Boarding Pause Delay (s)", 1, 8, math.floor(Config.passengerBoardDelay or 3), function(val)
 		Config.passengerBoardDelay = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
@@ -4349,16 +4322,6 @@ local success, err = pcall(function()
 		Config.courierAutoRejoinOrders = val
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.courierAutoRejoinOrders = val
-		end
-		if _G.HipHubSaveConfig then
-			_G.HipHubSaveConfig(true)
-		end
-	end)
-
-	UI.AddSlider(tab, "Soft Rejoin Pause (s)", 15, 120, math.floor(Config.softRejoinPause or 30), function(val)
-		Config.softRejoinPause = val
-		if _G.HipHubConfig and _G.HipHubConfig.farm then
-			_G.HipHubConfig.farm.softRejoinPause = val
 		end
 		if _G.HipHubSaveConfig then
 			_G.HipHubSaveConfig(true)
