@@ -3166,25 +3166,13 @@ local success, err = pcall(function()
 					destroySafetyPlate()
 					collectgarbage("collect")
 				end)
-				task.spawn(function()
-					local waitSec = 15
-					for i = waitSec, 1, -1 do
-						updateBotActivity(string.format("🔄 Shift Reset: Istirahat Server %ds...", i), Color3.fromRGB(255, 170, 50))
-						task.wait(1)
-					end
+				task.wait(1.0)
 
-					-- Sambung balik ke RideGO
-					if changeTeam then changeTeam("RideGO") end
-					task.wait(1.5)
-					local ev = getTaxiEvent()
-					if ev then ev:FireServer("GoOnline") end
-					setTaxiState("WAITING_FOR_NEXT_ORDER", "Menunggu Orderan Masuk...", Color3.fromRGB(0, 255, 170))
-					UI.Notify("RideGO Siap", "Shift RideGO berhasil direset.", 2.5, "success")
-					if autoRideGoToggle and autoRideGoToggle.Set then
-						pcall(function() autoRideGoToggle.Set(true) end)
-					elseif toggleAutoRideGO then
-						pcall(function() toggleAutoRideGO(true) end)
-					end
+				-- Rejoin ke Private Server via Native Reconnect (Bypass Error 773)
+				task.defer(function()
+					pcall(function()
+						player:Kick(string.format("\n\n[HipHub DDS - Siklus Order Selesai]\nSesi direset untuk bypass anti-cheat server.\nSilakan tekan 'Reconnect' untuk masuk kembali ke VIP Server."))
+					end)
 				end)
 				return
 			end
@@ -3610,14 +3598,14 @@ local success, err = pcall(function()
 		if courierRejoinPending then return end
 		courierRejoinPending = true
 
-		UI.Notify("Shift Reset", string.format("Mereset shift kurir di server (%s)...", reason or ""), 3, "info")
-		updateBotActivity("Mereset Shift Kurir...", Color3.fromRGB(255, 120, 50))
+		UI.Notify("Auto-Rejoin", "Menghubungkan ulang ke server...", 3, "info")
+		updateBotActivity("Auto-Rejoining Server...", Color3.fromRGB(255, 120, 50))
 
 		-- 🛑 Hentikan loop kurir lokal tanpa mematikan config auto-resume
 		courierActive = false
 		_G.HipHubCourierActive = false
 
-		-- 0. Hentikan navigasi aktif seketika
+		-- 0. Hentikan navigasi aktif seketika (cegah drive thread masih jalan pas teleport)
 		pcall(function() cancelActiveDrive() end)
 
 		-- 1. Berhenti total motor di tempat, turunkan driver, dan despawn kendaraan
@@ -3637,6 +3625,7 @@ local success, err = pcall(function()
 					end
 				end
 			end
+			-- Despawn kendaraan agar server & client membersihkan instance kendaraan sebelum teleport
 			local sc = ReplicatedStorage:FindFirstChild("SpawnCarEvents")
 			local despawnEvent = sc and sc:FindFirstChild("DespawnCar")
 			if despawnEvent then
@@ -3644,62 +3633,26 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- 2. Ganti Tim ke Civilian / Warga (Menghapus total shift & counter anti-cheat di server DDS)
-		pcall(function()
-			if changeTeam then
-				changeTeam("Civilian")
-			else
-				local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-				local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
-				if teamReq then
-					teamReq:FireServer("Civilian", 0, 0, 0, "MainMenu")
-				end
-			end
-		end)
+		-- 2. Pastikan autoCourier tetap AKTIF di Config agar saat auto-rejoin langsung jalan lagi
+		if _G.HipHubConfig and _G.HipHubConfig.farm then
+			_G.HipHubConfig.farm.autoCourier = true
+		end
+		if _G.HipHubSaveConfig then
+			_G.HipHubSaveConfig(true)
+		end
 
 		-- 3. Clean Memory Purge
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
 		end)
+		task.wait(1.0)
 
-		-- 4. Istirahat 15 detik di server agar data shift di server ter-wipe 100%
-		task.spawn(function()
-			local waitSec = 15
-			for i = waitSec, 1, -1 do
-				updateBotActivity(string.format("🔄 Shift Reset: Istirahat Server %ds...", i), Color3.fromRGB(255, 170, 50))
-				task.wait(1)
-			end
-
-			-- 5. Bersihkan state kurir lokal
-			courierShiftLimit = false
-			activeCourierDestId = nil
-			courierLastJobTime = os.clock()
-			courierResetFlag = false
-			courierRejoinPending = false
-
-			-- 6. Ganti Tim kembali ke Courier
-			updateBotActivity("Memasuki Tim Kurir Baru...", Color3.fromRGB(0, 212, 255))
+		-- 4. Rejoin ke Private Server via Native Reconnect (Bypass Error 773)
+		task.defer(function()
 			pcall(function()
-				if changeTeam then
-					changeTeam("Courier")
-				else
-					local jobEvents = ReplicatedStorage:FindFirstChild("JobEvents")
-					local teamReq = jobEvents and jobEvents:FindFirstChild("TeamChangeRequest")
-					if teamReq then
-						teamReq:FireServer("Courier", 11378976, 0, 0, "Detector")
-					end
-				end
+				player:Kick(string.format("\n\n[HipHub DDS - Siklus Kurir Selesai]\n%s\nSilakan tekan 'Reconnect' untuk masuk kembali ke VIP Server.", reason or "Siklus Paket Selesai"))
 			end)
-			task.wait(1.5)
-
-			-- 7. Lanjutkan Auto Courier
-			UI.Notify("Shift Kurir Aktif", "Shift baru aktif, melanjutkan pengantaran...", 2.5, "success")
-			if autoCourierToggle and autoCourierToggle.Set then
-				pcall(function() autoCourierToggle.Set(true) end)
-			elseif toggleAutoCourier then
-				pcall(function() toggleAutoCourier(true) end)
-			end
 		end)
 	end
 
