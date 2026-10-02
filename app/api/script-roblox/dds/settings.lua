@@ -924,8 +924,11 @@ local success, err = pcall(function()
 	UI.AddSection(tab, "Server Utilities")
 	UI.AddButton(tab, "Rejoin Current Server", "Rejoin", function()
 		pcall(function()
-			-- Pass no player arg; client-side TeleportToPlaceInstance handles it automatically
-			TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+			if game.PrivateServerId ~= "" or game.PrivateServerOwnerId ~= 0 then
+				player:Kick("\n\n[HipHub DDS]\nRejoin Private Server.\nSilakan tekan 'Reconnect'.")
+			else
+				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+			end
 		end)
 	end)
 

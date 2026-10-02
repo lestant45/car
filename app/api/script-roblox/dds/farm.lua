@@ -3168,11 +3168,10 @@ local success, err = pcall(function()
 				end)
 				task.wait(1.0)
 
-				-- Rejoin ke Private Server yang sama via JobId
+				-- Rejoin ke Private Server via Native Reconnect (Bypass Error 773)
 				task.defer(function()
 					pcall(function()
-						local TeleportService = game:GetService("TeleportService")
-						TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+						player:Kick(string.format("\n\n[HipHub DDS - Siklus Order Selesai]\nSesi direset untuk bypass anti-cheat server.\nSilakan tekan 'Reconnect' untuk masuk kembali ke VIP Server."))
 					end)
 				end)
 				return
@@ -3649,11 +3648,10 @@ local success, err = pcall(function()
 		end)
 		task.wait(1.0)
 
-		-- 4. Rejoin ke Private Server yang sama via JobId
+		-- 4. Rejoin ke Private Server via Native Reconnect (Bypass Error 773)
 		task.defer(function()
 			pcall(function()
-				local TeleportService = game:GetService("TeleportService")
-				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
+				player:Kick(string.format("\n\n[HipHub DDS - Siklus Kurir Selesai]\n%s\nSilakan tekan 'Reconnect' untuk masuk kembali ke VIP Server.", reason or "Siklus Paket Selesai"))
 			end)
 		end)
 	end
