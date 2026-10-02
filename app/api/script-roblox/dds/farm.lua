@@ -3152,31 +3152,45 @@ local success, err = pcall(function()
 					_G.HipHubSaveConfig(true)
 				end
 
-				-- ⚠️ REDFINGER SAFE: Jangan panggil Teleport/Kick dari executor thread
-				-- Roblox mobile crash LANGSUNG jika dipaksa disconnect dari luar native thread.
-				-- Solusi: stop farm, simpan config, tampilkan countdown, user restart Roblox manual.
-				-- Config autoRideGO = true sudah tersimpan → saat Roblox dibuka lagi langsung resume.
+				-- Cleanup sebelum teleport
 				pcall(function()
 					destroySafetyPlate()
 					collectgarbage("collect")
 				end)
 
-				-- Matikan toggle UI agar farm benar-benar berhenti
+				-- Matikan toggle UI
 				if autoRideGoToggle and autoRideGoToggle.Set then
 					pcall(function() autoRideGoToggle.Set(false) end)
 				elseif toggleAutoRideGO then
 					pcall(function() toggleAutoRideGO(false) end)
 				end
 
-				-- Tampilkan countdown: user perlu restart Roblox untuk rejoin ke server baru
+				updateBotActivity("Rejoining Server...", Color3.fromRGB(255, 120, 50))
+
+				-- 🔗 BindableEvent Bridge: pindahkan Teleport dari executor thread ke Roblox native thread
+				-- Arceus X crash jika Teleport dipanggil langsung dari executor. Bridge ini membuat
+				-- Teleport dieksekusi dalam Roblox's own task scheduler — aman di semua executor mobile.
 				task.spawn(function()
-					for i = 15, 1, -1 do
-						updateBotActivity(string.format("⏳ Silakan Restart Roblox (%ds)", i), Color3.fromRGB(255, 80, 80))
-						task.wait(1)
+					task.wait(1.0)
+					local bridgeOk = false
+					pcall(function()
+						local be = Instance.new("BindableEvent")
+						be.Event:Connect(function()
+							pcall(function()
+								game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+							end)
+							be:Destroy()
+						end)
+						be:Fire()
+						bridgeOk = true
+					end)
+					if not bridgeOk then
+						-- Fallback langsung jika BindableEvent gagal dibuat
+						pcall(function()
+							game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+						end)
 					end
-					updateBotActivity("Silakan Restart Roblox untuk Lanjutkan Auto-Farm", Color3.fromRGB(255, 80, 80))
 				end)
-				UI.Notify("Auto-Rejoin", "Silakan restart Roblox. Farm akan lanjut otomatis saat dibuka kembali.", 8, "warning")
 				return
 			end
 
@@ -3638,33 +3652,46 @@ local success, err = pcall(function()
 			_G.HipHubSaveConfig(true)
 		end
 
-		-- 3. GC + cleanup
+		-- 3. GC agresif + cleanup
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
+			collectgarbage("collect") -- dua kali untuk sweep generasi yang berbeda
 		end)
 
-		-- ⚠️ REDFINGER SAFE: Jangan panggil Teleport/Kick dari executor thread
-		-- Roblox mobile crash LANGSUNG jika dipaksa disconnect dari luar native thread.
-		-- Solusi: stop farm, simpan config, tampilkan countdown, user restart Roblox manual.
-		-- Config autoCourier = true sudah tersimpan → saat Roblox dibuka lagi langsung resume.
-
-		-- 4. Matikan toggle UI agar farm benar-benar berhenti
+		-- 4. Matikan toggle UI
 		if autoCourierToggle and autoCourierToggle.Set then
 			pcall(function() autoCourierToggle.Set(false) end)
 		elseif toggleAutoCourier then
 			pcall(function() toggleAutoCourier(false) end)
 		end
 
-		-- 5. Tampilkan countdown agar user tahu kapan harus restart Roblox
+		updateBotActivity("Rejoining Server...", Color3.fromRGB(255, 120, 50))
+
+		-- 🔗 BindableEvent Bridge: pindahkan Teleport dari executor thread ke Roblox native thread
+		-- Arceus X crash jika Teleport dipanggil langsung dari executor. Bridge ini membuat
+		-- Teleport dieksekusi dalam Roblox's own task scheduler — aman di semua executor mobile.
 		task.spawn(function()
-			for i = 15, 1, -1 do
-				updateBotActivity(string.format("⏳ Silakan Restart Roblox (%ds)", i), Color3.fromRGB(255, 80, 80))
-				task.wait(1)
+			task.wait(1.0)
+			local bridgeOk = false
+			pcall(function()
+				local be = Instance.new("BindableEvent")
+				be.Event:Connect(function()
+					pcall(function()
+						game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+					end)
+					be:Destroy()
+				end)
+				be:Fire()
+				bridgeOk = true
+			end)
+			if not bridgeOk then
+				-- Fallback langsung jika BindableEvent gagal dibuat
+				pcall(function()
+					game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+				end)
 			end
-			updateBotActivity("Silakan Restart Roblox untuk Lanjutkan Auto-Farm", Color3.fromRGB(255, 80, 80))
 		end)
-		UI.Notify("Auto-Rejoin", "Silakan restart Roblox. Farm akan lanjut otomatis saat dibuka kembali.", 8, "warning")
 	end
 
 	-- Listener untuk ServiceEvent dari Delivery System
