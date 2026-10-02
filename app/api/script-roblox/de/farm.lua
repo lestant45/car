@@ -17,6 +17,7 @@ local success, err = pcall(function()
 		autoBankRob       = false,
 		autoDelivery      = false,
 		collectDelay      = 0.3,
+		deliveryMode      = "HighRisk",
 		targetEarnM       = 0,
 		targetEarnEnabled = false,
 		totalCollected    = 0,
@@ -285,11 +286,12 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📦 AUTO DELIVERY JOB (OFFROAD & AUTO EASY MODE)
+	-- 📦 AUTO DELIVERY JOB (OFFROAD & AUTO HARD / HIGH RISK MODE)
 	------------------------------------------------
 
-	-- 1. Handle & auto-click "Easy" delivery mode popup ONLY when popup is actually visible
-	local function handleDeliveryModePopup()
+	-- 1. Handle & auto-click delivery mode popup (supports "HighRisk" / Hard & "Safe" / Easy)
+	local function handleDeliveryModePopup(preferredMode)
+		preferredMode = preferredMode or State.deliveryMode or "HighRisk"
 		pcall(function()
 			local pgui = player:FindFirstChild("PlayerGui")
 			if not pgui then return end
@@ -308,7 +310,19 @@ local success, err = pcall(function()
 						if btn:IsA("GuiButton") and btn.Visible then
 							local btnTitle = btn:FindFirstChild("Title")
 							local txt = btnTitle and btnTitle.Text:lower() or ""
-							if btn.Name == "SafeDelivery" or txt:find("easy") or txt:find("safe") then
+							local isMatch = false
+
+							if preferredMode == "HighRisk" then
+								if btn.Name == "HighRiskDelivery" or txt:find("hard") or txt:find("risk") then
+									isMatch = true
+								end
+							else
+								if btn.Name == "SafeDelivery" or txt:find("easy") or txt:find("safe") then
+									isMatch = true
+								end
+							end
+
+							if isMatch then
 								pcall(function()
 									if getconnections and btn.MouseButton1Down then
 										for _, conn in ipairs(getconnections(btn.MouseButton1Down)) do
@@ -345,21 +359,22 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- 2. Ensure Easy / Safe Delivery mode is set (ONLY when not already in active delivery)
-	local function ensureEasyDeliveryMode()
-		handleDeliveryModePopup()
+	-- 2. Ensure Delivery mode is set (ONLY when not already in active delivery)
+	local function ensureDeliveryMode(mode)
+		mode = mode or State.deliveryMode or "HighRisk"
+		handleDeliveryModePopup(mode)
 
 		-- Do NOT fire SetDeliveryMode if player already has an active delivery (prevents notification warning)
 		if isPlayerOnDeliveryJob() then return end
 
 		pcall(function()
 			if DeliveryModeController and DeliveryModeController.RequestSetMode then
-				DeliveryModeController.RequestSetMode("Safe")
+				DeliveryModeController.RequestSetMode(mode)
 			end
 		end)
 		pcall(function()
 			if RemotesModule and DeliveryConstants then
-				RemotesModule.fireServer(DeliveryConstants.RemoteEvents.SetDeliveryMode, "Safe")
+				RemotesModule.fireServer(DeliveryConstants.RemoteEvents.SetDeliveryMode, mode)
 			end
 		end)
 	end
@@ -369,20 +384,22 @@ local success, err = pcall(function()
 		-- NEVER step on the start pad if already on Delivery job (stepping on pad while on job ends the shift!)
 		if isPlayerOnDeliveryJob() then return end
 
-		State.deliveryStatus = "Starting Offroad Job (Easy)..."
+		local mode = State.deliveryMode or "HighRisk"
+		local modeLabel = mode == "HighRisk" and "Hard" or "Easy"
+		State.deliveryStatus = "Starting Offroad Job (" .. modeLabel .. ")..."
 		teleportTo(OFFROAD_JOB_PAD)
 		task.wait(0.4)
-		ensureEasyDeliveryMode()
+		ensureDeliveryMode(mode)
 
-		-- Request delivery job session with "Safe" (Easy) mode
+		-- Request delivery job session with selected mode
 		pcall(function()
 			if RemotesModule and JobsConstants then
-				RemotesModule.fireServer(JobsConstants.Remotes.RequestStartJobSession, "Delivery", "jobPad", "Safe")
+				RemotesModule.fireServer(JobsConstants.Remotes.RequestStartJobSession, "Delivery", "jobPad", mode)
 			end
 		end)
 
 		task.wait(0.6)
-		handleDeliveryModePopup()
+		handleDeliveryModePopup(mode)
 	end
 
 	-- 4. Interact with DeliveryLocation Part and ProximityPrompts in range
@@ -672,7 +689,7 @@ local success, err = pcall(function()
 		goToBank               = goToBank,
 		findCashObjects        = findCashObjects,
 		handleDeliveryModePopup = handleDeliveryModePopup,
-		ensureEasyDeliveryMode = ensureEasyDeliveryMode,
+		ensureDeliveryMode     = ensureDeliveryMode,
 		isPlayerOnDeliveryJob  = isPlayerOnDeliveryJob,
 	}
 
@@ -680,11 +697,12 @@ local success, err = pcall(function()
 	if _G.HipHubConfig and _G.HipHubConfig.farm then
 		local cfg = _G.HipHubConfig.farm
 		State.collectDelay      = cfg.collectDelay or 0.3
+		State.deliveryMode      = cfg.deliveryMode or "HighRisk"
 		State.targetEarnM       = cfg.targetEarnM or 0
 		State.targetEarnEnabled = cfg.targetEarnEnabled == true
 	end
 
-	print("[HipHub DE Farm] Auto farm system initialized (Target Earn + Offroad Delivery ready)!")
+	print("[HipHub DE Farm] Auto farm system initialized (Target Earn + Hard Offroad Delivery ready)!")
 end)
 
 if not success then

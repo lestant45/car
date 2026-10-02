@@ -381,8 +381,24 @@ local success, err = pcall(function()
 		if UI.saveConfig then pcall(UI.saveConfig) end
 	end)
 
+	local currentDeliveryMode = _G.HipHubConfig.farm.deliveryMode or "HighRisk"
+	local deliveryModeBtn
+	deliveryModeBtn = createGlassButton(farmCard,
+		"Delivery Mode: " .. (currentDeliveryMode == "HighRisk" and "Hard (High Risk)" or "Easy (Safe)"),
+		function()
+			if currentDeliveryMode == "HighRisk" then
+				currentDeliveryMode = "Safe"
+			else
+				currentDeliveryMode = "HighRisk"
+			end
+			deliveryModeBtn.Text = "Delivery Mode: " .. (currentDeliveryMode == "HighRisk" and "Hard (High Risk)" or "Easy (Safe)")
+			_G.HipHubConfig.farm.deliveryMode = currentDeliveryMode
+			if _G.HipHubFarm then _G.HipHubFarm.setState({deliveryMode = currentDeliveryMode}) end
+			if UI.saveConfig then pcall(UI.saveConfig) end
+		end, 4)
+
 	local _, collectDelayBox = createInputRow(farmCard, "Collect Delay (s)", "0.3",
-		tostring(_G.HipHubConfig.farm.collectDelay or 0.3), 4, function(val)
+		tostring(_G.HipHubConfig.farm.collectDelay or 0.3), 5, function(val)
 			local num = tonumber(val) or 0.3
 			_G.HipHubConfig.farm.collectDelay = num
 			if _G.HipHubFarm then _G.HipHubFarm.setState({collectDelay = num}) end
@@ -429,6 +445,7 @@ local success, err = pcall(function()
 		cashToggle       = cashToggle,
 		bankRobToggle    = bankRobToggle,
 		deliveryToggle   = deliveryToggle,
+		deliveryModeBtn  = deliveryModeBtn,
 		collectDelayBox  = collectDelayBox,
 	}
 

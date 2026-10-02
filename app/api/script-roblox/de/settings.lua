@@ -13,6 +13,7 @@ local success, err = pcall(function()
 			autoBankRob = false,
 			autoDelivery = false,
 			collectDelay = 0.3,
+			deliveryMode = "HighRisk",
 			targetEarnM = 0,
 			targetEarnEnabled = false,
 		},
