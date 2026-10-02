@@ -3161,23 +3161,18 @@ local success, err = pcall(function()
 					end
 				end)
 
-				-- Matikan 3D Rendering (cegah GPU buffer crash di Android/Redfinger saat level transition)
-				pcall(function()
-					RunService:Set3dRenderingEnabled(false)
-				end)
-
 				-- Clean Memory Purge
 				pcall(function()
 					destroySafetyPlate()
 					collectgarbage("collect")
 				end)
-				task.wait(1.5)
+				task.wait(1.0)
 
-				-- Teleport ke PlaceId TANPA argumen player (pada client-side, argumen ke-2 adalah customLoadingScreen)
+				-- Rejoin ke Private Server yang sama via JobId
 				task.defer(function()
 					pcall(function()
 						local TeleportService = game:GetService("TeleportService")
-						TeleportService:Teleport(game.PlaceId)
+						TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
 					end)
 				end)
 				return
@@ -3647,23 +3642,18 @@ local success, err = pcall(function()
 			_G.HipHubSaveConfig(true)
 		end
 
-		-- 3. Matikan 3D Rendering (cegah GPU buffer crash di Android/Redfinger saat level transition)
-		pcall(function()
-			RunService:Set3dRenderingEnabled(false)
-		end)
-
-		-- 4. Clean Memory Purge
+		-- 3. Clean Memory Purge
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
 		end)
-		task.wait(1.5)
+		task.wait(1.0)
 
-		-- 5. Teleport ke PlaceId TANPA argumen player (pada client-side, argumen ke-2 adalah customLoadingScreen)
+		-- 4. Rejoin ke Private Server yang sama via JobId
 		task.defer(function()
 			pcall(function()
 				local TeleportService = game:GetService("TeleportService")
-				TeleportService:Teleport(game.PlaceId)
+				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
 			end)
 		end)
 	end
