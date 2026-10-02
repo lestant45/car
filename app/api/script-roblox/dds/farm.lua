@@ -3152,20 +3152,31 @@ local success, err = pcall(function()
 					_G.HipHubSaveConfig(true)
 				end
 
-				-- Clean Memory & Reconnect
-				-- (Hapus queue_on_teleport — payload kompleks crash executor Redfinger)
+				-- ⚠️ REDFINGER SAFE: Jangan panggil Teleport/Kick dari executor thread
+				-- Roblox mobile crash LANGSUNG jika dipaksa disconnect dari luar native thread.
+				-- Solusi: stop farm, simpan config, tampilkan countdown, user restart Roblox manual.
+				-- Config autoRideGO = true sudah tersimpan → saat Roblox dibuka lagi langsung resume.
 				pcall(function()
 					destroySafetyPlate()
 					collectgarbage("collect")
 				end)
-				task.wait(1.5)
-				pcall(function()
-					local TeleportService = game:GetService("TeleportService")
-					TeleportService:Teleport(game.PlaceId, player)
+
+				-- Matikan toggle UI agar farm benar-benar berhenti
+				if autoRideGoToggle and autoRideGoToggle.Set then
+					pcall(function() autoRideGoToggle.Set(false) end)
+				elseif toggleAutoRideGO then
+					pcall(function() toggleAutoRideGO(false) end)
+				end
+
+				-- Tampilkan countdown: user perlu restart Roblox untuk rejoin ke server baru
+				task.spawn(function()
+					for i = 15, 1, -1 do
+						updateBotActivity(string.format("⏳ Silakan Restart Roblox (%ds)", i), Color3.fromRGB(255, 80, 80))
+						task.wait(1)
+					end
+					updateBotActivity("Silakan Restart Roblox untuk Lanjutkan Auto-Farm", Color3.fromRGB(255, 80, 80))
 				end)
-				-- Fallback: jika TeleportService gagal, Kick sebagai safety net
-				task.wait(3.0)
-				pcall(function() player:Kick("HipHub Auto-Rejoin") end)
+				UI.Notify("Auto-Rejoin", "Silakan restart Roblox. Farm akan lanjut otomatis saat dibuka kembali.", 8, "warning")
 				return
 			end
 
@@ -3627,24 +3638,33 @@ local success, err = pcall(function()
 			_G.HipHubSaveConfig(true)
 		end
 
-		-- 3. GC + cleanup sebelum disconnect
+		-- 3. GC + cleanup
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
 		end)
 
-		-- 4. Jeda aman sebelum kick
-		task.wait(1.5)
+		-- ⚠️ REDFINGER SAFE: Jangan panggil Teleport/Kick dari executor thread
+		-- Roblox mobile crash LANGSUNG jika dipaksa disconnect dari luar native thread.
+		-- Solusi: stop farm, simpan config, tampilkan countdown, user restart Roblox manual.
+		-- Config autoCourier = true sudah tersimpan → saat Roblox dibuka lagi langsung resume.
 
-		-- 5. Kick player (Roblox client sendiri yang reconnect — jauh lebih stabil di Redfinger
-		--    dibanding TeleportService:Teleport() dari executor thread yang sering force close)
-		pcall(function()
-			local TeleportService = game:GetService("TeleportService")
-			TeleportService:Teleport(game.PlaceId, player)
+		-- 4. Matikan toggle UI agar farm benar-benar berhenti
+		if autoCourierToggle and autoCourierToggle.Set then
+			pcall(function() autoCourierToggle.Set(false) end)
+		elseif toggleAutoCourier then
+			pcall(function() toggleAutoCourier(false) end)
+		end
+
+		-- 5. Tampilkan countdown agar user tahu kapan harus restart Roblox
+		task.spawn(function()
+			for i = 15, 1, -1 do
+				updateBotActivity(string.format("⏳ Silakan Restart Roblox (%ds)", i), Color3.fromRGB(255, 80, 80))
+				task.wait(1)
+			end
+			updateBotActivity("Silakan Restart Roblox untuk Lanjutkan Auto-Farm", Color3.fromRGB(255, 80, 80))
 		end)
-		-- Fallback: jika TeleportService gagal / tidak tersedia, Kick sebagai safety net
-		task.wait(3.0)
-		pcall(function() player:Kick("HipHub Auto-Rejoin") end)
+		UI.Notify("Auto-Rejoin", "Silakan restart Roblox. Farm akan lanjut otomatis saat dibuka kembali.", 8, "warning")
 	end
 
 	-- Listener untuk ServiceEvent dari Delivery System
