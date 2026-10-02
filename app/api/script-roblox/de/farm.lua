@@ -1,12 +1,13 @@
 -- 💰 HipHub DE -- Auto Farm System
 -- Driving Empire (Place ID: 9694510481)
--- Features: Auto Collect Cash Bags, Auto Bank Rob, Auto Delivery, One-shot Collect
+-- Features: Auto Collect Cash Bags, Auto Bank Rob, Auto Delivery (Offroad Job + Auto Easy Mode)
 -- Exports: _G.HipHubFarm
 
 local success, err = pcall(function()
-	local Players    = game:GetService("Players")
-	local RunService = game:GetService("RunService")
-	local player     = Players.LocalPlayer
+	local Players         = game:GetService("Players")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local RunService      = game:GetService("RunService")
+	local player          = Players.LocalPlayer
 
 	------------------------------------------------
 	-- 📦 STATE
@@ -17,31 +18,52 @@ local success, err = pcall(function()
 		autoDelivery    = false,
 		collectDelay    = 0.3,
 		totalCollected  = 0,
+		totalDeliveries = 0,
+		deliveryStatus  = "Idle",
 	}
 
-	-- Keywords used to detect cash objects in workspace
-	-- These cover common naming patterns across DE versions
+	-- Primary Offroad Delivery job pad CFrame
+	local OFFROAD_JOB_PAD = CFrame.new(4304.24, 117.0, -1094.74)
+
+	-- Cash detection keywords across DE
 	local CASH_KEYWORDS = {
 		"cashbag", "moneybag", "cash", "money", "dollar",
 		"bill", "coin", "reward", "loot", "prize", "bonus",
 		"pickup", "collectible", "earn", "income",
 	}
 
-	-- Keywords for bank / robbery interaction
+	-- Bank robbery keywords
 	local BANK_KEYWORDS = {
 		"bank", "vault", "safe", "treasury", "deposit", "rob",
 	}
 
-	-- ProximityPrompt action texts that indicate a rob interaction
 	local ROB_PROMPT_KEYWORDS = {
 		"rob", "vault", "steal", "break", "crack", "loot", "hack",
 	}
 
-	-- Keywords for delivery objects / NPCs
-	local DELIVERY_KEYWORDS = {
-		"deliver", "package", "cargo", "parcel", "order", "shipment",
-		"pickup", "dropoff", "drop", "deliver",
-	}
+	------------------------------------------------
+	-- 🔌 GAME MODULES & REMOTES RESOLUTION
+	------------------------------------------------
+	local RemotesModule = nil
+	pcall(function() RemotesModule = require(ReplicatedStorage.Modules.Shared.Remotes) end)
+
+	local JobsConstants = nil
+	pcall(function() JobsConstants = require(ReplicatedStorage.Modules.Shared.Jobs.JobsConstants) end)
+
+	local DeliveryConstants = nil
+	pcall(function() DeliveryConstants = require(ReplicatedStorage.Modules.Shared.Jobs.Delivery.DeliveryConstants) end)
+
+	local DeliveryJobTask = nil
+	pcall(function() DeliveryJobTask = require(ReplicatedStorage.Modules.Client.Jobs.Tasks.DeliveryJobTask) end)
+
+	local DeliveryModeController = nil
+	pcall(function() DeliveryModeController = require(ReplicatedStorage.Modules.Client.Jobs.Delivery.DeliveryModeController) end)
+
+	local JobsUtil = nil
+	pcall(function() JobsUtil = require(ReplicatedStorage.Modules.Shared.Jobs.JobsUtil) end)
+
+	local PromptControllerV2 = nil
+	pcall(function() PromptControllerV2 = require(ReplicatedStorage.Modules.Client.UI.PromptControllerV2) end)
 
 	------------------------------------------------
 	-- 🔍 HELPERS
@@ -49,10 +71,6 @@ local success, err = pcall(function()
 	local function getCharRoot()
 		local char = player.Character
 		return char and char:FindFirstChild("HumanoidRootPart")
-	end
-
-	local function nameLower(obj)
-		return obj.Name:lower()
 	end
 
 	local function matchesKeywords(name, keywords)
@@ -70,7 +88,6 @@ local success, err = pcall(function()
 			if obj.PrimaryPart then
 				return obj.PrimaryPart.CFrame
 			end
-			-- Fallback: first BasePart
 			for _, v in ipairs(obj:GetChildren()) do
 				if v:IsA("BasePart") then return v.CFrame end
 			end
@@ -81,7 +98,11 @@ local success, err = pcall(function()
 	local function teleportTo(cf)
 		local root = getCharRoot()
 		if root then
-			root.CFrame = cf + Vector3.new(0, 3, 0)
+			if typeof(cf) == "Vector3" then
+				root.CFrame = CFrame.new(cf + Vector3.new(0, 3, 0))
+			elseif typeof(cf) == "CFrame" then
+				root.CFrame = cf + Vector3.new(0, 3, 0)
+			end
 			return true
 		end
 		return false
@@ -89,7 +110,6 @@ local success, err = pcall(function()
 
 	------------------------------------------------
 	-- 🔎 SCAN WORKSPACE FOR CASH OBJECTS
-	-- Returns list sorted by distance (nearest first)
 	------------------------------------------------
 	local function findCashObjects()
 		local list = {}
@@ -107,7 +127,6 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Sort nearest first
 		table.sort(list, function(a, b) return a.dist < b.dist end)
 		return list
 	end
@@ -137,14 +156,11 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- ⚡ COLLECT ALL CASH (one-shot)
 	------------------------------------------------
-	-- collectAllCash: runs in full when called as one-shot (fromLoop=false),
-	-- or aborts mid-run when auto collect is disabled (fromLoop=true).
 	local function collectAllCash(fromLoop)
 		local list = findCashObjects()
 		local collected = 0
 
 		for _, item in ipairs(list) do
-			-- If running inside the auto-loop, bail when toggled off
 			if fromLoop and not State.autoCollectCash then break end
 
 			if item.obj and item.obj.Parent then
@@ -152,7 +168,6 @@ local success, err = pcall(function()
 				collected = collected + 1
 				State.totalCollected = State.totalCollected + 1
 
-				-- Interact with any ProximityPrompt on the object
 				pcall(function()
 					for _, pp in ipairs(item.obj:GetDescendants()) do
 						if pp:IsA("ProximityPrompt") and pp.Enabled then
@@ -171,7 +186,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🔁 AUTO COLLECT LOOP THREAD
+	-- 🔁 AUTO COLLECT CASH LOOP
 	------------------------------------------------
 	local collectThread = nil
 
@@ -179,7 +194,7 @@ local success, err = pcall(function()
 		if collectThread then task.cancel(collectThread) end
 		collectThread = task.spawn(function()
 			while State.autoCollectCash do
-				pcall(collectAllCash, true)  -- fromLoop=true: allows mid-run abort
+				pcall(collectAllCash, true)
 				task.wait(math.max(State.collectDelay, 0.1))
 			end
 		end)
@@ -202,11 +217,9 @@ local success, err = pcall(function()
 		bankThread = task.spawn(function()
 			while State.autoBankRob do
 				pcall(function()
-					-- Teleport to bank area
 					goToBank()
 					task.wait(1.5)
 
-					-- Fire any rob-related ProximityPrompts in range
 					local root = getCharRoot()
 					if not root then return end
 
@@ -240,7 +253,7 @@ local success, err = pcall(function()
 						end
 					end
 				end)
-				task.wait(6) -- Cooldown between attempts
+				task.wait(6)
 			end
 		end)
 	end
@@ -253,51 +266,215 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📦 AUTO DELIVERY LOOP
-	-- Scans for delivery-related ProximityPrompts and interacts with them
+	-- 📦 AUTO DELIVERY JOB (OFFROAD & AUTO EASY MODE)
+	------------------------------------------------
+
+	-- 1. Handle & auto-click "Easy" delivery mode popup
+	local function handleDeliveryModePopup()
+		pcall(function()
+			local pgui = player:FindFirstChild("PlayerGui")
+			if not pgui then return end
+			local promptUI = pgui:FindFirstChild("PromptUI")
+			if not promptUI then return end
+			local promptV2 = promptUI:FindFirstChild("PromptV2")
+			if not promptV2 or not promptV2.Visible then return end
+
+			local title = promptV2:FindFirstChild("Title")
+			local titleText = title and title.Text:lower() or ""
+
+			if titleText:find("delivery") or titleText:find("choose") or titleText:find("mode") then
+				local buttonsFrame = promptV2:FindFirstChild("ButtonsFrame")
+				if buttonsFrame then
+					for _, btn in ipairs(buttonsFrame:GetChildren()) do
+						if btn:IsA("GuiButton") and btn.Visible then
+							local btnTitle = btn:FindFirstChild("Title")
+							local txt = btnTitle and btnTitle.Text:lower() or ""
+							if btn.Name == "SafeDelivery" or txt:find("easy") or txt:find("safe") then
+								-- Click Easy button via connections if available
+								pcall(function()
+									if getconnections and btn.MouseButton1Down then
+										for _, conn in ipairs(getconnections(btn.MouseButton1Down)) do
+											conn:Fire()
+										end
+									end
+								end)
+								pcall(function()
+									if getconnections and btn.MouseButton1Click then
+										for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+											conn:Fire()
+										end
+									end
+								end)
+								pcall(function()
+									if getconnections and btn.Activated then
+										for _, conn in ipairs(getconnections(btn.Activated)) do
+											conn:Fire()
+										end
+									end
+								end)
+							end
+						end
+					end
+				end
+			end
+		end)
+	end
+
+	-- 2. Ensure Easy / Safe Delivery mode is set
+	local function ensureEasyDeliveryMode()
+		handleDeliveryModePopup()
+		pcall(function()
+			if DeliveryModeController and DeliveryModeController.RequestSetMode then
+				DeliveryModeController.RequestSetMode("Safe")
+			end
+		end)
+		pcall(function()
+			if RemotesModule and DeliveryConstants then
+				RemotesModule.fireServer(DeliveryConstants.RemoteEvents.SetDeliveryMode, "Safe")
+			end
+		end)
+		pcall(function()
+			if PromptControllerV2 and PromptControllerV2.Hide then
+				PromptControllerV2.Hide()
+			end
+		end)
+	end
+
+	-- 3. Ensure player has active Delivery shift at Offroad location
+	local function ensureDeliveryShiftStarted()
+		local hasJob = false
+		if JobsUtil then
+			pcall(function()
+				hasJob = (JobsUtil.GetPlayerJobId(player) == "Delivery")
+			end)
+		end
+
+		if not hasJob then
+			State.deliveryStatus = "Starting Offroad Job (Easy)..."
+			teleportTo(OFFROAD_JOB_PAD)
+			task.wait(0.4)
+			ensureEasyDeliveryMode()
+
+			-- Request delivery job session with "Safe" (Easy) mode
+			pcall(function()
+				if RemotesModule and JobsConstants then
+					RemotesModule.fireServer(JobsConstants.Remotes.RequestStartJobSession, "Delivery", "jobPad", "Safe")
+				end
+			end)
+
+			task.wait(0.6)
+			ensureEasyDeliveryMode()
+		end
+	end
+
+	-- 4. Interact with DeliveryLocation Part and ProximityPrompts in range
+	local function interactAtLocation(targetPos)
+		local root = getCharRoot()
+		if not root or not targetPos then return end
+
+		-- Fire DeliveryLocationInteracted remote for matching DeliveryLocation part
+		pcall(function()
+			for _, loc in ipairs(workspace:GetDescendants()) do
+				if loc.Name == "DeliveryLocation" and loc:IsA("BasePart") then
+					if (loc.Position - targetPos).Magnitude < 20 then
+						if RemotesModule and DeliveryConstants then
+							RemotesModule.fireServer(DeliveryConstants.RemoteEvents.DeliveryLocationInteracted, loc)
+						end
+					end
+				end
+			end
+		end)
+
+		-- Also fire any nearby ProximityPrompt
+		pcall(function()
+			for _, pp in ipairs(workspace:GetDescendants()) do
+				if pp:IsA("ProximityPrompt") and pp.Enabled then
+					local p = pp.Parent and pp.Parent:IsA("BasePart") and pp.Parent.Position
+					if p and (p - root.Position).Magnitude < 30 then
+						if fireproximityprompt then
+							fireproximityprompt(pp)
+						end
+					end
+				end
+			end
+		end)
+	end
+
+	-- 5. Main single-step execution for Auto Delivery
+	local function executeDeliveryStep()
+		ensureEasyDeliveryMode()
+
+		local state = nil
+		if DeliveryJobTask then
+			pcall(function()
+				state = DeliveryJobTask.GetCurrentDeliveryState()
+			end)
+		end
+
+		local root = getCharRoot()
+		if not root then return end
+
+		-- If no delivery session or task active, start at offroad pad
+		if not state then
+			ensureDeliveryShiftStarted()
+			task.wait(1)
+			return
+		end
+
+		local itemsCarried = state.ItemsCarried or 0
+		local maxCapacity  = state.MaxCapacity or 4
+
+		-- =============================================
+		-- PHASE 1: PICKUP CARGO
+		-- =============================================
+		if itemsCarried < maxCapacity and state.PickupPosition then
+			State.deliveryStatus = "Picking up Cargo (" .. itemsCarried .. "/" .. maxCapacity .. ")"
+			teleportTo(state.PickupPosition)
+			task.wait(0.3)
+			interactAtLocation(state.PickupPosition)
+			task.wait(0.7)
+			return
+		end
+
+		-- =============================================
+		-- PHASE 2: DROPOFF CARGO AT DESTINATION
+		-- =============================================
+		if itemsCarried > 0 and state.DestinationPosition then
+			State.deliveryStatus = "Delivering to Offroad Dropoff..."
+			teleportTo(state.DestinationPosition)
+			task.wait(0.3)
+			interactAtLocation(state.DestinationPosition)
+			task.wait(0.7)
+			return
+		end
+
+		-- If in planned state waiting for pickup
+		if state.PickupPosition then
+			State.deliveryStatus = "Going to Pickup Point..."
+			teleportTo(state.PickupPosition)
+			task.wait(0.5)
+			interactAtLocation(state.PickupPosition)
+			task.wait(0.5)
+		else
+			ensureDeliveryShiftStarted()
+			task.wait(1)
+		end
+	end
+
+	------------------------------------------------
+	-- 🔁 AUTO DELIVERY LOOP THREAD
 	------------------------------------------------
 	local deliveryThread = nil
 
 	local function startDeliveryLoop()
 		if deliveryThread then task.cancel(deliveryThread) end
 		deliveryThread = task.spawn(function()
+			State.deliveryStatus = "Initializing Offroad Delivery..."
 			while State.autoDelivery do
-				pcall(function()
-					local root = getCharRoot()
-					if not root then return end
-
-					for _, obj in ipairs(workspace:GetDescendants()) do
-						if obj:IsA("ProximityPrompt") and obj.Enabled then
-							local label = (obj.ActionText or ""):lower()
-							local pname = (obj.Parent and obj.Parent.Name or ""):lower()
-							local isDelivery = false
-
-							for _, kw in ipairs(DELIVERY_KEYWORDS) do
-								if label:find(kw, 1, true) or pname:find(kw, 1, true) then
-									isDelivery = true
-									break
-								end
-							end
-
-							if isDelivery then
-								local part = obj.Parent
-								if part and part:IsA("BasePart") then
-									-- Teleport to pickup/dropoff point
-									teleportTo(part.CFrame)
-									task.wait(0.3)
-									pcall(function()
-										if fireproximityprompt then
-											fireproximityprompt(obj)
-										end
-									end)
-									task.wait(0.5)
-								end
-							end
-						end
-					end
-				end)
-				task.wait(2)
+				pcall(executeDeliveryStep)
+				task.wait(0.2)
 			end
+			State.deliveryStatus = "Idle"
 		end)
 	end
 
@@ -306,6 +483,18 @@ local success, err = pcall(function()
 			task.cancel(deliveryThread)
 			deliveryThread = nil
 		end
+		State.deliveryStatus = "Idle"
+	end
+
+	-- Listen for delivery completion to track count and update stats
+	if RemotesModule and DeliveryConstants then
+		pcall(function()
+			RemotesModule.connect(DeliveryConstants.RemoteEvents.DeliveryCompleted, function(p)
+				if p and not p.FailureReason then
+					State.totalDeliveries = State.totalDeliveries + 1
+				end
+			end)
+		end)
 	end
 
 	------------------------------------------------
@@ -320,12 +509,18 @@ local success, err = pcall(function()
 		local color = anyActive and "#00e6ff" or "#ff4d4d"
 		local statusText = anyActive and "Active" or "Inactive"
 
+		local deliveryInfo = State.autoDelivery
+			and ("\nDelivery: <font color='#00e6ff'>" .. State.deliveryStatus .. "</font>" ..
+			     " (Done: " .. State.totalDeliveries .. ")")
+			or ""
+
 		label.Text =
 			"Status: <font color='" .. color .. "'>" .. statusText .. "</font>" ..
-			"\nTotal Collected: " .. State.totalCollected
+			"\nTotal Collected: " .. State.totalCollected ..
+			deliveryInfo
 	end
 
-	-- Status loop (every second)
+	-- Status update loop
 	task.spawn(function()
 		while true do
 			task.wait(1)
@@ -338,7 +533,6 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local function setState(newState)
 		for k, v in pairs(newState) do
-			local prev = State[k]
 			State[k] = v
 
 			if k == "autoCollectCash" then
@@ -356,21 +550,22 @@ local success, err = pcall(function()
 	-- 📤 EXPORT
 	------------------------------------------------
 	_G.HipHubFarm = {
-		setState       = setState,
-		getState       = function() return State end,
-		collectAllCash = collectAllCash,
-		goToBank       = goToBank,
-		findCashObjects = findCashObjects,
+		setState               = setState,
+		getState               = function() return State end,
+		collectAllCash         = collectAllCash,
+		goToBank               = goToBank,
+		findCashObjects        = findCashObjects,
+		handleDeliveryModePopup = handleDeliveryModePopup,
+		ensureEasyDeliveryMode = ensureEasyDeliveryMode,
 	}
 
 	-- Apply persisted config
 	if _G.HipHubConfig and _G.HipHubConfig.farm then
 		local cfg = _G.HipHubConfig.farm
 		State.collectDelay = cfg.collectDelay or 0.3
-		-- Do NOT auto-start loops here — user must enable from UI
 	end
 
-	print("[HipHub DE Farm] Auto farm system initialized!")
+	print("[HipHub DE Farm] Auto farm system initialized (Offroad Delivery + Auto Easy mode ready)!")
 end)
 
 if not success then
