@@ -3144,36 +3144,7 @@ local success, err = pcall(function()
 					end
 				end)
 
-				-- 🛡️ Inject queue_on_teleport untuk Auto-Resume RideGO di server baru
-				local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
-				if queueTeleport then
-					pcall(function()
-						queueTeleport([[
-							getgenv().AUTO_RESUME_RIDEGO = true
-							task.spawn(function()
-								pcall(function()
-									local Lighting = game:GetService("Lighting")
-									local blur = Lighting:FindFirstChild("menuBlur")
-									if blur then blur.Enabled = false blur.Size = 0 end
-									local player = game:GetService("Players").LocalPlayer
-									if player and player:FindFirstChild("PlayerGui") then
-										local mainUI = player.PlayerGui:FindFirstChild("MainUI")
-										if mainUI and mainUI:FindFirstChild("Holder") then
-											mainUI.Holder.Visible = false
-										end
-									end
-									local menuEvent = game:GetService("ReplicatedStorage"):WaitForChild("menuToggleRequest", 5)
-									if menuEvent and menuEvent:IsA("RemoteEvent") then
-										menuEvent:FireServer()
-									end
-									game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
-								end)
-							end)
-						]])
-					end)
-				end
-
-				-- Pastikan autoRideGO tetap AKTIF di config agar saat rejoin langsung lanjut otomatis
+				-- 🛡️ Pastikan autoRideGO tetap AKTIF di config agar saat reconnect langsung lanjut otomatis
 				if _G.HipHubConfig and _G.HipHubConfig.farm then
 					_G.HipHubConfig.farm.autoRideGO = true
 				end
@@ -3181,16 +3152,20 @@ local success, err = pcall(function()
 					_G.HipHubSaveConfig(true)
 				end
 
-				-- Clean Memory Purge & Reconnect via TeleportService (Single Call, Anti-OOM)
+				-- Clean Memory & Reconnect
+				-- (Hapus queue_on_teleport — payload kompleks crash executor Redfinger)
 				pcall(function()
 					destroySafetyPlate()
 					collectgarbage("collect")
 				end)
-				task.wait(0.5)
+				task.wait(1.5)
 				pcall(function()
 					local TeleportService = game:GetService("TeleportService")
 					TeleportService:Teleport(game.PlaceId, player)
 				end)
+				-- Fallback: jika TeleportService gagal, Kick sebagai safety net
+				task.wait(3.0)
+				pcall(function() player:Kick("HipHub Auto-Rejoin") end)
 				return
 			end
 
@@ -3622,10 +3597,10 @@ local success, err = pcall(function()
 		courierActive = false
 		_G.HipHubCourierActive = false
 
-		-- 0. Hentikan navigasi aktif seketika (cegah drive thread masih jalan pas teleport)
+		-- 0. Hentikan navigasi aktif seketika
 		pcall(function() cancelActiveDrive() end)
 
-		-- 1. Berhenti total motor di tempat & turunkan driver secara bersih (Mencegah mobile teleport crash)
+		-- 1. Turunkan driver & zero velocity motor
 		pcall(function()
 			local char = player.Character
 			local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -3639,13 +3614,12 @@ local success, err = pcall(function()
 					if part:IsA("BasePart") then
 						part.AssemblyLinearVelocity  = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
-						-- Jangan anchor — part.Anchored = true saat teleport menyebabkan physics conflict crash di Redfinger
 					end
 				end
 			end
 		end)
 
-		-- 2. Pastikan autoCourier tetap AKTIF di Config agar saat auto-rejoin langsung jalan lagi
+		-- 2. Pastikan autoCourier tetap AKTIF di Config agar saat reconnect langsung jalan lagi
 		if _G.HipHubConfig and _G.HipHubConfig.farm then
 			_G.HipHubConfig.farm.autoCourier = true
 		end
@@ -3653,28 +3627,24 @@ local success, err = pcall(function()
 			_G.HipHubSaveConfig(true)
 		end
 
-		-- 3. GC dulu SEBELUM inject queue_on_teleport (bebaskan memori, cegah OOM di Redfinger yang RAM-terbatas)
+		-- 3. GC + cleanup sebelum disconnect
 		pcall(function()
 			destroySafetyPlate()
 			collectgarbage("collect")
 		end)
-		task.wait(0.4)
 
-		-- 4. Inject queue_on_teleport — payload MINIMAL saja (string kompleks = crash executor di Redfinger)
-		local queueTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
-		if queueTeleport then
-			pcall(function()
-				queueTeleport([[getgenv().AUTO_RESUME_COURIER = true]])
-			end)
-		end
+		-- 4. Jeda aman sebelum kick
+		task.wait(1.5)
 
-		-- 5. Jeda 2 detik agar Redfinger punya waktu cleanup physics & flush memory sebelum teleport
-		task.wait(2.0)
-
+		-- 5. Kick player (Roblox client sendiri yang reconnect — jauh lebih stabil di Redfinger
+		--    dibanding TeleportService:Teleport() dari executor thread yang sering force close)
 		pcall(function()
 			local TeleportService = game:GetService("TeleportService")
 			TeleportService:Teleport(game.PlaceId, player)
 		end)
+		-- Fallback: jika TeleportService gagal / tidak tersedia, Kick sebagai safety net
+		task.wait(3.0)
+		pcall(function() player:Kick("HipHub Auto-Rejoin") end)
 	end
 
 	-- Listener untuk ServiceEvent dari Delivery System
