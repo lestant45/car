@@ -1,15 +1,6 @@
--- 🖥️ HipHub DE -- Driving Empire UI Layer
--- Repurposes baseui.lua's SAE tabs into DE-specific interface.
+-- HipHub DE -- Driving Empire UI Layer
+-- Repurposes baseui.lua tabs into DE-specific interface.
 -- Depends on: _G.HipHubUI (from baseui.lua), _G.HipHubConfig (from settings.lua)
---
--- Tab mapping:
---   Info    -> Info / Stats        (keep, update description)
---   Steal   -> Farm                (clear SAE content, build DE farm UI)
---   Place   -> Teleport            (clear SAE content, build teleport UI)
---   ESP     -> ESP                 (clear SAE content, build DE ESP UI)
---   Misc    -> Vehicle             (clear SAE content, build vehicle mods UI)
---   Webhook -> Webhook             (keep, no changes)
---   Settings-> Settings            (keep, generic toggles remain useful)
 
 local success, err = pcall(function()
 	local UI = _G.HipHubUI
@@ -30,7 +21,7 @@ local success, err = pcall(function()
 	local deUI = _G.HipHubDE.UI
 
 	------------------------------------------------
-	-- 🏷️ UPDATE TOP BAR BADGE
+	-- UPDATE TOP BAR BADGE
 	------------------------------------------------
 	if UI.badge then
 		UI.badge.Text = "Driving Empire"
@@ -38,9 +29,7 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🔧 LOCAL UI HELPER FUNCTIONS
-	-- (Using exported design tokens since baseui.lua
-	--  helper funcs are local-scoped there)
+	-- LOCAL UI HELPER FUNCTIONS
 	------------------------------------------------
 
 	-- Clear all children from a frame
@@ -246,7 +235,6 @@ local success, err = pcall(function()
 	end
 
 	-- Toggle wrapper (uses baseui.lua's exported createGlassToggle)
-	-- Returns API table with setState/getState
 	local function createToggle(parent, labelText, initialState, layoutOrder, onChange)
 		local card, track, thumb = createGlassToggle(parent, labelText, layoutOrder)
 		card.Size = UDim2.new(1, 0, 0, 34)
@@ -310,18 +298,17 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 📌 RENAME SIDEBAR TABS FOR DE
+	-- RENAME SIDEBAR TABS (NO EMOJIS)
 	------------------------------------------------
 	local tabButtons = UI.tabButtons
 	if tabButtons then
-		-- Rename using DE-appropriate text + emoji
-		if tabButtons["Info"]     then tabButtons["Info"].Text     = "   📊  Info" end
-		if tabButtons["Steal"]    then tabButtons["Steal"].Text    = "   💰  Farm" end
-		if tabButtons["Place"]    then tabButtons["Place"].Text    = "   📍  Teleport" end
-		if tabButtons["ESP"]      then tabButtons["ESP"].Text      = "   👁  ESP" end
-		if tabButtons["Misc"]     then tabButtons["Misc"].Text     = "   🚗  Vehicle" end
-		if tabButtons["Webhook"]  then tabButtons["Webhook"].Text  = "   🔗  Webhook" end
-		if tabButtons["Settings"] then tabButtons["Settings"].Text = "   ⚙  Settings" end
+		if tabButtons["Info"]     then tabButtons["Info"].Text     = "   Info" end
+		if tabButtons["Steal"]    then tabButtons["Steal"].Text    = "   Farm" end
+		if tabButtons["Place"]    then tabButtons["Place"].Text    = "   Teleport" end
+		if tabButtons["ESP"]      then tabButtons["ESP"].Text      = "   ESP" end
+		if tabButtons["Misc"]     then tabButtons["Misc"].Text     = "   Vehicle" end
+		if tabButtons["Webhook"]  then tabButtons["Webhook"].Text  = "   Webhook" end
+		if tabButtons["Settings"] then tabButtons["Settings"].Text = "   Settings" end
 	end
 
 	-- Update Info tab welcome/desc text
@@ -347,7 +334,7 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 💰 FARM TAB  (repurposed "Steal")
+	-- FARM TAB
 	------------------------------------------------
 	local farmFrame = UI.tabs["Steal"].Frame
 	clearFrame(farmFrame)
@@ -387,19 +374,19 @@ local success, err = pcall(function()
 
 	createSectionHeader(farmFrame, "Quick Actions", 4)
 
-	createGlassButton(farmFrame, "⚡ Collect All Cash Now", function()
+	createGlassButton(farmFrame, "Collect All Cash Now", function()
 		if _G.HipHubFarm and _G.HipHubFarm.collectAllCash then
 			task.spawn(_G.HipHubFarm.collectAllCash)
 		end
 	end, 5)
 
-	createGlassButton(farmFrame, "🏦 Teleport To Bank", function()
+	createGlassButton(farmFrame, "Teleport To Bank", function()
 		if _G.HipHubFarm and _G.HipHubFarm.goToBank then
 			_G.HipHubFarm.goToBank()
 		end
 	end, 6)
 
-	createGlassButton(farmFrame, "⛔ Stop All Farming", function()
+	createGlassButton(farmFrame, "Stop All Farming", function()
 		cashToggle.setState(false)
 		bankRobToggle.setState(false)
 		deliveryToggle.setState(false)
@@ -424,7 +411,7 @@ local success, err = pcall(function()
 	}
 
 	------------------------------------------------
-	-- 📍 TELEPORT TAB  (repurposed "Place")
+	-- TELEPORT TAB
 	------------------------------------------------
 	local teleFrame = UI.tabs["Place"].Frame
 	clearFrame(teleFrame)
@@ -434,14 +421,14 @@ local success, err = pcall(function()
 	local teleLocCard = createInnerCard(teleFrame, 2)
 
 	local TELE_LOCS = {
-		{"🏦 Bank",           "Bank"},
-		{"🚔 Police Station", "PoliceStation"},
-		{"🏁 Race Track",     "RaceTrack"},
-		{"🚗 Car Dealership", "CarDealership"},
-		{"🔧 Garage / Tuner","Garage"},
-		{"⛽ Gas Station",    "GasStation"},
-		{"🍔 Restaurant",     "Restaurant"},
-		{"📦 Delivery Hub",   "DeliveryHub"},
+		{"Bank",           "Bank"},
+		{"Police Station", "PoliceStation"},
+		{"Race Track",     "RaceTrack"},
+		{"Car Dealership", "CarDealership"},
+		{"Garage / Tuner", "Garage"},
+		{"Gas Station",    "GasStation"},
+		{"Restaurant",     "Restaurant"},
+		{"Delivery Hub",   "DeliveryHub"},
 	}
 
 	for i, loc in ipairs(TELE_LOCS) do
@@ -459,7 +446,7 @@ local success, err = pcall(function()
 	local _, yInput = createInputRow(coordCard, "Y Coordinate", "5", "5", 2)
 	local _, zInput = createInputRow(coordCard, "Z Coordinate", "0", "0", 3)
 
-	createGlassButton(coordCard, "📍 Teleport To Coords", function()
+	createGlassButton(coordCard, "Teleport To Coords", function()
 		local x = tonumber(xInput.Text) or 0
 		local y = tonumber(yInput.Text) or 5
 		local z = tonumber(zInput.Text) or 0
@@ -471,7 +458,7 @@ local success, err = pcall(function()
 	deUI.teleport = { xInput = xInput, yInput = yInput, zInput = zInput }
 
 	------------------------------------------------
-	-- 👁 ESP TAB  (repurposed "ESP")
+	-- ESP TAB
 	------------------------------------------------
 	local espFrame = UI.tabs["ESP"].Frame
 	clearFrame(espFrame)
@@ -508,11 +495,11 @@ local success, err = pcall(function()
 		if _G.HipHubESP then _G.HipHubESP.setState({showName = state}) end
 	end)
 
-	createGlassButton(espFrame, "🔄 Refresh ESP", function()
+	createGlassButton(espFrame, "Refresh ESP", function()
 		if _G.HipHubESP and _G.HipHubESP.refresh then _G.HipHubESP.refresh() end
 	end, 4)
 
-	createGlassButton(espFrame, "⛔ Disable All ESP", function()
+	createGlassButton(espFrame, "Disable All ESP", function()
 		playerEspToggle.setState(false)
 		carEspToggle.setState(false)
 		cashEspToggle.setState(false)
@@ -529,7 +516,7 @@ local success, err = pcall(function()
 	}
 
 	------------------------------------------------
-	-- 🚗 VEHICLE TAB  (repurposed "Misc")
+	-- VEHICLE TAB
 	------------------------------------------------
 	local vehicleFrame = UI.tabs["Misc"].Frame
 	clearFrame(vehicleFrame)
@@ -575,19 +562,19 @@ local success, err = pcall(function()
 
 	createSectionHeader(vehicleFrame, "Quick Actions", 4)
 
-	createGlassButton(vehicleFrame, "🚗 Apply Speed To Current Car", function()
+	createGlassButton(vehicleFrame, "Apply Speed To Current Car", function()
 		if _G.HipHubVehicle and _G.HipHubVehicle.applySpeed then
 			_G.HipHubVehicle.applySpeed()
 		end
 	end, 5)
 
-	createGlassButton(vehicleFrame, "🏠 Exit Vehicle", function()
+	createGlassButton(vehicleFrame, "Exit Vehicle", function()
 		if _G.HipHubVehicle and _G.HipHubVehicle.exitVehicle then
 			_G.HipHubVehicle.exitVehicle()
 		end
 	end, 6)
 
-	createGlassButton(vehicleFrame, "🔄 Reset Car Position", function()
+	createGlassButton(vehicleFrame, "Reset Car Position", function()
 		if _G.HipHubVehicle and _G.HipHubVehicle.resetCar then
 			_G.HipHubVehicle.resetCar()
 		end
