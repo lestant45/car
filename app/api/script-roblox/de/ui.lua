@@ -343,8 +343,25 @@ local success, err = pcall(function()
 	local _, farmStatusLabel = createStatusCard(farmFrame,
 		"Status: <font color='#ff4d4d'>Inactive</font>\nTotal Collected: 0", 1)
 
-	createSectionHeader(farmFrame, "Auto Farm Controls", 2)
-	local farmCard = createInnerCard(farmFrame, 3)
+	createSectionHeader(farmFrame, "Target Earn Goal", 2)
+	local targetCard = createInnerCard(farmFrame, 3)
+
+	local _, targetEarnBox = createInputRow(targetCard, "Target Earn (M / Million)", "e.g. 5",
+		tostring(_G.HipHubConfig.farm.targetEarnM or 0), 1, function(val)
+			local num = math.max(0, tonumber(val) or 0)
+			_G.HipHubConfig.farm.targetEarnM = num
+			if _G.HipHubFarm then _G.HipHubFarm.setState({targetEarnM = num}) end
+			if UI.saveConfig then pcall(UI.saveConfig) end
+		end)
+
+	local targetEarnToggle = createToggle(targetCard, "Enable Target Earn Auto-Kick", false, 2, function(state)
+		_G.HipHubConfig.farm.targetEarnEnabled = state
+		if _G.HipHubFarm then _G.HipHubFarm.setState({targetEarnEnabled = state}) end
+		if UI.saveConfig then pcall(UI.saveConfig) end
+	end)
+
+	createSectionHeader(farmFrame, "Auto Farm Controls", 4)
+	local farmCard = createInnerCard(farmFrame, 5)
 
 	local cashToggle = createToggle(farmCard, "Auto Collect Cash Bags", false, 1, function(state)
 		_G.HipHubConfig.farm.autoCollectCash = state
@@ -372,42 +389,47 @@ local success, err = pcall(function()
 			if UI.saveConfig then pcall(UI.saveConfig) end
 		end)
 
-	createSectionHeader(farmFrame, "Quick Actions", 4)
+	createSectionHeader(farmFrame, "Quick Actions", 6)
 
 	createGlassButton(farmFrame, "Collect All Cash Now", function()
 		if _G.HipHubFarm and _G.HipHubFarm.collectAllCash then
 			task.spawn(_G.HipHubFarm.collectAllCash)
 		end
-	end, 5)
+	end, 7)
 
 	createGlassButton(farmFrame, "Teleport To Bank", function()
 		if _G.HipHubFarm and _G.HipHubFarm.goToBank then
 			_G.HipHubFarm.goToBank()
 		end
-	end, 6)
+	end, 8)
 
 	createGlassButton(farmFrame, "Stop All Farming", function()
 		cashToggle.setState(false)
 		bankRobToggle.setState(false)
 		deliveryToggle.setState(false)
+		targetEarnToggle.setState(false)
 		_G.HipHubConfig.farm.autoCollectCash = false
 		_G.HipHubConfig.farm.autoBankRob = false
 		_G.HipHubConfig.farm.autoDelivery = false
+		_G.HipHubConfig.farm.targetEarnEnabled = false
 		if _G.HipHubFarm then
 			_G.HipHubFarm.setState({
-				autoCollectCash = false,
-				autoBankRob = false,
-				autoDelivery = false,
+				autoCollectCash   = false,
+				autoBankRob       = false,
+				autoDelivery      = false,
+				targetEarnEnabled = false,
 			})
 		end
-	end, 7, "danger")
+	end, 9, "danger")
 
 	deUI.farm = {
-		statusLabel   = farmStatusLabel,
-		cashToggle    = cashToggle,
-		bankRobToggle = bankRobToggle,
-		deliveryToggle = deliveryToggle,
-		collectDelayBox = collectDelayBox,
+		statusLabel      = farmStatusLabel,
+		targetEarnBox    = targetEarnBox,
+		targetEarnToggle = targetEarnToggle,
+		cashToggle       = cashToggle,
+		bankRobToggle    = bankRobToggle,
+		deliveryToggle   = deliveryToggle,
+		collectDelayBox  = collectDelayBox,
 	}
 
 	------------------------------------------------
@@ -594,6 +616,8 @@ local success, err = pcall(function()
 	------------------------------------------------
 	task.defer(function()
 		local cfg = _G.HipHubConfig
+		-- Farm
+		if cfg.farm and cfg.farm.targetEarnEnabled then targetEarnToggle.setState(true) end
 		-- ESP
 		if cfg.esp.playerEsp then playerEspToggle.setState(true) end
 		if cfg.esp.carEsp    then carEspToggle.setState(true) end

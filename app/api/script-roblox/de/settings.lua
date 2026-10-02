@@ -13,6 +13,8 @@ local success, err = pcall(function()
 			autoBankRob = false,
 			autoDelivery = false,
 			collectDelay = 0.3,
+			targetEarnM = 0,
+			targetEarnEnabled = false,
 		},
 		vehicle = {
 			speedMultiplier = 1.0,

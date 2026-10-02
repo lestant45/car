@@ -13,13 +13,15 @@ local success, err = pcall(function()
 	-- 📦 STATE
 	------------------------------------------------
 	local State = {
-		autoCollectCash = false,
-		autoBankRob     = false,
-		autoDelivery    = false,
-		collectDelay    = 0.3,
-		totalCollected  = 0,
-		totalDeliveries = 0,
-		deliveryStatus  = "Idle",
+		autoCollectCash   = false,
+		autoBankRob       = false,
+		autoDelivery      = false,
+		collectDelay      = 0.3,
+		targetEarnM       = 0,
+		targetEarnEnabled = false,
+		totalCollected    = 0,
+		totalDeliveries   = 0,
+		deliveryStatus    = "Idle",
 	}
 
 	-- Primary Offroad Delivery job pad CFrame
@@ -516,6 +518,87 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
+	-- 💰 CASH & TARGET EARN SYSTEM
+	------------------------------------------------
+	local function formatComma(amount)
+		local formatted = tostring(math.floor(math.abs(amount)))
+		local k
+		while true do
+			formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", "%1,%2")
+			if k == 0 then break end
+		end
+		if amount < 0 then
+			formatted = "-" .. formatted
+		end
+		return formatted
+	end
+
+	local function getCurrentCash()
+		local ls = player:FindFirstChild("leaderstats")
+		if ls then
+			local cash = ls:FindFirstChild("Cash") or ls:FindFirstChild("Money")
+			if cash and cash:IsA("ValueBase") then
+				return tonumber(cash.Value) or 0
+			end
+		end
+		local directCash = player:FindFirstChild("Cash") or player:FindFirstChild("Money")
+		if directCash and directCash:IsA("ValueBase") then
+			return tonumber(directCash.Value) or 0
+		end
+		return 0
+	end
+
+	local hasKicked = false
+	local function checkTargetEarn()
+		if hasKicked then return end
+		if not State.targetEarnEnabled then return end
+		local targetM = tonumber(State.targetEarnM) or 0
+		if targetM <= 0 then return end
+
+		local targetCash = targetM * 1000000
+		local currentCash = getCurrentCash()
+
+		if currentCash >= targetCash then
+			hasKicked = true
+			-- Stop all farming
+			State.autoCollectCash   = false
+			State.autoBankRob       = false
+			State.autoDelivery      = false
+			State.targetEarnEnabled = false
+			stopCollectLoop()
+			stopBankRobLoop()
+			stopDeliveryLoop()
+
+			if _G.HipHubConfig and _G.HipHubConfig.farm then
+				_G.HipHubConfig.farm.autoCollectCash   = false
+				_G.HipHubConfig.farm.autoBankRob       = false
+				_G.HipHubConfig.farm.autoDelivery      = false
+				_G.HipHubConfig.farm.targetEarnEnabled = false
+			end
+
+			local formattedCash = formatComma(currentCash)
+			local kickMsg = "Akun telah selesai farming, uang mu sekarang " .. formattedCash
+			pcall(function()
+				player:Kick(kickMsg)
+			end)
+		end
+	end
+
+	-- Listen for cash changes to trigger target earn check immediately
+	pcall(function()
+		local ls = player:WaitForChild("leaderstats", 5)
+		if ls then
+			local cash = ls:WaitForChild("Cash", 5)
+			if cash then
+				cash:GetPropertyChangedSignal("Value"):Connect(function()
+					pcall(checkTargetEarn)
+					pcall(updateStatusUI)
+				end)
+			end
+		end
+	end)
+
+	------------------------------------------------
 	-- 📊 STATUS UI UPDATER
 	------------------------------------------------
 	local function updateStatusUI()
@@ -532,16 +615,27 @@ local success, err = pcall(function()
 			     " (Done: " .. State.totalDeliveries .. ")")
 			or ""
 
+		local targetM = tonumber(State.targetEarnM) or 0
+		local targetGoalInfo = ""
+		if State.targetEarnEnabled and targetM > 0 then
+			local curCash = getCurrentCash()
+			local targetCash = targetM * 1000000
+			local pct = math.clamp(math.floor((curCash / targetCash) * 100), 0, 100)
+			targetGoalInfo = "\nTarget Goal: <font color='#00e6ff'>" .. formatComma(curCash) .. " / " .. formatComma(targetCash) .. " (" .. pct .. "%)</font>"
+		end
+
 		label.Text =
 			"Status: <font color='" .. color .. "'>" .. statusText .. "</font>" ..
 			"\nTotal Collected: " .. State.totalCollected ..
-			deliveryInfo
+			deliveryInfo ..
+			targetGoalInfo
 	end
 
-	-- Status update loop
+	-- Status & target check loop
 	task.spawn(function()
 		while true do
 			task.wait(1)
+			pcall(checkTargetEarn)
 			pcall(updateStatusUI)
 		end
 	end)
@@ -561,6 +655,7 @@ local success, err = pcall(function()
 				if v then startDeliveryLoop() else stopDeliveryLoop() end
 			end
 		end
+		pcall(checkTargetEarn)
 		pcall(updateStatusUI)
 	end
 
@@ -570,6 +665,9 @@ local success, err = pcall(function()
 	_G.HipHubFarm = {
 		setState               = setState,
 		getState               = function() return State end,
+		getCurrentCash         = getCurrentCash,
+		formatComma            = formatComma,
+		checkTargetEarn        = checkTargetEarn,
 		collectAllCash         = collectAllCash,
 		goToBank               = goToBank,
 		findCashObjects        = findCashObjects,
@@ -581,10 +679,12 @@ local success, err = pcall(function()
 	-- Apply persisted config
 	if _G.HipHubConfig and _G.HipHubConfig.farm then
 		local cfg = _G.HipHubConfig.farm
-		State.collectDelay = cfg.collectDelay or 0.3
+		State.collectDelay      = cfg.collectDelay or 0.3
+		State.targetEarnM       = cfg.targetEarnM or 0
+		State.targetEarnEnabled = cfg.targetEarnEnabled == true
 	end
 
-	print("[HipHub DE Farm] Auto farm system initialized (Full Cargo Offroad Delivery ready)!")
+	print("[HipHub DE Farm] Auto farm system initialized (Target Earn + Offroad Delivery ready)!")
 end)
 
 if not success then
