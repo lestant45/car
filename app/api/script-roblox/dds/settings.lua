@@ -925,7 +925,7 @@ local success, err = pcall(function()
 	UI.AddButton(tab, "Rejoin Current Server", "Rejoin", function()
 		pcall(function()
 			if game.PrivateServerId ~= "" or game.PrivateServerOwnerId ~= 0 then
-				player:Kick("\n\n[HipHub DDS]\nRejoin Private Server.\nSilakan tekan 'Reconnect'.")
+				UI.Notify("VIP Server", "Roblox memblokir rejoin ke Private Server (Error 773). Gunakan Shift Reset in-game.", 4, "warning")
 			else
 				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId)
 			end
