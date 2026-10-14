@@ -1501,11 +1501,13 @@ local success, err = pcall(function()
 								Vector3.new(-6300.0, 68.0, -12000.0),-- Highway strip 6
 								Vector3.new(-7300.0, 66.0, -13300.0),-- Highway strip 7
 								Vector3.new(-8400.0, 64.0, -14500.0),-- Menuju garis finish
-								Vector3.new(-9754.2, 62.7, -15626.9) -- RaceFinishLine
+								Vector3.new(-9754.2, 62.7, -15626.9),-- RaceFinishLine
+								Vector3.new(-10200.0, 62.5, -16000.0),-- Tembus garis finish +450 studs
+								Vector3.new(-10800.0, 62.5, -16500.0) -- Tembus garis finish +1000 studs
 							}
 
 							local currentWpIndex = 1
-							local cruiseMPH = math.clamp(Config.farm.raceSpeed or 230, 160, 340)
+							local cruiseMPH = math.clamp(Config.farm.raceSpeed or 340, 200, 480)
 							local targetStudsSec = cruiseMPH * 1.760
 
 							local rayParams = RaycastParams.new()
@@ -1523,13 +1525,19 @@ local success, err = pcall(function()
 								local distToTarget = Vector2.new(deltaTarget.X, deltaTarget.Z).Magnitude
 
 								-- Maju ke checkpoint berikutnya kalau sudah dekat
-								if distToTarget < 110 and currentWpIndex < #waypoints then
+								if distToTarget < 120 and currentWpIndex < #waypoints then
 									currentWpIndex = currentWpIndex + 1
 									targetPos = waypoints[currentWpIndex]
 									deltaTarget = targetPos - currentPos
 								end
 
-								local macroDir = Vector3.new(deltaTarget.X, 0, deltaTarget.Z).Unit
+								-- Arah pergerakan: jika sudah di ujung garis finish, tetap melaju lurus ke depan
+								local macroDir
+								if currentWpIndex >= #waypoints and distToTarget < 100 then
+									macroDir = Vector3.new(-0.768, 0, -0.640).Unit
+								else
+									macroDir = Vector3.new(deltaTarget.X, 0, deltaTarget.Z).Unit
+								end
 
 								-- 1. Deteksi permukaan jalan tepat di bawah mobil (Ketinggian jalan raya asli Y <= 78)
 								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
@@ -1579,9 +1587,10 @@ local success, err = pcall(function()
 								seat.AssemblyAngularVelocity = Vector3.zero
 							end)
 
+							-- Tunggu sampai server konfirmasi event Finish (timeout 80 detik)
 							local waitFinish = os.clock()
-							while not finished and (os.clock() - waitFinish) < 38 do
-								task.wait(0.2)
+							while not finished and (os.clock() - waitFinish) < 80 do
+								task.wait(0.1)
 							end
 
 							if heartbeatConn then
