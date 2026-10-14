@@ -11,6 +11,7 @@ local success, err = pcall(function()
 			autoRace = false,
 			raceDifficulty = "Hard",
 			raceDelay = 1.0,
+			autoDodgeTraffic = true,
 			autoClaimQuests = true,
 			claimInterval = 5,
 			autoSpeedFarm = false,

@@ -172,6 +172,11 @@ local success, err = pcall(function()
 		if Settings then Settings.Save() end
 	end)
 
+	UI.AddToggle(secRace, "Auto Dodge NPC Traffic", "Actively swerves & changes lanes around traffic cars", Config.farm.autoDodgeTraffic ~= false, function(v)
+		Config.farm.autoDodgeTraffic = v
+		if Settings then Settings.Save() end
+	end)
+
 	UI.AddDropdown(secRace, "Race Difficulty", "Select race level (Hard = highest cash payout)", { "Hard", "Normal", "Easy" }, Config.farm.raceDifficulty or "Hard", function(v)
 		Config.farm.raceDifficulty = v
 		if Settings then Settings.Save() end
