@@ -170,17 +170,43 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR (FAST 2-POINT PROBE)
+	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR (MOBILE OPTIMIZED)
 	------------------------------------------------
+	local cachedLeftMargin = 20
+	local cachedRightMargin = 20
+	local lastMarginCheck = 0
+
 	local function getRoadMargins(carPos, rightVec, rayParams)
-		-- Cek batas jalur kiri (12 studs ke kiri)
-		local leftHit = workspace:Raycast(carPos - rightVec * 12 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-		local leftClearance = (leftHit and leftHit.Position.Y <= 78 and not (leftHit.Instance.Name:lower():find("guard") or leftHit.Instance.Name:lower():find("rail") or leftHit.Instance.Name:lower():find("wall"))) and 16 or 6
+		local now = os.clock()
+		if (now - lastMarginCheck) < 0.08 then
+			return cachedLeftMargin, cachedRightMargin
+		end
+		lastMarginCheck = now
 
-		-- Cek batas jalur kanan (12 studs ke kanan)
-		local rightHit = workspace:Raycast(carPos + rightVec * 12 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-		local rightClearance = (rightHit and rightHit.Position.Y <= 78 and not (rightHit.Instance.Name:lower():find("guard") or rightHit.Instance.Name:lower():find("rail") or rightHit.Instance.Name:lower():find("wall"))) and 16 or 6
+		local leftClearance = 0
+		for _, dist in ipairs({ 6, 14, 24 }) do
+			local testP = carPos - rightVec * dist + Vector3.new(0, 8, 0)
+			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
+			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
+				leftClearance = dist
+			else
+				break
+			end
+		end
 
+		local rightClearance = 0
+		for _, dist in ipairs({ 6, 14, 24 }) do
+			local testP = carPos + rightVec * dist + Vector3.new(0, 8, 0)
+			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
+			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
+				rightClearance = dist
+			else
+				break
+			end
+		end
+
+		cachedLeftMargin = leftClearance
+		cachedRightMargin = rightClearance
 		return leftClearance, rightClearance
 	end
 
@@ -352,14 +378,14 @@ local success, err = pcall(function()
 						end)
 
 						local waitStart = os.clock()
-						while not started and not finished and (os.clock() - waitStart) < 14 do
+						while not started and not finished and (os.clock() - waitStart) < 25 do
 							task.wait(0.2)
 						end
 
 						if started and not finished then
 							-- Tunggu sampai server selesai memindahkan mobil ke grid start di jalan raya (Y < 80)
 							local waitGrid = os.clock()
-							while (os.clock() - waitGrid) < 4 do
+							while (os.clock() - waitGrid) < 6 do
 								local curP = car:GetPivot().Position
 								if curP.Y < 80 and curP.Z < -1000 then
 									break
@@ -393,7 +419,7 @@ local success, err = pcall(function()
 							}
 
 							local currentWpIndex = 1
-							local cruiseMPH = math.clamp(Config.farm.raceSpeed or 340, 200, 480)
+							local cruiseMPH = math.clamp(Config.farm.raceSpeed or 340, 150, 480)
 							local targetStudsSec = cruiseMPH * 1.760
 
 							local rayParams = RaycastParams.new()
@@ -407,12 +433,10 @@ local success, err = pcall(function()
 							local lastTick = os.clock()
 
 							heartbeatConn = RunService.Heartbeat:Connect(function()
-								if not isRacingNow or not seat or not car or not seat.Parent then return end
-								-- Jangan pernah berhenti di tengah jalan kalau belum tembus garis finish (Z <= -15500)
-								if finished and car:GetPivot().Position.Z <= -15500 then return end
+								if not isRacingNow or finished or not seat or not car or not seat.Parent then return end
 
 								local now = os.clock()
-								local dt = math.clamp(now - lastTick, 0.005, 0.05)
+								local dt = math.clamp(now - lastTick, 0.005, 0.07)
 								lastTick = now
 
 								local currentPos = car:GetPivot().Position
@@ -420,14 +444,7 @@ local success, err = pcall(function()
 								local deltaTarget = targetPos - currentPos
 								local distToTarget = Vector2.new(deltaTarget.X, deltaTarget.Z).Magnitude
 
-								-- Maju ke checkpoint berikutnya kalau sudah dekat
-								if distToTarget < 120 and currentWpIndex < #waypoints then
-									currentWpIndex = currentWpIndex + 1
-									targetPos = waypoints[currentWpIndex]
-									deltaTarget = targetPos - currentPos
-								end
-
-								-- Arah pergerakan: jika sudah di ujung garis finish, tetap melaju lurus ke depan
+								-- Arah pergerakan makro
 								local macroDir
 								if currentWpIndex >= #waypoints and distToTarget < 100 then
 									macroDir = Vector3.new(-0.768, 0, -0.640).Unit
@@ -435,20 +452,31 @@ local success, err = pcall(function()
 									macroDir = Vector3.new(deltaTarget.X, 0, deltaTarget.Z).Unit
 								end
 
-								-- 1. Deteksi permukaan jalan tepat di bawah mobil (Ketinggian jalan raya asli Y <= 78)
+								-- Maju ke checkpoint berikutnya kalau sudah dekat (<150 studs) atau sudah terlewati
+								local isPassed = deltaTarget:Dot(macroDir) < -15
+								if (distToTarget < 150 or isPassed) and currentWpIndex < #waypoints then
+									currentWpIndex = currentWpIndex + 1
+									targetPos = waypoints[currentWpIndex]
+									deltaTarget = targetPos - currentPos
+								end
+
+								-- 1. Deteksi permukaan jalan tepat di bawah mobil
 								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
 								local roadY = (downHit and downHit.Position.Y <= 78) and downHit.Position.Y or 64.5
 
-								-- 2. Deteksi arah jalan di depan: abaikan fly over ramp (Y > 78)
+								-- 2. Deteksi arah jalan di depan: probe lurus dulu, hanya probe sudut jika di depan melenceng
 								local bestDir = macroDir
-								local probeAngles = {0, -8, 8, -16, 16}
-								for _, deg in ipairs(probeAngles) do
-									local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
-									local probeOrigin = currentPos + testDir * 35 + Vector3.new(0, 8, 0)
-									local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -35, 0), rayParams)
-									if hitAhead and hitAhead.Position.Y <= 78 and (hitAhead.Instance.Name:lower():find("asphalt") or hitAhead.Instance.Name:lower():find("road") or hitAhead.Instance.Material == Enum.Material.Concrete or hitAhead.Instance.Material == Enum.Material.Asphalt) then
-										bestDir = testDir
-										break
+								local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 8, 0)
+								local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -35, 0), rayParams)
+								if not (hitAhead and hitAhead.Position.Y <= 78) then
+									local probeAngles = {-8, 8, -16, 16}
+									for _, deg in ipairs(probeAngles) do
+										local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
+										local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
+										if pHit and pHit.Position.Y <= 78 and (pHit.Instance.Name:lower():find("asphalt") or pHit.Instance.Name:lower():find("road") or pHit.Instance.Material == Enum.Material.Concrete or pHit.Instance.Material == Enum.Material.Asphalt) then
+											bestDir = testDir
+											break
+										end
 									end
 								end
 
@@ -474,31 +502,28 @@ local success, err = pcall(function()
 
 								local finalHeading = (bestDir + rightVec * (smoothLateral + smoothDodge)).Unit
 
-								-- 4. Kunci orientasi mobil mengikuti jalur aspal dengan rotasi halus (CFrame:Lerp)
+								-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
 								local targetY = roadY + 2.0
-								local lookAtPos = Vector3.new(currentPos.X + finalHeading.X * 10, targetY, currentPos.Z + finalHeading.Z * 10)
-								local targetCF = CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos)
-								local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 13.0, 0.15, 0.65))
+								local stepDist = targetStudsSec * dt
+								local nextPos = currentPos + finalHeading * stepDist
+								local lookAtPos = nextPos + finalHeading * 10
+								local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), Vector3.new(lookAtPos.X, targetY, lookAtPos.Z))
+								local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 14.0, 0.18, 0.75))
+								car:PivotTo(smoothCF)
 
-								-- Frame advancement: majukan posisi sesuai frame step agar di device FPS rendah (Redfinger) lajunya tetap 100% konsisten
-								local frameStep = smoothCF.LookVector * (targetStudsSec * dt)
-								local nextPos = currentPos + frameStep
-								car:PivotTo(CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), nextPos + smoothCF.LookVector * 10))
-
-								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil
-								seat.AssemblyLinearVelocity = smoothCF.LookVector * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
+								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil + Gas Pedal On
+								seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
+								if seat:IsA("VehicleSeat") then
+									seat.ThrottleFloat = 1.0
+									seat.Throttle = 1
+								end
 							end)
 
-							-- Tunggu sampai mobil beneran tembus garis finish (Z <= -15500)
+							-- Tunggu sampai server konfirmasi event Finish (timeout 80 detik)
 							local waitFinish = os.clock()
-							while (os.clock() - waitFinish) < 80 do
+							while not finished and (os.clock() - waitFinish) < 80 do
 								task.wait(0.1)
-								local curZ = car and car:GetPivot().Position.Z or 0
-								if (finished and curZ <= -15500) or curZ <= -16200 then
-									task.wait(1.0)
-									break
-								end
 							end
 
 							if heartbeatConn then
@@ -585,16 +610,19 @@ local success, err = pcall(function()
 					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
 					local roadY = (downHit and downHit.Position.Y <= 78) and downHit.Position.Y or 64.5
 
-					-- 2. Deteksi arah jalan ke depan (hindari tanjakan fly over)
+					-- 2. Deteksi arah jalan ke depan (probe lurus dulu, hanya probe sudut jika di depan melenceng)
 					local bestDir = macroDir
-					local probeAngles = {0, -8, 8, -16, 16}
-					for _, deg in ipairs(probeAngles) do
-						local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
-						local probeOrigin = currentPos + testDir * 35 + Vector3.new(0, 8, 0)
-						local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -35, 0), rayParams)
-						if hitAhead and hitAhead.Position.Y <= 78 and (hitAhead.Instance.Name:lower():find("asphalt") or hitAhead.Instance.Name:lower():find("road") or hitAhead.Instance.Material == Enum.Material.Concrete or hitAhead.Instance.Material == Enum.Material.Asphalt) then
-							bestDir = testDir
-							break
+					local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 8, 0)
+					local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -35, 0), rayParams)
+					if not (hitAhead and hitAhead.Position.Y <= 78) then
+						local probeAngles = {-8, 8, -16, 16}
+						for _, deg in ipairs(probeAngles) do
+							local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
+							local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
+							if pHit and pHit.Position.Y <= 78 and (pHit.Instance.Name:lower():find("asphalt") or pHit.Instance.Name:lower():find("road") or pHit.Instance.Material == Enum.Material.Concrete or pHit.Instance.Material == Enum.Material.Asphalt) then
+								bestDir = testDir
+								break
+							end
 						end
 					end
 
@@ -617,22 +645,24 @@ local success, err = pcall(function()
 
 					local finalHeading = (bestDir + rightVec * (smoothLateral + smoothDodge)).Unit
 
-					-- 4. Kunci orientasi mobil mengikuti aspal dengan rotasi halus (CFrame:Lerp)
+					-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
 					local targetY = roadY + 2.0
-					local lookAtPos = Vector3.new(currentPos.X + finalHeading.X * 10, targetY, currentPos.Z + finalHeading.Z * 10)
-					local targetCF = CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos)
-					local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 13.0, 0.15, 0.65))
-
 					local targetMPH = math.clamp(Config.farm.targetSpeed or 240, 50, 380)
 					local targetStudsSec = targetMPH * 1.760
+					local stepDist = targetStudsSec * dt
+					local nextPos = currentPos + finalHeading * stepDist
+					local lookAtPos = nextPos + finalHeading * 10
+					local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), Vector3.new(lookAtPos.X, targetY, lookAtPos.Z))
+					local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 14.0, 0.18, 0.75))
+					car:PivotTo(smoothCF)
 
-					local frameStep = smoothCF.LookVector * (targetStudsSec * dt)
-					local nextPos = currentPos + frameStep
-					car:PivotTo(CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), nextPos + smoothCF.LookVector * 10))
-
-					-- 5. Dorong dengan kecepatan target konstan
-					seat.AssemblyLinearVelocity = smoothCF.LookVector * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
+					-- 5. Dorong dengan kecepatan target konstan + Gas Pedal On
+					seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 					seat.AssemblyAngularVelocity = Vector3.zero
+					if seat:IsA("VehicleSeat") then
+						seat.ThrottleFloat = 1.0
+						seat.Throttle = 1
+					end
 				else
 					lastTick = os.clock()
 					smoothDodge = 0

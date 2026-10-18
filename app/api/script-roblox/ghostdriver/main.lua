@@ -182,7 +182,7 @@ local success, err = pcall(function()
 		if Settings then Settings.Save() end
 	end)
 
-	UI.AddSlider(secRace, "Race Top Speed", "Maximum cruise speed during auto race (MPH)", 150, 400, Config.farm.raceSpeed or 320, " MPH", function(v)
+	UI.AddSlider(secRace, "Race Top Speed", "Maximum cruise speed during auto race (MPH)", 150, 400, Config.farm.raceSpeed or 250, " MPH", function(v)
 		Config.farm.raceSpeed = v
 		if Settings then Settings.Save() end
 	end)
