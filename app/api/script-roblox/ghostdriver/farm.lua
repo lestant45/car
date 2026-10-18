@@ -170,14 +170,43 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 🚗 SMART TRAFFIC DODGE & OVERTAKE SENSOR
+	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR
 	------------------------------------------------
-	-- Scans vehicles in front of our car and dynamically steers into the adjacent open lane
+	local function getRoadMargins(carPos, rightVec, rayParams)
+		local leftClearance = 0
+		for dist = 4, 36, 4 do
+			local testP = carPos - rightVec * dist + Vector3.new(0, 8, 0)
+			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
+			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
+				leftClearance = dist
+			else
+				break
+			end
+		end
+
+		local rightClearance = 0
+		for dist = 4, 36, 4 do
+			local testP = carPos + rightVec * dist + Vector3.new(0, 8, 0)
+			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
+			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
+				rightClearance = dist
+			else
+				break
+			end
+		end
+
+		return leftClearance, rightClearance
+	end
+
+	------------------------------------------------
+	-- 🚗 SMART 3-LANE TRAFFIC DODGE & OVERTAKE SENSOR
+	------------------------------------------------
+	-- Aturan 3 Jalur:
+	-- 1. Mobil di jalur KIRI (leftClearance < 14)   -> WAJIB DODGE KE KANAN! (Tidak buang ke tebing/kiri)
+	-- 2. Mobil di jalur KANAN (rightClearance < 14) -> WAJIB DODGE KE KIRI!  (Tidak buang ke pembatas kanan)
+	-- 3. Mobil di jalur TENGAH                      -> Bebas pilih kiri/kanan (pilih lajur paling lapang)
 	local function calculateTrafficAvoidance(carPos, forwardDir, rightVec, rayParams, myCar)
 		local tf = workspace:FindFirstChild("TrafficFolder")
-		local bestDodge = 0
-		local nearestDist = 175
-
 		local obstacles = {}
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
@@ -193,36 +222,75 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- Cari rintangan terdekat di koridor depan kita
+		local nearestObs = nil
+		local nearestDist = 180
+		local nearestLDist = 0
+
 		for _, obs in ipairs(obstacles) do
 			local oPivot = obs:GetPivot()
 			local oPos = oPivot.Position
 			local delta = oPos - carPos
 			local fDist = delta:Dot(forwardDir)
 
-			-- Danger corridor ahead: 8 to 160 studs
+			-- Danger corridor: 8 sampai 170 studs di depan mobil
 			if fDist > 8 and fDist < nearestDist then
 				local lDist = delta:Dot(rightVec)
 
-				-- Direct trajectory corridor (within ~10 studs lateral distance)
+				-- Koridor tabrakan: lebar ~10 studs
 				if math.abs(lDist) < 10.0 then
 					nearestDist = fDist
-					local preferredDir = (lDist >= 0) and -1 or 1
-
-					-- Verify candidate dodge lane has solid road underneath (avoid cliffs/guardrails)
-					local roadTest = workspace:Raycast(carPos + rightVec * (preferredDir * 14) + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-					if not roadTest or roadTest.Position.Y > 78 then
-						-- Preferred side is off-road or ramp, dodge towards opposite side
-						preferredDir = -preferredDir
-					end
-
-					-- Urgency factor scales up as obstacle gets closer
-					local urgency = math.clamp((160 - fDist) / 100, 0.45, 1.25)
-					bestDodge = preferredDir * urgency * 0.42
+					nearestLDist = lDist
+					nearestObs = obs
 				end
 			end
 		end
 
-		return bestDodge
+		if not nearestObs then
+			return 0
+		end
+
+		-- Ukur posisi jalur kita saat ini berdasarkan batas kiri & kanan jalan
+		local leftClearance, rightClearance = getRoadMargins(carPos, rightVec, rayParams)
+
+		local dodgeDir = 0
+		if leftClearance < 14 then
+			-- 🛑 1. Mobil di Jalur Kiri -> WAJIB DODGE KE KANAN!
+			dodgeDir = 1
+		elseif rightClearance < 14 then
+			-- 🛑 2. Mobil di Jalur Kanan -> WAJIB DODGE KE KIRI!
+			dodgeDir = -1
+		else
+			-- 🚗 3. Mobil di Jalur Tengah -> Cek rintangan & pilih jalur yang lebih lapang
+			local preferredSide = (nearestLDist >= 0) and -1 or 1 -- jika rintangan agak di kanan kita, buang kiri
+
+			-- Cek apakah jalur pilihan kita aman dari mobil NPC lain di depan
+			local candidatePos = carPos + rightVec * (preferredSide * 13)
+			local candidateClear = true
+			for _, otherObs in ipairs(obstacles) do
+				if otherObs ~= nearestObs then
+					local oP = otherObs:GetPivot().Position
+					local oDelta = oP - candidatePos
+					local oF = oDelta:Dot(forwardDir)
+					local oL = oDelta:Dot(rightVec)
+					if oF > 8 and oF < 120 and math.abs(oL) < 7.5 then
+						candidateClear = false
+						break
+					end
+				end
+			end
+
+			if candidateClear then
+				dodgeDir = preferredSide
+			else
+				-- Jalur itu ada mobil lain, buang ke sisi sebaliknya
+				dodgeDir = -preferredSide
+			end
+		end
+
+		-- Urgency dinamis halus berdasarkan jarak rintangan
+		local urgency = math.clamp((170 - nearestDist) / 100, 0.45, 1.25)
+		return dodgeDir * urgency * 0.40
 	end
 
 	task.spawn(function()
@@ -346,10 +414,18 @@ local success, err = pcall(function()
 							rayParams.FilterType = Enum.RaycastFilterType.Exclude
 							rayParams.FilterDescendantsInstances = {player.Character, car}
 
-							-- Real-time road tracking & lane keeping loop
+							-- Real-time road tracking & lane keeping loop with 3-Lane Smooth Dodge
 							local heartbeatConn
+							local smoothDodge = 0
+							local smoothLateral = 0
+							local lastTick = os.clock()
+
 							heartbeatConn = RunService.Heartbeat:Connect(function()
 								if not isRacingNow or finished or not seat or not car or not seat.Parent then return end
+
+								local now = os.clock()
+								local dt = math.clamp(now - lastTick, 0.005, 0.05)
+								lastTick = now
 
 								local currentPos = car:GetPivot().Position
 								local targetPos = waypoints[currentWpIndex] or waypoints[#waypoints]
@@ -388,34 +464,37 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- 3. Lane Centering & Dynamic Traffic Dodging
+								-- 3. 3-Lane Road Margin & Smart Traffic Dodging
 								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
-								local leftMargin = workspace:Raycast(currentPos - rightVec * 16 + Vector3.new(0, 6, 0), Vector3.new(0, -25, 0), rayParams)
-								local rightMargin = workspace:Raycast(currentPos + rightVec * 16 + Vector3.new(0, 6, 0), Vector3.new(0, -25, 0), rayParams)
+								local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
 
-								local lateralCorrection = 0
-								if not leftMargin and rightMargin then
-									-- Terlalu ke pinggir kiri, belokkan sedikit ke kanan
-									lateralCorrection = 0.20
-								elseif leftMargin and not rightMargin then
-									-- Terlalu ke pinggir kanan, belokkan sedikit ke kiri
-									lateralCorrection = -0.20
+								local lateralTarget = 0
+								if leftClearance < 7 and rightClearance >= 14 then
+									lateralTarget = 0.22 -- jangan terlalu mepet bibir kiri
+								elseif rightClearance < 7 and leftClearance >= 14 then
+									lateralTarget = -0.22 -- jangan terlalu mepet bibir kanan
 								end
 
-								local dodgeDeflect = 0
+								local targetDodge = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									dodgeDeflect = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car)
+									targetDodge = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car)
 								end
 
-								local finalHeading = (bestDir + rightVec * (lateralCorrection + dodgeDeflect)).Unit
+								-- Smooth Exponential Moving Average transition (S-curve, no snapping)
+								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.05, 0.35)
+								smoothLateral = smoothLateral + (lateralTarget - smoothLateral) * math.clamp(dt * 5.0, 0.05, 0.25)
 
-								-- 4. Kunci orientasi mobil mengikuti jalur aspal, roda tetap menempel di aspal
+								local finalHeading = (bestDir + rightVec * (smoothLateral + smoothDodge)).Unit
+
+								-- 4. Kunci orientasi mobil mengikuti jalur aspal dengan rotasi halus (CFrame:Lerp)
 								local targetY = roadY + 2.0
 								local lookAtPos = Vector3.new(currentPos.X + finalHeading.X * 10, targetY, currentPos.Z + finalHeading.Z * 10)
-								car:PivotTo(CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos))
+								local targetCF = CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos)
+								local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 13.0, 0.15, 0.65))
+								car:PivotTo(smoothCF)
 
-								-- 5. Dorong dengan kecepatan penuh stabil (Bonus odometer aman & bertambah terus)
-								seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
+								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil
+								seat.AssemblyLinearVelocity = smoothCF.LookVector * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
 							end)
 
@@ -484,12 +563,20 @@ local success, err = pcall(function()
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
+		local smoothDodge = 0
+		local smoothLateral = 0
+		local lastTick = os.clock()
+
 		while true do
-			task.wait(0.03)
+			task.wait(0.02)
 			if Config.farm.autoSpeedFarm and not isRacingNow then
 				local car, seat = getMyCar()
 				local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 				if car and seat and hum and hum.Sit then
+					local now = os.clock()
+					local dt = math.clamp(now - lastTick, 0.005, 0.05)
+					lastTick = now
+
 					rayParams.FilterDescendantsInstances = {player.Character, car}
 
 					local currentPos = car:GetPivot().Position
@@ -514,35 +601,46 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Lane Centering & Dynamic Traffic Dodging
-					local leftMargin = workspace:Raycast(currentPos - rightVec * 16 + Vector3.new(0, 6, 0), Vector3.new(0, -25, 0), rayParams)
-					local rightMargin = workspace:Raycast(currentPos + rightVec * 16 + Vector3.new(0, 6, 0), Vector3.new(0, -25, 0), rayParams)
-
-					local lateralCorrection = 0
-					if not leftMargin and rightMargin then
-						lateralCorrection = 0.20
-					elseif leftMargin and not rightMargin then
-						lateralCorrection = -0.20
+					-- 3. 3-Lane Road Margin & Smart Traffic Dodging
+					local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
+					local lateralTarget = 0
+					if leftClearance < 7 and rightClearance >= 14 then
+						lateralTarget = 0.22 -- jangan mepet bibir kiri
+					elseif rightClearance < 7 and leftClearance >= 14 then
+						lateralTarget = -0.22 -- jangan mepet bibir kanan
 					end
 
-					local dodgeDeflect = 0
+					local targetDodge = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						dodgeDeflect = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car)
+						targetDodge = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car)
 					end
 
-					local finalHeading = (bestDir + rightVec * (lateralCorrection + dodgeDeflect)).Unit
+					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.05, 0.35)
+					smoothLateral = smoothLateral + (lateralTarget - smoothLateral) * math.clamp(dt * 5.0, 0.05, 0.25)
 
-					-- 4. Kunci orientasi mobil mengikuti aspal
+					local finalHeading = (bestDir + rightVec * (smoothLateral + smoothDodge)).Unit
+
+					-- 4. Kunci orientasi mobil mengikuti aspal dengan rotasi halus (CFrame:Lerp)
 					local targetY = roadY + 2.0
 					local lookAtPos = Vector3.new(currentPos.X + finalHeading.X * 10, targetY, currentPos.Z + finalHeading.Z * 10)
-					car:PivotTo(CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos))
+					local targetCF = CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos)
+					local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 13.0, 0.15, 0.65))
+					car:PivotTo(smoothCF)
 
 					-- 5. Dorong dengan kecepatan target konstan
 					local targetMPH = math.clamp(Config.farm.targetSpeed or 240, 50, 380)
 					local targetStudsSec = targetMPH * 1.760
-					seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
+					seat.AssemblyLinearVelocity = smoothCF.LookVector * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 					seat.AssemblyAngularVelocity = Vector3.zero
+				else
+					lastTick = os.clock()
+					smoothDodge = 0
+					smoothLateral = 0
 				end
+			else
+				lastTick = os.clock()
+				smoothDodge = 0
+				smoothLateral = 0
 			end
 		end
 	end)
