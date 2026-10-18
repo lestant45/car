@@ -235,11 +235,15 @@ local success, err = pcall(function()
 		checkTargetEarn()
 	end)
 
-	UI.AddSlider(secTarget, "Target Earn Amount", "Set revenue goal in Millions (M)", 1, 100, Config.farm.targetEarnM or 5, " M", function(v)
-		Config.farm.targetEarnM = v
-		cardTarget.Update("$ " .. tostring(v) .. ".00 M")
-		if Settings then Settings.Save() end
-		checkTargetEarn()
+	UI.AddTextBox(secTarget, "Target Earn Amount (M)", "Enter revenue goal in Millions (M) — e.g. 5 or 10.5", tostring(Config.farm.targetEarnM or 5), "e.g. 5", function(text)
+		local cleanText = text:gsub("[^%d%.]", "")
+		local num = tonumber(cleanText)
+		if num and num > 0 then
+			Config.farm.targetEarnM = num
+			cardTarget.Update(string.format("$ %.2f M", num))
+			if Settings then Settings.Save() end
+			checkTargetEarn()
+		end
 	end)
 
 	UI.AddButton(secTarget, "Reset Earned Counter", "Resets session revenue back to $ 0.00 M", "Reset Counter", function()

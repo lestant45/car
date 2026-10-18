@@ -919,6 +919,104 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
+	-- COMPONENT: TEXTBOX / INPUT
+	------------------------------------------------
+	local function addTextBox(parentSection, title, desc, defaultVal, placeholder, callback)
+		local frame = Instance.new("Frame")
+		frame.Name = "TextBox_" .. title
+		frame.Size = UDim2.new(1, 0, 0, desc and 38 or 30)
+		frame.BackgroundColor3 = COLORS.glassCard
+		frame.BackgroundTransparency = 0.5
+		frame.BorderSizePixel = 0
+		frame.ZIndex = 7
+		frame.Parent = parentSection
+
+		local fCorner = Instance.new("UICorner")
+		fCorner.CornerRadius = CORNER.small
+		fCorner.Parent = frame
+
+		local titleLabel = Instance.new("TextLabel")
+		titleLabel.Size = UDim2.new(1, -115, 0, 16)
+		titleLabel.Position = UDim2.new(0, 8, 0, desc and 3 or 7)
+		titleLabel.BackgroundTransparency = 1
+		titleLabel.Text = title
+		titleLabel.TextColor3 = COLORS.textPrimary
+		titleLabel.Font = Enum.Font.GothamMedium
+		titleLabel.TextSize = 11
+		titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+		titleLabel.ZIndex = 8
+		titleLabel.Parent = frame
+
+		if desc then
+			local descLabel = Instance.new("TextLabel")
+			descLabel.Size = UDim2.new(1, -115, 0, 14)
+			descLabel.Position = UDim2.new(0, 8, 0, 19)
+			descLabel.BackgroundTransparency = 1
+			descLabel.Text = desc
+			descLabel.TextColor3 = COLORS.textMuted
+			descLabel.Font = Enum.Font.Gotham
+			descLabel.TextSize = 9
+			descLabel.TextXAlignment = Enum.TextXAlignment.Left
+			descLabel.ZIndex = 8
+			descLabel.Parent = frame
+		end
+
+		local boxContainer = Instance.new("Frame")
+		boxContainer.Size = UDim2.new(0, 100, 0, 22)
+		boxContainer.Position = UDim2.new(1, -108, 0.5, -11)
+		boxContainer.BackgroundColor3 = COLORS.glassSurface
+		boxContainer.BackgroundTransparency = 0.2
+		boxContainer.BorderSizePixel = 0
+		boxContainer.ZIndex = 8
+		boxContainer.Parent = frame
+
+		local bCorner = Instance.new("UICorner")
+		bCorner.CornerRadius = CORNER.small
+		bCorner.Parent = boxContainer
+
+		local bStroke = Instance.new("UIStroke")
+		bStroke.Color = COLORS.borderGlass
+		bStroke.Thickness = 1
+		bStroke.Transparency = 0.5
+		bStroke.Parent = boxContainer
+
+		local box = Instance.new("TextBox")
+		box.Size = UDim2.new(1, -8, 1, 0)
+		box.Position = UDim2.new(0, 4, 0, 0)
+		box.BackgroundTransparency = 1
+		box.Text = tostring(defaultVal or "")
+		box.PlaceholderText = tostring(placeholder or "Enter value...")
+		box.PlaceholderColor3 = COLORS.textMuted
+		box.TextColor3 = COLORS.accentCyan
+		box.Font = Enum.Font.GothamBold
+		box.TextSize = 11
+		box.TextXAlignment = Enum.TextXAlignment.Center
+		box.ClearTextOnFocus = false
+		box.ZIndex = 9
+		box.Parent = boxContainer
+
+		box.Focused:Connect(function()
+			TweenService:Create(bStroke, TweenInfo.new(0.15), { Color = COLORS.accentCyan, Transparency = 0.2 }):Play()
+		end)
+
+		box.FocusLost:Connect(function(enterPressed)
+			TweenService:Create(bStroke, TweenInfo.new(0.2), { Color = COLORS.borderGlass, Transparency = 0.5 }):Play()
+			if callback then
+				pcall(callback, box.Text, enterPressed)
+			end
+		end)
+
+		return {
+			Set = function(newText)
+				box.Text = tostring(newText)
+				if callback then pcall(callback, tostring(newText), false) end
+			end,
+			Get = function() return box.Text end,
+			Box = box
+		}
+	end
+
+	------------------------------------------------
 	-- COMPONENT: LABEL
 	------------------------------------------------
 	local function addLabel(parentSection, text, color)
@@ -1054,6 +1152,7 @@ local success, err = pcall(function()
 		AddButton = addButton,
 		AddLabel = addLabel,
 		AddStatsCard = addStatsCard,
+		AddTextBox = addTextBox,
 		Notify = notify,
 		SyncShadow = syncShadow
 	}
@@ -2631,11 +2730,15 @@ local success, err = pcall(function()
 		checkTargetEarn()
 	end)
 
-	UI.AddSlider(secTarget, "Target Earn Amount", "Set revenue goal in Millions (M)", 1, 100, Config.farm.targetEarnM or 5, " M", function(v)
-		Config.farm.targetEarnM = v
-		cardTarget.Update("$ " .. tostring(v) .. ".00 M")
-		if Settings then Settings.Save() end
-		checkTargetEarn()
+	UI.AddTextBox(secTarget, "Target Earn Amount (M)", "Enter revenue goal in Millions (M) — e.g. 5 or 10.5", tostring(Config.farm.targetEarnM or 5), "e.g. 5", function(text)
+		local cleanText = text:gsub("[^%d%.]", "")
+		local num = tonumber(cleanText)
+		if num and num > 0 then
+			Config.farm.targetEarnM = num
+			cardTarget.Update(string.format("$ %.2f M", num))
+			if Settings then Settings.Save() end
+			checkTargetEarn()
+		end
 	end)
 
 	UI.AddButton(secTarget, "Reset Earned Counter", "Resets session revenue back to $ 0.00 M", "Reset Counter", function()
