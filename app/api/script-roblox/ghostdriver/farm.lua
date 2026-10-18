@@ -212,7 +212,7 @@ local success, err = pcall(function()
 	-- 1. Mobil di jalur KIRI (leftClearance < 13)   -> WAJIB DODGE KE KANAN (+1)! Dilarang keras buang ke kiri!
 	-- 2. Mobil di jalur KANAN (rightClearance < 13) -> WAJIB DODGE KE KIRI (-1)!  Dilarang keras buang ke kanan!
 	-- 3. Mobil di jalur TENGAH                      -> Bebas pilih kiri/kanan (pilih lajur paling lapang)
-	local function calculateTrafficAvoidance(carPos, forwardDir, rightVec, rayParams, myCar)
+	local function calculateTrafficAvoidance(carPos, forwardDir, rightVec, rayParams, myCar, currentLane, currentSmoothDodge)
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		local obstacles = {}
 		if tf then
@@ -257,14 +257,17 @@ local success, err = pcall(function()
 			return 0
 		end
 
-		-- Ukur posisi jalur kita saat ini berdasarkan batas kiri & kanan jalan
+		-- Ukur posisi jalur kita: prioritaskan currentLane matematis & smoothDodge aktif
 		local leftClearance, rightClearance = getRoadMargins(carPos, rightVec, rayParams)
 
+		local isLeftLane = (currentLane == "LEFT") or (currentSmoothDodge and currentSmoothDodge < -0.10) or (leftClearance < 11)
+		local isRightLane = (currentLane == "RIGHT") or (currentSmoothDodge and currentSmoothDodge > 0.10) or (rightClearance < 11)
+
 		local dodgeDir = 0
-		if leftClearance < 13 then
+		if isLeftLane then
 			-- 🛑 1. Mobil di Jalur Kiri -> WAJIB DODGE KE KANAN! DILARANG KERAS KE KIRI!
 			dodgeDir = 1
-		elseif rightClearance < 13 then
+		elseif isRightLane then
 			-- 🛑 2. Mobil di Jalur Kanan -> WAJIB DODGE KE KIRI! DILARANG KERAS KE KANAN!
 			dodgeDir = -1
 		else
@@ -294,16 +297,22 @@ local success, err = pcall(function()
 			end
 		end
 
+		-- 🔒 MUTLAK: Jika mobil berada di jalur kiri, TIDAK BOLEH BELOK KIRI LAGI!
+		if isLeftLane and dodgeDir < 0 then
+			dodgeDir = 1
+		end
+		-- Jika mobil berada di jalur kanan, TIDAK BOLEH BELOK KANAN LAGI!
+		if isRightLane and dodgeDir > 0 then
+			dodgeDir = -1
+		end
+
 		-- 🛡️ INTEGRITY SAFEGUARD: Pastikan arah dodge memiliki permukaan jalan yang valid!
-		-- Jangan sampai dodge membawa mobil keluar jalur/jurang
 		if dodgeDir < 0 then
-			-- Ingin ke kiri, pastikan sisi kiri ada aspal minimal 9 studs
-			if not isRoadAt(carPos - rightVec * 9, rayParams) then
+			if not isRoadAt(carPos - rightVec * 8, rayParams) then
 				dodgeDir = 1 -- Sisi kiri jurang/tembok! Paksa ke kanan!
 			end
 		elseif dodgeDir > 0 then
-			-- Ingin ke kanan, pastikan sisi kanan ada aspal minimal 9 studs
-			if not isRoadAt(carPos + rightVec * 9, rayParams) then
+			if not isRoadAt(carPos + rightVec * 8, rayParams) then
 				dodgeDir = -1 -- Sisi kanan jurang/tembok! Paksa ke kiri!
 			end
 		end
@@ -317,7 +326,7 @@ local success, err = pcall(function()
 
 		-- Urgency dinamis halus berdasarkan jarak rintangan
 		local urgency = math.clamp((160 - nearestDist) / 100, 0.40, 1.20)
-		return dodgeDir * urgency * 0.35
+		return dodgeDir * urgency * 0.32
 	end
 
 	task.spawn(function()
@@ -500,6 +509,19 @@ local success, err = pcall(function()
 								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
 								local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
 
+								-- Hitung deviasi posisi mobil dari titik tengah track waypoints
+								local prevWp = (currentWpIndex > 1) and waypoints[currentWpIndex - 1] or (targetPos - macroDir * 200)
+								local trackDir = Vector3.new(targetPos.X - prevWp.X, 0, targetPos.Z - prevWp.Z).Unit
+								local trackRight = Vector3.new(-trackDir.Z, 0, trackDir.X).Unit
+								local lateralFromCenter = (currentPos - targetPos):Dot(trackRight)
+
+								local currentLane = "CENTER"
+								if lateralFromCenter <= -5.5 then
+									currentLane = "LEFT"
+								elseif lateralFromCenter >= 5.5 then
+									currentLane = "RIGHT"
+								end
+
 								local lateralTarget = 0
 								if leftClearance < 9 and rightClearance >= 13 then
 									lateralTarget = 0.22 -- jangan terlalu mepet bibir kiri, dorong halus ke kanan
@@ -509,12 +531,12 @@ local success, err = pcall(function()
 
 								local targetDodge = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									targetDodge = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car)
+									targetDodge = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car, currentLane, smoothDodge)
 								end
 
-								-- Smooth Exponential Moving Average transition (S-curve, no snapping)
-								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.05, 0.35)
-								smoothLateral = smoothLateral + (lateralTarget - smoothLateral) * math.clamp(dt * 5.0, 0.05, 0.25)
+								-- Smooth Exponential Moving Average transition (S-curve, no snapping, clamped to 1 lane max)
+								smoothDodge = math.clamp(smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.05, 0.35), -0.32, 0.32)
+								smoothLateral = math.clamp(smoothLateral + (lateralTarget - smoothLateral) * math.clamp(dt * 5.0, 0.05, 0.25), -0.22, 0.22)
 
 								local finalHeading = (bestDir + rightVec * (smoothLateral + smoothDodge)).Unit
 
@@ -644,6 +666,13 @@ local success, err = pcall(function()
 
 					-- 3. 3-Lane Road Margin & Smart Traffic Dodging
 					local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
+					local currentLane = "CENTER"
+					if smoothDodge < -0.10 or leftClearance < 11 then
+						currentLane = "LEFT"
+					elseif smoothDodge > 0.10 or rightClearance < 11 then
+						currentLane = "RIGHT"
+					end
+
 					local lateralTarget = 0
 					if leftClearance < 9 and rightClearance >= 13 then
 						lateralTarget = 0.22 -- jangan mepet bibir kiri, dorong halus ke kanan
@@ -653,11 +682,11 @@ local success, err = pcall(function()
 
 					local targetDodge = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						targetDodge = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car)
+						targetDodge = calculateTrafficAvoidance(currentPos, bestDir, rightVec, rayParams, car, currentLane, smoothDodge)
 					end
 
-					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.05, 0.35)
-					smoothLateral = smoothLateral + (lateralTarget - smoothLateral) * math.clamp(dt * 5.0, 0.05, 0.25)
+					smoothDodge = math.clamp(smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.05, 0.35), -0.32, 0.32)
+					smoothLateral = math.clamp(smoothLateral + (lateralTarget - smoothLateral) * math.clamp(dt * 5.0, 0.05, 0.25), -0.22, 0.22)
 
 					local finalHeading = (bestDir + rightVec * (smoothLateral + smoothDodge)).Unit
 
