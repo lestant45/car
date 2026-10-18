@@ -8,6 +8,8 @@ local success, err = pcall(function()
 
 	local Config = {
 		farm = {
+			targetEarn = false,
+			targetEarnM = 5,
 			autoRace = false,
 			raceDifficulty = "Hard",
 			raceDelay = 1.0,

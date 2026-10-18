@@ -1076,6 +1076,8 @@ local success, err = pcall(function()
 
 	local Config = {
 		farm = {
+			targetEarn = false,
+			targetEarnM = 5,
 			autoRace = false,
 			raceDifficulty = "Hard",
 			raceDelay = 1.0,
@@ -1868,27 +1870,17 @@ local success, err = pcall(function()
 
 							local currentWpIndex = 1
 							local cruiseMPH = math.clamp(Config.farm.raceSpeed or 340, 150, 480)
-														local rayParams = RaycastParams.new()
+							local targetStudsSec = cruiseMPH * 1.760
+
+							local rayParams = RaycastParams.new()
 							rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-							-- 🛡️ VIRTUAL SAFETY RUNWAY (Anti-Jatuh Void saat StreamingEnabled Belum Render)
-							local safetyRunway = Instance.new("Part")
-							safetyRunway.Name = "HipHub_SafetyRunway"
-							safetyRunway.Size = Vector3.new(54, 2, 350)
-							safetyRunway.Transparency = 1
-							safetyRunway.Anchored = true
-							safetyRunway.CanCollide = true
-							safetyRunway.Material = Enum.Material.SmoothPlastic
-							safetyRunway.Parent = workspace
-
-							rayParams.FilterDescendantsInstances = {player.Character, car, safetyRunway}
+							rayParams.FilterDescendantsInstances = {player.Character, car}
 
 							-- Real-time road tracking & lane keeping loop with 3-Lane Smooth Dodge
 							local heartbeatConn
 							local smoothDodge = 0
 							local smoothLateral = 0
 							local lastTick = os.clock()
-							local lastStreamReq = 0
 
 							heartbeatConn = RunService.Heartbeat:Connect(function()
 								if not isRacingNow or finished or not seat or not car or not seat.Parent then return end
@@ -1918,41 +1910,11 @@ local success, err = pcall(function()
 									deltaTarget = targetPos - currentPos
 								end
 
-								-- 🚀 PROACTIVE STREAM REQUEST (Paksa Roblox StreamingEnabled memuat jalan di depan!)
-								if now - lastStreamReq > 0.35 then
-									lastStreamReq = now
-									pcall(function()
-										player:RequestStreamAroundAsync(currentPos + macroDir * 280, 1)
-										if targetPos then
-											player:RequestStreamAroundAsync(targetPos, 1)
-										end
-									end)
-								end
-
-								-- 1. Hitung patokan ketinggian jalan dari waypoint resmi (Interpolasi Ketinggian)
-								local expectedRoadY = targetPos.Y
-								if currentWpIndex > 1 then
-									local prevWp = waypoints[currentWpIndex - 1]
-									local segLen = (targetPos - prevWp).Magnitude
-									local curLen = (currentPos - prevWp).Magnitude
-									local prog = math.clamp(curLen / math.max(segLen, 1), 0, 1)
-									expectedRoadY = prevWp.Y + (targetPos.Y - prevWp.Y) * prog
-								end
-
-								-- Posisikan safety runway tepat di bawah mobil membentang ke depan
-								if safetyRunway and safetyRunway.Parent then
-									safetyRunway.CFrame = CFrame.lookAt(
-										Vector3.new(currentPos.X, expectedRoadY - 1.0, currentPos.Z),
-										Vector3.new(currentPos.X + macroDir.X * 10, expectedRoadY - 1.0, currentPos.Z + macroDir.Z * 10)
-									)
-								end
-
-								-- 2. Deteksi permukaan jalan asli tepat di bawah mobil
+								-- 1. Deteksi permukaan jalan tepat di bawah mobil
 								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-								local isRoadLoaded = (downHit and downHit.Position.Y <= 95)
-								local roadY = isRoadLoaded and downHit.Position.Y or expectedRoadY
+								local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
-								-- 3. Deteksi arah jalan di depan: probe lurus dulu, hanya probe sudut jika di depan melenceng
+								-- 2. Deteksi arah jalan di depan: probe lurus dulu, hanya probe sudut jika di depan melenceng
 								local bestDir = macroDir
 								local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 10, 0)
 								local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -45, 0), rayParams)
@@ -1968,11 +1930,11 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- 4. Barrier-Aware Traffic Dodge & Lane Keeping
+								-- 3. Barrier-Aware Traffic Dodge & Lane Keeping
 								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
 
 								local targetDodge = 0
-								if Config.farm.autoDodgeTraffic ~= false and isRoadLoaded then
+								if Config.farm.autoDodgeTraffic ~= false then
 									targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
 								end
 
@@ -1992,7 +1954,7 @@ local success, err = pcall(function()
 
 								-- Emergency barrier safety clamp & active repulsion:
 								-- Jika mendekati pagar besi di kiri (< 9.0 studs), dilarang keras belok kiri dan paksa stir ke kanan!
-								-- Jika mendekati tembok beton di kanan (< 9.0 studs), dilarang belok kanan dan paksa stir ke kiri!
+								-- Jika mendekati tembok beton di kanan (< 9.0 studs), dilarang keras belok kanan dan paksa stir ke kiri!
 								if distL < 9.0 then
 									local pushRight = math.clamp((9.0 - distL) * 0.05, 0.08, 0.28)
 									smoothDodge = math.max(smoothDodge, pushRight)
@@ -2003,16 +1965,9 @@ local success, err = pcall(function()
 
 								local finalHeading = (bestDir + rightVec * smoothDodge).Unit
 
-								-- 5. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
-								-- Jika chunk jalanan di depan belum ter-render (loading lag),
-								-- tahan kecepatan sementara di 150 MPH agar tidak melompati area kosong!
-								local effectiveStudsSec = targetStudsSec
-								if not isRoadLoaded then
-									effectiveStudsSec = math.min(targetStudsSec, 150 * 1.760)
-								end
-
+								-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
 								local targetY = roadY + 2.0
-								local stepDist = effectiveStudsSec * dt
+								local stepDist = targetStudsSec * dt
 								local nextPos = currentPos + finalHeading * stepDist
 
 								-- 🛡️ HARD PHYSICAL CUSHION CLAMP (Anti-Nembus Pagar Besi & Tembok Beton)
@@ -2028,8 +1983,8 @@ local success, err = pcall(function()
 								local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 14.0, 0.18, 0.75))
 								car:PivotTo(smoothCF)
 
-								-- 6. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil + Gas Pedal On
-								seat.AssemblyLinearVelocity = finalHeading * effectiveStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
+								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil + Gas Pedal On
+								seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = 1.0
@@ -2045,9 +2000,6 @@ local success, err = pcall(function()
 
 							if heartbeatConn then
 								heartbeatConn:Disconnect()
-							end
-							if safetyRunway and safetyRunway.Parent then
-								safetyRunway:Destroy()
 							end
 
 							if seat and seat:IsA("BasePart") then
@@ -2108,7 +2060,6 @@ local success, err = pcall(function()
 		local smoothDodge = 0
 		local smoothLateral = 0
 		local lastTick = os.clock()
-		local lastStreamReq = 0
 
 		while true do
 			task.wait(0.02)
@@ -2127,18 +2078,9 @@ local success, err = pcall(function()
 					local macroDir = Vector3.new(currentLook.X, 0, currentLook.Z).Unit
 					local rightVec = Vector3.new(-macroDir.Z, 0, macroDir.X).Unit
 
-					-- 🚀 PROACTIVE STREAM REQUEST (Paksa Roblox StreamingEnabled memuat jalan di depan)
-					if now - lastStreamReq > 0.4 then
-						lastStreamReq = now
-						pcall(function()
-							player:RequestStreamAroundAsync(currentPos + macroDir * 250, 1)
-						end)
-					end
-
 					-- 1. Deteksi permukaan jalan tepat di bawah mobil
 					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-					local isRoadLoaded = (downHit and downHit.Position.Y <= 95)
-					local roadY = isRoadLoaded and downHit.Position.Y or 62.5
+					local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
 					-- 2. Deteksi arah jalan ke depan (probe lurus dulu, hanya probe sudut jika di depan melenceng)
 					local bestDir = macroDir
@@ -2158,7 +2100,7 @@ local success, err = pcall(function()
 
 					-- 3. Barrier-Aware Traffic Dodge & Lane Keeping
 					local targetDodge = 0
-					if Config.farm.autoDodgeTraffic ~= false and isRoadLoaded then
+					if Config.farm.autoDodgeTraffic ~= false then
 						targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
 					end
 
@@ -2626,8 +2568,86 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🏁 TAB 2: AUTO FARM
 	------------------------------------------------
+	-- 🎯 TARGET EARN & SESSION REVENUE TRACKER
+	-- Menghitung MURNI uang masuk yang didapatkan selama sesi, bukan saldo total saat ini!
+	local sessionEarnedCash = 0
+	local lastRecordedCash = nil
+
+	local function formatMillion(cashAmount)
+		local millions = cashAmount / 1000000
+		return string.format("$ %.2f M", millions)
+	end
+
+	local secTarget = UI.AddSection("Auto Farm", "🎯 Target Earn & Session Revenue")
+	local cardEarned = UI.AddStatsCard(secTarget, "Session Earned (Uang Masuk)", "$ 0.00 M")
+	local cardTarget = UI.AddStatsCard(secTarget, "Target Goal", "$ " .. tostring(Config.farm.targetEarnM or 5) .. ".00 M")
+
+	local toggleRace -- forward reference agar bisa dimatikan otomatis saat target tercapai
+
+	local function checkTargetEarn()
+		if Config.farm.targetEarn and Config.farm.targetEarnM then
+			local targetInCash = (Config.farm.targetEarnM or 5) * 1000000
+			if sessionEarnedCash >= targetInCash then
+				Config.farm.autoRace = false
+				Config.farm.autoSpeedFarm = false
+				if toggleRace then
+					toggleRace.Set(false)
+				end
+				if Settings then Settings.Save() end
+
+				if UI and UI.Notify then
+					UI.Notify("🎯 Target Earn Reached!", "Earned " .. formatMillion(sessionEarnedCash) .. "! Auto Race stopped.", 6, "success")
+				end
+			end
+		end
+	end
+
+	-- Listener Uang Masuk Murni (Gross Inflow)
+	task.spawn(function()
+		pcall(function()
+			local ls = player:WaitForChild("leaderstats", 10)
+			local cashObj = ls and ls:WaitForChild("Cash", 10)
+			if cashObj then
+				lastRecordedCash = cashObj.Value
+				cashObj.Changed:Connect(function(newVal)
+					if lastRecordedCash ~= nil then
+						local delta = newVal - lastRecordedCash
+						if delta > 0 then
+							-- Uang masuk murni (dari race, quest, speed, dll.)
+							sessionEarnedCash = sessionEarnedCash + delta
+							cardEarned.Update(formatMillion(sessionEarnedCash))
+							checkTargetEarn()
+						end
+					end
+					lastRecordedCash = newVal
+				end)
+			end
+		end)
+	end)
+
+	UI.AddToggle(secTarget, "Enable Target Earn Stop", "Automatically stops Auto Race once target revenue is reached", Config.farm.targetEarn or false, function(v)
+		Config.farm.targetEarn = v
+		if Settings then Settings.Save() end
+		checkTargetEarn()
+	end)
+
+	UI.AddSlider(secTarget, "Target Earn Amount", "Set revenue goal in Millions (M)", 1, 100, Config.farm.targetEarnM or 5, " M", function(v)
+		Config.farm.targetEarnM = v
+		cardTarget.Update("$ " .. tostring(v) .. ".00 M")
+		if Settings then Settings.Save() end
+		checkTargetEarn()
+	end)
+
+	UI.AddButton(secTarget, "Reset Earned Counter", "Resets session revenue back to $ 0.00 M", "Reset Counter", function()
+		sessionEarnedCash = 0
+		cardEarned.Update("$ 0.00 M")
+		if UI and UI.Notify then
+			UI.Notify("Target Earn", "Session earned counter reset to $ 0.00 M", 3, "info")
+		end
+	end)
+
 	local secRace = UI.AddSection("Auto Farm", "Auto Race Automation")
-	UI.AddToggle(secRace, "Auto Race", "Automatically joins & wins Highway Races 1st place", Config.farm.autoRace, function(v)
+	toggleRace = UI.AddToggle(secRace, "Auto Race", "Automatically joins & wins Highway Races 1st place", Config.farm.autoRace, function(v)
 		Config.farm.autoRace = v
 		if Settings then Settings.Save() end
 	end)

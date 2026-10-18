@@ -172,8 +172,86 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🏁 TAB 2: AUTO FARM
 	------------------------------------------------
+	-- 🎯 TARGET EARN & SESSION REVENUE TRACKER
+	-- Menghitung MURNI uang masuk yang didapatkan selama sesi, bukan saldo total saat ini!
+	local sessionEarnedCash = 0
+	local lastRecordedCash = nil
+
+	local function formatMillion(cashAmount)
+		local millions = cashAmount / 1000000
+		return string.format("$ %.2f M", millions)
+	end
+
+	local secTarget = UI.AddSection("Auto Farm", "🎯 Target Earn & Session Revenue")
+	local cardEarned = UI.AddStatsCard(secTarget, "Session Earned (Uang Masuk)", "$ 0.00 M")
+	local cardTarget = UI.AddStatsCard(secTarget, "Target Goal", "$ " .. tostring(Config.farm.targetEarnM or 5) .. ".00 M")
+
+	local toggleRace -- forward reference agar bisa dimatikan otomatis saat target tercapai
+
+	local function checkTargetEarn()
+		if Config.farm.targetEarn and Config.farm.targetEarnM then
+			local targetInCash = (Config.farm.targetEarnM or 5) * 1000000
+			if sessionEarnedCash >= targetInCash then
+				Config.farm.autoRace = false
+				Config.farm.autoSpeedFarm = false
+				if toggleRace then
+					toggleRace.Set(false)
+				end
+				if Settings then Settings.Save() end
+
+				if UI and UI.Notify then
+					UI.Notify("🎯 Target Earn Reached!", "Earned " .. formatMillion(sessionEarnedCash) .. "! Auto Race stopped.", 6, "success")
+				end
+			end
+		end
+	end
+
+	-- Listener Uang Masuk Murni (Gross Inflow)
+	task.spawn(function()
+		pcall(function()
+			local ls = player:WaitForChild("leaderstats", 10)
+			local cashObj = ls and ls:WaitForChild("Cash", 10)
+			if cashObj then
+				lastRecordedCash = cashObj.Value
+				cashObj.Changed:Connect(function(newVal)
+					if lastRecordedCash ~= nil then
+						local delta = newVal - lastRecordedCash
+						if delta > 0 then
+							-- Uang masuk murni (dari race, quest, speed, dll.)
+							sessionEarnedCash = sessionEarnedCash + delta
+							cardEarned.Update(formatMillion(sessionEarnedCash))
+							checkTargetEarn()
+						end
+					end
+					lastRecordedCash = newVal
+				end)
+			end
+		end)
+	end)
+
+	UI.AddToggle(secTarget, "Enable Target Earn Stop", "Automatically stops Auto Race once target revenue is reached", Config.farm.targetEarn or false, function(v)
+		Config.farm.targetEarn = v
+		if Settings then Settings.Save() end
+		checkTargetEarn()
+	end)
+
+	UI.AddSlider(secTarget, "Target Earn Amount", "Set revenue goal in Millions (M)", 1, 100, Config.farm.targetEarnM or 5, " M", function(v)
+		Config.farm.targetEarnM = v
+		cardTarget.Update("$ " .. tostring(v) .. ".00 M")
+		if Settings then Settings.Save() end
+		checkTargetEarn()
+	end)
+
+	UI.AddButton(secTarget, "Reset Earned Counter", "Resets session revenue back to $ 0.00 M", "Reset Counter", function()
+		sessionEarnedCash = 0
+		cardEarned.Update("$ 0.00 M")
+		if UI and UI.Notify then
+			UI.Notify("Target Earn", "Session earned counter reset to $ 0.00 M", 3, "info")
+		end
+	end)
+
 	local secRace = UI.AddSection("Auto Farm", "Auto Race Automation")
-	UI.AddToggle(secRace, "Auto Race", "Automatically joins & wins Highway Races 1st place", Config.farm.autoRace, function(v)
+	toggleRace = UI.AddToggle(secRace, "Auto Race", "Automatically joins & wins Highway Races 1st place", Config.farm.autoRace, function(v)
 		Config.farm.autoRace = v
 		if Settings then Settings.Save() end
 	end)
