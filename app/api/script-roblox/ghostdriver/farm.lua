@@ -234,11 +234,15 @@ local success, err = pcall(function()
 		return false
 	end
 
-	local function detectBarriers(carPos, rightVec, rayParams)
+	local function detectBarriers(carPos, rightVec, forwardDir, rayParams)
 		local rayHeights = {-0.7, 0.2, 1.2}
-		local maxRayDist = 28
+		local maxRayDist = 32
 
-		-- 1. Deteksi pembatas kanan (Tembok Beton)
+		local fDir = forwardDir or Vector3.zero
+		local diagR = (rightVec * 0.707 + fDir * 0.707).Unit
+		local diagL = (-rightVec * 0.707 + fDir * 0.707).Unit
+
+		-- 1. Deteksi pembatas kanan (Tembok Beton) - Samping 90° & Serong Depan 45°
 		local hasRightBarrier = false
 		local distR = 99
 		for _, h in ipairs(rayHeights) do
@@ -250,9 +254,20 @@ local success, err = pcall(function()
 					distR = hitR.Distance
 				end
 			end
+
+			if forwardDir then
+				local hitDiagR = workspace:Raycast(origin, diagR * maxRayDist, rayParams)
+				if hitDiagR and isBarrierPart(hitDiagR.Instance) then
+					hasRightBarrier = true
+					local effDist = hitDiagR.Distance * 0.707
+					if effDist < distR then
+						distR = effDist
+					end
+				end
+			end
 		end
 
-		-- 2. Deteksi pembatas kiri (Pagar Besi Biru / CollisionShield / FenceHolder)
+		-- 2. Deteksi pembatas kiri (Pagar Besi Biru / CollisionShield / Tiang) - Samping 90° & Serong Depan 45°
 		local hasLeftBarrier = false
 		local distL = 99
 		for _, h in ipairs(rayHeights) do
@@ -264,6 +279,44 @@ local success, err = pcall(function()
 					distL = hitL.Distance
 				end
 			end
+
+			if forwardDir then
+				local hitDiagL = workspace:Raycast(origin, diagL * maxRayDist, rayParams)
+				if hitDiagL and isBarrierPart(hitDiagL.Instance) then
+					hasLeftBarrier = true
+					local effDist = hitDiagL.Distance * 0.707
+					if effDist < distL then
+						distL = effDist
+					end
+				end
+			end
+		end
+
+		-- 3. 🛣️ ROAD-EDGE DOWNCAST SENSOR (Sensor Ujung Aspal Kiri & Kanan)
+		-- Memeriksa apakah aspal masih ada di kiri/kanan pada jarak 6, 10, 14, 18 studs.
+		-- Jika raycast menyentuh rumput (Grass), tebing, void, atau bukan jalan:
+		-- Berarti posisi tersebut sudah berada di luar batas jalan!
+		local checkOffsets = {6, 10, 14, 18}
+		for _, off in ipairs(checkOffsets) do
+			-- Cek tepi aspal kiri
+			local probeL = carPos - rightVec * off + Vector3.new(0, 5, 0)
+			local downL = workspace:Raycast(probeL, Vector3.new(0, -20, 0), rayParams)
+			if not downL or downL.Position.Y < (carPos.Y - 4.5) or isBarrierPart(downL.Instance) or downL.Instance.Material == Enum.Material.Grass then
+				hasLeftBarrier = true
+				if off < distL then
+					distL = off
+				end
+			end
+
+			-- Cek tepi aspal kanan
+			local probeR = carPos + rightVec * off + Vector3.new(0, 5, 0)
+			local downR = workspace:Raycast(probeR, Vector3.new(0, -20, 0), rayParams)
+			if not downR or downR.Position.Y < (carPos.Y - 4.5) or isBarrierPart(downR.Instance) or downR.Instance.Material == Enum.Material.Grass then
+				hasRightBarrier = true
+				if off < distR then
+					distR = off
+				end
+			end
 		end
 
 		return hasLeftBarrier, hasRightBarrier, distL, distR
@@ -273,8 +326,8 @@ local success, err = pcall(function()
 	-- 🚗 SENSOR DODGE PINTAR BERBASIS PEMBATAS JALAN
 	------------------------------------------------
 	-- Aturan Mutlak:
-	-- 1. Jika di KIRI ada pembatas besi (distL < 15 studs)  -> DILARANG KERAS DODGE KE KIRI! WAJIB DODGE KE KANAN!
-	-- 2. Jika di KANAN ada pembatas beton (distR < 15 studs)-> DILARANG KERAS DODGE KE KANAN! WAJIB DODGE KE KIRI!
+	-- 1. Jika di KIRI ada pembatas besi (distL < 16 studs)  -> DILARANG KERAS DODGE KE KIRI! WAJIB DODGE KE KANAN!
+	-- 2. Jika di KANAN ada pembatas beton (distR < 16 studs)-> DILARANG KERAS DODGE KE KANAN! WAJIB DODGE KE KIRI!
 	-- 3. Jika kedua sisi bebas                             -> Bebas pilih sisi yang lapang menjauhi rintangan!
 	local currentDodgeDir = 0
 
@@ -315,15 +368,15 @@ local success, err = pcall(function()
 			end
 		end
 
-		local hasLeftBarrier, hasRightBarrier, distL, distR = detectBarriers(carPos, rightVec, rayParams)
+		local hasLeftBarrier, hasRightBarrier, distL, distR = detectBarriers(carPos, rightVec, forwardDir, rayParams)
 
 		if not nearestObs then
 			currentDodgeDir = 0
 			return 0
 		end
 
-		local leftBlocked = hasLeftBarrier and (distL < 15.0)
-		local rightBlocked = hasRightBarrier and (distR < 15.0)
+		local leftBlocked = hasLeftBarrier and (distL < 16.0)
+		local rightBlocked = hasRightBarrier and (distR < 16.0)
 
 		-- Ada rintangan di depan! Putuskan arah dodge berdasarkan posisi pembatas jalan:
 		if leftBlocked and not rightBlocked then
@@ -465,10 +518,16 @@ local success, err = pcall(function()
 								Vector3.new(-3820.0, 61.5, -6600.0), -- Tikungan highway 1
 								Vector3.new(-4070.0, 61.5, -7606.0), -- Tikungan highway 2
 								Vector3.new(-4389.0, 62.2, -8593.0), -- Tikungan highway 3
-								Vector3.new(-4776.0, 62.2, -9555.0), -- Tikungan highway 4
+								Vector3.new(-4580.0, 62.2, -9070.0), -- Tikungan highway 3.5
+								Vector3.new(-4776.0, 62.2, -9555.0), -- Tikungan highway 4 (Awal 56% Progress)
+								Vector3.new(-4980.0, 62.2, -9950.0), -- Tikungan highway 4.3 (Halus Kurva 56%)
+								Vector3.new(-5210.0, 62.2, -10350.0),-- Tikungan highway 4.6 (Halus Kurva 56%)
 								Vector3.new(-5451.0, 62.2, -10750.0),-- Highway strip 5
+								Vector3.new(-5850.0, 62.2, -11350.0),-- Highway strip 5.5
 								Vector3.new(-6301.0, 62.2, -12000.0),-- Highway strip 6
+								Vector3.new(-6780.0, 72.0, -12650.0),-- Highway strip 6.5
 								Vector3.new(-7300.0, 81.6, -13300.0),-- Highway strip 7
+								Vector3.new(-7820.0, 72.0, -13900.0),-- Highway strip 7.5
 								Vector3.new(-8382.0, 62.2, -14500.0),-- Menuju garis finish
 								Vector3.new(-9742.0, 62.2, -15626.9),-- RaceFinishLine
 								Vector3.new(-10200.0, 62.2, -16000.0),-- Tembus garis finish +450 studs
@@ -509,9 +568,9 @@ local success, err = pcall(function()
 									macroDir = Vector3.new(deltaTarget.X, 0, deltaTarget.Z).Unit
 								end
 
-								-- Maju ke checkpoint berikutnya kalau sudah dekat (<150 studs) atau sudah terlewati
+								-- Maju ke checkpoint berikutnya kalau sudah dekat (<120 studs) atau sudah terlewati
 								local isPassed = deltaTarget:Dot(macroDir) < -15
-								if (distToTarget < 150 or isPassed) and currentWpIndex < #waypoints then
+								if (distToTarget < 120 or isPassed) and currentWpIndex < #waypoints then
 									currentWpIndex = currentWpIndex + 1
 									targetPos = waypoints[currentWpIndex]
 									deltaTarget = targetPos - currentPos
@@ -545,18 +604,28 @@ local success, err = pcall(function()
 									targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
 								end
 
-								-- Transisi kemudi halus
-								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
+								-- Deteksi pembatas jalan real-time (Samping 90°, Serong 45°, & Downcast Tepi Aspal)
+								local _, _, distL, distR = detectBarriers(currentPos, rightVec, bestDir, rayParams)
+
+								-- 🛡️ ACTIVE HIGHWAY CENTERING (Jaga Mobil Selalu di Koridor Aspal)
+								local centeringForce = 0
+								if distL < 16.0 then
+									centeringForce = math.clamp((16.0 - distL) * 0.035, 0.04, 0.25)
+								elseif distR < 16.0 then
+									centeringForce = -math.clamp((16.0 - distR) * 0.035, 0.04, 0.25)
+								end
+
+								-- Transisi kemudi halus menggabungkan traffic dodge + highway centering
+								smoothDodge = smoothDodge + (targetDodge + centeringForce - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
 
 								-- Emergency barrier safety clamp & active repulsion:
-								-- Jika mendekati pagar besi di kiri (< 8.5 studs), dilarang belok kiri dan paksa stir ke kanan!
-								-- Jika mendekati tembok beton di kanan (< 8.5 studs), dilarang belok kanan dan paksa stir ke kiri!
-								local _, _, distL, distR = detectBarriers(currentPos, rightVec, rayParams)
-								if distL < 8.5 then
-									local pushRight = math.clamp((8.5 - distL) * 0.04, 0.06, 0.22)
+								-- Jika mendekati pagar besi di kiri (< 9.0 studs), dilarang keras belok kiri dan paksa stir ke kanan!
+								-- Jika mendekati tembok beton di kanan (< 9.0 studs), dilarang keras belok kanan dan paksa stir ke kiri!
+								if distL < 9.0 then
+									local pushRight = math.clamp((9.0 - distL) * 0.05, 0.08, 0.28)
 									smoothDodge = math.max(smoothDodge, pushRight)
-								elseif distR < 8.5 then
-									local pushLeft = -math.clamp((8.5 - distR) * 0.04, 0.06, 0.22)
+								elseif distR < 9.0 then
+									local pushLeft = -math.clamp((9.0 - distR) * 0.05, 0.08, 0.28)
 									smoothDodge = math.min(smoothDodge, pushLeft)
 								end
 
@@ -568,11 +637,11 @@ local success, err = pcall(function()
 								local nextPos = currentPos + finalHeading * stepDist
 
 								-- 🛡️ HARD PHYSICAL CUSHION CLAMP (Anti-Nembus Pagar Besi & Tembok Beton)
-								local _, _, nextDistL, nextDistR = detectBarriers(nextPos, rightVec, rayParams)
-								if nextDistL < 4.5 then
-									nextPos = nextPos + rightVec * (4.5 - nextDistL)
-								elseif nextDistR < 4.5 then
-									nextPos = nextPos - rightVec * (4.5 - nextDistR)
+								local _, _, nextDistL, nextDistR = detectBarriers(nextPos, rightVec, bestDir, rayParams)
+								if nextDistL < 5.0 then
+									nextPos = nextPos + rightVec * (5.0 - nextDistL)
+								elseif nextDistR < 5.0 then
+									nextPos = nextPos - rightVec * (5.0 - nextDistR)
 								end
 
 								local lookAtPos = nextPos + finalHeading * 10
@@ -701,17 +770,28 @@ local success, err = pcall(function()
 						targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
 					end
 
-					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
+					-- Deteksi pembatas jalan real-time (Samping 90°, Serong 45°, & Downcast Tepi Aspal)
+					local _, _, distL, distR = detectBarriers(currentPos, rightVec, bestDir, rayParams)
+
+					-- 🛡️ ACTIVE HIGHWAY CENTERING (Jaga Mobil Selalu di Koridor Aspal)
+					local centeringForce = 0
+					if distL < 16.0 then
+						centeringForce = math.clamp((16.0 - distL) * 0.035, 0.04, 0.25)
+					elseif distR < 16.0 then
+						centeringForce = -math.clamp((16.0 - distR) * 0.035, 0.04, 0.25)
+					end
+
+					-- Transisi kemudi halus menggabungkan traffic dodge + highway centering
+					smoothDodge = smoothDodge + (targetDodge + centeringForce - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
 
 					-- Emergency barrier safety clamp & active repulsion:
-					-- Jika mendekati pagar besi di kiri (< 8.5 studs), dilarang belok kiri dan paksa stir ke kanan!
-					-- Jika mendekati tembok beton di kanan (< 8.5 studs), dilarang belok kanan dan paksa stir ke kiri!
-					local _, _, distL, distR = detectBarriers(currentPos, rightVec, rayParams)
-					if distL < 8.5 then
-						local pushRight = math.clamp((8.5 - distL) * 0.04, 0.06, 0.22)
+					-- Jika mendekati pagar besi di kiri (< 9.0 studs), dilarang keras belok kiri dan paksa stir ke kanan!
+					-- Jika mendekati tembok beton di kanan (< 9.0 studs), dilarang keras belok kanan dan paksa stir ke kiri!
+					if distL < 9.0 then
+						local pushRight = math.clamp((9.0 - distL) * 0.05, 0.08, 0.28)
 						smoothDodge = math.max(smoothDodge, pushRight)
-					elseif distR < 8.5 then
-						local pushLeft = -math.clamp((8.5 - distR) * 0.04, 0.06, 0.22)
+					elseif distR < 9.0 then
+						local pushLeft = -math.clamp((9.0 - distR) * 0.05, 0.08, 0.28)
 						smoothDodge = math.min(smoothDodge, pushLeft)
 					end
 
@@ -725,11 +805,11 @@ local success, err = pcall(function()
 					local nextPos = currentPos + finalHeading * stepDist
 
 					-- 🛡️ HARD PHYSICAL CUSHION CLAMP (Anti-Nembus Pagar Besi & Tembok Beton)
-					local _, _, nextDistL, nextDistR = detectBarriers(nextPos, rightVec, rayParams)
-					if nextDistL < 4.5 then
-						nextPos = nextPos + rightVec * (4.5 - nextDistL)
-					elseif nextDistR < 4.5 then
-						nextPos = nextPos - rightVec * (4.5 - nextDistR)
+					local _, _, nextDistL, nextDistR = detectBarriers(nextPos, rightVec, bestDir, rayParams)
+					if nextDistL < 5.0 then
+						nextPos = nextPos + rightVec * (5.0 - nextDistL)
+					elseif nextDistR < 5.0 then
+						nextPos = nextPos - rightVec * (5.0 - nextDistR)
 					end
 
 					local lookAtPos = nextPos + finalHeading * 10
