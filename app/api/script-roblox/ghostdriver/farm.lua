@@ -170,30 +170,16 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR
+	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR (FAST 2-POINT PROBE)
 	------------------------------------------------
 	local function getRoadMargins(carPos, rightVec, rayParams)
-		local leftClearance = 0
-		for dist = 4, 36, 4 do
-			local testP = carPos - rightVec * dist + Vector3.new(0, 8, 0)
-			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
-			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
-				leftClearance = dist
-			else
-				break
-			end
-		end
+		-- Cek batas jalur kiri (12 studs ke kiri)
+		local leftHit = workspace:Raycast(carPos - rightVec * 12 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
+		local leftClearance = (leftHit and leftHit.Position.Y <= 78 and not (leftHit.Instance.Name:lower():find("guard") or leftHit.Instance.Name:lower():find("rail") or leftHit.Instance.Name:lower():find("wall"))) and 16 or 6
 
-		local rightClearance = 0
-		for dist = 4, 36, 4 do
-			local testP = carPos + rightVec * dist + Vector3.new(0, 8, 0)
-			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
-			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
-				rightClearance = dist
-			else
-				break
-			end
-		end
+		-- Cek batas jalur kanan (12 studs ke kanan)
+		local rightHit = workspace:Raycast(carPos + rightVec * 12 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
+		local rightClearance = (rightHit and rightHit.Position.Y <= 78 and not (rightHit.Instance.Name:lower():find("guard") or rightHit.Instance.Name:lower():find("rail") or rightHit.Instance.Name:lower():find("wall"))) and 16 or 6
 
 		return leftClearance, rightClearance
 	end
@@ -421,7 +407,9 @@ local success, err = pcall(function()
 							local lastTick = os.clock()
 
 							heartbeatConn = RunService.Heartbeat:Connect(function()
-								if not isRacingNow or finished or not seat or not car or not seat.Parent then return end
+								if not isRacingNow or not seat or not car or not seat.Parent then return end
+								-- Jangan pernah berhenti di tengah jalan kalau belum tembus garis finish (Z <= -15500)
+								if finished and car:GetPivot().Position.Z <= -15500 then return end
 
 								local now = os.clock()
 								local dt = math.clamp(now - lastTick, 0.005, 0.05)
@@ -491,17 +479,26 @@ local success, err = pcall(function()
 								local lookAtPos = Vector3.new(currentPos.X + finalHeading.X * 10, targetY, currentPos.Z + finalHeading.Z * 10)
 								local targetCF = CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos)
 								local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 13.0, 0.15, 0.65))
-								car:PivotTo(smoothCF)
+
+								-- Frame advancement: majukan posisi sesuai frame step agar di device FPS rendah (Redfinger) lajunya tetap 100% konsisten
+								local frameStep = smoothCF.LookVector * (targetStudsSec * dt)
+								local nextPos = currentPos + frameStep
+								car:PivotTo(CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), nextPos + smoothCF.LookVector * 10))
 
 								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil
 								seat.AssemblyLinearVelocity = smoothCF.LookVector * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
 							end)
 
-							-- Tunggu sampai server konfirmasi event Finish (timeout 80 detik)
+							-- Tunggu sampai mobil beneran tembus garis finish (Z <= -15500)
 							local waitFinish = os.clock()
-							while not finished and (os.clock() - waitFinish) < 80 do
+							while (os.clock() - waitFinish) < 80 do
 								task.wait(0.1)
+								local curZ = car and car:GetPivot().Position.Z or 0
+								if (finished and curZ <= -15500) or curZ <= -16200 then
+									task.wait(1.0)
+									break
+								end
 							end
 
 							if heartbeatConn then
@@ -625,11 +622,15 @@ local success, err = pcall(function()
 					local lookAtPos = Vector3.new(currentPos.X + finalHeading.X * 10, targetY, currentPos.Z + finalHeading.Z * 10)
 					local targetCF = CFrame.lookAt(Vector3.new(currentPos.X, targetY, currentPos.Z), lookAtPos)
 					local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 13.0, 0.15, 0.65))
-					car:PivotTo(smoothCF)
 
-					-- 5. Dorong dengan kecepatan target konstan
 					local targetMPH = math.clamp(Config.farm.targetSpeed or 240, 50, 380)
 					local targetStudsSec = targetMPH * 1.760
+
+					local frameStep = smoothCF.LookVector * (targetStudsSec * dt)
+					local nextPos = currentPos + frameStep
+					car:PivotTo(CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), nextPos + smoothCF.LookVector * 10))
+
+					-- 5. Dorong dengan kecepatan target konstan
 					seat.AssemblyLinearVelocity = smoothCF.LookVector * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 					seat.AssemblyAngularVelocity = Vector3.zero
 				else
