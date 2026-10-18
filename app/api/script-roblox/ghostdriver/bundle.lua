@@ -1423,23 +1423,20 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Jika ada rintangan di depan dan cooldown ganti jalur sudah lewat (1.1s agar stabil):
-		if hasObstacleAhead and (now - lastLaneSwitchTime) > 1.1 then
+		-- Jika ada rintangan di depan dan cooldown ganti jalur sudah lewat (1.2 detik agar stabil):
+		if hasObstacleAhead and (now - lastLaneSwitchTime) > 1.2 then
 			lastLaneSwitchTime = now
 			if activeLane == 0 then
-				-- Sedang di jalur tengah -> Dodge ke KANAN!
+				-- Sedang di jalur tengah -> Pindah ke Jalur Kanan (+12 studs)
 				activeLane = 1
 			else
-				-- Sedang di jalur kanan -> Dodge ke KIRI (kembali ke tengah)!
+				-- Sedang di jalur kanan -> Pindah ke Jalur Tengah (0 studs)
 				activeLane = 0
 			end
 		end
 
-		-- Target sudut lateral:
-		-- Jalur 0 (Tengah) = 0.0
-		-- Jalur 1 (Kanan)  = 0.28 (~13 studs bergeser ke kanan)
-		local targetHeadingOffset = (activeLane == 1) and 0.28 or 0.0
-		return targetHeadingOffset
+		-- Target jarak lateral (studs): 0 = Tengah, 12 = Kanan
+		return (activeLane == 1) and 12.0 or 0.0
 	end
 
 	task.spawn(function()
@@ -1628,18 +1625,28 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- 3. 2-Lane Alternating Traffic Dodge (Tengah <-> Kanan Saja)
-								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
+								-- 3. 2-Lane Closed-Loop Lane Keeping & Alternating Dodge
+								local prevWp = (currentWpIndex > 1) and waypoints[currentWpIndex - 1] or (targetPos - macroDir * 200)
+								local trackDir = Vector3.new(targetPos.X - prevWp.X, 0, targetPos.Z - prevWp.Z).Unit
+								local trackRight = Vector3.new(-trackDir.Z, 0, trackDir.X).Unit
 
-								local targetDodge = 0
+								local targetLaneStuds = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									targetDodge = calculate2LaneAvoidance(currentPos, bestDir, rightVec, car)
+									targetLaneStuds = calculate2LaneAvoidance(currentPos, bestDir, trackRight, car)
 								end
 
-								-- Smooth transition (S-curve, no sudden snaps, range 0.0 to 0.28)
-								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 6.0, 0.05, 0.30)
+								-- Hitung jarak lateral mobil saat ini terhadap titik tengah jalan
+								local currentLat = (currentPos - targetPos):Dot(trackRight)
+								local lateralError = targetLaneStuds - currentLat
 
-								local finalHeading = (bestDir + rightVec * smoothDodge).Unit
+								-- Kontroler Proporsional Tertutup (Closed-Loop P-Controller):
+								-- Begitu mobil sampai di jalur target (+12 studs), lateralError menjadi 0
+								-- Kemudi otomatis LURUS sempurna (steerTarget = 0) sehingga TIDAK AKAN PERNAH bablas keluar jalur!
+								local steerTarget = math.clamp(lateralError * 0.035, -0.16, 0.16)
+
+								smoothDodge = smoothDodge + (steerTarget - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
+
+								local finalHeading = (bestDir + trackRight * smoothDodge).Unit
 
 								-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
 								local targetY = roadY + 2.0
@@ -1766,12 +1773,30 @@ local success, err = pcall(function()
 					end
 
 					-- 3. 2-Lane Alternating Traffic Dodge (Tengah <-> Kanan Saja)
-					local targetDodge = 0
+					local targetLaneStuds = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						targetDodge = calculate2LaneAvoidance(currentPos, bestDir, rightVec, car)
+						targetLaneStuds = calculate2LaneAvoidance(currentPos, bestDir, rightVec, car)
 					end
 
-					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 6.0, 0.05, 0.30)
+					local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
+					local steerTarget = 0
+					if targetLaneStuds > 0 then
+						-- Ingin di jalur kanan: belok ke kanan jika aman, lalu luruskan
+						if rightClearance > 14 then
+							steerTarget = 0.12
+						else
+							steerTarget = 0.0 -- Sudah di jalur kanan, luruskan!
+						end
+					else
+						-- Ingin di jalur tengah
+						if rightClearance < 16 then
+							steerTarget = -0.12 -- Geser kembali ke tengah
+						else
+							steerTarget = 0.0 -- Sudah di tengah, luruskan!
+						end
+					end
+
+					smoothDodge = smoothDodge + (steerTarget - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
 					local finalHeading = (bestDir + rightVec * smoothDodge).Unit
 
 					-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
