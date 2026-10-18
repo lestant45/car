@@ -16,6 +16,7 @@ local success, err = pcall(function()
 	local Farm = _G.HipHub_GhostDriver_Farm
 	local Vehicle = _G.HipHub_GhostDriver_Vehicle
 	local Teleport = _G.HipHub_GhostDriver_Teleport
+	local ZeroLag = _G.HipHub_GhostDriver_ZeroLag
 
 	local CarCatalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Menu"):WaitForChild("CarCatalog"))
 	local PurchaseCarRemote = ReplicatedStorage:WaitForChild("Remotes", 15):WaitForChild("PurchaseCar", 15)
@@ -161,6 +162,11 @@ local success, err = pcall(function()
 	end)
 	UI.AddButton(secQuick, "Sit In Car", "Immediately board your active vehicle", "Enter Seat", function()
 		if Farm then Farm.EnsureInCar() end
+	end)
+	UI.AddToggle(secQuick, "Zero Lag Mode (FPS Boost)", "Extreme FPS boost for Redfinger (removes shadows, rain & effects)", Config.settings.zeroLag or false, function(v)
+		Config.settings.zeroLag = v
+		if ZeroLag then ZeroLag.SetEnabled(v) end
+		if Settings then Settings.Save() end
 	end)
 
 	------------------------------------------------
@@ -356,6 +362,28 @@ local success, err = pcall(function()
 	UI.AddToggle(secSet, "Anti-AFK Protection", "Prevents Roblox 20-minute idle disconnection", Config.settings.antiAfk, function(v)
 		Config.settings.antiAfk = v
 		if Settings then Settings.Save() end
+	end)
+
+	local secLag = UI.AddSection("Settings", "⚡ Zero Lag & FPS Booster (Redfinger)")
+	UI.AddToggle(secLag, "Zero Lag Mode", "Disables shadows, post-processing, rain, and heavy textures", Config.settings.zeroLag or false, function(v)
+		Config.settings.zeroLag = v
+		if ZeroLag then ZeroLag.SetEnabled(v) end
+		if Settings then Settings.Save() end
+	end)
+
+	UI.AddToggle(secLag, "Potato Textures & Materials", "Converts heavy materials to smooth plastic for maximum FPS", Config.settings.potatoMaterials ~= false, function(v)
+		Config.settings.potatoMaterials = v
+		if Settings then Settings.Save() end
+		if ZeroLag and ZeroLag.Active then
+			ZeroLag.SetEnabled(true)
+		end
+	end)
+
+	UI.AddDropdown(secLag, "FPS Cap (Battery / CPU Saver)", "Limits max frame rate to prevent overheating & throttling", { "30", "60", "120", "Unlimited" }, tostring(Config.settings.fpsCap or 60), function(v)
+		local cap = (v == "Unlimited") and 0 or (tonumber(v) or 60)
+		Config.settings.fpsCap = cap
+		if Settings then Settings.Save() end
+		if setfpscap then setfpscap(cap) end
 	end)
 
 	UI.AddLabel(secSet, "Toggle Menu Key: RightControl or Insert")

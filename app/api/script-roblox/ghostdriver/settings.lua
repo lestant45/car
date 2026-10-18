@@ -29,6 +29,9 @@ local success, err = pcall(function()
 		},
 		settings = {
 			antiAfk = true,
+			zeroLag = false,
+			potatoMaterials = true,
+			fpsCap = 60,
 			fpsBooster = false,
 			toggleKey = "RightControl"
 		}
