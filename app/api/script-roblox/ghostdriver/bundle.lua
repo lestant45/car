@@ -1338,24 +1338,23 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR (MOBILE OPTIMIZED)
+	-- 🛣️ 3-LANE HIGHWAY ROAD MARGIN SENSOR (MOBILE & REDFINGER OPTIMIZED)
 	------------------------------------------------
-	local cachedLeftMargin = 20
-	local cachedRightMargin = 20
-	local lastMarginCheck = 0
+	local function isRoadAt(testPos, rayParams)
+		local hit = workspace:Raycast(testPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
+		if hit and hit.Position.Y <= 95 then
+			local instName = hit.Instance.Name:lower()
+			if not (instName:find("wall") or instName:find("guard") or instName:find("rail") or instName:find("fence")) then
+				return true, hit.Position.Y
+			end
+		end
+		return false, nil
+	end
 
 	local function getRoadMargins(carPos, rightVec, rayParams)
-		local now = os.clock()
-		if (now - lastMarginCheck) < 0.08 then
-			return cachedLeftMargin, cachedRightMargin
-		end
-		lastMarginCheck = now
-
 		local leftClearance = 0
-		for _, dist in ipairs({ 6, 14, 24 }) do
-			local testP = carPos - rightVec * dist + Vector3.new(0, 8, 0)
-			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
-			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
+		for _, dist in ipairs({ 7, 13, 20, 28 }) do
+			if isRoadAt(carPos - rightVec * dist, rayParams) then
 				leftClearance = dist
 			else
 				break
@@ -1363,27 +1362,23 @@ local success, err = pcall(function()
 		end
 
 		local rightClearance = 0
-		for _, dist in ipairs({ 6, 14, 24 }) do
-			local testP = carPos + rightVec * dist + Vector3.new(0, 8, 0)
-			local hit = workspace:Raycast(testP, Vector3.new(0, -35, 0), rayParams)
-			if hit and hit.Position.Y <= 78 and not (hit.Instance.Name:lower():find("guard") or hit.Instance.Name:lower():find("rail") or hit.Instance.Name:lower():find("wall")) then
+		for _, dist in ipairs({ 7, 13, 20, 28 }) do
+			if isRoadAt(carPos + rightVec * dist, rayParams) then
 				rightClearance = dist
 			else
 				break
 			end
 		end
 
-		cachedLeftMargin = leftClearance
-		cachedRightMargin = rightClearance
 		return leftClearance, rightClearance
 	end
 
 	------------------------------------------------
 	-- 🚗 SMART 3-LANE TRAFFIC DODGE & OVERTAKE SENSOR
 	------------------------------------------------
-	-- Aturan 3 Jalur:
-	-- 1. Mobil di jalur KIRI (leftClearance < 14)   -> WAJIB DODGE KE KANAN! (Tidak buang ke tebing/kiri)
-	-- 2. Mobil di jalur KANAN (rightClearance < 14) -> WAJIB DODGE KE KIRI!  (Tidak buang ke pembatas kanan)
+	-- Aturan 3 Jalur Mutlak:
+	-- 1. Mobil di jalur KIRI (leftClearance < 13)   -> WAJIB DODGE KE KANAN (+1)! Dilarang keras buang ke kiri!
+	-- 2. Mobil di jalur KANAN (rightClearance < 13) -> WAJIB DODGE KE KIRI (-1)!  Dilarang keras buang ke kanan!
 	-- 3. Mobil di jalur TENGAH                      -> Bebas pilih kiri/kanan (pilih lajur paling lapang)
 	local function calculateTrafficAvoidance(carPos, forwardDir, rightVec, rayParams, myCar)
 		local tf = workspace:FindFirstChild("TrafficFolder")
@@ -1413,12 +1408,12 @@ local success, err = pcall(function()
 			local delta = oPos - carPos
 			local fDist = delta:Dot(forwardDir)
 
-			-- Danger corridor: 8 sampai 170 studs di depan mobil
+			-- Danger corridor: 8 sampai 160 studs di depan mobil
 			if fDist > 8 and fDist < nearestDist then
 				local lDist = delta:Dot(rightVec)
 
-				-- Koridor tabrakan: lebar ~10 studs
-				if math.abs(lDist) < 10.0 then
+				-- Koridor tabrakan: lebar ~8.5 studs (hanya bereaksi pada mobil yang sejalur dengan kita)
+				if math.abs(lDist) < 8.5 then
 					nearestDist = fDist
 					nearestLDist = lDist
 					nearestObs = obs
@@ -1434,17 +1429,17 @@ local success, err = pcall(function()
 		local leftClearance, rightClearance = getRoadMargins(carPos, rightVec, rayParams)
 
 		local dodgeDir = 0
-		if leftClearance < 14 then
-			-- 🛑 1. Mobil di Jalur Kiri -> WAJIB DODGE KE KANAN!
+		if leftClearance < 13 then
+			-- 🛑 1. Mobil di Jalur Kiri -> WAJIB DODGE KE KANAN! DILARANG KERAS KE KIRI!
 			dodgeDir = 1
-		elseif rightClearance < 14 then
-			-- 🛑 2. Mobil di Jalur Kanan -> WAJIB DODGE KE KIRI!
+		elseif rightClearance < 13 then
+			-- 🛑 2. Mobil di Jalur Kanan -> WAJIB DODGE KE KIRI! DILARANG KERAS KE KANAN!
 			dodgeDir = -1
 		else
-			-- 🚗 3. Mobil di Jalur Tengah -> Cek rintangan & pilih jalur yang lebih lapang
-			local preferredSide = (nearestLDist >= 0) and -1 or 1 -- jika rintangan agak di kanan kita, buang kiri
+			-- 🚗 3. Mobil di Jalur Tengah -> Bebas pilih sisi yang paling lapang
+			local preferredSide = (nearestLDist >= 0) and -1 or 1
 
-			-- Cek apakah jalur pilihan kita aman dari mobil NPC lain di depan
+			-- Cek apakah lajur pilihan ada mobil lain di depan
 			local candidatePos = carPos + rightVec * (preferredSide * 13)
 			local candidateClear = true
 			for _, otherObs in ipairs(obstacles) do
@@ -1453,7 +1448,7 @@ local success, err = pcall(function()
 					local oDelta = oP - candidatePos
 					local oF = oDelta:Dot(forwardDir)
 					local oL = oDelta:Dot(rightVec)
-					if oF > 8 and oF < 120 and math.abs(oL) < 7.5 then
+					if oF > 8 and oF < 120 and math.abs(oL) < 7.0 then
 						candidateClear = false
 						break
 					end
@@ -1463,14 +1458,34 @@ local success, err = pcall(function()
 			if candidateClear then
 				dodgeDir = preferredSide
 			else
-				-- Jalur itu ada mobil lain, buang ke sisi sebaliknya
 				dodgeDir = -preferredSide
 			end
 		end
 
+		-- 🛡️ INTEGRITY SAFEGUARD: Pastikan arah dodge memiliki permukaan jalan yang valid!
+		-- Jangan sampai dodge membawa mobil keluar jalur/jurang
+		if dodgeDir < 0 then
+			-- Ingin ke kiri, pastikan sisi kiri ada aspal minimal 9 studs
+			if not isRoadAt(carPos - rightVec * 9, rayParams) then
+				dodgeDir = 1 -- Sisi kiri jurang/tembok! Paksa ke kanan!
+			end
+		elseif dodgeDir > 0 then
+			-- Ingin ke kanan, pastikan sisi kanan ada aspal minimal 9 studs
+			if not isRoadAt(carPos + rightVec * 9, rayParams) then
+				dodgeDir = -1 -- Sisi kanan jurang/tembok! Paksa ke kiri!
+			end
+		end
+
+		-- Double check batas aman mutlak
+		if dodgeDir < 0 and not isRoadAt(carPos - rightVec * 6, rayParams) then
+			dodgeDir = 0
+		elseif dodgeDir > 0 and not isRoadAt(carPos + rightVec * 6, rayParams) then
+			dodgeDir = 0
+		end
+
 		-- Urgency dinamis halus berdasarkan jarak rintangan
-		local urgency = math.clamp((170 - nearestDist) / 100, 0.45, 1.25)
-		return dodgeDir * urgency * 0.40
+		local urgency = math.clamp((160 - nearestDist) / 100, 0.40, 1.20)
+		return dodgeDir * urgency * 0.35
 	end
 
 	task.spawn(function()
@@ -1561,29 +1576,30 @@ local success, err = pcall(function()
 								task.wait(0.2)
 							end
 
-							-- Waypoints Resmi Highway: Jalur LURUS bawah (anti-flyover) sampai finish
+							-- Waypoints Resmi Highway: Titik tengah jalan raya (dead center) anti-keluar jalur
 							local waypoints = {
-								Vector3.new(-3522.0, 64.8, -2300.0), -- Jalan raya lurus bawah
-								Vector3.new(-3520.0, 64.8, -2900.0), -- Jalan raya lurus bawah
-								Vector3.new(-3524.0, 64.8, -3500.0), -- Jalan raya lurus bawah
-								Vector3.new(-3529.3, 74.5, -3922.6), -- Checkpoint6
-								Vector3.new(-3537.3, 74.5, -4128.2), -- Checkpoint7
-								Vector3.new(-3563.1, 74.5, -4459.7), -- Checkpoint8
-								Vector3.new(-3588.9, 74.5, -4829.8), -- Checkpoint9
-								Vector3.new(-3628.5, 74.5, -5242.1), -- Checkpoint10
-								Vector3.new(-3693.2, 74.5, -5714.0), -- Checkpoint11
-								Vector3.new(-3794.2, 74.5, -6322.1), -- Checkpoint12
-								Vector3.new(-3823.0, 74.5, -6600.0), -- Tikungan highway 1
-								Vector3.new(-4071.0, 74.5, -7606.0), -- Tikungan highway 2
-								Vector3.new(-4389.0, 74.5, -8593.0), -- Tikungan highway 3
-								Vector3.new(-4775.0, 74.5, -9555.0), -- Tikungan highway 4
-								Vector3.new(-5450.0, 70.0, -10750.0),-- Highway strip 5
-								Vector3.new(-6300.0, 68.0, -12000.0),-- Highway strip 6
-								Vector3.new(-7300.0, 66.0, -13300.0),-- Highway strip 7
-								Vector3.new(-8400.0, 64.0, -14500.0),-- Menuju garis finish
-								Vector3.new(-9754.2, 62.7, -15626.9),-- RaceFinishLine
-								Vector3.new(-10200.0, 62.5, -16000.0),-- Tembus garis finish +450 studs
-								Vector3.new(-10800.0, 62.5, -16500.0) -- Tembus garis finish +1000 studs
+								Vector3.new(-3487.0, 62.2, -1800.0), -- Start highway center
+								Vector3.new(-3481.0, 62.2, -2300.0), -- Lower highway center
+								Vector3.new(-3481.0, 62.2, -2900.0), -- Lower highway center
+								Vector3.new(-3501.0, 62.2, -3500.0), -- Menuju Checkpoint 6
+								Vector3.new(-3505.0, 79.4, -3922.6), -- Checkpoint 6 center
+								Vector3.new(-3516.0, 62.2, -4128.2), -- Checkpoint 7 center
+								Vector3.new(-3530.0, 61.3, -4459.7), -- Checkpoint 8 center
+								Vector3.new(-3555.0, 61.3, -4829.8), -- Checkpoint 9 center
+								Vector3.new(-3595.0, 61.3, -5242.1), -- Checkpoint 10 center
+								Vector3.new(-3660.0, 61.3, -5714.0), -- Checkpoint 11 center
+								Vector3.new(-3760.0, 61.5, -6322.1), -- Checkpoint 12 center
+								Vector3.new(-3820.0, 61.5, -6600.0), -- Tikungan highway 1
+								Vector3.new(-4070.0, 61.5, -7606.0), -- Tikungan highway 2
+								Vector3.new(-4389.0, 62.2, -8593.0), -- Tikungan highway 3
+								Vector3.new(-4776.0, 62.2, -9555.0), -- Tikungan highway 4
+								Vector3.new(-5451.0, 62.2, -10750.0),-- Highway strip 5
+								Vector3.new(-6301.0, 62.2, -12000.0),-- Highway strip 6
+								Vector3.new(-7300.0, 81.6, -13300.0),-- Highway strip 7
+								Vector3.new(-8382.0, 62.2, -14500.0),-- Menuju garis finish
+								Vector3.new(-9742.0, 62.2, -15626.9),-- RaceFinishLine
+								Vector3.new(-10200.0, 62.2, -16000.0),-- Tembus garis finish +450 studs
+								Vector3.new(-10800.0, 62.2, -16500.0) -- Tembus garis finish +1000 studs
 							}
 
 							local currentWpIndex = 1
@@ -1629,19 +1645,19 @@ local success, err = pcall(function()
 								end
 
 								-- 1. Deteksi permukaan jalan tepat di bawah mobil
-								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-								local roadY = (downHit and downHit.Position.Y <= 78) and downHit.Position.Y or 64.5
+								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
+								local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
 								-- 2. Deteksi arah jalan di depan: probe lurus dulu, hanya probe sudut jika di depan melenceng
 								local bestDir = macroDir
-								local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 8, 0)
-								local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -35, 0), rayParams)
-								if not (hitAhead and hitAhead.Position.Y <= 78) then
-									local probeAngles = {-8, 8, -16, 16}
+								local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 10, 0)
+								local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -45, 0), rayParams)
+								if not (hitAhead and hitAhead.Position.Y <= 95) then
+									local probeAngles = {8, -8, 16, -16}
 									for _, deg in ipairs(probeAngles) do
 										local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
-										local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-										if pHit and pHit.Position.Y <= 78 and (pHit.Instance.Name:lower():find("asphalt") or pHit.Instance.Name:lower():find("road") or pHit.Instance.Material == Enum.Material.Concrete or pHit.Instance.Material == Enum.Material.Asphalt) then
+										local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
+										if pHit and pHit.Position.Y <= 95 and not (pHit.Instance.Name:lower():find("wall") or pHit.Instance.Name:lower():find("guard") or pHit.Instance.Name:lower():find("rail")) then
 											bestDir = testDir
 											break
 										end
@@ -1653,10 +1669,10 @@ local success, err = pcall(function()
 								local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
 
 								local lateralTarget = 0
-								if leftClearance < 7 and rightClearance >= 14 then
-									lateralTarget = 0.22 -- jangan terlalu mepet bibir kiri
-								elseif rightClearance < 7 and leftClearance >= 14 then
-									lateralTarget = -0.22 -- jangan terlalu mepet bibir kanan
+								if leftClearance < 9 and rightClearance >= 13 then
+									lateralTarget = 0.22 -- jangan terlalu mepet bibir kiri, dorong halus ke kanan
+								elseif rightClearance < 9 and leftClearance >= 13 then
+									lateralTarget = -0.22 -- jangan terlalu mepet bibir kanan, dorong halus ke kiri
 								end
 
 								local targetDodge = 0
@@ -1775,19 +1791,19 @@ local success, err = pcall(function()
 					local rightVec = Vector3.new(-macroDir.Z, 0, macroDir.X).Unit
 
 					-- 1. Deteksi permukaan jalan tepat di bawah mobil
-					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-					local roadY = (downHit and downHit.Position.Y <= 78) and downHit.Position.Y or 64.5
+					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
+					local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
 					-- 2. Deteksi arah jalan ke depan (probe lurus dulu, hanya probe sudut jika di depan melenceng)
 					local bestDir = macroDir
-					local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 8, 0)
-					local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -35, 0), rayParams)
-					if not (hitAhead and hitAhead.Position.Y <= 78) then
-						local probeAngles = {-8, 8, -16, 16}
+					local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 10, 0)
+					local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -45, 0), rayParams)
+					if not (hitAhead and hitAhead.Position.Y <= 95) then
+						local probeAngles = {8, -8, 16, -16}
 						for _, deg in ipairs(probeAngles) do
 							local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
-							local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), rayParams)
-							if pHit and pHit.Position.Y <= 78 and (pHit.Instance.Name:lower():find("asphalt") or pHit.Instance.Name:lower():find("road") or pHit.Instance.Material == Enum.Material.Concrete or pHit.Instance.Material == Enum.Material.Asphalt) then
+							local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
+							if pHit and pHit.Position.Y <= 95 and not (pHit.Instance.Name:lower():find("wall") or pHit.Instance.Name:lower():find("guard") or pHit.Instance.Name:lower():find("rail")) then
 								bestDir = testDir
 								break
 							end
@@ -1797,10 +1813,10 @@ local success, err = pcall(function()
 					-- 3. 3-Lane Road Margin & Smart Traffic Dodging
 					local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
 					local lateralTarget = 0
-					if leftClearance < 7 and rightClearance >= 14 then
-						lateralTarget = 0.22 -- jangan mepet bibir kiri
-					elseif rightClearance < 7 and leftClearance >= 14 then
-						lateralTarget = -0.22 -- jangan mepet bibir kanan
+					if leftClearance < 9 and rightClearance >= 13 then
+						lateralTarget = 0.22 -- jangan mepet bibir kiri, dorong halus ke kanan
+					elseif rightClearance < 9 and leftClearance >= 13 then
+						lateralTarget = -0.22 -- jangan mepet bibir kanan, dorong halus ke kiri
 					end
 
 					local targetDodge = 0
@@ -2442,3 +2458,5 @@ end)
 if not success then
 	warn("[HipHub Ghost Driver Main Error]:", err)
 end
+
+
