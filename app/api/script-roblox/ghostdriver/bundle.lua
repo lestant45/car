@@ -1374,27 +1374,53 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🚗 2-LANE ALTERNATING TRAFFIC DODGE CONTROLLER
+	-- 🛡️ SENSOR PEMBATAS JALAN REAL-TIME (BARRIER SENSOR)
 	------------------------------------------------
-	-- Aturan 2 Jalur Aman (Hanya Tengah & Kanan):
-	-- 1. Base Lane: Jalur Tengah (X ≈ -3500, offset = 0)
-	-- 2. Alt Lane: Jalur Kanan (X ≈ -3487, offset = +13 studs)
-	-- Aturan:
-	-- - Mulai di Jalur Tengah.
-	-- - Jika ada mobil di depan -> Dodge ke KANAN!
-	-- - Setelah itu jika ada mobil di depan lagi -> Dodge ke KIRI (kembali ke Tengah)!
-	-- - Jalur Kiri / Tebing TIDAK PERNAH DISENTUH sama sekali!
-	local activeLane = 0 -- 0 = Tengah, 1 = Kanan
-	local lastLaneSwitchTime = 0
+	local function detectBarriers(carPos, rightVec, rayParams)
+		local probeOrigin = carPos + Vector3.new(0, 0.5, 0)
 
-	local function calculate2LaneAvoidance(carPos, forwardDir, rightVec, myCar)
+		-- Cek pembatas jalan di sebelah KANAN (jarak max 11 studs)
+		local hitR = workspace:Raycast(probeOrigin, rightVec * 11, rayParams)
+		local hasRightBarrier = false
+		local distR = 99
+		if hitR then
+			local n = hitR.Instance.Name:lower()
+			if n:find("wall") or n:find("fence") or n:find("shield") or n:find("guard") or n:find("rail") or hitR.Instance.Material == Enum.Material.Concrete or hitR.Instance.Material == Enum.Material.Plastic then
+				hasRightBarrier = true
+				distR = hitR.Distance
+			end
+		end
+
+		-- Cek pembatas jalan di sebelah KIRI (jarak max 11 studs)
+		local hitL = workspace:Raycast(probeOrigin, -rightVec * 11, rayParams)
+		local hasLeftBarrier = false
+		local distL = 99
+		if hitL then
+			local n = hitL.Instance.Name:lower()
+			if n:find("wall") or n:find("fence") or n:find("shield") or n:find("guard") or n:find("rail") or hitL.Instance.Material == Enum.Material.Concrete or hitL.Instance.Material == Enum.Material.Plastic then
+				hasLeftBarrier = true
+				distL = hitL.Distance
+			end
+		end
+
+		return hasLeftBarrier, hasRightBarrier, distL, distR
+	end
+
+	------------------------------------------------
+	-- 🚗 SENSOR DODGE PINTAR BERBASIS PEMBATAS JALAN
+	------------------------------------------------
+	-- Aturan Mutlak:
+	-- 1. Jika di KANAN ada pembatas jalan -> DILARANG KERAS DODGE KE KANAN! WAJIB DODGE KE KIRI!
+	-- 2. Jika di KIRI ada pembatas jalan  -> DILARANG KERAS DODGE KE KIRI!  WAJIB DODGE KE KANAN!
+	-- 3. Jika kedua sisi bebas            -> Bebas pilih sisi yang paling lapang menjauhi rintangan!
+	local currentDodgeDir = 0
+
+	local function calculateBarrierAwareDodge(carPos, forwardDir, rightVec, rayParams, myCar)
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		local obstacles = {}
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
-				if tCar:IsA("Model") then
-					table.insert(obstacles, tCar)
-				end
+				if tCar:IsA("Model") then table.insert(obstacles, tCar) end
 			end
 		end
 
@@ -1404,8 +1430,11 @@ local success, err = pcall(function()
 			end
 		end
 
-		local now = os.clock()
-		local hasObstacleAhead = false
+		-- Cari rintangan terdekat di koridor depan kita
+		local nearestObs = nil
+		local nearestDist = 160
+		local nearestLDist = 0
+
 		for _, obs in ipairs(obstacles) do
 			local oPivot = obs:GetPivot()
 			local oPos = oPivot.Position
@@ -1413,30 +1442,47 @@ local success, err = pcall(function()
 			local fDist = delta:Dot(forwardDir)
 
 			-- Koridor bahaya di depan mobil (8 sampai 150 studs)
-			if fDist > 8 and fDist < 150 then
+			if fDist > 8 and fDist < nearestDist then
 				local lDist = delta:Dot(rightVec)
-				-- Cek apakah rintangan sejalur dengan koridor mobil kita (|lDist| < 6.8 studs)
-				if math.abs(lDist) < 6.8 then
-					hasObstacleAhead = true
-					break
+				if math.abs(lDist) < 7.5 then
+					nearestDist = fDist
+					nearestLDist = lDist
+					nearestObs = obs
 				end
 			end
 		end
 
-		-- Jika ada rintangan di depan dan cooldown ganti jalur sudah lewat (1.2 detik agar stabil):
-		if hasObstacleAhead and (now - lastLaneSwitchTime) > 1.2 then
-			lastLaneSwitchTime = now
-			if activeLane == 0 then
-				-- Sedang di jalur tengah -> Pindah ke Jalur Kanan (+12 studs)
-				activeLane = 1
-			else
-				-- Sedang di jalur kanan -> Pindah ke Jalur Tengah (0 studs)
-				activeLane = 0
-			end
+		local hasLeftBarrier, hasRightBarrier, distL, distR = detectBarriers(carPos, rightVec, rayParams)
+
+		if not nearestObs then
+			currentDodgeDir = 0
+			return 0
 		end
 
-		-- Target jarak lateral (studs): 0 = Tengah, 12 = Kanan
-		return (activeLane == 1) and 12.0 or 0.0
+		-- Ada rintangan di depan! Putuskan arah dodge berdasarkan sensor pembatas jalan:
+		if hasRightBarrier and not hasLeftBarrier then
+			-- 🛑 Pembatas jalan ada di sebelah KANAN -> WAJIB DODGE KE KIRI! DILARANG KERAS KE KANAN!
+			currentDodgeDir = -1
+		elseif hasLeftBarrier and not hasRightBarrier then
+			-- 🛑 Pembatas jalan ada di sebelah KIRI -> WAJIB DODGE KE KANAN! DILARANG KERAS KE KIRI!
+			currentDodgeDir = 1
+		elseif not hasRightBarrier and not hasLeftBarrier then
+			-- 🚗 Kedua sisi lapang -> Dodge menjauhi posisi rintangan
+			currentDodgeDir = (nearestLDist >= 0) and -1 or 1
+		else
+			currentDodgeDir = 0
+		end
+
+		-- Hard safeguard jarak mepet:
+		if currentDodgeDir > 0 and distR < 6.5 then
+			currentDodgeDir = -1
+		end
+		if currentDodgeDir < 0 and distL < 6.5 then
+			currentDodgeDir = 1
+		end
+
+		local urgency = math.clamp((150 - nearestDist) / 90, 0.5, 1.0)
+		return currentDodgeDir * urgency * 0.18
 	end
 
 	task.spawn(function()
@@ -1625,28 +1671,29 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- 3. 2-Lane Closed-Loop Lane Keeping & Alternating Dodge
-								local prevWp = (currentWpIndex > 1) and waypoints[currentWpIndex - 1] or (targetPos - macroDir * 200)
-								local trackDir = Vector3.new(targetPos.X - prevWp.X, 0, targetPos.Z - prevWp.Z).Unit
-								local trackRight = Vector3.new(-trackDir.Z, 0, trackDir.X).Unit
+								-- 3. Barrier-Aware Traffic Dodge & Lane Keeping
+								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
 
-								local targetLaneStuds = 0
+								local targetDodge = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									targetLaneStuds = calculate2LaneAvoidance(currentPos, bestDir, trackRight, car)
+									targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
 								end
 
-								-- Hitung jarak lateral mobil saat ini terhadap titik tengah jalan
-								local currentLat = (currentPos - targetPos):Dot(trackRight)
-								local lateralError = targetLaneStuds - currentLat
+								-- Transisi kemudi halus
+								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
 
-								-- Kontroler Proporsional Tertutup (Closed-Loop P-Controller):
-								-- Begitu mobil sampai di jalur target (+12 studs), lateralError menjadi 0
-								-- Kemudi otomatis LURUS sempurna (steerTarget = 0) sehingga TIDAK AKAN PERNAH bablas keluar jalur!
-								local steerTarget = math.clamp(lateralError * 0.035, -0.16, 0.16)
+								-- Emergency barrier safety clamp:
+								-- Jika pembatas kanan sangat dekat (< 6.5 studs), dilarang keras belok kanan!
+								-- Jika pembatas kiri sangat dekat (< 6.5 studs), dilarang keras belok kiri!
+								local _, _, distL, distR = detectBarriers(currentPos, rightVec, rayParams)
+								if distR < 6.5 and smoothDodge > 0 then
+									smoothDodge = 0
+								end
+								if distL < 6.5 and smoothDodge < 0 then
+									smoothDodge = 0
+								end
 
-								smoothDodge = smoothDodge + (steerTarget - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
-
-								local finalHeading = (bestDir + trackRight * smoothDodge).Unit
+								local finalHeading = (bestDir + rightVec * smoothDodge).Unit
 
 								-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
 								local targetY = roadY + 2.0
@@ -1772,31 +1819,23 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. 2-Lane Alternating Traffic Dodge (Tengah <-> Kanan Saja)
-					local targetLaneStuds = 0
+					-- 3. Barrier-Aware Traffic Dodge & Lane Keeping
+					local targetDodge = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						targetLaneStuds = calculate2LaneAvoidance(currentPos, bestDir, rightVec, car)
+						targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
 					end
 
-					local leftClearance, rightClearance = getRoadMargins(currentPos, rightVec, rayParams)
-					local steerTarget = 0
-					if targetLaneStuds > 0 then
-						-- Ingin di jalur kanan: belok ke kanan jika aman, lalu luruskan
-						if rightClearance > 14 then
-							steerTarget = 0.12
-						else
-							steerTarget = 0.0 -- Sudah di jalur kanan, luruskan!
-						end
-					else
-						-- Ingin di jalur tengah
-						if rightClearance < 16 then
-							steerTarget = -0.12 -- Geser kembali ke tengah
-						else
-							steerTarget = 0.0 -- Sudah di tengah, luruskan!
-						end
+					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
+
+					-- Emergency barrier safety clamp
+					local _, _, distL, distR = detectBarriers(currentPos, rightVec, rayParams)
+					if distR < 6.5 and smoothDodge > 0 then
+						smoothDodge = 0
+					end
+					if distL < 6.5 and smoothDodge < 0 then
+						smoothDodge = 0
 					end
 
-					smoothDodge = smoothDodge + (steerTarget - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
 					local finalHeading = (bestDir + rightVec * smoothDodge).Unit
 
 					-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
