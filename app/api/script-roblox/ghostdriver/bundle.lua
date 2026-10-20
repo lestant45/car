@@ -1198,6 +1198,7 @@ local success, err = pcall(function()
 		},
 		settings = {
 			antiAfk = true,
+			antiPlayerJoined = false,
 			zeroLag = false,
 			potatoMaterials = true,
 			fpsCap = 60,
@@ -2667,26 +2668,44 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🏁 TAB 2: AUTO FARM
 	------------------------------------------------
-	-- 🎯 TARGET EARN & SESSION REVENUE TRACKER
-	-- Menghitung MURNI uang masuk yang didapatkan selama sesi, bukan saldo total saat ini!
-	local sessionEarnedCash = 0
-	local lastRecordedCash = nil
-
+	-- 🎯 TARGET EARNING & SECURITY DISCONNECT
+	-- Menghitung target berdasarkan total saldo uang di akhir (misal awal 2M + target farm 3M = input 5M)
 	local function formatMillion(cashAmount)
 		local millions = cashAmount / 1000000
 		return string.format("$ %.2f M", millions)
 	end
 
-	local secTarget = UI.AddSection("Auto Farm", "🎯 Target Earn & Session Revenue")
-	local cardEarned = UI.AddStatsCard(secTarget, "Session Earned (Uang Masuk)", "$ 0.00 M")
+	local function formatMoney(n)
+		local formatted = tostring(math.floor(math.max(0, n)))
+		local k
+		while true do
+			formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", "%1,%2")
+			if k == 0 then break end
+		end
+		return "$" .. formatted
+	end
+
+	local secTarget = UI.AddSection("Auto Farm", "🎯 Target Earning & Security Disconnect")
+	local cardCurrent = UI.AddStatsCard(secTarget, "Current Balance", "$ 0.00 M")
 	local cardTarget = UI.AddStatsCard(secTarget, "Target Goal", "$ " .. tostring(Config.farm.targetEarnM or 5) .. ".00 M")
+	local cardRemaining = UI.AddStatsCard(secTarget, "Remaining Needed", "$ 0.00 M")
 
 	local toggleRace -- forward reference agar bisa dimatikan otomatis saat target tercapai
 
 	local function checkTargetEarn()
+		local ls = player:FindFirstChild("leaderstats")
+		local cashObj = ls and ls:FindFirstChild("Cash")
+		local curCash = cashObj and cashObj.Value or 0
+		local targetInCash = (Config.farm.targetEarnM or 5) * 1000000
+
+		cardCurrent.Update(formatMillion(curCash))
+		cardTarget.Update(formatMillion(targetInCash))
+
+		local remaining = math.max(0, targetInCash - curCash)
+		cardRemaining.Update(formatMillion(remaining))
+
 		if Config.farm.targetEarn and Config.farm.targetEarnM then
-			local targetInCash = (Config.farm.targetEarnM or 5) * 1000000
-			if sessionEarnedCash >= targetInCash then
+			if curCash >= targetInCash then
 				Config.farm.autoRace = false
 				Config.farm.autoSpeedFarm = false
 				if toggleRace then
@@ -2694,58 +2713,71 @@ local success, err = pcall(function()
 				end
 				if Settings then Settings.Save() end
 
-				if UI and UI.Notify then
-					UI.Notify("🎯 Target Earn Reached!", "Earned " .. formatMillion(sessionEarnedCash) .. "! Auto Race stopped.", 6, "success")
-				end
+				-- Disconnect player dengan pesan sesuai permintaan:
+				-- "Auto Farm Selesai, Uangmu Sekarang 'Total Uang'"
+				local finalMsg = "Auto Farm Selesai, Uangmu Sekarang " .. formatMoney(curCash)
+				task.delay(0.2, function()
+					player:Kick(finalMsg)
+				end)
 			end
 		end
 	end
 
-	-- Listener Uang Masuk Murni (Gross Inflow)
+	-- Real-time Cash Balance Listener
 	task.spawn(function()
 		pcall(function()
-			local ls = player:WaitForChild("leaderstats", 10)
-			local cashObj = ls and ls:WaitForChild("Cash", 10)
+			local ls = player:WaitForChild("leaderstats", 15)
+			local cashObj = ls and ls:WaitForChild("Cash", 15)
 			if cashObj then
-				lastRecordedCash = cashObj.Value
-				cashObj.Changed:Connect(function(newVal)
-					if lastRecordedCash ~= nil then
-						local delta = newVal - lastRecordedCash
-						if delta > 0 then
-							-- Uang masuk murni (dari race, quest, speed, dll.)
-							sessionEarnedCash = sessionEarnedCash + delta
-							cardEarned.Update(formatMillion(sessionEarnedCash))
-							checkTargetEarn()
-						end
-					end
-					lastRecordedCash = newVal
+				cashObj.Changed:Connect(function()
+					checkTargetEarn()
 				end)
+				checkTargetEarn()
 			end
 		end)
 	end)
 
-	UI.AddToggle(secTarget, "Enable Target Earn Stop", "Automatically stops Auto Race once target revenue is reached", Config.farm.targetEarn or false, function(v)
+	UI.AddToggle(secTarget, "Enable Target Earn Disconnect", "Disconnects player once target total cash is achieved", Config.farm.targetEarn or false, function(v)
 		Config.farm.targetEarn = v
 		if Settings then Settings.Save() end
 		checkTargetEarn()
 	end)
 
-	UI.AddTextBox(secTarget, "Target Earn Amount (M)", "Enter revenue goal in Millions (M) — e.g. 5 or 10.5", tostring(Config.farm.targetEarnM or 5), "e.g. 5", function(text)
+	UI.AddTextBox(secTarget, "Target Earn Amount (M)", "Input total target in Millions (M) — e.g. 5 for $5M", tostring(Config.farm.targetEarnM or 5), "e.g. 5", function(text)
 		local cleanText = text:gsub("[^%d%.]", "")
 		local num = tonumber(cleanText)
 		if num and num > 0 then
 			Config.farm.targetEarnM = num
-			cardTarget.Update(string.format("$ %.2f M", num))
 			if Settings then Settings.Save() end
 			checkTargetEarn()
 		end
 	end)
 
-	UI.AddButton(secTarget, "Reset Earned Counter", "Resets session revenue back to $ 0.00 M", "Reset Counter", function()
-		sessionEarnedCash = 0
-		cardEarned.Update("$ 0.00 M")
-		if UI and UI.Notify then
-			UI.Notify("Target Earn", "Session earned counter reset to $ 0.00 M", 3, "info")
+	------------------------------------------------
+	-- 🛡️ ANTI PLAYER JOINED (AUTO DISCONNECT)
+	------------------------------------------------
+	local function checkOtherPlayers()
+		if not Config.settings.antiPlayerJoined then return end
+		for _, otherPlayer in ipairs(Players:GetPlayers()) do
+			if otherPlayer ~= player then
+				player:Kick("Anti Player Joined: Another player detected in server (" .. otherPlayer.Name .. ")! Disconnected for safety.")
+				return true
+			end
+		end
+		return false
+	end
+
+	Players.PlayerAdded:Connect(function(otherPlayer)
+		if Config.settings.antiPlayerJoined and otherPlayer ~= player then
+			player:Kick("Anti Player Joined: " .. otherPlayer.Name .. " joined the world! Disconnected for safety.")
+		end
+	end)
+
+	UI.AddToggle(secTarget, "Anti Player Joined", "Disconnects immediately if another player enters your world", Config.settings.antiPlayerJoined or false, function(v)
+		Config.settings.antiPlayerJoined = v
+		if Settings then Settings.Save() end
+		if v then
+			checkOtherPlayers()
 		end
 	end)
 
@@ -2939,6 +2971,19 @@ local success, err = pcall(function()
 	UI.AddToggle(secSet, "Anti-AFK Protection", "Prevents Roblox 20-minute idle disconnection", Config.settings.antiAfk, function(v)
 		Config.settings.antiAfk = v
 		if Settings then Settings.Save() end
+	end)
+
+	UI.AddToggle(secSet, "Anti Player Joined", "Instantly disconnects if another player joins your world", Config.settings.antiPlayerJoined or false, function(v)
+		Config.settings.antiPlayerJoined = v
+		if Settings then Settings.Save() end
+		if v then
+			for _, otherPlayer in ipairs(Players:GetPlayers()) do
+				if otherPlayer ~= player then
+					player:Kick("Anti Player Joined: Another player detected in server (" .. otherPlayer.Name .. ")! Disconnected for safety.")
+					break
+				end
+			end
+		end
 	end)
 
 	local secLag = UI.AddSection("Settings", "⚡ Zero Lag & FPS Booster (Redfinger)")

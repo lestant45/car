@@ -31,6 +31,7 @@ local success, err = pcall(function()
 		},
 		settings = {
 			antiAfk = true,
+			antiPlayerJoined = false,
 			zeroLag = false,
 			potatoMaterials = true,
 			fpsCap = 60,
