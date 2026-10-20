@@ -79,30 +79,59 @@ local success, err = pcall(function()
 	local function neutralizeGameCollisions()
 		pcall(function()
 			local c = ReplicatedStorage:FindFirstChild("Controllers")
-			if not c then return end
+			if c then
+				local TrafficImpact = c:FindFirstChild("TrafficImpactController")
+				if TrafficImpact then
+					local mod = require(TrafficImpact)
+					if mod then
+						mod.Push = function(self, ...) end
+						mod.Update = function(self, ...) end
+					end
+				end
 
-			local TrafficImpact = c:FindFirstChild("TrafficImpactController")
-			if TrafficImpact then
-				local mod = require(TrafficImpact)
-				if mod then
-					mod.Push = function(self, ...) end
-					mod.Update = function(self, ...) end
+				local PoliceContact = c:FindFirstChild("PoliceContactController")
+				if PoliceContact then
+					local mod = require(PoliceContact)
+					if mod then
+						mod.Update = function(self, ...) end
+					end
+				end
+
+				local CollisionController = c:FindFirstChild("CollisionController")
+				if CollisionController then
+					local mod = require(CollisionController)
+					if mod then
+						mod.TriggerImpact = function(self, ...) end
+						mod.Update = function(self, ...) end
+					end
+				end
+
+				local uiFolder = c:FindFirstChild("UI")
+				local ComboUI = uiFolder and uiFolder:FindFirstChild("ComboUIController")
+				if ComboUI then
+					local mod = require(ComboUI)
+					if mod then
+						mod.TriggerCrashCheck = function(self, ...) end
+						local origLose = mod.LoseCombo
+						mod.LoseCombo = function(self, reason, ...)
+							if type(reason) == "string" and (reason:find("CRASH") or reason:find("0X")) then
+								return
+							end
+							if origLose then return origLose(self, reason, ...) end
+						end
+					end
 				end
 			end
 
-			local PoliceContact = c:FindFirstChild("PoliceContactController")
-			if PoliceContact then
-				local mod = require(PoliceContact)
-				if mod then
-					mod.Update = function(self, ...) end
-				end
-			end
-
-			local CollisionController = c:FindFirstChild("CollisionController")
-			if CollisionController then
-				local mod = require(CollisionController)
-				if mod then
-					mod.TriggerImpact = function(self, ...) end
+			-- Disable client-side impact physics scripts in PlayerScripts
+			local ps = player:FindFirstChild("PlayerScripts")
+			if ps then
+				local ref = ps:FindFirstChild("Refactored")
+				if ref then
+					local cs = ref:FindFirstChild("CollisionSystem")
+					if cs and cs:IsA("LocalScript") and cs.Enabled then
+						cs.Enabled = false
+					end
 				end
 			end
 		end)
@@ -123,22 +152,31 @@ local success, err = pcall(function()
 
 		local myCar = getMyCar()
 
-		-- 1. Disable collision on all non-wheel parts of our own car (body, hood, seat, bumpers)
+		-- 1. Disable collision and hit queries on all non-wheel parts & sensors of our own car
 		if myCar then
 			for _, p in ipairs(myCar:GetDescendants()) do
-				if p:IsA("BasePart") and p.Name ~= "FL" and p.Name ~= "FR" and p.Name ~= "RL" and p.Name ~= "RR" and p.CanCollide then
-					p.CanCollide = false
+				if p:IsA("BasePart") then
+					if p.Name:find("TrafficCollision") or p.Name:find("Impact") or p.Name:find("Hitbox") then
+						p.CanCollide = false
+						p.CanTouch = false
+						p.CanQuery = false
+					elseif p.Name ~= "FL" and p.Name ~= "FR" and p.Name ~= "RL" and p.Name ~= "RR" and p.CanCollide then
+						p.CanCollide = false
+					end
 				end
 			end
 		end
 
-		-- 2. Disable collision on all NPC Traffic vehicles in workspace.TrafficFolder
+		-- 2. Disable collision & queries on all NPC Traffic vehicles in workspace.TrafficFolder
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
 				for _, p in ipairs(tCar:GetDescendants()) do
-					if p:IsA("BasePart") and p.CanCollide then
-						p.CanCollide = false
+					if p:IsA("BasePart") then
+						if p.CanCollide then p.CanCollide = false end
+						if p.Name == "CoreHitbox" then
+							p.CanTouch = false
+						end
 					end
 				end
 			end
@@ -323,15 +361,13 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🚗 SENSOR DODGE PINTAR BERBASIS PEMBATAS JALAN
+	-- 🚗 DISCRETE 3-LANE SYSTEM WITH LANE LOCKING (100% ANTI-ZIGZAG)
 	------------------------------------------------
-	-- Aturan Mutlak:
-	-- 1. Jika di KIRI ada pembatas besi (distL < 16 studs)  -> DILARANG KERAS DODGE KE KIRI! WAJIB DODGE KE KANAN!
-	-- 2. Jika di KANAN ada pembatas beton (distR < 16 studs)-> DILARANG KERAS DODGE KE KANAN! WAJIB DODGE KE KIRI!
-	-- 3. Jika kedua sisi bebas                             -> Bebas pilih sisi yang lapang menjauhi rintangan!
-	local currentDodgeDir = 0
+	-- Jalur: -1 = Kiri, 0 = Tengah, 1 = Kanan
+	local currentLockedLane = 0
+	local smoothSteerTarget = 0
 
-	local function calculateBarrierAwareDodge(carPos, forwardDir, rightVec, rayParams, myCar)
+	local function calculateDiscreteLaneDodge(carPos, forwardDir, rightVec, rayParams, myCar, currentSpeedMPH)
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		local obstacles = {}
 		if tf then
@@ -341,67 +377,124 @@ local success, err = pcall(function()
 		end
 
 		for _, obj in ipairs(workspace:GetChildren()) do
-			if obj:IsA("Model") and obj ~= myCar and (obj:FindFirstChild("DriveSeat") or obj.Name:find("AI") or obj.Name:find("Police")) then
+			if obj:IsA("Model") and obj ~= myCar and (obj:FindFirstChild("DriveSeat") or obj.Name:find("AI") or obj.Name:find("Police") or obj.Name:find("Traffic")) then
 				table.insert(obstacles, obj)
 			end
 		end
 
-		-- Cari rintangan terdekat di koridor depan kita
-		local nearestObs = nil
-		local nearestDist = 160
-		local nearestLDist = 0
+		-- Deteksi pembatas jalan (tembok kanan & pagar kiri)
+		local hasLeftBarrier, hasRightBarrier, distL, distR = detectBarriers(carPos, rightVec, forwardDir, rayParams)
+
+		-- Titik tengah jalan aspal relatif terhadap posisi mobil saat ini
+		local roadCenterRel = (distR - distL) * 0.5
+		local laneSpacing = 8.5 -- Jarak antar jalur (studs)
+
+		-- Validitas jalur berdasarkan batas fisik jalan (butuh minimal 14 studs ke pembatas untuk jalur kiri/kanan)
+		local laneValid = {
+			[-1] = (distL >= 14.0),
+			[0]  = true,
+			[1]  = (distR >= 14.0)
+		}
+
+		-- Cari rintangan terdekat di setiap jalur (-1, 0, 1)
+		local laneNearestDist = {
+			[-1] = 999,
+			[0]  = 999,
+			[1]  = 999
+		}
 
 		for _, obs in ipairs(obstacles) do
 			local oPivot = obs:GetPivot()
-			local oPos = oPivot.Position
-			local delta = oPos - carPos
+			local delta = oPivot.Position - carPos
 			local fDist = delta:Dot(forwardDir)
 
-			-- Koridor bahaya di depan mobil (8 sampai 150 studs)
-			if fDist > 8 and fDist < nearestDist then
+			if fDist > 3 and fDist < 120 then
 				local lDist = delta:Dot(rightVec)
-				if math.abs(lDist) < 7.5 then
-					nearestDist = fDist
-					nearestLDist = lDist
-					nearestObs = obs
+
+				for _, laneIdx in ipairs({ -1, 0, 1 }) do
+					local laneRelPos = roadCenterRel + laneIdx * laneSpacing
+					-- Jarak lateral mobil NPC ke jalur ini
+					if math.abs(lDist - laneRelPos) < 5.2 then
+						if fDist < laneNearestDist[laneIdx] then
+							laneNearestDist[laneIdx] = fDist
+						end
+					end
 				end
 			end
 		end
 
-		local hasLeftBarrier, hasRightBarrier, distL, distR = detectBarriers(carPos, rightVec, forwardDir, rayParams)
+		-- Jarak pemicu dodge: hanya menghindar jika mobil NPC di jalur kita berjarak 25 - 32 studs
+		local triggerDist = 30.0
 
-		if not nearestObs then
-			currentDodgeDir = 0
-			return 0
+		-- Jika jalur kita saat ini sedang terhalang mobil NPC di depan dalam jarak trigger:
+		if laneNearestDist[currentLockedLane] < triggerDist then
+			local candidateLanes = {}
+			if currentLockedLane == 0 then
+				-- Dari tengah (0), bisa menghindar ke Kiri (-1) atau Kanan (1)
+				candidateLanes = { -1, 1 }
+			elseif currentLockedLane == 1 then
+				-- Dari kanan (1), prioritaskan balik ke Tengah (0), atau Kiri (-1)
+				candidateLanes = { 0, -1 }
+			elseif currentLockedLane == -1 then
+				-- Dari kiri (-1), prioritaskan balik ke Tengah (0), atau Kanan (1)
+				candidateLanes = { 0, 1 }
+			end
+
+			local chosenLane = nil
+			local bestDist = -1
+
+			-- Cari jalur alternatif yang valid dan jarak rintangannya paling jauh (aman > 40 studs)
+			for _, laneIdx in ipairs(candidateLanes) do
+				if laneValid[laneIdx] and laneNearestDist[laneIdx] > bestDist and laneNearestDist[laneIdx] > 40 then
+					bestDist = laneNearestDist[laneIdx]
+					chosenLane = laneIdx
+				end
+			end
+
+			-- Jika kedua alternatif mepet, pilih jalur yang rintangannya paling jauh
+			if not chosenLane then
+				for _, laneIdx in ipairs({ 0, -1, 1 }) do
+					if laneValid[laneIdx] and laneNearestDist[laneIdx] > bestDist then
+						bestDist = laneNearestDist[laneIdx]
+						chosenLane = laneIdx
+					end
+				end
+			end
+
+			if chosenLane then
+				currentLockedLane = chosenLane
+			end
 		end
 
-		local leftBlocked = hasLeftBarrier and (distL < 16.0)
-		local rightBlocked = hasRightBarrier and (distR < 16.0)
+		-- Target posisi lateral jalur yang sedang di-lock relatif terhadap mobil
+		local targetOffsetRel = roadCenterRel + currentLockedLane * laneSpacing
 
-		-- Ada rintangan di depan! Putuskan arah dodge berdasarkan posisi pembatas jalan:
-		if leftBlocked and not rightBlocked then
-			-- 🛑 Pagar besi ada di sebelah KIRI -> WAJIB DODGE KE KANAN (+1)! DILARANG KERAS KE KIRI!
-			currentDodgeDir = 1
-		elseif rightBlocked and not leftBlocked then
-			-- 🛑 Pembatas beton ada di sebelah KANAN -> WAJIB DODGE KE KIRI (-1)! DILARANG KERAS KE KANAN!
-			currentDodgeDir = -1
-		elseif not leftBlocked and not rightBlocked then
-			-- 🚗 Kedua sisi lapang -> Dodge menjauhi posisi rintangan
-			currentDodgeDir = (nearestLDist >= 0) and -1 or 1
-		else
-			currentDodgeDir = 0
+		-- Clamp agar tidak melebihi batas aman jalan (minimal 6 studs dari pembatas)
+		local minSafe = -math.max(distL - 6.0, 0)
+		local maxSafe = math.max(distR - 6.0, 0)
+		targetOffsetRel = math.clamp(targetOffsetRel, minSafe, maxSafe)
+
+		-- Hitung steer proporsional: saat mobil sudah pas di jalurnya, steer otomatis 0 (lurus tanpa zigzag)
+		local desiredSteer = math.clamp(targetOffsetRel * 0.030, -0.25, 0.25)
+
+		-- Emergency Reflex Evade jika ada mobil sangat dekat (< 16 studs) di depan
+		for _, obs in ipairs(obstacles) do
+			local oPivot = obs:GetPivot()
+			local delta = oPivot.Position - carPos
+			local fDist = delta:Dot(forwardDir)
+			if fDist > 1 and fDist < 16 then
+				local lDist = delta:Dot(rightVec)
+				if math.abs(lDist) < 4.8 then
+					local evade = (lDist >= 0) and -0.32 or 0.32
+					if evade > 0 and distR < 7.0 then evade = -0.32 end
+					if evade < 0 and distL < 7.0 then evade = 0.32 end
+					desiredSteer = evade
+					break
+				end
+			end
 		end
 
-		-- Hard safeguard jarak mepet:
-		if currentDodgeDir > 0 and distR < 7.5 then
-			currentDodgeDir = -1
-		end
-		if currentDodgeDir < 0 and distL < 7.5 then
-			currentDodgeDir = 1
-		end
-
-		local urgency = math.clamp((150 - nearestDist) / 90, 0.5, 1.0)
-		return currentDodgeDir * urgency * 0.18
+		return desiredSteer
 	end
 
 	task.spawn(function()
@@ -535,7 +628,7 @@ local success, err = pcall(function()
 							}
 
 							local currentWpIndex = 1
-							local cruiseMPH = math.clamp(Config.farm.raceSpeed or 340, 150, 480)
+							local cruiseMPH = 150
 							local targetStudsSec = cruiseMPH * 1.760
 
 							local rayParams = RaycastParams.new()
@@ -596,38 +689,28 @@ local success, err = pcall(function()
 									end
 								end
 
-								-- 3. Barrier-Aware Traffic Dodge & Lane Keeping
+								-- 3. Discrete 3-Lane Traffic Dodge & Lane Keeping (100% Anti-Zigzag)
 								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
 
 								local targetDodge = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
+									targetDodge = calculateDiscreteLaneDodge(currentPos, bestDir, rightVec, rayParams, car, cruiseMPH)
 								end
 
 								-- Deteksi pembatas jalan real-time (Samping 90°, Serong 45°, & Downcast Tepi Aspal)
 								local _, _, distL, distR = detectBarriers(currentPos, rightVec, bestDir, rayParams)
 
-								-- 🛡️ ACTIVE HIGHWAY CENTERING (Jaga Mobil Selalu di Koridor Aspal)
-								local centeringForce = 0
-								if distL < 16.0 then
-									centeringForce = math.clamp((16.0 - distL) * 0.035, 0.04, 0.25)
-								elseif distR < 16.0 then
-									centeringForce = -math.clamp((16.0 - distR) * 0.035, 0.04, 0.25)
-								end
-
-								-- Transisi kemudi halus menggabungkan traffic dodge + highway centering
-								smoothDodge = smoothDodge + (targetDodge + centeringForce - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
-
 								-- Emergency barrier safety clamp & active repulsion:
-								-- Jika mendekati pagar besi di kiri (< 9.0 studs), dilarang keras belok kiri dan paksa stir ke kanan!
-								-- Jika mendekati tembok beton di kanan (< 9.0 studs), dilarang keras belok kanan dan paksa stir ke kiri!
-								if distL < 9.0 then
-									local pushRight = math.clamp((9.0 - distL) * 0.05, 0.08, 0.28)
-									smoothDodge = math.max(smoothDodge, pushRight)
-								elseif distR < 9.0 then
-									local pushLeft = -math.clamp((9.0 - distR) * 0.05, 0.08, 0.28)
-									smoothDodge = math.min(smoothDodge, pushLeft)
+								if distL < 8.0 then
+									local pushRight = math.clamp((8.0 - distL) * 0.06, 0.08, 0.35)
+									targetDodge = math.max(targetDodge, pushRight)
+								elseif distR < 8.0 then
+									local pushLeft = -math.clamp((8.0 - distR) * 0.06, 0.08, 0.35)
+									targetDodge = math.min(targetDodge, pushLeft)
 								end
+
+								-- Transisi kemudi stabil tanpa getar & tanpa zigzag
+								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.5, 0.08, 0.38)
 
 								local finalHeading = (bestDir + rightVec * smoothDodge).Unit
 
@@ -764,43 +847,34 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- 3. Barrier-Aware Traffic Dodge & Lane Keeping
+					local targetMPH = 150
+					local targetStudsSec = targetMPH * 1.760
+
+					-- 3. Discrete 3-Lane Traffic Dodge & Lane Keeping (100% Anti-Zigzag)
 					local targetDodge = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						targetDodge = calculateBarrierAwareDodge(currentPos, bestDir, rightVec, rayParams, car)
+						targetDodge = calculateDiscreteLaneDodge(currentPos, bestDir, rightVec, rayParams, car, targetMPH)
 					end
 
 					-- Deteksi pembatas jalan real-time (Samping 90°, Serong 45°, & Downcast Tepi Aspal)
 					local _, _, distL, distR = detectBarriers(currentPos, rightVec, bestDir, rayParams)
 
-					-- 🛡️ ACTIVE HIGHWAY CENTERING (Jaga Mobil Selalu di Koridor Aspal)
-					local centeringForce = 0
-					if distL < 16.0 then
-						centeringForce = math.clamp((16.0 - distL) * 0.035, 0.04, 0.25)
-					elseif distR < 16.0 then
-						centeringForce = -math.clamp((16.0 - distR) * 0.035, 0.04, 0.25)
-					end
-
-					-- Transisi kemudi halus menggabungkan traffic dodge + highway centering
-					smoothDodge = smoothDodge + (targetDodge + centeringForce - smoothDodge) * math.clamp(dt * 7.0, 0.06, 0.35)
-
 					-- Emergency barrier safety clamp & active repulsion:
-					-- Jika mendekati pagar besi di kiri (< 9.0 studs), dilarang keras belok kiri dan paksa stir ke kanan!
-					-- Jika mendekati tembok beton di kanan (< 9.0 studs), dilarang keras belok kanan dan paksa stir ke kiri!
-					if distL < 9.0 then
-						local pushRight = math.clamp((9.0 - distL) * 0.05, 0.08, 0.28)
-						smoothDodge = math.max(smoothDodge, pushRight)
-					elseif distR < 9.0 then
-						local pushLeft = -math.clamp((9.0 - distR) * 0.05, 0.08, 0.28)
-						smoothDodge = math.min(smoothDodge, pushLeft)
+					if distL < 8.0 then
+						local pushRight = math.clamp((8.0 - distL) * 0.06, 0.08, 0.35)
+						targetDodge = math.max(targetDodge, pushRight)
+					elseif distR < 8.0 then
+						local pushLeft = -math.clamp((8.0 - distR) * 0.06, 0.08, 0.35)
+						targetDodge = math.min(targetDodge, pushLeft)
 					end
+
+					-- Transisi kemudi stabil tanpa getar & tanpa zigzag
+					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.5, 0.08, 0.38)
 
 					local finalHeading = (bestDir + rightVec * smoothDodge).Unit
 
 					-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
 					local targetY = roadY + 2.0
-					local targetMPH = math.clamp(Config.farm.targetSpeed or 240, 50, 380)
-					local targetStudsSec = targetMPH * 1.760
 					local stepDist = targetStudsSec * dt
 					local nextPos = currentPos + finalHeading * stepDist
 
