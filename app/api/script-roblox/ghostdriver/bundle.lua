@@ -2442,6 +2442,7 @@ local success, err = pcall(function()
 
 							local heartbeatConn
 							local lastTick = os.clock()
+							local raceSpeedTimer = os.clock()
 
 							heartbeatConn = RunService.Heartbeat:Connect(function()
 								if not isRacingNow or finished or not seat or not car or not seat.Parent then return end
@@ -2466,6 +2467,28 @@ local success, err = pcall(function()
 								end
 
 								-- 3. Kunci posisi: roadCenter + forwardDir * stepDist + rightVec * lateralOffset
+								-- Humanized Speed Modulation & Pedal Release (mencegah payout terhenti karena kecepatan flat)
+								local baseCruiseMPH = Config.farm.raceSpeed or 70
+								local timeInCycle = (now - raceSpeedTimer) % 5.5
+								local targetMPH = baseCruiseMPH
+								local throttleVal = 1.0
+
+								if timeInCycle > 4.5 then
+									local dipFrac = (timeInCycle - 4.5) / 1.0
+									local dropAmount = math.sin(dipFrac * math.pi) * 12.0
+									targetMPH = math.max(35.0, baseCruiseMPH - dropAmount)
+									if dipFrac < 0.6 then
+										throttleVal = 0.0
+									else
+										throttleVal = 0.7
+									end
+								else
+									local microJitter = math.sin(now * 2.8) * 1.5
+									targetMPH = baseCruiseMPH + microJitter
+									throttleVal = 1.0
+								end
+
+								local targetStudsSec = targetMPH * 1.760
 								local stepDist = targetStudsSec * dt
 								local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 
@@ -2490,8 +2513,8 @@ local success, err = pcall(function()
 								seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, vertCorrection, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
 								if seat:IsA("VehicleSeat") then
-									seat.ThrottleFloat = 1.0
-									seat.Throttle = 1
+									seat.ThrottleFloat = throttleVal
+									seat.Throttle = (throttleVal > 0.5) and 1 or 0
 								end
 							end)
 
@@ -2561,6 +2584,7 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 		local lastTick = os.clock()
+		local speedCycleTimer = os.clock()
 
 		while true do
 			task.wait(0.015)
@@ -2593,7 +2617,29 @@ local success, err = pcall(function()
 						end
 
 						-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
-						local targetMPH = Config.farm.targetSpeed or 70
+						-- 🚗 HUMANIZED DYNAMIC CRUISE & ANTI-BOT INPUT MODULATION
+						-- Setiap ~5.5 detik: turunkan kecepatan 10-12 MPH & lepas pedal gas sebentar (seperti toggle off/on otomatis),
+						-- lalu akselerasi kembali ke target speed agar server terus mencairkan payout uang 24/7 tanpa berhenti!
+						local baseTargetMPH = Config.farm.targetSpeed or 70
+						local timeInCycle = (now - speedCycleTimer) % 5.5
+						local targetMPH = baseTargetMPH
+						local throttleVal = 1.0
+
+						if timeInCycle > 4.5 then
+							local dipFrac = (timeInCycle - 4.5) / 1.0
+							local dropAmount = math.sin(dipFrac * math.pi) * 12.0
+							targetMPH = math.max(35.0, baseTargetMPH - dropAmount)
+							if dipFrac < 0.6 then
+								throttleVal = 0.0 -- Lepas gas pedal
+							else
+								throttleVal = 0.7 -- Injak gas kembali
+							end
+						else
+							local microJitter = math.sin(now * 2.8) * 1.5
+							targetMPH = baseTargetMPH + microJitter
+							throttleVal = 1.0
+						end
+
 						local targetStudsSec = targetMPH * 1.760
 						local stepDist = targetStudsSec * dt
 						local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
@@ -2614,13 +2660,13 @@ local success, err = pcall(function()
 						local targetCF = CFrame.lookAt(currentPoint, lookPoint)
 						car:PivotTo(targetCF)
 
-						-- 7. Dorong dengan kecepatan target konstan + Downforce ke aspal + Gas Pedal On
+						-- 7. Dorong dengan kecepatan target dinamis + Downforce ke aspal + Gas Pedal Modulation
 						local vertCorrection = (targetY - currentPos.Y) * 10 - 4.0
 						seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, vertCorrection, 0)
 						seat.AssemblyAngularVelocity = Vector3.zero
 						if seat:IsA("VehicleSeat") then
-							seat.ThrottleFloat = 1.0
-							seat.Throttle = 1
+							seat.ThrottleFloat = throttleVal
+							seat.Throttle = (throttleVal > 0.5) and 1 or 0
 						end
 					else
 						lastTick = os.clock()
