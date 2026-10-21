@@ -85,7 +85,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- ANTI-AFK & ACTIVITY HEARTBEAT (BAC-SAFE)
 	------------------------------------------------
-	-- Safely neutralise Roblox 20-minute client idle kick without VirtualUser
+	-- Safely neutralise Roblox 20-minute client idle kick natively (Zero Network Packets / Zero VirtualInput)
 	pcall(function()
 		local getconns = getconnections or get_signal_cons
 		if getconns then
@@ -95,28 +95,6 @@ local success, err = pcall(function()
 				elseif conn.Disconnect then
 					conn:Disconnect()
 				end
-			end
-		end
-	end)
-
-	-- Keep-Alive Loop: Satisfies Ghost Driver's AC6 and Activity Bot Check remotes
-	-- Completely undetectable because it mimics legit client InputHeartbeat
-	task.spawn(function()
-		while true do
-			task.wait(4)
-			if Config.settings.antiAfk ~= false then
-				pcall(function()
-					local ac6 = ReplicatedStorage:FindFirstChild("AC6Shared")
-					if ac6 and ac6:FindFirstChild("Remotes") and ac6.Remotes:FindFirstChild("InputHeartbeat") then
-						ac6.Remotes.InputHeartbeat:FireServer()
-					end
-				end)
-				pcall(function()
-					local remotes = require(ReplicatedStorage.Packages.Remotes)
-					if remotes and remotes.InputHeartbeat then
-						remotes.InputHeartbeat:FireServer()
-					end
-				end)
 			end
 		end
 	end)

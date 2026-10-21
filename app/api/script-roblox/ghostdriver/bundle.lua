@@ -1369,6 +1369,12 @@ local success, err = pcall(function()
 					if mod then
 						mod.Push = function(self, ...) end
 						mod.Update = function(self, ...) end
+						mod.BindVehicle = function(self, ...) end
+						mod.footprint = nil
+						if mod.roots then table.clear(mod.roots) end
+						if mod.sensors then table.clear(mod.sensors) end
+						if mod.touching then table.clear(mod.touching) end
+						if mod.lastSeen then table.clear(mod.lastSeen) end
 					end
 				end
 
@@ -1386,6 +1392,8 @@ local success, err = pcall(function()
 					if mod then
 						mod.TriggerImpact = function(self, ...) end
 						mod.Update = function(self, ...) end
+						mod.BindVehicle = function(self, ...) end
+						if mod.activeBoxes then table.clear(mod.activeBoxes) end
 					end
 				end
 
@@ -1406,17 +1414,6 @@ local success, err = pcall(function()
 				end
 			end
 
-			-- Disable client-side impact physics scripts in PlayerScripts
-			local ps = player:FindFirstChild("PlayerScripts")
-			if ps then
-				local ref = ps:FindFirstChild("Refactored")
-				if ref then
-					local cs = ref:FindFirstChild("CollisionSystem")
-					if cs and cs:IsA("LocalScript") and cs.Enabled then
-						cs.Enabled = false
-					end
-				end
-			end
 		end)
 	end
 
@@ -1430,12 +1427,18 @@ local success, err = pcall(function()
 
 	-- Universal Ghost Noclip & Traffic Neutralizer: runs on Stepped (before physics solver)
 	-- Completely eliminates collisions with NPC traffic cars, AI racers, police, and players
+	local lastNeutralizeCheck = 0
 	RunService.Stepped:Connect(function()
-		neutralizeGameCollisions()
+		local now = os.clock()
+		if now - lastNeutralizeCheck > 2.0 then
+			lastNeutralizeCheck = now
+			neutralizeGameCollisions()
+		end
 
 		local myCar = getMyCar()
 
-		-- 1. Disable collision and hit queries on all non-wheel parts & sensors of our own car
+		-- 1. Disable collision, touch, and query on all non-wheel parts & sensors of our own car
+		-- (Never rename parts to preserve server replication integrity)
 		if myCar then
 			for _, p in ipairs(myCar:GetDescendants()) do
 				if p:IsA("BasePart") then
@@ -1450,16 +1453,15 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 2. Disable collision & queries on all NPC Traffic vehicles in workspace.TrafficFolder
+		-- 2. Disable collision, touch & queries on all NPC Traffic vehicles in workspace.TrafficFolder
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
 				for _, p in ipairs(tCar:GetDescendants()) do
 					if p:IsA("BasePart") then
 						if p.CanCollide then p.CanCollide = false end
-						if p.Name == "CoreHitbox" then
-							p.CanTouch = false
-						end
+						if p.CanTouch then p.CanTouch = false end
+						if p.CanQuery then p.CanQuery = false end
 					end
 				end
 			end
@@ -1709,63 +1711,180 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🎯 TRAFFIC STREAK HUNTER (NEAR-MISS & SWERVE FARMER)
+	-- 🎯 3-LANE SMART TRAFFIC DODGE & OVERTAKE ENGINE
 	------------------------------------------------
-	-- Metode Autofarm Video: Mobil sengaja mendekati / menyisir mobil-mobil NPC
-	-- untuk memicu bonus Near Miss, Close Shave, dan mempercepat Streak Combo tanpa tabrakan!
-	local currentSlideOffset = 0    -- Offset lateral saat ini (-8.0 s/d +8.0 studs dari titik tengah jalan)
-	local targetSlideOffset = 0     -- Offset lateral target
-	local SLIDE_SPEED = 24.0        -- Kecepatan pergeseran lateral halus (studs/detik)
-	local MAX_ROAD_OFFSET = 8.0     -- Batas maksimal: tetap di dalam 3 jalur (Anti-Tembus & Anti-Lawan Arah)
+	-- Highway 3-Jalur (Left: -7.5 studs, Center: 0.0 studs, Right: +7.5 studs)
+	-- Menganalisis seluruh kendaraan di depan dalam jarak 220 studs.
+	-- Memilih jalur teraman dan paling lapang, serta menghindari kendaraan NPC secara otomatis.
+	-- Memberikan bonus Near-Miss & Close-Shave secara konsisten tanpa risiko tabrakan!
+	local currentSlideOffset = 0.0    -- Offset lateral saat ini (-7.8 s/d +7.8 studs)
+	local targetSlideOffset = 0.0     -- Offset target (-7.5, 0.0, atau +7.5)
+	local currentLaneChoice = 0       -- -1 = Kiri, 0 = Tengah, 1 = Kanan
 
-	local function calculateTrafficHunterOffset(carPos, forwardDir, rightVec, dt)
+	local LANE_OFFSETS = {
+		[-1] = -7.5, -- Jalur Kiri
+		[0]  =  0.0, -- Jalur Tengah (Default)
+		[1]  =  7.5  -- Jalur Kanan
+	}
+	local MAX_ROAD_OFFSET = 7.8
+
+	local function calculateSmartTrafficDodge(carPos, forwardDir, rightVec, roadCenter, dt)
 		local tf = workspace:FindFirstChild("TrafficFolder")
-		local targetCar = nil
-		local bestDist = math.huge
-		local targetLateral = 0
+		local obstacles = {}
 
+		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
 				if tCar:IsA("Model") then
-					local oPivot = tCar:GetPivot()
-					local delta = oPivot.Position - carPos
-					local fDist = delta:Dot(forwardDir)
-					local lDist = delta:Dot(rightVec)
+					local pivot = tCar:GetPivot()
+					table.insert(obstacles, {
+						model = tCar,
+						pos = pivot.Position
+					})
+				end
+			end
+		end
 
-					-- Deteksi mobil NPC di depan dalam jarak 8 s/d 140 studs dalam koridor jalan
-					if fDist >= 6 and fDist <= 140 and math.abs(lDist) <= 15 then
-						if fDist < bestDist then
-							bestDist = fDist
-							targetCar = tCar
-							targetLateral = lDist
+		-- 2. Kumpulkan kendaraan lain (Police, AI racers, player lain)
+		local myCar = getMyCar()
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:IsA("Model") and obj ~= myCar and obj ~= player.Character then
+				if obj:FindFirstChild("DriveSeat") or obj.Name:find("Police") or obj.Name:find("AI") then
+					local pivot = obj:GetPivot()
+					table.insert(obstacles, {
+						model = obj,
+						pos = pivot.Position
+					})
+				end
+			end
+		end
+
+		-- 3. Analisis okupansi rintangan per lajur
+		-- Lane -1 (Left), Lane 0 (Center), Lane 1 (Right)
+		local laneMinDist = {
+			[-1] = 999.0,
+			[0]  = 999.0,
+			[1]  = 999.0
+		}
+		local laneSideBlocked = {
+			[-1] = false,
+			[0]  = false,
+			[1]  = false
+		}
+
+		local centerRef = roadCenter or carPos
+		local nearestThreatDist = 999.0
+
+		for _, obs in ipairs(obstacles) do
+			local delta = obs.pos - carPos
+			local fDist = delta:Dot(forwardDir)
+
+			-- Hanya periksa objek di koridor highway depan & samping (-8 s/d 220 studs)
+			if fDist >= -8.0 and fDist <= 220.0 then
+				local deltaCenter = obs.pos - centerRef
+				local obsLateral = deltaCenter:Dot(rightVec)
+
+				-- Pastikan berada dalam rentang badan jalan (-16 s/d +16 studs)
+				if math.abs(obsLateral) <= 16.0 then
+					-- Tentukan lajur yang terhalang oleh rintangan
+					-- Karena mobil NPC memiliki lebar ~6.5 studs, periksa overlap
+					local blocksLeft   = (obsLateral < -3.2)
+					local blocksCenter = (obsLateral >= -5.5 and obsLateral <= 5.5)
+					local blocksRight  = (obsLateral > 3.2)
+
+					if blocksLeft then
+						if fDist >= 0 and fDist < laneMinDist[-1] then
+							laneMinDist[-1] = fDist
 						end
+						if fDist >= -8.0 and fDist <= 15.0 then
+							laneSideBlocked[-1] = true
+						end
+					end
+
+					if blocksCenter then
+						if fDist >= 0 and fDist < laneMinDist[0] then
+							laneMinDist[0] = fDist
+						end
+						if fDist >= -8.0 and fDist <= 15.0 then
+							laneSideBlocked[0] = true
+						end
+					end
+
+					if blocksRight then
+						if fDist >= 0 and fDist < laneMinDist[1] then
+							laneMinDist[1] = fDist
+						end
+						if fDist >= -8.0 and fDist <= 15.0 then
+							laneSideBlocked[1] = true
+						end
+					end
+
+					-- Catat ancaman langsung di jalur kita saat ini
+					local myLateralDiff = math.abs(obsLateral - currentSlideOffset)
+					if myLateralDiff < 4.5 and fDist >= 0 and fDist < nearestThreatDist then
+						nearestThreatDist = fDist
 					end
 				end
 			end
 		end
 
-		if targetCar then
-			-- Tentukan jalur mobil NPC tersebut (-8 = kiri, 0 = tengah, +8 = kanan)
-			-- Dekati jalurnya sedikit menyamping (+/- 1.8 studs) agar memicu "SWERVE" & "CLOSE SHAVE"!
-			if targetLateral < -3.5 then
-				targetSlideOffset = -7.2
-			elseif targetLateral > 3.5 then
-				targetSlideOffset = 7.2
-			else
-				targetSlideOffset = 0.0
+		-- 4. Logika Pemilihan Jalur (Hierarchical Lane Decision)
+		-- Cek apakah jalur yang kita pilih saat ini aman
+		local SAFE_CLEARANCE = 140.0   -- Jarak minimal untuk merasa aman di lajur saat ini
+		local currentIsSafe = (laneMinDist[currentLaneChoice] > SAFE_CLEARANCE) and not laneSideBlocked[currentLaneChoice]
+
+		if not currentIsSafe then
+			-- Jalur saat ini terhalang! Evaluasi semua opsi jalur:
+			local bestLane = currentLaneChoice
+			local bestScore = -999999
+
+			for _, laneIdx in ipairs({ 0, -1, 1 }) do
+				if not laneSideBlocked[laneIdx] then
+					local dist = laneMinDist[laneIdx]
+					local score = dist
+
+					-- Jalur tengah sedikit lebih disukai jika benar-benar kosong
+					if laneIdx == 0 and dist > 160.0 then
+						score = score + 20.0
+					end
+
+					-- Preferensi tidak berpindah 2 lajur sekaligus jika lajur tengah bisa dipakai
+					if math.abs(laneIdx - currentLaneChoice) == 1 then
+						score = score + 10.0
+					end
+
+					if score > bestScore then
+						bestScore = score
+						bestLane = laneIdx
+					end
+				end
 			end
+
+			currentLaneChoice = bestLane
 		else
-			-- Jika tidak ada mobil NPC di depan dalam jarak 140 studs:
-			-- Kembali ke jalur tengah (offset 0.0) dan lurus lempeng!
-			targetSlideOffset = 0.0
+			-- Jalur saat ini aman:
+			-- Jika kita berada di pinggir (Kiri / Kanan), kembali ke Tengah HANYA JIKA Tengah benar-benar lowong
+			if currentLaneChoice ~= 0 then
+				if laneMinDist[0] > 180.0 and not laneSideBlocked[0] then
+					currentLaneChoice = 0
+				end
+			end
 		end
 
-		-- Batas aman mutlak: dikunci ketat di dalam 3 jalur (Anti-Tembus Pembatas & Anti-Lawan Arah)
+		targetSlideOffset = LANE_OFFSETS[currentLaneChoice] or 0.0
 		targetSlideOffset = math.clamp(targetSlideOffset, -MAX_ROAD_OFFSET, MAX_ROAD_OFFSET)
 
-		-- Geser lateral dengan halus (smooth strafe)
+		-- 5. Dynamic Steering / Strafe Speed:
+		-- Jika ada rintangan mendadak di depan (< 50 studs), percepat manuver dodge!
+		local dynamicSpeed = 26.0
+		if nearestThreatDist < 50.0 then
+			dynamicSpeed = 40.0
+		elseif nearestThreatDist < 80.0 then
+			dynamicSpeed = 32.0
+		end
+
 		local diff = targetSlideOffset - currentSlideOffset
-		local maxStep = SLIDE_SPEED * dt
+		local maxStep = dynamicSpeed * dt
 		local slideStep = math.clamp(diff, -maxStep, maxStep)
 		currentSlideOffset = currentSlideOffset + slideStep
 		currentSlideOffset = math.clamp(currentSlideOffset, -MAX_ROAD_OFFSET, MAX_ROAD_OFFSET)
@@ -1868,7 +1987,7 @@ local success, err = pcall(function()
 								seat.AssemblyLinearVelocity = Vector3.zero
 								seat.AssemblyAngularVelocity = Vector3.zero
 							end
-							currentLane = 0
+							currentLaneChoice = 0
 							currentSlideOffset = 0
 							targetSlideOffset = 0
 							task.wait(0.15)
@@ -1926,10 +2045,10 @@ local success, err = pcall(function()
 								local forwardDir = roadForward
 								local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-								-- 2. Dapatkan offset lateral dari Traffic Streak Hunter (mendekati NPC untuk combo streak)
+								-- 2. Dapatkan offset lateral dari Traffic Dodge Engine (otomatis hindari rintangan & NPC)
 								local lateralOffset = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									lateralOffset = calculateTrafficHunterOffset(currentPos, forwardDir, rightVec, dt)
+									lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, dt)
 								end
 
 								-- 3. Posisi baru: Dikunci pada roadCenter + forwardDir * stepDist + rightVec * lateralOffset (-8.0 s/d +8.0)
@@ -2047,10 +2166,10 @@ local success, err = pcall(function()
 					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
 					local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
-					-- 2. Dapatkan offset lateral dari Traffic Streak Hunter (mendekati NPC untuk combo streak)
+					-- 2. Dapatkan offset lateral dari Traffic Dodge Engine (otomatis hindari rintangan & NPC)
 					local lateralOffset = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						lateralOffset = calculateTrafficHunterOffset(currentPos, forwardDir, rightVec, dt)
+						lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, dt)
 					end
 
 					-- 3. Posisi baru: Jika berada di dekat waypoint highway, kunci pada roadCenter + lateralOffset!
@@ -2401,7 +2520,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- ANTI-AFK & ACTIVITY HEARTBEAT (BAC-SAFE)
 	------------------------------------------------
-	-- Safely neutralise Roblox 20-minute client idle kick without VirtualUser
+	-- Safely neutralise Roblox 20-minute client idle kick natively (Zero Network Packets / Zero VirtualInput)
 	pcall(function()
 		local getconns = getconnections or get_signal_cons
 		if getconns then
@@ -2411,28 +2530,6 @@ local success, err = pcall(function()
 				elseif conn.Disconnect then
 					conn:Disconnect()
 				end
-			end
-		end
-	end)
-
-	-- Keep-Alive Loop: Satisfies Ghost Driver's AC6 and Activity Bot Check remotes
-	-- Completely undetectable because it mimics legit client InputHeartbeat
-	task.spawn(function()
-		while true do
-			task.wait(4)
-			if Config.settings.antiAfk ~= false then
-				pcall(function()
-					local ac6 = ReplicatedStorage:FindFirstChild("AC6Shared")
-					if ac6 and ac6:FindFirstChild("Remotes") and ac6.Remotes:FindFirstChild("InputHeartbeat") then
-						ac6.Remotes.InputHeartbeat:FireServer()
-					end
-				end)
-				pcall(function()
-					local remotes = require(ReplicatedStorage.Packages.Remotes)
-					if remotes and remotes.InputHeartbeat then
-						remotes.InputHeartbeat:FireServer()
-					end
-				end)
 			end
 		end
 	end)
@@ -2843,4 +2940,5 @@ end)
 if not success then
 	warn("[HipHub Ghost Driver Main Error]:", err)
 end
+
 
