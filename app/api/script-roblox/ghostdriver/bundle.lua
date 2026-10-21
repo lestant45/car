@@ -2155,10 +2155,13 @@ local success, err = pcall(function()
 		local halfWidth = (roadWidth or 34.0) * 0.5
 		local minLateral = -halfWidth + 3.8
 		local maxLateral = halfWidth - 3.8
+		if minLateral > maxLateral then
+			minLateral, maxLateral = -0.5, 0.5
+		end
 
-		-- Standard highway lane offset: 8.5 studs
-		-- Clamped dynamically on narrower roads/bridges so car never gets closer than 4.2 studs to barriers
-		local laneOffset = math.clamp(8.5, 5.0, halfWidth - 4.2)
+		-- Standard highway lane offset: 8.5 studs, safely bounded so car never hits barriers on narrow roads
+		local maxSafeLane = math.max(0.0, maxLateral - 0.5)
+		local laneOffset = math.min(8.5, maxSafeLane)
 
 		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
 		if tf then
@@ -2257,6 +2260,9 @@ local success, err = pcall(function()
 		end
 
 		targetSlideOffset = bestLane * laneOffset
+		if minLateral > maxLateral then
+			minLateral, maxLateral = -0.5, 0.5
+		end
 		targetSlideOffset = math.clamp(targetSlideOffset, minLateral, maxLateral)
 
 		-- 6. Dynamic Steering Speed: Responsif saat mendeteksi mobil di depan
@@ -2270,6 +2276,9 @@ local success, err = pcall(function()
 		local diff = targetSlideOffset - currentSlideOffset
 		local maxStep = steerSpeed * dt
 		currentSlideOffset = currentSlideOffset + math.clamp(diff, -maxStep, maxStep)
+		if minLateral > maxLateral then
+			minLateral, maxLateral = -0.5, 0.5
+		end
 		currentSlideOffset = math.clamp(currentSlideOffset, minLateral, maxLateral)
 
 		return currentSlideOffset
@@ -2491,51 +2500,56 @@ local success, err = pcall(function()
 		while true do
 			task.wait(0.015)
 			if Config.farm.autoSpeedFarm and not isRacingNow then
-				local car, seat = getMyCar()
-				local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-				if car and seat and hum and hum.Sit then
-					local now = os.clock()
-					local dt = math.clamp(now - lastTick, 0.005, 0.05)
-					lastTick = now
+				local ok, loopErr = pcall(function()
+					local car, seat = getMyCar()
+					local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+					if car and seat and hum and hum.Sit then
+						local now = os.clock()
+						local dt = math.clamp(now - lastTick, 0.005, 0.05)
+						lastTick = now
 
-					rayParams.FilterDescendantsInstances = {player.Character, car}
+						rayParams.FilterDescendantsInstances = {player.Character, car}
 
-					local currentPos = car:GetPivot().Position
+						local currentPos = car:GetPivot().Position
 
-					-- 1. Ambil info koridor lintasan (centerline, arah forward, lebar jalan)
-					local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
-					local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
+						-- 1. Ambil info koridor lintasan (centerline, arah forward, lebar jalan)
+						local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
+						local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-					-- 2. Deteksi permukaan jalan tepat di bawah mobil (mengikuti elevasi 3D flyover/bridge)
-					local probeOrigin = Vector3.new(currentPos.X, roadCenter.Y + 6, currentPos.Z)
-					local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -18, 0), rayParams)
-					local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 6) and downHit.Position.Y or roadCenter.Y
+						-- 2. Deteksi permukaan jalan tepat di bawah mobil (mengikuti elevasi 3D flyover/bridge)
+						local probeOrigin = Vector3.new(currentPos.X, roadCenter.Y + 6, currentPos.Z)
+						local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -18, 0), rayParams)
+						local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 6) and downHit.Position.Y or roadCenter.Y
 
-					-- 3. Hitung manuver nyalip mobil NPC untuk memicu Near Miss streak
-					local lateralOffset = 0
-					if Config.farm.autoDodgeTraffic ~= false then
-						lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
+						-- 3. Hitung manuver nyalip mobil NPC untuk memicu Near Miss streak
+						local lateralOffset = 0
+						if Config.farm.autoDodgeTraffic ~= false then
+							lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
+						end
+
+						-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
+						local targetMPH = Config.farm.targetSpeed or 70
+						local targetStudsSec = targetMPH * 1.760
+						local stepDist = targetStudsSec * dt
+						local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
+
+						-- 5. Kunci orientasi mobil 100% tegak lurus sejajar jalan
+						local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
+						car:PivotTo(targetCF)
+
+						-- 6. Dorong dengan kecepatan target konstan + Gas Pedal On
+						seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
+						seat.AssemblyAngularVelocity = Vector3.zero
+						if seat:IsA("VehicleSeat") then
+							seat.ThrottleFloat = 1.0
+							seat.Throttle = 1
+						end
+					else
+						lastTick = os.clock()
 					end
-
-					-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
-					local targetMPH = Config.farm.targetSpeed or 70
-					local targetStudsSec = targetMPH * 1.760
-					local stepDist = targetStudsSec * dt
-					local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
-
-					-- 5. Kunci orientasi mobil 100% tegak lurus sejajar jalan
-					local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
-					car:PivotTo(targetCF)
-
-					-- 6. Dorong dengan kecepatan target konstan + Gas Pedal On
-					seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
-					seat.AssemblyAngularVelocity = Vector3.zero
-					if seat:IsA("VehicleSeat") then
-						seat.ThrottleFloat = 1.0
-						seat.Throttle = 1
-					end
-				else
-					lastTick = os.clock()
+				end)
+				if not ok then
+					warn("[HipHub Auto Speed Farm Safe Catch]:", loopErr)
 				end
 			else
 				lastTick = os.clock()
