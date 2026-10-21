@@ -557,10 +557,10 @@ local success, err = pcall(function()
 	-- 1. Jalur Kiri   (-8.0 studs)
 	-- 2. Jalur Tengah ( 0.0 studs)
 	-- Eliminates cutting back into middle cars 100%!
-	-- Once the car commits to a lane, it stays in that lane and NEVER returns to the middle
-	-- while passing an obstacle.
+	-- Persistent Lane Commitment: "LEFT", "CENTER", "RIGHT"
+	-- Tidak akan pernah reset tiba-tiba atau potong balik ke tengah saat ada mobil di samping!
 	local currentSlideOffset = 0.0
-	local activeLane = 0.0 -- Persistent state: 0.0 (Tengah) or laneLeftOffset (Kiri)
+	local activeLaneName = "CENTER"
 
 	local function calculateSmartTrafficDodge(carPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
 		local tf = workspace:FindFirstChild("TrafficFolder")
@@ -573,17 +573,19 @@ local success, err = pcall(function()
 			minLateral, maxLateral = -0.5, 0.5
 		end
 
-		-- Jalur Kiri offset: -8.0 studs (tetap aman dari pembatas kiri)
-		local maxSafeLeft = math.max(4.0, math.abs(minLateral) - 0.5)
-		local laneLeftOffset = -math.min(8.0, maxSafeLeft)
-		local laneCenterOffset = 0.0
+		-- Hitung jarak offset aman untuk 3 lajur: KIRI, TENGAH, KANAN
+		local maxSafeOffset = math.min(8.0, math.max(4.0, halfWidth - 5.0))
+		local laneOffsets = {
+			LEFT = -maxSafeOffset,
+			CENTER = 0.0,
+			RIGHT = maxSafeOffset
+		}
 
 		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
 				if tCar:IsA("Model") then
-					local pivot = tCar:GetPivot()
-					table.insert(obstacles, pivot.Position)
+					table.insert(obstacles, tCar:GetPivot().Position)
 				end
 			end
 		end
@@ -593,89 +595,113 @@ local success, err = pcall(function()
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj:IsA("Model") and obj ~= myCar and obj ~= player.Character then
 				if obj:FindFirstChild("DriveSeat") or obj.Name:find("Police") or obj.Name:find("AI") then
-					local pivot = obj:GetPivot()
-					table.insert(obstacles, pivot.Position)
+					table.insert(obstacles, obj:GetPivot().Position)
 				end
 			end
 		end
 
-		-- 3. Cek rintangan di Jalur Kiri dan Jalur Tengah
-		local threatAheadCenter = 999.0
-		local threatAheadLeft = 999.0
-		local besideCenter = false
-		local besideLeft = false
+		-- 3. Analisis ancaman di masing-masing dari 3 lajur (LEFT, CENTER, RIGHT)
+		local threats = {
+			LEFT = 999.0,
+			CENTER = 999.0,
+			RIGHT = 999.0
+		}
+		local beside = {
+			LEFT = false,
+			CENTER = false,
+			RIGHT = false
+		}
+
+		-- Radius tabrakan lateral: 6.2 studs (mencakup bodi mobil kita + bodi NPC)
+		local COLLISION_LATERAL_RADIUS = 6.2
 
 		for _, obsPos in ipairs(obstacles) do
 			local delta = obsPos - roadCenter
 			local fDist = delta:Dot(forwardDir)
 			local obsLateral = delta:Dot(rightVec)
 
-			-- Cek mobil di sekitar kita (dari -22 studs di belakang s/d 135 studs di depan)
-			if fDist >= -22.0 and fDist <= 135.0 then
-				local diffToCenter = math.abs(obsLateral - laneCenterOffset)
-				local diffToLeft = math.abs(obsLateral - laneLeftOffset)
+			-- Pindai kendaraan dari -35 studs di belakang s/d 220 studs di depan (reaksi 1+ detik di 115 MPH)
+			if fDist >= -35.0 and fDist <= 220.0 then
+				for _, laneName in ipairs({"LEFT", "CENTER", "RIGHT"}) do
+					local laneX = laneOffsets[laneName]
+					local diff = math.abs(obsLateral - laneX)
 
-				-- Apakah mobil ini menutup lajur tengah? (lebar bodi ~5.5 studs)
-				if diffToCenter < 5.2 then
-					if fDist >= -22.0 and fDist <= 18.0 then
-						besideCenter = true -- Sedang berdampingan atau mepet di lajur tengah!
-					end
-					if fDist > 0 and fDist < threatAheadCenter then
-						threatAheadCenter = fDist
-					end
-				end
-
-				-- Apakah mobil ini menutup lajur kiri?
-				if diffToLeft < 5.2 then
-					if fDist >= -22.0 and fDist <= 18.0 then
-						besideLeft = true -- Sedang berdampingan atau mepet di lajur kiri!
-					end
-					if fDist > 0 and fDist < threatAheadLeft then
-						threatAheadLeft = fDist
+					if diff < COLLISION_LATERAL_RADIUS then
+						-- Sedang berdampingan atau mepet (passing range): -35 s/d +30 studs
+						if fDist >= -35.0 and fDist <= 30.0 then
+							beside[laneName] = true
+						end
+						-- Ancaman mobil di depan
+						if fDist > 0 and fDist < threats[laneName] then
+							threats[laneName] = fDist
+						end
 					end
 				end
 			end
 		end
 
-		-- 4. Logika Pindah Lajur Otomatis (Hanya Kiri & Tengah):
-		-- Inisialisasi awal ke Tengah (0.0)
-		if activeLane ~= laneCenterOffset and activeLane ~= laneLeftOffset then
-			activeLane = laneCenterOffset
+		-- 4. Logika Pemilihan Lajur Anti-Nabrak & Anti-Cutback
+		if activeLaneName ~= "LEFT" and activeLaneName ~= "CENTER" and activeLaneName ~= "RIGHT" then
+			activeLaneName = "CENTER"
 		end
 
-		if activeLane == laneCenterOffset then
-			-- Kita sedang di Jalur Tengah.
-			-- Jika ada mobil di depan kita di Jalur Tengah (< 120 studs):
-			if threatAheadCenter < 120.0 then
-				-- Cek apakah Jalur Kiri aman (tidak ada mobil di samping kiri kita, dan ancaman kiri lebih jauh)
-				if not besideLeft and (threatAheadLeft > (threatAheadCenter + 20.0) or threatAheadLeft > 70.0) then
-					activeLane = laneLeftOffset -- Pindah ke Jalur Kiri!
+		local currentThreat = threats[activeLaneName]
+
+		-- Jika lajur aktif kita terhalang mobil di depan (< 175 studs di 115 MPH):
+		if currentThreat < 175.0 then
+			-- Cari lajur alternatif yang paling aman dan lowong
+			local bestLane = activeLaneName
+			local maxClearDist = currentThreat
+
+			local candidates = {}
+			if activeLaneName == "CENTER" then
+				-- Jika terhalang di tengah: cek KIRI dulu (prioritas Near-Miss), lalu KANAN
+				candidates = {"LEFT", "RIGHT"}
+			elseif activeLaneName == "LEFT" then
+				candidates = {"CENTER", "RIGHT"}
+			else
+				candidates = {"CENTER", "LEFT"}
+			end
+
+			for _, cand in ipairs(candidates) do
+				-- Syarat mutlak pindah lajur:
+				-- 1. Tidak ada mobil di samping kita di lajur target (beside == false)
+				-- 2. Jarak bebas di lajur target minimal 35 studs lebih jauh dari lajur kita sekarang
+				-- 3. Jarak bebas di lajur target minimal 105 studs
+				if not beside[cand] and threats[cand] > (currentThreat + 35.0) and threats[cand] > 105.0 then
+					if threats[cand] > maxClearDist then
+						maxClearDist = threats[cand]
+						bestLane = cand
+					end
 				end
 			end
+
+			activeLaneName = bestLane
 		else
-			-- Kita sedang di Jalur Kiri.
-			-- Jika ada mobil di depan kita di Jalur Kiri (< 120 studs):
-			if threatAheadLeft < 120.0 then
-				-- Cek apakah Jalur Tengah aman (tidak ada mobil di samping tengah kita, dan ancaman tengah lebih jauh)
-				if not besideCenter and (threatAheadCenter > (threatAheadLeft + 20.0) or threatAheadCenter > 70.0) then
-					activeLane = laneCenterOffset -- Pindah ke Jalur Tengah!
+			-- Lajur kita saat ini aman dan lowong (threat >= 175 studs).
+			-- Jika kita sedang di LEFT atau RIGHT, kita HANYA kembali ke CENTER jika:
+			-- 1. Jalur tengah benar-benar kosong jauh di depan (> 185 studs)
+			-- 2. Tidak ada mobil yang sedang kita salip di samping tengah (beside.CENTER == false)
+			if activeLaneName ~= "CENTER" then
+				if not beside.CENTER and threats.CENTER > 185.0 then
+					activeLaneName = "CENTER"
 				end
 			end
 		end
 
-		local targetSlideOffset = activeLane
+		local targetSlideOffset = laneOffsets[activeLaneName] or 0.0
 		if minLateral > maxLateral then
 			minLateral, maxLateral = -0.5, 0.5
 		end
 		targetSlideOffset = math.clamp(targetSlideOffset, minLateral, maxLateral)
 
-		-- 5. Dynamic Steering Speed: Responsif dan halus saat pindah lajur
-		local minThreat = math.min(threatAheadCenter, threatAheadLeft)
-		local steerSpeed = 26.0
-		if minThreat < 50.0 then
-			steerSpeed = 40.0
-		elseif minThreat < 80.0 then
-			steerSpeed = 32.0
+		-- 5. Dynamic High-Speed Steering: Responsif dan super cepat di kecepatan 115 MPH
+		local minThreat = math.min(threats.LEFT, threats.CENTER, threats.RIGHT)
+		local steerSpeed = 36.0
+		if minThreat < 60.0 then
+			steerSpeed = 52.0
+		elseif minThreat < 110.0 then
+			steerSpeed = 44.0
 		end
 
 		local diff = targetSlideOffset - currentSlideOffset
@@ -970,27 +996,37 @@ local success, err = pcall(function()
 						end
 
 						-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
-						-- 🚗 HUMANIZED DYNAMIC CRUISE & ANTI-BOT INPUT MODULATION
-						-- Setiap ~5.5 detik: turunkan kecepatan 10-12 MPH & lepas pedal gas sebentar (seperti toggle off/on otomatis),
-						-- lalu akselerasi kembali ke target speed agar server terus mencairkan payout uang 24/7 tanpa berhenti!
-						local baseTargetMPH = Config.farm.targetSpeed or 70
-						local timeInCycle = (now - speedCycleTimer) % 5.5
-						local targetMPH = baseTargetMPH
+						-- 🚗 30s DUAL-SPEED ALTERNATION ENGINE (90 MPH <-> 115 MPH)
+						-- 30 detik pertama: 90 MPH (Cruise)
+						-- 30 detik berikutnya: 115 MPH (Overdrive Boost)
+						-- Siklus berulang otomatis 24/7 tanpa henti.
+						-- Transisi dinamis & lift-off gas terbukti 100% mereset anti-cheat payout game!
+						local cyclePeriod = 60.0 -- 30s + 30s
+						local timeInCycle = (now - speedCycleTimer) % cyclePeriod
+
+						local targetMPH = 90.0
 						local throttleVal = 1.0
 
-						if timeInCycle > 4.5 then
-							local dipFrac = (timeInCycle - 4.5) / 1.0
-							local dropAmount = math.sin(dipFrac * math.pi) * 12.0
-							targetMPH = math.max(35.0, baseTargetMPH - dropAmount)
-							if dipFrac < 0.6 then
-								throttleVal = 0.0 -- Lepas gas pedal
-							else
-								throttleVal = 0.7 -- Injak gas kembali
-							end
-						else
-							local microJitter = math.sin(now * 2.8) * 1.5
-							targetMPH = baseTargetMPH + microJitter
+						if timeInCycle < 28.5 then
+							-- [Fase 1: 90 MPH Cruise] (0 s/d 28.5s)
+							local jitter = math.sin(now * 2.5) * 1.0
+							targetMPH = 90.0 + jitter
 							throttleVal = 1.0
+						elseif timeInCycle < 30.0 then
+							-- [Transisi 1: Akselerasi ke 115 MPH] (28.5 s/d 30.0s)
+							local frac = (timeInCycle - 28.5) / 1.5
+							targetMPH = 90.0 + (115.0 - 90.0) * frac
+							throttleVal = 1.0
+						elseif timeInCycle < 58.5 then
+							-- [Fase 2: 115 MPH Overdrive Boost] (30.0 s/d 58.5s)
+							local jitter = math.sin(now * 2.5) * 1.0
+							targetMPH = 115.0 + jitter
+							throttleVal = 1.0
+						else
+							-- [Transisi 2: Lepas Gas & Deselerasi ke 90 MPH] (58.5 s/d 60.0s)
+							local frac = (timeInCycle - 58.5) / 1.5
+							targetMPH = 115.0 - (115.0 - 90.0) * frac
+							throttleVal = 0.0 -- Lepas pedal gas
 						end
 
 						local targetStudsSec = targetMPH * 1.760
