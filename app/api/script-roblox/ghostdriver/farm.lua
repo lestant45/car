@@ -111,13 +111,32 @@ local success, err = pcall(function()
 				if ComboUI then
 					local mod = require(ComboUI)
 					if mod then
-						mod.TriggerCrashCheck = function(self, ...) end
+						if mod.TriggerCrashCheck then
+							mod.TriggerCrashCheck = function(self, ...) return false end
+						end
+						if mod.ResetCombo then
+							local origReset = mod.ResetCombo
+							mod.ResetCombo = function(self, ...)
+								if Config.farm.autoSpeedFarm or Config.farm.autoRace then return end
+								return origReset(self, ...)
+							end
+						end
 						local origLose = mod.LoseCombo
 						mod.LoseCombo = function(self, reason, ...)
-							if type(reason) == "string" and (reason:find("CRASH") or reason:find("0X")) then
+							-- Keep streak alive 100% while auto farm is running
+							if Config.farm.autoSpeedFarm or Config.farm.autoRace then
 								return
 							end
 							if origLose then return origLose(self, reason, ...) end
+						end
+						if mod.DrainAdrenaline then
+							local origDrain = mod.DrainAdrenaline
+							mod.DrainAdrenaline = function(self, dt, ...)
+								if Config.farm.autoSpeedFarm or Config.farm.autoRace then
+									self.adrenaline = 15.0 -- Lock adrenaline 100% full, combo streak NEVER expires!
+								end
+								return origDrain(self, dt, ...)
+							end
 						end
 					end
 				end
@@ -201,7 +220,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	local function isRoadAt(testPos, rayParams)
 		local hit = workspace:Raycast(testPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-		if hit and hit.Position.Y <= 95 then
+		if hit then
 			local instName = hit.Instance.Name:lower()
 			if not (instName:find("wall") or instName:find("guard") or instName:find("rail") or instName:find("fence")) then
 				return true, hit.Position.Y
@@ -358,7 +377,7 @@ local success, err = pcall(function()
 	-- Powered by 3,462 synchronized left & right lane boundaries
 	-- Covers the complete 95,000-stud closed-loop highway circuit
 	local Corridor = _G.HipHub_GhostDriver_Corridor or {}
-	local cachedCorridorIdx = 1
+	local cachedCorridorIdx = nil
 
 	local function getCorridorRoadInfo(pos)
 		local n = #Corridor
@@ -366,48 +385,58 @@ local success, err = pcall(function()
 			return pos, Vector3.new(0, 0, -1), 34.0, 1
 		end
 
-		-- 1. Fast O(1) Local Search around cached index
+		-- 1. Initial 3D Search or Recovery
+		if not cachedCorridorIdx then
+			local bestDistSq = math.huge
+			local bestIdx = 1
+			for idx = 1, n, 4 do
+				local pt = Corridor[idx]
+				local dx = pos.X - pt[1]
+				local dy = (pos.Y - pt[2]) * 1.5
+				local dz = pos.Z - pt[3]
+				local dSq = dx * dx + dy * dy + dz * dz
+				if dSq < bestDistSq then
+					bestDistSq = dSq
+					bestIdx = idx
+				end
+			end
+			local fineStart = math.max(1, bestIdx - 8)
+			local fineEnd = math.min(n, bestIdx + 8)
+			for idx = fineStart, fineEnd do
+				local pt = Corridor[idx]
+				local dx = pos.X - pt[1]
+				local dy = (pos.Y - pt[2]) * 1.5
+				local dz = pos.Z - pt[3]
+				local dSq = dx * dx + dy * dy + dz * dz
+				if dSq < bestDistSq then
+					bestDistSq = dSq
+					bestIdx = idx
+				end
+			end
+			cachedCorridorIdx = bestIdx
+		end
+
+		-- 2. Monotonic Forward Search (Prevents Backward Flipping & Flyover Crosstalk)
 		local bestIdx = cachedCorridorIdx
 		local bestDistSq = math.huge
-		local searchRadius = 35
 
-		for offset = -searchRadius, searchRadius do
+		for offset = -1, 10 do
 			local idx = ((cachedCorridorIdx - 1 + offset) % n) + 1
 			local pt = Corridor[idx]
 			local dx = pos.X - pt[1]
+			local dy = (pos.Y - pt[2]) * 1.5
 			local dz = pos.Z - pt[3]
-			local dSq = dx * dx + dz * dz
+			local dSq = dx * dx + dy * dy + dz * dz
 			if dSq < bestDistSq then
 				bestDistSq = dSq
 				bestIdx = idx
 			end
 		end
 
-		-- 2. Fallback to sparse global search if car was teleported or joined far away (> 180 studs)
-		if bestDistSq > 32400 then
-			bestDistSq = math.huge
-			for idx = 1, n, 6 do
-				local pt = Corridor[idx]
-				local dx = pos.X - pt[1]
-				local dz = pos.Z - pt[3]
-				local dSq = dx * dx + dz * dz
-				if dSq < bestDistSq then
-					bestDistSq = dSq
-					bestIdx = idx
-				end
-			end
-			local fineStart = math.max(1, bestIdx - 10)
-			local fineEnd = math.min(n, bestIdx + 10)
-			for idx = fineStart, fineEnd do
-				local pt = Corridor[idx]
-				local dx = pos.X - pt[1]
-				local dz = pos.Z - pt[3]
-				local dSq = dx * dx + dz * dz
-				if dSq < bestDistSq then
-					bestDistSq = dSq
-					bestIdx = idx
-				end
-			end
+		-- Fallback global search if teleported or drifted > 250 studs away
+		if bestDistSq > 62500 then
+			cachedCorridorIdx = nil
+			return getCorridorRoadInfo(pos)
 		end
 
 		cachedCorridorIdx = bestIdx
@@ -417,20 +446,28 @@ local success, err = pcall(function()
 		local pB = Corridor[nextIdx]
 
 		local segX = pB[1] - pA[1]
+		local segY = pB[2] - pA[2]
 		local segZ = pB[3] - pA[3]
-		local segLen = math.sqrt(segX * segX + segZ * segZ)
-		local dirX = segLen > 0.001 and (segX / segLen) or 0
-		local dirZ = segLen > 0.001 and (segZ / segLen) or -1
+		local segLenHoriz = math.sqrt(segX * segX + segZ * segZ)
+		local dirX = segLenHoriz > 0.001 and (segX / segLenHoriz) or 0
+		local dirZ = segLenHoriz > 0.001 and (segZ / segLenHoriz) or -1
 		local roadForward = Vector3.new(dirX, 0, dirZ)
 
-		-- Segment projection for sub-stud continuous centerline tracking
+		-- Segment projection
 		local vx = pos.X - pA[1]
 		local vz = pos.Z - pA[3]
 		local proj = vx * dirX + vz * dirZ
-		local t = math.clamp(proj, 0, segLen)
+
+		-- Advance to next waypoint as soon as segment is traversed
+		if proj >= (segLenHoriz - 2.0) and segLenHoriz > 0.001 then
+			cachedCorridorIdx = nextIdx
+		end
+
+		local t = math.clamp(proj, 0, segLenHoriz)
+		local frac = segLenHoriz > 0.001 and (t / segLenHoriz) or 0
 
 		local roadCenterX = pA[1] + dirX * t
-		local roadCenterY = pA[2] + (pB[2] - pA[2]) * (t / math.max(segLen, 1))
+		local roadCenterY = pA[2] + segY * frac
 		local roadCenterZ = pA[3] + dirZ * t
 		local roadWidth = pA[4] or 34.0
 
@@ -442,7 +479,7 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- Strictly constrained between Left Boundary and Right Boundary:
 	-- minLateral = -halfWidth + 3.8 studs, maxLateral = halfWidth - 3.8 studs
-	-- Targets a 5.0 - 5.5 stud lateral offset when overtaking NPC traffic cars.
+	-- Targets a 5.2 - 5.5 stud lateral offset when overtaking NPC traffic cars.
 	-- Grazing adjacent to traffic vehicles triggers Near Miss & Close Call multiplier streaks 100%!
 	local currentSlideOffset = 0.0
 	local targetSlideOffset = 0.0
@@ -476,10 +513,12 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 3. Cari ancaman mobil NPC terdekat di koridor depan (-6 s/d 130 studs)
-		local nearestObsLateral = 0.0
+		-- 3. Cari ancaman mobil NPC terdekat di koridor depan & samping (-18 s/d 110 studs)
+		-- PENTING: Rentang -18 s/d +18 adalah saat mobil kita SEJAJAR dengan NPC!
+		-- JANGAN PERNAH banting setir kembali ke tengah saat NPC masih di samping mobil kita!
+		local nearestThreat = nil
 		local minFrontDist = 999.0
-		local hasThreatAhead = false
+		local hasThreatInZone = false
 
 		for _, obsPos in ipairs(obstacles) do
 			local delta = obsPos - roadCenter
@@ -487,41 +526,47 @@ local success, err = pcall(function()
 			local obsLateral = delta:Dot(rightVec)
 
 			-- Hanya periksa objek yang berada di dalam badan jalan
-			if fDist >= -6.0 and fDist <= 130.0 and math.abs(obsLateral) <= (halfWidth + 2.0) then
-				-- Cek apakah tepat di jalur lintasan mobil kita (< 6.2 studs lateral)
-				local latDiff = math.abs(obsLateral - currentSlideOffset)
-				if latDiff < 6.2 and fDist >= 0 and fDist < minFrontDist then
+			if fDist >= -18.0 and fDist <= 110.0 and math.abs(obsLateral) <= (halfWidth + 2.0) then
+				if fDist < minFrontDist then
 					minFrontDist = fDist
-					nearestObsLateral = obsLateral
-					hasThreatAhead = true
+					nearestThreat = {
+						fDist = fDist,
+						lateral = obsLateral
+					}
+					hasThreatInZone = true
 				end
 			end
 		end
 
 		-- 4. Logika Overtake / Nyalip Mobil NPC (Near-Miss Streak Maximizer)
-		if hasThreatAhead and minFrontDist < 115.0 then
-			-- Jarak aman nyalip tepat di samping mobil: 5.2 studs (Near Miss Sweet Spot)
-			local passOffset = 5.2
-			local desireLeft = (nearestObsLateral >= 0) -- Jika NPC di kanan, salip dari kiri
+		if hasThreatInZone and nearestThreat then
+			local obsLat = nearestThreat.lateral
+			local passOffset = 5.4 -- Sweet spot Near-Miss: 5.4 studs center-to-center
 
-			local leftCandidate = nearestObsLateral - passOffset
-			local rightCandidate = nearestObsLateral + passOffset
+			-- Tentukan jalur salip (kiri atau kanan)
+			local desireLeft = (obsLat >= 0)
+			local leftCandidate = obsLat - passOffset
+			local rightCandidate = obsLat + passOffset
 
+			local chosenTarget = 0.0
 			if desireLeft then
 				if leftCandidate >= minLateral then
-					targetSlideOffset = leftCandidate
+					chosenTarget = leftCandidate
 				else
-					targetSlideOffset = rightCandidate
+					chosenTarget = rightCandidate
 				end
 			else
 				if rightCandidate <= maxLateral then
-					targetSlideOffset = rightCandidate
+					chosenTarget = rightCandidate
 				else
-					targetSlideOffset = leftCandidate
+					chosenTarget = leftCandidate
 				end
 			end
+
+			-- Kunci jalur salip sampai NPC sepenuhnya berada di belakang mobil kita (fDist < -18)
+			targetSlideOffset = math.clamp(chosenTarget, minLateral, maxLateral)
 		else
-			-- Jalur lowong di depan: perlahan kembali ke tengah (0.0)
+			-- Tidak ada mobil di samping atau di depan: perlahan kembali ke tengah (0.0)
 			targetSlideOffset = 0.0
 		end
 
@@ -531,9 +576,9 @@ local success, err = pcall(function()
 		-- 6. Dynamic Steering Responsiveness
 		local steerSpeed = 22.0
 		if minFrontDist < 45.0 then
-			steerSpeed = 38.0
+			steerSpeed = 34.0
 		elseif minFrontDist < 75.0 then
-			steerSpeed = 30.0
+			steerSpeed = 26.0
 		end
 
 		local diff = targetSlideOffset - currentSlideOffset
@@ -641,7 +686,7 @@ local success, err = pcall(function()
 							targetSlideOffset = 0
 							task.wait(0.15)
 
-							local cruiseMPH = Config.farm.raceSpeed or 250
+							local cruiseMPH = Config.farm.raceSpeed or 70
 							local targetStudsSec = cruiseMPH * 1.760
 
 							local rayParams = RaycastParams.new()
@@ -662,9 +707,10 @@ local success, err = pcall(function()
 								local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
 								local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-								-- 1. Deteksi permukaan jalan tepat di bawah mobil
-								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-								local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
+								-- 1. Deteksi permukaan jalan tepat di bawah mobil (mengikuti elevasi 3D flyover/bridge)
+								local probeOrigin = Vector3.new(currentPos.X, roadCenter.Y + 6, currentPos.Z)
+								local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -18, 0), rayParams)
+								local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 6) and downHit.Position.Y or roadCenter.Y
 
 								-- 2. Dapatkan offset lateral dari Near-Miss Overtake Engine
 								local lateralOffset = 0
@@ -774,9 +820,10 @@ local success, err = pcall(function()
 					local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
 					local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-					-- 2. Deteksi permukaan jalan tepat di bawah mobil
-					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-					local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
+					-- 2. Deteksi permukaan jalan tepat di bawah mobil (mengikuti elevasi 3D flyover/bridge)
+					local probeOrigin = Vector3.new(currentPos.X, roadCenter.Y + 6, currentPos.Z)
+					local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -18, 0), rayParams)
+					local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 6) and downHit.Position.Y or roadCenter.Y
 
 					-- 3. Hitung manuver nyalip mobil NPC untuk memicu Near Miss streak
 					local lateralOffset = 0
@@ -785,7 +832,7 @@ local success, err = pcall(function()
 					end
 
 					-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
-					local targetMPH = Config.farm.targetSpeed or 180
+					local targetMPH = Config.farm.targetSpeed or 70
 					local targetStudsSec = targetMPH * 1.760
 					local stepDist = targetStudsSec * dt
 					local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset

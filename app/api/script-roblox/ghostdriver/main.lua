@@ -325,7 +325,7 @@ local success, err = pcall(function()
 		if Settings then Settings.Save() end
 	end)
 
-	UI.AddSlider(secSpeedFarm, "Target Speed", "Set cruise control speed for highway driving", 100, 260, Config.farm.targetSpeed or 180, " MPH", function(v)
+	UI.AddSlider(secSpeedFarm, "Target Speed", "Set cruise control speed for highway driving", 50, 200, Config.farm.targetSpeed or 70, " MPH", function(v)
 		Config.farm.targetSpeed = v
 		if Settings then Settings.Save() end
 	end)
