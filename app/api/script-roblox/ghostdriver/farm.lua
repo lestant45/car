@@ -134,7 +134,7 @@ local success, err = pcall(function()
 	local isRacingNow = false
 
 	-- Universal Ghost Noclip & Traffic Neutralizer: runs on Stepped (before physics solver)
-	-- Disables solid collisions while preserving CanTouch & CanQuery for Near-Miss detection
+	-- Disables solid collisions while preserving CanTouch & CanQuery for Near-Miss detection.
 	local lastNeutralizeCheck = 0
 	RunService.Stepped:Connect(function()
 		local now = os.clock()
