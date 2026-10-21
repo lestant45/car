@@ -553,14 +553,14 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🎯 DUAL-LANE (KIRI & TENGAH) OVERTAKE & NEAR-MISS ENGINE
 	------------------------------------------------
-	-- Strictly limited to 2 lanes:
+	-- 🎯 DUAL-LANE (KIRI & TENGAH) ANTI-CRASH OVERTAKE ENGINE
+	------------------------------------------------
+	-- Hanya 2 jalur:
 	-- 1. Jalur Kiri   (-8.0 studs)
 	-- 2. Jalur Tengah ( 0.0 studs)
-	-- Eliminates cutting back into middle cars 100%!
-	-- Persistent Lane Commitment: "LEFT", "CENTER", "RIGHT"
-	-- Tidak akan pernah reset tiba-tiba atau potong balik ke tengah saat ada mobil di samping!
+	-- Jalur Kanan dihilangkan 100% sesuai permintaan!
 	local currentSlideOffset = 0.0
-	local activeLaneName = "CENTER"
+	local activeLaneName = "CENTER" -- "CENTER" atau "LEFT"
 
 	local function calculateSmartTrafficDodge(carPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
 		local tf = workspace:FindFirstChild("TrafficFolder")
@@ -573,12 +573,11 @@ local success, err = pcall(function()
 			minLateral, maxLateral = -0.5, 0.5
 		end
 
-		-- Hitung jarak offset aman untuk 3 lajur: KIRI, TENGAH, KANAN
-		local maxSafeOffset = math.min(8.0, math.max(4.0, halfWidth - 5.0))
+		-- Jalur Kiri offset: -8.0 studs (aman dari barrier kiri)
+		local maxSafeLeft = math.min(8.0, math.max(4.0, math.abs(minLateral) - 1.0))
 		local laneOffsets = {
-			LEFT = -maxSafeOffset,
-			CENTER = 0.0,
-			RIGHT = maxSafeOffset
+			LEFT = -maxSafeLeft,
+			CENTER = 0.0
 		}
 
 		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
@@ -600,87 +599,70 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 3. Analisis ancaman di masing-masing dari 3 lajur (LEFT, CENTER, RIGHT)
+		-- 3. Klasifikasi Ancaman Jalan ke 2 Jalur (CENTER dan LEFT)
+		-- Batas pembatas lateral: -4.5 studs
+		-- Jika obsLateral > -4.5 -> Masuk Jalur TENGAH (CENTER)
+		-- Jika obsLateral <= -4.5 -> Masuk Jalur KIRI (LEFT)
 		local threats = {
 			LEFT = 999.0,
-			CENTER = 999.0,
-			RIGHT = 999.0
+			CENTER = 999.0
 		}
 		local beside = {
 			LEFT = false,
-			CENTER = false,
-			RIGHT = false
+			CENTER = false
 		}
-
-		-- Radius tabrakan lateral: 6.2 studs (mencakup bodi mobil kita + bodi NPC)
-		local COLLISION_LATERAL_RADIUS = 6.2
 
 		for _, obsPos in ipairs(obstacles) do
 			local delta = obsPos - roadCenter
 			local fDist = delta:Dot(forwardDir)
 			local obsLateral = delta:Dot(rightVec)
 
-			-- Pindai kendaraan dari -35 studs di belakang s/d 220 studs di depan (reaksi 1+ detik di 115 MPH)
+			-- Pindai kendaraan dari -35 studs di belakang s/d 220 studs di depan
 			if fDist >= -35.0 and fDist <= 220.0 then
-				for _, laneName in ipairs({"LEFT", "CENTER", "RIGHT"}) do
-					local laneX = laneOffsets[laneName]
-					local diff = math.abs(obsLateral - laneX)
+				local lane = (obsLateral > -4.5) and "CENTER" or "LEFT"
 
-					if diff < COLLISION_LATERAL_RADIUS then
-						-- Sedang berdampingan atau mepet (passing range): -35 s/d +30 studs
-						if fDist >= -35.0 and fDist <= 30.0 then
-							beside[laneName] = true
-						end
-						-- Ancaman mobil di depan
-						if fDist > 0 and fDist < threats[laneName] then
-							threats[laneName] = fDist
-						end
-					end
+				-- Sedang berdampingan atau mepet (-35 s/d +30 studs)
+				if fDist >= -35.0 and fDist <= 30.0 then
+					beside[lane] = true
+				end
+
+				-- Ancaman di depan
+				if fDist > 0 and fDist < threats[lane] then
+					threats[lane] = fDist
 				end
 			end
 		end
 
-		-- 4. Logika Pemilihan Lajur Anti-Nabrak & Anti-Cutback
-		if activeLaneName ~= "LEFT" and activeLaneName ~= "CENTER" and activeLaneName ~= "RIGHT" then
+		-- 4. Logika Pindah Lajur Hanya 2 Jalur (Anti-Cutback & Persistent)
+		if activeLaneName ~= "LEFT" and activeLaneName ~= "CENTER" then
 			activeLaneName = "CENTER"
 		end
 
-		local currentThreat = threats[activeLaneName]
-
-		-- Jika lajur aktif kita terhalang mobil di depan (< 175 studs di 115 MPH):
-		if currentThreat < 175.0 then
-			-- Cari lajur alternatif yang paling aman dan lowong
-			local bestLane = activeLaneName
-			local maxClearDist = currentThreat
-
-			local candidates = {}
-			if activeLaneName == "CENTER" then
-				-- Jika terhalang di tengah: cek KIRI dulu (prioritas Near-Miss), lalu KANAN
-				candidates = {"LEFT", "RIGHT"}
-			elseif activeLaneName == "LEFT" then
-				candidates = {"CENTER", "RIGHT"}
-			else
-				candidates = {"CENTER", "LEFT"}
-			end
-
-			for _, cand in ipairs(candidates) do
-				-- Syarat mutlak pindah lajur:
-				-- 1. Tidak ada mobil di samping kita di lajur target (beside == false)
-				-- 2. Jarak bebas di lajur target minimal 35 studs lebih jauh dari lajur kita sekarang
-				-- 3. Jarak bebas di lajur target minimal 105 studs
-				if not beside[cand] and threats[cand] > (currentThreat + 35.0) and threats[cand] > 105.0 then
-					if threats[cand] > maxClearDist then
-						maxClearDist = threats[cand]
-						bestLane = cand
-					end
+		if activeLaneName == "CENTER" then
+			-- Kita sedang di Jalur Tengah (0.0).
+			-- Jika jalur tengah terhalang mobil di depan (< 180 studs di 115 MPH):
+			if threats.CENTER < 180.0 then
+				-- Pindah ke Jalur Kiri jika:
+				-- 1. Tidak ada mobil di samping kiri kita (beside.LEFT == false)
+				-- 2. Jalur kiri lebih aman dari jalur tengah (threats.LEFT > threats.CENTER + 20.0 atau threats.LEFT > 75.0)
+				if not beside.LEFT and (threats.LEFT > (threats.CENTER + 20.0) or threats.LEFT > 75.0) then
+					activeLaneName = "LEFT" -- Pindah ke Jalur Kiri!
 				end
 			end
-
-			activeLaneName = bestLane
+			-- Jika jalur tengah aman, TETAP JALAN LURUS DI TENGAH!
 		else
-			-- Lajur aktif kita saat ini masih aman dan lowong (threat >= 175 studs).
-			-- TETAP DI LAJUR INI! Jalan lurus terus tanpa pindah-pindah!
-			-- Tidak ada lagi paksaan kembali ke tengah, sehingga mobil bisa jalan lurus stabil di jalur kanan/kiri!
+			-- Kita sedang di Jalur Kiri (-8.0).
+			-- Jika jalur kiri terhalang mobil di depan (< 180 studs di 115 MPH):
+			if threats.LEFT < 180.0 then
+				-- Pindah kembali ke Jalur Tengah jika:
+				-- 1. Mobil yang tadi kita salip di tengah sudah lewat aman di belakang (beside.CENTER == false, fDist < -35 studs)
+				-- 2. Jalur tengah lebih aman dari jalur kiri (threats.CENTER > threats.LEFT + 20.0 atau threats.CENTER > 75.0)
+				if not beside.CENTER and (threats.CENTER > (threats.LEFT + 20.0) or threats.CENTER > 75.0) then
+					activeLaneName = "CENTER" -- Pindah kembali ke Jalur Tengah!
+				end
+			end
+			-- JIKA JALUR KIRI MASIH AMAN (threats.LEFT >= 180.0):
+			-- TETAP JALAN LURUS DI JALUR KIRI! JANGAN PERNAH POTONG BALIK KE TENGAH!
 		end
 
 		local targetSlideOffset = laneOffsets[activeLaneName] or 0.0
@@ -689,13 +671,13 @@ local success, err = pcall(function()
 		end
 		targetSlideOffset = math.clamp(targetSlideOffset, minLateral, maxLateral)
 
-		-- 5. Dynamic High-Speed Steering: Responsif dan super cepat di kecepatan 115 MPH
-		local minThreat = math.min(threats.LEFT, threats.CENTER, threats.RIGHT)
-		local steerSpeed = 36.0
+		-- 5. Dynamic Steering Speed: Cepat dan responsif di kecepatan 115 MPH
+		local minThreat = math.min(threats.LEFT, threats.CENTER)
+		local steerSpeed = 38.0
 		if minThreat < 60.0 then
-			steerSpeed = 52.0
+			steerSpeed = 54.0
 		elseif minThreat < 110.0 then
-			steerSpeed = 44.0
+			steerSpeed = 46.0
 		end
 
 		local diff = targetSlideOffset - currentSlideOffset
