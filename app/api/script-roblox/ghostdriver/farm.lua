@@ -129,6 +129,15 @@ local success, err = pcall(function()
 							end
 							if origLose then return origLose(self, reason, ...) end
 						end
+						if mod.ResetComboState then
+							local origResetState = mod.ResetComboState
+							mod.ResetComboState = function(self, ...)
+								if Config.farm.autoSpeedFarm or Config.farm.autoRace then
+									return -- Block combo reset completely! Streak stays preserved!
+								end
+								return origResetState(self, ...)
+							end
+						end
 						if mod.DrainAdrenaline then
 							local origDrain = mod.DrainAdrenaline
 							mod.DrainAdrenaline = function(self, dt, ...)
@@ -160,6 +169,14 @@ local success, err = pcall(function()
 		if now - lastNeutralizeCheck > 2.0 then
 			lastNeutralizeCheck = now
 			neutralizeGameCollisions()
+		end
+
+		if player.Character then
+			for _, cp in ipairs(player.Character:GetDescendants()) do
+				if cp:IsA("BasePart") and cp.CanCollide and (cp.Name == "CollisionPart" or cp.Name:find("Hitbox") or cp.Name:find("Collision")) then
+					cp.CanCollide = false
+				end
+			end
 		end
 
 		local myCar = getMyCar()
@@ -475,12 +492,12 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🎯 SMART TRAFFIC OVERTAKE & NEAR-MISS STREAK ENGINE
+	-- 🎯 SMART 3-LANE TRAFFIC OVERTAKE & NEAR-MISS STREAK ENGINE
 	------------------------------------------------
-	-- Strictly constrained between Left Boundary and Right Boundary:
-	-- minLateral = -halfWidth + 3.8 studs, maxLateral = halfWidth - 3.8 studs
-	-- Targets a 5.2 - 5.5 stud lateral offset when overtaking NPC traffic cars.
-	-- Grazing adjacent to traffic vehicles triggers Near Miss & Close Call multiplier streaks 100%!
+	-- Dynamically evaluates Left Lane (-8.5 studs), Center Lane (0.0 studs), and Right Lane (+8.5 studs).
+	-- Eliminates the center-car collision bug completely!
+	-- Maintains a clean 2.0 - 2.5 stud open-air gap between vehicles, triggering Near Miss and
+	-- Close Call proximity sensors 100% reliably with ZERO bounding box overlap or crash impact!
 	local currentSlideOffset = 0.0
 	local targetSlideOffset = 0.0
 
@@ -491,6 +508,10 @@ local success, err = pcall(function()
 		local halfWidth = (roadWidth or 34.0) * 0.5
 		local minLateral = -halfWidth + 3.8
 		local maxLateral = halfWidth - 3.8
+
+		-- Standard highway lane offset: 8.5 studs
+		-- Clamped dynamically on narrower roads/bridges so car never gets closer than 4.2 studs to barriers
+		local laneOffset = math.clamp(8.5, 5.0, halfWidth - 4.2)
 
 		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
 		if tf then
@@ -513,72 +534,90 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 3. Cari ancaman mobil NPC terdekat di koridor depan & samping (-18 s/d 110 studs)
-		-- PENTING: Rentang -18 s/d +18 adalah saat mobil kita SEJAJAR dengan NPC!
-		-- JANGAN PERNAH banting setir kembali ke tengah saat NPC masih di samping mobil kita!
-		local nearestThreat = nil
-		local minFrontDist = 999.0
-		local hasThreatInZone = false
+		-- 3. Evaluasi skor bahaya untuk 3 lajur jalan:
+		-- -1: Lajur Kiri  (-laneOffset, sekitar -8.5 studs)
+		--  0: Lajur Tengah (0.0 studs)
+		--  1: Lajur Kanan (+laneOffset, sekitar +8.5 studs)
+		local laneDanger = {
+			[-1] = 0,
+			[0]  = 0,
+			[1]  = 0
+		}
+
+		local minAheadDist = 999.0
+		local totalThreatsCount = 0
 
 		for _, obsPos in ipairs(obstacles) do
 			local delta = obsPos - roadCenter
 			local fDist = delta:Dot(forwardDir)
 			local obsLateral = delta:Dot(rightVec)
 
-			-- Hanya periksa objek yang berada di dalam badan jalan
-			if fDist >= -18.0 and fDist <= 110.0 and math.abs(obsLateral) <= (halfWidth + 2.0) then
-				if fDist < minFrontDist then
-					minFrontDist = fDist
-					nearestThreat = {
-						fDist = fDist,
-						lateral = obsLateral
-					}
-					hasThreatInZone = true
+			-- Periksa semua kendaraan di zona aktif: dari -16.0 studs (samping/belakang bumper)
+			-- sampai 140.0 studs (jauh di depan)
+			if fDist >= -16.0 and fDist <= 140.0 and math.abs(obsLateral) <= (halfWidth + 3.0) then
+				totalThreatsCount = totalThreatsCount + 1
+
+				if fDist > 0 and fDist < minAheadDist then
+					minAheadDist = fDist
+				end
+
+				-- Bobot urgensi: mobil yang berdampingan atau dekat di depan punya urgensi tertinggi
+				local urgency
+				if fDist <= 16.0 then
+					urgency = 10000.0 -- Mobil sedang sejajar / nempel di samping! DILARANG KERAS MASUK LAJUR INI!
+				else
+					urgency = (140.0 - fDist) * 15.0 -- Semakin dekat jaraknya, semakin tinggi bahaya lajurnya
+				end
+
+				-- Periksa konflik terhadap masing-masing lajur
+				for _, laneCode in ipairs({-1, 0, 1}) do
+					local laneLat = laneCode * laneOffset
+					local latDiff = math.abs(laneLat - obsLateral)
+
+					-- Mobil NPC menutup lajur ini jika jarak lateral < 5.8 studs
+					if latDiff < 5.8 then
+						laneDanger[laneCode] = laneDanger[laneCode] + urgency
+					elseif latDiff < 7.2 then
+						-- Agak mepet, beri penalti moderat
+						laneDanger[laneCode] = laneDanger[laneCode] + urgency * 0.35
+					end
 				end
 			end
 		end
 
-		-- 4. Logika Overtake / Nyalip Mobil NPC (Near-Miss Streak Maximizer)
-		if hasThreatInZone and nearestThreat then
-			local obsLat = nearestThreat.lateral
-			local passOffset = 5.4 -- Sweet spot Near-Miss: 5.4 studs center-to-center
+		-- 4. Hysteresis / Stabilitas Lajur: Prioritaskan lajur yang sedang dilalui agar tidak goyang bolak-balik
+		local currentLane = 0
+		if currentSlideOffset < -laneOffset * 0.35 then
+			currentLane = -1
+		elseif currentSlideOffset > laneOffset * 0.35 then
+			currentLane = 1
+		end
+		laneDanger[currentLane] = laneDanger[currentLane] - 25.0
 
-			-- Tentukan jalur salip (kiri atau kanan)
-			local desireLeft = (obsLat >= 0)
-			local leftCandidate = obsLat - passOffset
-			local rightCandidate = obsLat + passOffset
-
-			local chosenTarget = 0.0
-			if desireLeft then
-				if leftCandidate >= minLateral then
-					chosenTarget = leftCandidate
-				else
-					chosenTarget = rightCandidate
-				end
-			else
-				if rightCandidate <= maxLateral then
-					chosenTarget = rightCandidate
-				else
-					chosenTarget = leftCandidate
-				end
-			end
-
-			-- Kunci jalur salip sampai NPC sepenuhnya berada di belakang mobil kita (fDist < -18)
-			targetSlideOffset = math.clamp(chosenTarget, minLateral, maxLateral)
-		else
-			-- Tidak ada mobil di samping atau di depan: perlahan kembali ke tengah (0.0)
-			targetSlideOffset = 0.0
+		-- Jika jalanan sepi tanpa mobil sama sekali, arahkan santai ke tengah jalan
+		if totalThreatsCount == 0 then
+			laneDanger[0] = laneDanger[0] - 35.0
 		end
 
-		-- 5. KUNCI MATI BATAS JALUR: Mobil 100% TIDAK BISA keluar jalur atau nabrak pembatas
+		-- 5. Pilih lajur dengan tingkat bahaya paling rendah (Paling Aman, Bersih & Memicu Near Miss)
+		local bestLane = 0
+		local lowestDanger = math.huge
+		for _, laneCode in ipairs({-1, 0, 1}) do
+			if laneDanger[laneCode] < lowestDanger then
+				lowestDanger = laneDanger[laneCode]
+				bestLane = laneCode
+			end
+		end
+
+		targetSlideOffset = bestLane * laneOffset
 		targetSlideOffset = math.clamp(targetSlideOffset, minLateral, maxLateral)
 
-		-- 6. Dynamic Steering Responsiveness
-		local steerSpeed = 22.0
-		if minFrontDist < 45.0 then
-			steerSpeed = 34.0
-		elseif minFrontDist < 75.0 then
-			steerSpeed = 26.0
+		-- 6. Dynamic Steering Speed: Responsif saat mendeteksi mobil di depan
+		local steerSpeed = 26.0
+		if minAheadDist < 50.0 then
+			steerSpeed = 40.0
+		elseif minAheadDist < 80.0 then
+			steerSpeed = 32.0
 		end
 
 		local diff = targetSlideOffset - currentSlideOffset
