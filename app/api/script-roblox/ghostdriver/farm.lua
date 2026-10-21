@@ -84,14 +84,9 @@ local success, err = pcall(function()
 				if TrafficImpact then
 					local mod = require(TrafficImpact)
 					if mod then
+						-- Neutralize violent push impulse only (allows Near Miss & Close Call proximity sensors to still trigger!)
 						mod.Push = function(self, ...) end
-						mod.Update = function(self, ...) end
-						mod.BindVehicle = function(self, ...) end
-						mod.footprint = nil
-						if mod.roots then table.clear(mod.roots) end
-						if mod.sensors then table.clear(mod.sensors) end
-						if mod.touching then table.clear(mod.touching) end
-						if mod.lastSeen then table.clear(mod.lastSeen) end
+						-- Keep mod.Update, mod.sensors, mod.lastSeen intact so the game awards Near Miss streak!
 					end
 				end
 
@@ -108,9 +103,6 @@ local success, err = pcall(function()
 					local mod = require(CollisionController)
 					if mod then
 						mod.TriggerImpact = function(self, ...) end
-						mod.Update = function(self, ...) end
-						mod.BindVehicle = function(self, ...) end
-						if mod.activeBoxes then table.clear(mod.activeBoxes) end
 					end
 				end
 
@@ -130,7 +122,6 @@ local success, err = pcall(function()
 					end
 				end
 			end
-
 		end)
 	end
 
@@ -143,7 +134,7 @@ local success, err = pcall(function()
 	local isRacingNow = false
 
 	-- Universal Ghost Noclip & Traffic Neutralizer: runs on Stepped (before physics solver)
-	-- Completely eliminates collisions with NPC traffic cars, AI racers, police, and players
+	-- Disables solid collisions while preserving CanTouch & CanQuery for Near-Miss detection
 	local lastNeutralizeCheck = 0
 	RunService.Stepped:Connect(function()
 		local now = os.clock()
@@ -154,15 +145,12 @@ local success, err = pcall(function()
 
 		local myCar = getMyCar()
 
-		-- 1. Disable collision, touch, and query on all non-wheel parts & sensors of our own car
-		-- (Never rename parts to preserve server replication integrity)
+		-- 1. Disable collision on car body parts, preserving CanTouch and CanQuery for near-miss registration
 		if myCar then
 			for _, p in ipairs(myCar:GetDescendants()) do
 				if p:IsA("BasePart") then
 					if p.Name:find("TrafficCollision") or p.Name:find("Impact") or p.Name:find("Hitbox") then
 						p.CanCollide = false
-						p.CanTouch = false
-						p.CanQuery = false
 					elseif p.Name ~= "FL" and p.Name ~= "FR" and p.Name ~= "RL" and p.Name ~= "RR" and p.CanCollide then
 						p.CanCollide = false
 					end
@@ -170,15 +158,14 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 2. Disable collision, touch & queries on all NPC Traffic vehicles in workspace.TrafficFolder
+		-- 2. Disable solid collisions on NPC Traffic vehicles in workspace.TrafficFolder
+		-- CanTouch = true and CanQuery = true are preserved for Near Miss / Streak detection!
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
 				for _, p in ipairs(tCar:GetDescendants()) do
-					if p:IsA("BasePart") then
-						if p.CanCollide then p.CanCollide = false end
-						if p.CanTouch then p.CanTouch = false end
-						if p.CanQuery then p.CanQuery = false end
+					if p:IsA("BasePart") and p.CanCollide then
+						p.CanCollide = false
 					end
 				end
 			end
@@ -365,99 +352,115 @@ local success, err = pcall(function()
 	------------------------------------------------
 	-- 🛣️ WAYPOINTS RESMI HIGHWAY & ROAD DIRECTION TRACKER
 	------------------------------------------------
-	local highwayWaypoints = {
-		Vector3.new(-3499.8, 63.4, -1882.2), -- Posisi awal tengah jalur
-		Vector3.new(-3499.8, 62.2, -2300.0), -- Jalan tol tengah
-		Vector3.new(-3499.8, 62.2, -2900.0), -- Jalan tol tengah
-		Vector3.new(-3499.8, 62.2, -3500.0), -- Menuju Checkpoint 6
-		Vector3.new(-3505.0, 79.4, -3922.6), -- Checkpoint 6 tengah
-		Vector3.new(-3516.0, 62.2, -4128.2), -- Checkpoint 7 tengah
-		Vector3.new(-3530.0, 61.3, -4459.7), -- Checkpoint 8 tengah
-		Vector3.new(-3555.0, 61.3, -4829.8), -- Checkpoint 9 tengah
-		Vector3.new(-3595.0, 61.3, -5242.1), -- Checkpoint 10 tengah
-		Vector3.new(-3660.0, 61.3, -5714.0), -- Checkpoint 11 tengah
-		Vector3.new(-3760.0, 61.5, -6322.1), -- Checkpoint 12 tengah
-		Vector3.new(-3820.0, 61.5, -6600.0), -- Tikungan highway 1
-		Vector3.new(-4070.0, 61.5, -7606.0), -- Tikungan highway 2
-		Vector3.new(-4389.0, 62.2, -8593.0), -- Tikungan highway 3
-		Vector3.new(-4580.0, 62.2, -9070.0), -- Tikungan highway 3.5
-		Vector3.new(-4776.0, 62.2, -9555.0), -- Tikungan highway 4 (Awal 56% Progress)
-		Vector3.new(-4980.0, 62.2, -9950.0), -- Tikungan highway 4.3 (Halus Kurva 56%)
-		Vector3.new(-5210.0, 62.2, -10350.0),-- Tikungan highway 4.6 (Halus Kurva 56%)
-		Vector3.new(-5451.0, 62.2, -10750.0),-- Highway strip 5
-		Vector3.new(-5850.0, 62.2, -11350.0),-- Highway strip 5.5
-		Vector3.new(-6301.0, 62.2, -12000.0),-- Highway strip 6
-		Vector3.new(-6780.0, 72.0, -12650.0),-- Highway strip 6.5
-		Vector3.new(-7300.0, 81.6, -13300.0),-- Highway strip 7
-		Vector3.new(-7820.0, 72.0, -13900.0),-- Highway strip 7.5
-		Vector3.new(-8382.0, 62.2, -14500.0),-- Menuju garis finish
-		Vector3.new(-9742.0, 62.2, -15626.9),-- RaceFinishLine
-		Vector3.new(-10200.0, 62.2, -16000.0),-- Tembus garis finish +450 studs
-		Vector3.new(-10800.0, 62.2, -16500.0) -- Tembus garis finish +1000 studs
-	}
+	------------------------------------------------
+	-- 🛣️ FULL HIGHWAY CORRIDOR DUAL-LANE TRACK ENGINE (ANTI-OUT-OF-BOUNDS)
+	------------------------------------------------
+	-- Powered by 3,462 synchronized left & right lane boundaries
+	-- Covers the complete 95,000-stud closed-loop highway circuit
+	local Corridor = _G.HipHub_GhostDriver_Corridor or {}
+	local cachedCorridorIdx = 1
 
-	local function getClosestRoadInfo(pos)
-		local bestDist = math.huge
-		local bestCenter = nil
-		local bestDir = nil
+	local function getCorridorRoadInfo(pos)
+		local n = #Corridor
+		if n == 0 then
+			return pos, Vector3.new(0, 0, -1), 34.0, 1
+		end
 
-		for i = 1, #highwayWaypoints - 1 do
-			local p0 = highwayWaypoints[i]
-			local p1 = highwayWaypoints[i + 1]
-			local segVec = p1 - p0
-			local segDir = Vector3.new(segVec.X, 0, segVec.Z).Unit
-			local segLen = (Vector2.new(p1.X, p1.Z) - Vector2.new(p0.X, p0.Z)).Magnitude
+		-- 1. Fast O(1) Local Search around cached index
+		local bestIdx = cachedCorridorIdx
+		local bestDistSq = math.huge
+		local searchRadius = 35
 
-			local v = pos - p0
-			local proj = v:Dot(segDir)
-			local clampedProj = math.clamp(proj, 0, segLen)
-			local closestPoint = p0 + segDir * clampedProj
-			local dist = (Vector2.new(pos.X, pos.Z) - Vector2.new(closestPoint.X, closestPoint.Z)).Magnitude
-
-			if dist < bestDist then
-				bestDist = dist
-				bestDir = segDir
-				bestCenter = closestPoint
+		for offset = -searchRadius, searchRadius do
+			local idx = ((cachedCorridorIdx - 1 + offset) % n) + 1
+			local pt = Corridor[idx]
+			local dx = pos.X - pt[1]
+			local dz = pos.Z - pt[3]
+			local dSq = dx * dx + dz * dz
+			if dSq < bestDistSq then
+				bestDistSq = dSq
+				bestIdx = idx
 			end
 		end
 
-		if bestDist < 120 and bestCenter and bestDir then
-			return bestCenter, bestDir
+		-- 2. Fallback to sparse global search if car was teleported or joined far away (> 180 studs)
+		if bestDistSq > 32400 then
+			bestDistSq = math.huge
+			for idx = 1, n, 6 do
+				local pt = Corridor[idx]
+				local dx = pos.X - pt[1]
+				local dz = pos.Z - pt[3]
+				local dSq = dx * dx + dz * dz
+				if dSq < bestDistSq then
+					bestDistSq = dSq
+					bestIdx = idx
+				end
+			end
+			local fineStart = math.max(1, bestIdx - 10)
+			local fineEnd = math.min(n, bestIdx + 10)
+			for idx = fineStart, fineEnd do
+				local pt = Corridor[idx]
+				local dx = pos.X - pt[1]
+				local dz = pos.Z - pt[3]
+				local dSq = dx * dx + dz * dz
+				if dSq < bestDistSq then
+					bestDistSq = dSq
+					bestIdx = idx
+				end
+			end
 		end
-		return nil, nil
+
+		cachedCorridorIdx = bestIdx
+
+		local pA = Corridor[bestIdx]
+		local nextIdx = (bestIdx % n) + 1
+		local pB = Corridor[nextIdx]
+
+		local segX = pB[1] - pA[1]
+		local segZ = pB[3] - pA[3]
+		local segLen = math.sqrt(segX * segX + segZ * segZ)
+		local dirX = segLen > 0.001 and (segX / segLen) or 0
+		local dirZ = segLen > 0.001 and (segZ / segLen) or -1
+		local roadForward = Vector3.new(dirX, 0, dirZ)
+
+		-- Segment projection for sub-stud continuous centerline tracking
+		local vx = pos.X - pA[1]
+		local vz = pos.Z - pA[3]
+		local proj = vx * dirX + vz * dirZ
+		local t = math.clamp(proj, 0, segLen)
+
+		local roadCenterX = pA[1] + dirX * t
+		local roadCenterY = pA[2] + (pB[2] - pA[2]) * (t / math.max(segLen, 1))
+		local roadCenterZ = pA[3] + dirZ * t
+		local roadWidth = pA[4] or 34.0
+
+		return Vector3.new(roadCenterX, roadCenterY, roadCenterZ), roadForward, roadWidth, bestIdx
 	end
 
 	------------------------------------------------
-	-- 🎯 3-LANE SMART TRAFFIC DODGE & OVERTAKE ENGINE
+	-- 🎯 SMART TRAFFIC OVERTAKE & NEAR-MISS STREAK ENGINE
 	------------------------------------------------
-	-- Highway 3-Jalur (Left: -7.5 studs, Center: 0.0 studs, Right: +7.5 studs)
-	-- Menganalisis seluruh kendaraan di depan dalam jarak 220 studs.
-	-- Memilih jalur teraman dan paling lapang, serta menghindari kendaraan NPC secara otomatis.
-	-- Memberikan bonus Near-Miss & Close-Shave secara konsisten tanpa risiko tabrakan!
-	local currentSlideOffset = 0.0    -- Offset lateral saat ini (-7.8 s/d +7.8 studs)
-	local targetSlideOffset = 0.0     -- Offset target (-7.5, 0.0, atau +7.5)
-	local currentLaneChoice = 0       -- -1 = Kiri, 0 = Tengah, 1 = Kanan
+	-- Strictly constrained between Left Boundary and Right Boundary:
+	-- minLateral = -halfWidth + 3.8 studs, maxLateral = halfWidth - 3.8 studs
+	-- Targets a 5.0 - 5.5 stud lateral offset when overtaking NPC traffic cars.
+	-- Grazing adjacent to traffic vehicles triggers Near Miss & Close Call multiplier streaks 100%!
+	local currentSlideOffset = 0.0
+	local targetSlideOffset = 0.0
 
-	local LANE_OFFSETS = {
-		[-1] = -7.5, -- Jalur Kiri
-		[0]  =  0.0, -- Jalur Tengah (Default)
-		[1]  =  7.5  -- Jalur Kanan
-	}
-	local MAX_ROAD_OFFSET = 7.8
-
-	local function calculateSmartTrafficDodge(carPos, forwardDir, rightVec, roadCenter, dt)
+	local function calculateSmartTrafficDodge(carPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
 		local tf = workspace:FindFirstChild("TrafficFolder")
 		local obstacles = {}
+
+		local halfWidth = (roadWidth or 34.0) * 0.5
+		local minLateral = -halfWidth + 3.8
+		local maxLateral = halfWidth - 3.8
 
 		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
 				if tCar:IsA("Model") then
 					local pivot = tCar:GetPivot()
-					table.insert(obstacles, {
-						model = tCar,
-						pos = pivot.Position
-					})
+					table.insert(obstacles, pivot.Position)
 				end
 			end
 		end
@@ -468,143 +471,75 @@ local success, err = pcall(function()
 			if obj:IsA("Model") and obj ~= myCar and obj ~= player.Character then
 				if obj:FindFirstChild("DriveSeat") or obj.Name:find("Police") or obj.Name:find("AI") then
 					local pivot = obj:GetPivot()
-					table.insert(obstacles, {
-						model = obj,
-						pos = pivot.Position
-					})
+					table.insert(obstacles, pivot.Position)
 				end
 			end
 		end
 
-		-- 3. Analisis okupansi rintangan per lajur
-		-- Lane -1 (Left), Lane 0 (Center), Lane 1 (Right)
-		local laneMinDist = {
-			[-1] = 999.0,
-			[0]  = 999.0,
-			[1]  = 999.0
-		}
-		local laneSideBlocked = {
-			[-1] = false,
-			[0]  = false,
-			[1]  = false
-		}
+		-- 3. Cari ancaman mobil NPC terdekat di koridor depan (-6 s/d 130 studs)
+		local nearestObsLateral = 0.0
+		local minFrontDist = 999.0
+		local hasThreatAhead = false
 
-		local centerRef = roadCenter or carPos
-		local nearestThreatDist = 999.0
-
-		for _, obs in ipairs(obstacles) do
-			local delta = obs.pos - carPos
+		for _, obsPos in ipairs(obstacles) do
+			local delta = obsPos - roadCenter
 			local fDist = delta:Dot(forwardDir)
+			local obsLateral = delta:Dot(rightVec)
 
-			-- Hanya periksa objek di koridor highway depan & samping (-8 s/d 220 studs)
-			if fDist >= -8.0 and fDist <= 220.0 then
-				local deltaCenter = obs.pos - centerRef
-				local obsLateral = deltaCenter:Dot(rightVec)
-
-				-- Pastikan berada dalam rentang badan jalan (-16 s/d +16 studs)
-				if math.abs(obsLateral) <= 16.0 then
-					-- Tentukan lajur yang terhalang oleh rintangan
-					-- Karena mobil NPC memiliki lebar ~6.5 studs, periksa overlap
-					local blocksLeft   = (obsLateral < -3.2)
-					local blocksCenter = (obsLateral >= -5.5 and obsLateral <= 5.5)
-					local blocksRight  = (obsLateral > 3.2)
-
-					if blocksLeft then
-						if fDist >= 0 and fDist < laneMinDist[-1] then
-							laneMinDist[-1] = fDist
-						end
-						if fDist >= -8.0 and fDist <= 15.0 then
-							laneSideBlocked[-1] = true
-						end
-					end
-
-					if blocksCenter then
-						if fDist >= 0 and fDist < laneMinDist[0] then
-							laneMinDist[0] = fDist
-						end
-						if fDist >= -8.0 and fDist <= 15.0 then
-							laneSideBlocked[0] = true
-						end
-					end
-
-					if blocksRight then
-						if fDist >= 0 and fDist < laneMinDist[1] then
-							laneMinDist[1] = fDist
-						end
-						if fDist >= -8.0 and fDist <= 15.0 then
-							laneSideBlocked[1] = true
-						end
-					end
-
-					-- Catat ancaman langsung di jalur kita saat ini
-					local myLateralDiff = math.abs(obsLateral - currentSlideOffset)
-					if myLateralDiff < 4.5 and fDist >= 0 and fDist < nearestThreatDist then
-						nearestThreatDist = fDist
-					end
+			-- Hanya periksa objek yang berada di dalam badan jalan
+			if fDist >= -6.0 and fDist <= 130.0 and math.abs(obsLateral) <= (halfWidth + 2.0) then
+				-- Cek apakah tepat di jalur lintasan mobil kita (< 6.2 studs lateral)
+				local latDiff = math.abs(obsLateral - currentSlideOffset)
+				if latDiff < 6.2 and fDist >= 0 and fDist < minFrontDist then
+					minFrontDist = fDist
+					nearestObsLateral = obsLateral
+					hasThreatAhead = true
 				end
 			end
 		end
 
-		-- 4. Logika Pemilihan Jalur (Hierarchical Lane Decision)
-		-- Cek apakah jalur yang kita pilih saat ini aman
-		local SAFE_CLEARANCE = 140.0   -- Jarak minimal untuk merasa aman di lajur saat ini
-		local currentIsSafe = (laneMinDist[currentLaneChoice] > SAFE_CLEARANCE) and not laneSideBlocked[currentLaneChoice]
+		-- 4. Logika Overtake / Nyalip Mobil NPC (Near-Miss Streak Maximizer)
+		if hasThreatAhead and minFrontDist < 115.0 then
+			-- Jarak aman nyalip tepat di samping mobil: 5.2 studs (Near Miss Sweet Spot)
+			local passOffset = 5.2
+			local desireLeft = (nearestObsLateral >= 0) -- Jika NPC di kanan, salip dari kiri
 
-		if not currentIsSafe then
-			-- Jalur saat ini terhalang! Evaluasi semua opsi jalur:
-			local bestLane = currentLaneChoice
-			local bestScore = -999999
+			local leftCandidate = nearestObsLateral - passOffset
+			local rightCandidate = nearestObsLateral + passOffset
 
-			for _, laneIdx in ipairs({ 0, -1, 1 }) do
-				if not laneSideBlocked[laneIdx] then
-					local dist = laneMinDist[laneIdx]
-					local score = dist
-
-					-- Jalur tengah sedikit lebih disukai jika benar-benar kosong
-					if laneIdx == 0 and dist > 160.0 then
-						score = score + 20.0
-					end
-
-					-- Preferensi tidak berpindah 2 lajur sekaligus jika lajur tengah bisa dipakai
-					if math.abs(laneIdx - currentLaneChoice) == 1 then
-						score = score + 10.0
-					end
-
-					if score > bestScore then
-						bestScore = score
-						bestLane = laneIdx
-					end
+			if desireLeft then
+				if leftCandidate >= minLateral then
+					targetSlideOffset = leftCandidate
+				else
+					targetSlideOffset = rightCandidate
+				end
+			else
+				if rightCandidate <= maxLateral then
+					targetSlideOffset = rightCandidate
+				else
+					targetSlideOffset = leftCandidate
 				end
 			end
-
-			currentLaneChoice = bestLane
 		else
-			-- Jalur saat ini aman:
-			-- Jika kita berada di pinggir (Kiri / Kanan), kembali ke Tengah HANYA JIKA Tengah benar-benar lowong
-			if currentLaneChoice ~= 0 then
-				if laneMinDist[0] > 180.0 and not laneSideBlocked[0] then
-					currentLaneChoice = 0
-				end
-			end
+			-- Jalur lowong di depan: perlahan kembali ke tengah (0.0)
+			targetSlideOffset = 0.0
 		end
 
-		targetSlideOffset = LANE_OFFSETS[currentLaneChoice] or 0.0
-		targetSlideOffset = math.clamp(targetSlideOffset, -MAX_ROAD_OFFSET, MAX_ROAD_OFFSET)
+		-- 5. KUNCI MATI BATAS JALUR: Mobil 100% TIDAK BISA keluar jalur atau nabrak pembatas
+		targetSlideOffset = math.clamp(targetSlideOffset, minLateral, maxLateral)
 
-		-- 5. Dynamic Steering / Strafe Speed:
-		-- Jika ada rintangan mendadak di depan (< 50 studs), percepat manuver dodge!
-		local dynamicSpeed = 26.0
-		if nearestThreatDist < 50.0 then
-			dynamicSpeed = 40.0
-		elseif nearestThreatDist < 80.0 then
-			dynamicSpeed = 32.0
+		-- 6. Dynamic Steering Responsiveness
+		local steerSpeed = 22.0
+		if minFrontDist < 45.0 then
+			steerSpeed = 38.0
+		elseif minFrontDist < 75.0 then
+			steerSpeed = 30.0
 		end
 
 		local diff = targetSlideOffset - currentSlideOffset
-		local maxStep = dynamicSpeed * dt
-		local slideStep = math.clamp(diff, -maxStep, maxStep)
-		currentSlideOffset = currentSlideOffset + slideStep
-		currentSlideOffset = math.clamp(currentSlideOffset, -MAX_ROAD_OFFSET, MAX_ROAD_OFFSET)
+		local maxStep = steerSpeed * dt
+		currentSlideOffset = currentSlideOffset + math.clamp(diff, -maxStep, maxStep)
+		currentSlideOffset = math.clamp(currentSlideOffset, minLateral, maxLateral)
 
 		return currentSlideOffset
 	end
@@ -662,7 +597,7 @@ local success, err = pcall(function()
 						local diff = Config.farm.raceDifficulty or "Hard"
 						Remotes.RaceSoloPick:FireServer(diff)
 						if UI and UI.Notify then
-							UI.Notify("Auto Race", "Joining " .. diff .. " race! Staying strictly on lower highway...", 2, "info")
+							UI.Notify("Auto Race", "Joining " .. diff .. " race! Highway Corridor Active...", 2, "info")
 						end
 
 						local started = false
@@ -683,7 +618,6 @@ local success, err = pcall(function()
 
 						local waitStart = os.clock()
 						while not started and not finished and (os.clock() - waitStart) < 25 do
-							-- Selama countdown 3 detik, posisikan mobil stabil di tengah jalur (X = -3499.8, Y = 63.4)
 							local curP = car:GetPivot().Position
 							if curP.Z < -1000 and curP.Y < 80 then
 								car:PivotTo(CFrame.new(-3499.8, 63.4, curP.Z) * CFrame.Angles(0, math.rad(180), 0))
@@ -696,28 +630,24 @@ local success, err = pcall(function()
 						end
 
 						if started and not finished then
-							-- 🏁 COUNTDOWN 3 DETIK SELESAI!
-							-- Posisikan mobil tepat di posisi awal tengah jalur (X = -3499.8, Y = 63.4) sebelum gas ke depan!
+							-- 🏁 COUNTDOWN SELESAI: GAS MAJU MENGIKUTI CORRIDOR
 							local curP = car:GetPivot().Position
 							car:PivotTo(CFrame.new(-3499.8, 63.4, curP.Z) * CFrame.Angles(0, math.rad(180), 0))
 							if seat and seat:IsA("BasePart") then
 								seat.AssemblyLinearVelocity = Vector3.zero
 								seat.AssemblyAngularVelocity = Vector3.zero
 							end
-							currentLaneChoice = 0
 							currentSlideOffset = 0
 							targetSlideOffset = 0
 							task.wait(0.15)
 
-							local currentWpIndex = 1
-							local cruiseMPH = 100
+							local cruiseMPH = Config.farm.raceSpeed or 250
 							local targetStudsSec = cruiseMPH * 1.760
 
 							local rayParams = RaycastParams.new()
 							rayParams.FilterType = Enum.RaycastFilterType.Exclude
 							rayParams.FilterDescendantsInstances = {player.Character, car}
 
-							-- Real-time road corridor tracking & 100% straight driving loop with lateral dodge
 							local heartbeatConn
 							local lastTick = os.clock()
 
@@ -729,60 +659,29 @@ local success, err = pcall(function()
 								lastTick = now
 
 								local currentPos = car:GetPivot().Position
-								local pA = highwayWaypoints[currentWpIndex]
-								local pB = highwayWaypoints[math.min(currentWpIndex + 1, #highwayWaypoints)]
-								local segVec = pB - pA
-								local roadForward = Vector3.new(segVec.X, 0, segVec.Z).Unit
-								if currentWpIndex >= #highwayWaypoints then
-									roadForward = Vector3.new(-0.768, 0, -0.640).Unit
-								end
-
-								-- Maju ke waypoint berikutnya jika sudah melewati pB
-								local toB = pB - currentPos
-								local distAlong = toB:Dot(roadForward)
-								if distAlong <= 20 and currentWpIndex < #highwayWaypoints then
-									currentWpIndex = currentWpIndex + 1
-									pA = highwayWaypoints[currentWpIndex]
-									pB = highwayWaypoints[math.min(currentWpIndex + 1, #highwayWaypoints)]
-									segVec = pB - pA
-									roadForward = Vector3.new(segVec.X, 0, segVec.Z).Unit
-								end
-
-								-- Titik tengah jalan (centerline) segmen saat ini
-								local t = (currentPos - pA):Dot(roadForward)
-								local segLen = (pB - pA):Dot(roadForward)
-								t = math.clamp(t, 0, math.max(segLen, 1))
-								local roadCenter = pA + roadForward * t
+								local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
+								local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
 								-- 1. Deteksi permukaan jalan tepat di bawah mobil
 								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
 								local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
-								-- Arah maju highway (100% sejajar koridor jalan)
-								local forwardDir = roadForward
-								local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
-
-								-- 2. Dapatkan offset lateral dari Traffic Dodge Engine (otomatis hindari rintangan & NPC)
+								-- 2. Dapatkan offset lateral dari Near-Miss Overtake Engine
 								local lateralOffset = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, dt)
+									lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
 								end
 
-								-- 3. Posisi baru: Dikunci pada roadCenter + forwardDir * stepDist + rightVec * lateralOffset (-8.0 s/d +8.0)
+								-- 3. Kunci posisi: roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 								local stepDist = targetStudsSec * dt
 								local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 
-								-- 4. Kunci orientasi mobil 100% TEGAK LURUS SEJAJAR JALAN
+								-- 4. Kunci orientasi mobil 100% tegak lurus sejajar jalan
 								local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
 								car:PivotTo(targetCF)
 
-								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah maju highway
+								-- 5. Dorong dengan kecepatan penuh stabil
 								seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
-								seat.AssemblyAngularVelocity = Vector3.zero
-								if seat:IsA("VehicleSeat") then
-									seat.ThrottleFloat = 1.0
-									seat.Throttle = 1
-								end
 								seat.AssemblyAngularVelocity = Vector3.zero
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = 1.0
@@ -849,18 +748,16 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- ⚡ AUTO SPEED & COMBO HIGHWAY CRUISE (SMART TRAFFIC DODGE)
+	-- ⚡ AUTO SPEED & 24/7 ENDLESS HIGHWAY CRUISE (NEAR-MISS STREAK FARM)
 	------------------------------------------------
 	task.spawn(function()
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-		local smoothDodge = 0
-		local smoothLateral = 0
 		local lastTick = os.clock()
 
 		while true do
-			task.wait(0.02)
+			task.wait(0.015)
 			if Config.farm.autoSpeedFarm and not isRacingNow then
 				local car, seat = getMyCar()
 				local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -873,38 +770,31 @@ local success, err = pcall(function()
 
 					local currentPos = car:GetPivot().Position
 
-					-- Cari titik tengah & arah jalan raya terdekat dari daftar waypoints highway
-					local roadCenter, roadForward = getClosestRoadInfo(currentPos)
-					local currentLook = seat.CFrame.LookVector
-					local forwardDir = roadForward or Vector3.new(currentLook.X, 0, currentLook.Z).Unit
+					-- 1. Ambil info koridor lintasan (centerline, arah forward, lebar jalan)
+					local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
 					local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-					-- 1. Deteksi permukaan jalan tepat di bawah mobil
+					-- 2. Deteksi permukaan jalan tepat di bawah mobil
 					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
 					local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
-					-- 2. Dapatkan offset lateral dari Traffic Dodge Engine (otomatis hindari rintangan & NPC)
+					-- 3. Hitung manuver nyalip mobil NPC untuk memicu Near Miss streak
 					local lateralOffset = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, dt)
+						lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
 					end
 
-					-- 3. Posisi baru: Jika berada di dekat waypoint highway, kunci pada roadCenter + lateralOffset!
-					local targetMPH = Config.farm.targetSpeed or 100
+					-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
+					local targetMPH = Config.farm.targetSpeed or 180
 					local targetStudsSec = targetMPH * 1.760
 					local stepDist = targetStudsSec * dt
-					local nextPos
-					if roadCenter then
-						nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
-					else
-						nextPos = currentPos + forwardDir * stepDist + rightVec * (lateralOffset - currentSlideOffset)
-					end
+					local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 
-					-- 4. Kunci orientasi mobil 100% TEGAK LURUS SEJAJAR JALAN
+					-- 5. Kunci orientasi mobil 100% tegak lurus sejajar jalan
 					local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
 					car:PivotTo(targetCF)
 
-					-- 5. Dorong dengan kecepatan target konstan + Gas Pedal On
+					-- 6. Dorong dengan kecepatan target konstan + Gas Pedal On
 					seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
 					seat.AssemblyAngularVelocity = Vector3.zero
 					if seat:IsA("VehicleSeat") then
@@ -913,13 +803,9 @@ local success, err = pcall(function()
 					end
 				else
 					lastTick = os.clock()
-					smoothDodge = 0
-					smoothLateral = 0
 				end
 			else
 				lastTick = os.clock()
-				smoothDodge = 0
-				smoothLateral = 0
 			end
 		end
 	end)

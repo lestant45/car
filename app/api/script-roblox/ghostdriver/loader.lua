@@ -4,6 +4,7 @@
 local MODULE_FILES = {
 	"ui.lua",
 	"settings.lua",
+	"corridor.lua",
 	"farm.lua",
 	"vehicle.lua",
 	"teleport.lua",

@@ -264,6 +264,7 @@ func()
     const scriptDir = path.join(process.cwd(), "app/api/script-roblox/ghostdriver");
     const uiPath = path.join(scriptDir, "ui.lua");
     const settingsPath = path.join(scriptDir, "settings.lua");
+    const corridorPath = path.join(scriptDir, "corridor.lua");
     const teleportPath = path.join(scriptDir, "teleport.lua");
     const vehiclePath = path.join(scriptDir, "vehicle.lua");
     const farmPath = path.join(scriptDir, "farm.lua");
@@ -287,6 +288,7 @@ func()
     luaScript += fs.readFileSync(uiPath, "utf8");
 
     if (fs.existsSync(settingsPath)) luaScript += "\n" + fs.readFileSync(settingsPath, "utf8");
+    if (fs.existsSync(corridorPath)) luaScript += "\n" + fs.readFileSync(corridorPath, "utf8");
     if (fs.existsSync(farmPath)) luaScript += "\n" + fs.readFileSync(farmPath, "utf8");
     if (fs.existsSync(vehiclePath)) luaScript += "\n" + fs.readFileSync(vehiclePath, "utf8");
     if (fs.existsSync(teleportPath)) luaScript += "\n" + fs.readFileSync(teleportPath, "utf8");
