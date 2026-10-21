@@ -1716,6 +1716,64 @@ local success, err = pcall(function()
 		return nil, nil
 	end
 
+	local cachedCar = nil
+	local cachedRideHeight = nil
+
+	local function getCarRideHeight(car)
+		if not car then return 1.15 end
+		if cachedCar == car and cachedRideHeight then
+			return cachedRideHeight
+		end
+
+		local pivotY = car:GetPivot().Position.Y
+		local lowestY = nil
+
+		-- Cari titik terendah dari seluruh roda/ban fisik
+		for _, desc in ipairs(car:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				local name = desc.Name:lower()
+				if name:find("wheel") or name:find("tire") or name == "fl" or name == "fr" or name == "rl" or name == "rr" then
+					local bY = desc.Position.Y - (desc.Size.Y * 0.5)
+					if not lowestY or bY < lowestY then
+						lowestY = bY
+					end
+				end
+			end
+		end
+
+		if lowestY then
+			local dist = pivotY - lowestY
+			if dist >= 0.4 and dist <= 3.5 then
+				cachedCar = car
+				cachedRideHeight = dist
+				return dist
+			end
+		end
+
+		-- Fallback jika nama part custom: periksa part di bawah DriveSeat
+		for _, desc in ipairs(car:GetDescendants()) do
+			if desc:IsA("BasePart") and not desc:IsA("Seat") and desc.Name ~= "DriveSeat" then
+				local bY = desc.Position.Y - (desc.Size.Y * 0.5)
+				if not lowestY or bY < lowestY then
+					lowestY = bY
+				end
+			end
+		end
+
+		if lowestY then
+			local dist = pivotY - lowestY
+			if dist >= 0.4 and dist <= 3.5 then
+				cachedCar = car
+				cachedRideHeight = dist
+				return dist
+			end
+		end
+
+		cachedCar = car
+		cachedRideHeight = 1.15
+		return 1.15
+	end
+
 	------------------------------------------------
 	-- 🛡️ ANTI-CRASH & COLLISION CONTROLLER NEUTRALIZER
 	------------------------------------------------
@@ -1761,35 +1819,36 @@ local success, err = pcall(function()
 						if mod.TriggerCrashCheck then
 							mod.TriggerCrashCheck = function(self, ...) return false end
 						end
-						if mod.ResetCombo then
-							local origReset = mod.ResetCombo
-							mod.ResetCombo = function(self, ...)
-								if Config.farm.autoSpeedFarm or Config.farm.autoRace then return end
-								return origReset(self, ...)
-							end
-						end
 						local origLose = mod.LoseCombo
 						mod.LoseCombo = function(self, reason, ...)
-							-- Keep streak alive 100% while auto farm is running
-							if Config.farm.autoSpeedFarm or Config.farm.autoRace then
+							-- Hanya cegah hilangnya combo jika terkena tabrakan/crash fisik
+							if (Config.farm.autoSpeedFarm or Config.farm.autoRace) and (reason == "Crash" or reason == "Collision" or reason == "Impact") then
 								return
 							end
 							if origLose then return origLose(self, reason, ...) end
 						end
-						if mod.ResetComboState then
-							local origResetState = mod.ResetComboState
-							mod.ResetComboState = function(self, ...)
-								if Config.farm.autoSpeedFarm or Config.farm.autoRace then
-									return -- Block combo reset completely! Streak stays preserved!
-								end
-								return origResetState(self, ...)
-							end
-						end
-						if mod.DrainAdrenaline then
-							local origDrain = mod.DrainAdrenaline
+
+						-- Otomatis cairkan (Bank) combo ke wallet setelah streak tinggi
+						-- agar uang bonus streak masuk terus ke akun tanpa harus toggle off/on!
+						local origDrain = mod.DrainAdrenaline
+						if origDrain then
+							local lastBankTime = os.clock()
 							mod.DrainAdrenaline = function(self, dt, ...)
 								if Config.farm.autoSpeedFarm or Config.farm.autoRace then
-									self.adrenaline = 15.0 -- Lock adrenaline 100% full, combo streak NEVER expires!
+									local now = os.clock()
+									-- Setiap ~26 detik, biarkan adrenaline turun sebentar agar combo mencairkan uang bonus ke saldo!
+									if (now - lastBankTime) > 26.0 then
+										if self.adrenaline and self.adrenaline <= 0.2 then
+											lastBankTime = now -- Siklus baru dimulai
+										end
+										return origDrain(self, dt * 1.5, ...)
+									else
+										-- Pertahankan adrenaline (drain 50% lebih lambat) agar streak tidak gampang putus di antara mobil
+										if self.adrenaline and self.adrenaline < 4.0 then
+											self.adrenaline = 4.0
+										end
+										return origDrain(self, dt * 0.5, ...)
+									end
 								end
 								return origDrain(self, dt, ...)
 							end
@@ -2395,12 +2454,12 @@ local success, err = pcall(function()
 								local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
 								local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-								-- 1. Deteksi permukaan jalan tepat di bawah mobil (mengikuti elevasi 3D flyover/bridge)
+								-- 1. Deteksi permukaan jalan tepat di bawah mobil & 12 studs di depan (mengikuti elevasi 3D flyover/bridge & slope)
 								local probeOrigin = Vector3.new(currentPos.X, roadCenter.Y + 6, currentPos.Z)
-								local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -18, 0), rayParams)
-								local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 6) and downHit.Position.Y or roadCenter.Y
+								local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -20, 0), rayParams)
+								local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 7) and downHit.Position.Y or roadCenter.Y
 
-								-- 2. Dapatkan offset lateral dari Near-Miss Overtake Engine
+								-- 2. Dapatkan offset lateral dari Near-Miss Overtake Engine (Jalur Kiri & Tengah Saja)
 								local lateralOffset = 0
 								if Config.farm.autoDodgeTraffic ~= false then
 									lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
@@ -2410,12 +2469,25 @@ local success, err = pcall(function()
 								local stepDist = targetStudsSec * dt
 								local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 
-								-- 4. Kunci orientasi mobil 100% tegak lurus sejajar jalan
-								local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
+								local probeAhead = Vector3.new(nextPos.X + forwardDir.X * 12, roadCenter.Y + 6, nextPos.Z + forwardDir.Z * 12)
+								local downHitAhead = workspace:Raycast(probeAhead, Vector3.new(0, -20, 0), rayParams)
+								local roadYAhead = (downHitAhead and math.abs(downHitAhead.Position.Y - roadCenter.Y) < 7) and downHitAhead.Position.Y or roadY
+
+								-- 4. Ketinggian ban menapak ke tanah (press 0.08 studs ke aspal agar suspensi aktif & ban dapat normal force)
+								local rideH = getCarRideHeight(car)
+								local targetY = roadY + rideH - 0.08
+								local targetYAhead = roadYAhead + rideH - 0.08
+
+								local currentPoint = Vector3.new(nextPos.X, targetY, nextPos.Z)
+								local lookPoint = Vector3.new(nextPos.X + forwardDir.X * 12, targetYAhead, nextPos.Z + forwardDir.Z * 12)
+
+								-- 5. Kunci orientasi mobil mengikuti kontur dan tanjakan/turunan jalan (pitch & yaw sempurna)
+								local targetCF = CFrame.lookAt(currentPoint, lookPoint)
 								car:PivotTo(targetCF)
 
-								-- 5. Dorong dengan kecepatan penuh stabil
-								seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
+								-- 6. Dorong dengan kecepatan penuh stabil + Downforce ke aspal + Gas Pedal On
+								local vertCorrection = (targetY - currentPos.Y) * 10 - 4.0
+								seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, vertCorrection, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = 1.0
@@ -2509,12 +2581,12 @@ local success, err = pcall(function()
 						local roadCenter, forwardDir, roadWidth = getCorridorRoadInfo(currentPos)
 						local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-						-- 2. Deteksi permukaan jalan tepat di bawah mobil (mengikuti elevasi 3D flyover/bridge)
+						-- 2. Deteksi permukaan jalan tepat di bawah mobil & 12 studs di depan (mengikuti elevasi 3D flyover/bridge & slope)
 						local probeOrigin = Vector3.new(currentPos.X, roadCenter.Y + 6, currentPos.Z)
-						local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -18, 0), rayParams)
-						local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 6) and downHit.Position.Y or roadCenter.Y
+						local downHit = workspace:Raycast(probeOrigin, Vector3.new(0, -20, 0), rayParams)
+						local roadY = (downHit and math.abs(downHit.Position.Y - roadCenter.Y) < 7) and downHit.Position.Y or roadCenter.Y
 
-						-- 3. Hitung manuver nyalip mobil NPC untuk memicu Near Miss streak
+						-- 3. Hitung manuver nyalip mobil NPC untuk memicu Near Miss streak (Jalur Kiri & Tengah Saja)
 						local lateralOffset = 0
 						if Config.farm.autoDodgeTraffic ~= false then
 							lateralOffset = calculateSmartTrafficDodge(currentPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
@@ -2526,12 +2598,25 @@ local success, err = pcall(function()
 						local stepDist = targetStudsSec * dt
 						local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 
-						-- 5. Kunci orientasi mobil 100% tegak lurus sejajar jalan
-						local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
+						local probeAhead = Vector3.new(nextPos.X + forwardDir.X * 12, roadCenter.Y + 6, nextPos.Z + forwardDir.Z * 12)
+						local downHitAhead = workspace:Raycast(probeAhead, Vector3.new(0, -20, 0), rayParams)
+						local roadYAhead = (downHitAhead and math.abs(downHitAhead.Position.Y - roadCenter.Y) < 7) and downHitAhead.Position.Y or roadY
+
+						-- 5. Hitung ketinggian ride height agar roda MENAPAK KE TANAH (press 0.08 studs ke aspal agar suspensi terkompresi & ban dapat grip normal force)
+						local rideH = getCarRideHeight(car)
+						local targetY = roadY + rideH - 0.08
+						local targetYAhead = roadYAhead + rideH - 0.08
+
+						local currentPoint = Vector3.new(nextPos.X, targetY, nextPos.Z)
+						local lookPoint = Vector3.new(nextPos.X + forwardDir.X * 12, targetYAhead, nextPos.Z + forwardDir.Z * 12)
+
+						-- 6. Kunci orientasi mobil mengikuti kontur dan tanjakan/turunan jalan (pitch & yaw sempurna)
+						local targetCF = CFrame.lookAt(currentPoint, lookPoint)
 						car:PivotTo(targetCF)
 
-						-- 6. Dorong dengan kecepatan target konstan + Gas Pedal On
-						seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
+						-- 7. Dorong dengan kecepatan target konstan + Downforce ke aspal + Gas Pedal On
+						local vertCorrection = (targetY - currentPos.Y) * 10 - 4.0
+						seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, vertCorrection, 0)
 						seat.AssemblyAngularVelocity = Vector3.zero
 						if seat:IsA("VehicleSeat") then
 							seat.ThrottleFloat = 1.0
