@@ -1,3 +1,11 @@
+_G.hiphub_key = "KEYLESS"
+_G.hiphub_role = "free"
+_G.hiphub_url = "https://hiphub.cloud"
+if getgenv then getgenv().hiphub_key = "KEYLESS" end
+if getgenv then getgenv().hiphub_role = "free" end
+if getgenv then getgenv().hiphub_url = "https://hiphub.cloud" end
+
+-- [ ui.lua ] --
 -- HipHub Ghost Driver — Futuristic Liquid Glass UI Base
 -- Pure UI Layout Base & Component Library
 -- Theme: Glassmorphism / Liquid Glass with Cyan-Violet accents (Clean Typography - Strict No Emojis)
@@ -1165,6 +1173,7 @@ if not success then
 end
 
 
+-- [ settings.lua ] --
 -- HipHub Ghost Driver — Settings & Config Manager
 -- Handles JSON persistence across sessions, anti-AFK, and global settings
 
@@ -1184,7 +1193,7 @@ local success, err = pcall(function()
 			autoClaimQuests = true,
 			claimInterval = 5,
 			autoSpeedFarm = false,
-			targetSpeed = 150,
+			targetSpeed = 100,
 			autoAfkArea = false,
 			autoBuyCar = false,
 			targetCarToBuy = "Novis N55"
@@ -1271,6 +1280,7 @@ if not success then
 end
 
 
+-- [ farm.lua ] --
 -- HipHub Ghost Driver — Automation & Farm Engine (BAC-5513 Bypass Safe)
 -- Implements Auto Race, Quest Automation, Speed Cruise, and Auto Buy Car
 
@@ -1634,140 +1644,133 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🚗 DISCRETE 3-LANE SYSTEM WITH LANE LOCKING (100% ANTI-ZIGZAG)
+	-- 🛣️ WAYPOINTS RESMI HIGHWAY & ROAD DIRECTION TRACKER
 	------------------------------------------------
-	-- Jalur: -1 = Kiri, 0 = Tengah, 1 = Kanan
-	local currentLockedLane = 0
-	local smoothSteerTarget = 0
+	local highwayWaypoints = {
+		Vector3.new(-3499.8, 63.4, -1882.2), -- Posisi awal tengah jalur
+		Vector3.new(-3499.8, 62.2, -2300.0), -- Jalan tol tengah
+		Vector3.new(-3499.8, 62.2, -2900.0), -- Jalan tol tengah
+		Vector3.new(-3499.8, 62.2, -3500.0), -- Menuju Checkpoint 6
+		Vector3.new(-3505.0, 79.4, -3922.6), -- Checkpoint 6 tengah
+		Vector3.new(-3516.0, 62.2, -4128.2), -- Checkpoint 7 tengah
+		Vector3.new(-3530.0, 61.3, -4459.7), -- Checkpoint 8 tengah
+		Vector3.new(-3555.0, 61.3, -4829.8), -- Checkpoint 9 tengah
+		Vector3.new(-3595.0, 61.3, -5242.1), -- Checkpoint 10 tengah
+		Vector3.new(-3660.0, 61.3, -5714.0), -- Checkpoint 11 tengah
+		Vector3.new(-3760.0, 61.5, -6322.1), -- Checkpoint 12 tengah
+		Vector3.new(-3820.0, 61.5, -6600.0), -- Tikungan highway 1
+		Vector3.new(-4070.0, 61.5, -7606.0), -- Tikungan highway 2
+		Vector3.new(-4389.0, 62.2, -8593.0), -- Tikungan highway 3
+		Vector3.new(-4580.0, 62.2, -9070.0), -- Tikungan highway 3.5
+		Vector3.new(-4776.0, 62.2, -9555.0), -- Tikungan highway 4 (Awal 56% Progress)
+		Vector3.new(-4980.0, 62.2, -9950.0), -- Tikungan highway 4.3 (Halus Kurva 56%)
+		Vector3.new(-5210.0, 62.2, -10350.0),-- Tikungan highway 4.6 (Halus Kurva 56%)
+		Vector3.new(-5451.0, 62.2, -10750.0),-- Highway strip 5
+		Vector3.new(-5850.0, 62.2, -11350.0),-- Highway strip 5.5
+		Vector3.new(-6301.0, 62.2, -12000.0),-- Highway strip 6
+		Vector3.new(-6780.0, 72.0, -12650.0),-- Highway strip 6.5
+		Vector3.new(-7300.0, 81.6, -13300.0),-- Highway strip 7
+		Vector3.new(-7820.0, 72.0, -13900.0),-- Highway strip 7.5
+		Vector3.new(-8382.0, 62.2, -14500.0),-- Menuju garis finish
+		Vector3.new(-9742.0, 62.2, -15626.9),-- RaceFinishLine
+		Vector3.new(-10200.0, 62.2, -16000.0),-- Tembus garis finish +450 studs
+		Vector3.new(-10800.0, 62.2, -16500.0) -- Tembus garis finish +1000 studs
+	}
 
-	local function calculateDiscreteLaneDodge(carPos, forwardDir, rightVec, rayParams, myCar, currentSpeedMPH)
+	local function getClosestRoadInfo(pos)
+		local bestDist = math.huge
+		local bestCenter = nil
+		local bestDir = nil
+
+		for i = 1, #highwayWaypoints - 1 do
+			local p0 = highwayWaypoints[i]
+			local p1 = highwayWaypoints[i + 1]
+			local segVec = p1 - p0
+			local segDir = Vector3.new(segVec.X, 0, segVec.Z).Unit
+			local segLen = (Vector2.new(p1.X, p1.Z) - Vector2.new(p0.X, p0.Z)).Magnitude
+
+			local v = pos - p0
+			local proj = v:Dot(segDir)
+			local clampedProj = math.clamp(proj, 0, segLen)
+			local closestPoint = p0 + segDir * clampedProj
+			local dist = (Vector2.new(pos.X, pos.Z) - Vector2.new(closestPoint.X, closestPoint.Z)).Magnitude
+
+			if dist < bestDist then
+				bestDist = dist
+				bestDir = segDir
+				bestCenter = closestPoint
+			end
+		end
+
+		if bestDist < 120 and bestCenter and bestDir then
+			return bestCenter, bestDir
+		end
+		return nil, nil
+	end
+
+	------------------------------------------------
+	-- 🎯 TRAFFIC STREAK HUNTER (NEAR-MISS & SWERVE FARMER)
+	------------------------------------------------
+	-- Metode Autofarm Video: Mobil sengaja mendekati / menyisir mobil-mobil NPC
+	-- untuk memicu bonus Near Miss, Close Shave, dan mempercepat Streak Combo tanpa tabrakan!
+	local currentSlideOffset = 0    -- Offset lateral saat ini (-8.0 s/d +8.0 studs dari titik tengah jalan)
+	local targetSlideOffset = 0     -- Offset lateral target
+	local SLIDE_SPEED = 24.0        -- Kecepatan pergeseran lateral halus (studs/detik)
+	local MAX_ROAD_OFFSET = 8.0     -- Batas maksimal: tetap di dalam 3 jalur (Anti-Tembus & Anti-Lawan Arah)
+
+	local function calculateTrafficHunterOffset(carPos, forwardDir, rightVec, dt)
 		local tf = workspace:FindFirstChild("TrafficFolder")
-		local obstacles = {}
+		local targetCar = nil
+		local bestDist = math.huge
+		local targetLateral = 0
+
 		if tf then
 			for _, tCar in ipairs(tf:GetChildren()) do
-				if tCar:IsA("Model") then table.insert(obstacles, tCar) end
-			end
-		end
+				if tCar:IsA("Model") then
+					local oPivot = tCar:GetPivot()
+					local delta = oPivot.Position - carPos
+					local fDist = delta:Dot(forwardDir)
+					local lDist = delta:Dot(rightVec)
 
-		for _, obj in ipairs(workspace:GetChildren()) do
-			if obj:IsA("Model") and obj ~= myCar and (obj:FindFirstChild("DriveSeat") or obj.Name:find("AI") or obj.Name:find("Police") or obj.Name:find("Traffic")) then
-				table.insert(obstacles, obj)
-			end
-		end
-
-		-- Deteksi pembatas jalan (tembok kanan & pagar kiri)
-		local hasLeftBarrier, hasRightBarrier, distL, distR = detectBarriers(carPos, rightVec, forwardDir, rayParams)
-
-		-- Titik tengah jalan aspal relatif terhadap posisi mobil saat ini
-		local roadCenterRel = (distR - distL) * 0.5
-		local laneSpacing = 8.5 -- Jarak antar jalur (studs)
-
-		-- Validitas jalur berdasarkan batas fisik jalan (butuh minimal 14 studs ke pembatas untuk jalur kiri/kanan)
-		local laneValid = {
-			[-1] = (distL >= 14.0),
-			[0]  = true,
-			[1]  = (distR >= 14.0)
-		}
-
-		-- Cari rintangan terdekat di setiap jalur (-1, 0, 1)
-		local laneNearestDist = {
-			[-1] = 999,
-			[0]  = 999,
-			[1]  = 999
-		}
-
-		for _, obs in ipairs(obstacles) do
-			local oPivot = obs:GetPivot()
-			local delta = oPivot.Position - carPos
-			local fDist = delta:Dot(forwardDir)
-
-			if fDist > 3 and fDist < 120 then
-				local lDist = delta:Dot(rightVec)
-
-				for _, laneIdx in ipairs({ -1, 0, 1 }) do
-					local laneRelPos = roadCenterRel + laneIdx * laneSpacing
-					-- Jarak lateral mobil NPC ke jalur ini
-					if math.abs(lDist - laneRelPos) < 5.2 then
-						if fDist < laneNearestDist[laneIdx] then
-							laneNearestDist[laneIdx] = fDist
+					-- Deteksi mobil NPC di depan dalam jarak 8 s/d 140 studs dalam koridor jalan
+					if fDist >= 6 and fDist <= 140 and math.abs(lDist) <= 15 then
+						if fDist < bestDist then
+							bestDist = fDist
+							targetCar = tCar
+							targetLateral = lDist
 						end
 					end
 				end
 			end
 		end
 
-		-- Jarak pemicu dodge: hanya menghindar jika mobil NPC di jalur kita berjarak 25 - 32 studs
-		local triggerDist = 30.0
-
-		-- Jika jalur kita saat ini sedang terhalang mobil NPC di depan dalam jarak trigger:
-		if laneNearestDist[currentLockedLane] < triggerDist then
-			local candidateLanes = {}
-			if currentLockedLane == 0 then
-				-- Dari tengah (0), bisa menghindar ke Kiri (-1) atau Kanan (1)
-				candidateLanes = { -1, 1 }
-			elseif currentLockedLane == 1 then
-				-- Dari kanan (1), prioritaskan balik ke Tengah (0), atau Kiri (-1)
-				candidateLanes = { 0, -1 }
-			elseif currentLockedLane == -1 then
-				-- Dari kiri (-1), prioritaskan balik ke Tengah (0), atau Kanan (1)
-				candidateLanes = { 0, 1 }
+		if targetCar then
+			-- Tentukan jalur mobil NPC tersebut (-8 = kiri, 0 = tengah, +8 = kanan)
+			-- Dekati jalurnya sedikit menyamping (+/- 1.8 studs) agar memicu "SWERVE" & "CLOSE SHAVE"!
+			if targetLateral < -3.5 then
+				targetSlideOffset = -7.2
+			elseif targetLateral > 3.5 then
+				targetSlideOffset = 7.2
+			else
+				targetSlideOffset = 0.0
 			end
-
-			local chosenLane = nil
-			local bestDist = -1
-
-			-- Cari jalur alternatif yang valid dan jarak rintangannya paling jauh (aman > 40 studs)
-			for _, laneIdx in ipairs(candidateLanes) do
-				if laneValid[laneIdx] and laneNearestDist[laneIdx] > bestDist and laneNearestDist[laneIdx] > 40 then
-					bestDist = laneNearestDist[laneIdx]
-					chosenLane = laneIdx
-				end
-			end
-
-			-- Jika kedua alternatif mepet, pilih jalur yang rintangannya paling jauh
-			if not chosenLane then
-				for _, laneIdx in ipairs({ 0, -1, 1 }) do
-					if laneValid[laneIdx] and laneNearestDist[laneIdx] > bestDist then
-						bestDist = laneNearestDist[laneIdx]
-						chosenLane = laneIdx
-					end
-				end
-			end
-
-			if chosenLane then
-				currentLockedLane = chosenLane
-			end
+		else
+			-- Jika tidak ada mobil NPC di depan dalam jarak 140 studs:
+			-- Kembali ke jalur tengah (offset 0.0) dan lurus lempeng!
+			targetSlideOffset = 0.0
 		end
 
-		-- Target posisi lateral jalur yang sedang di-lock relatif terhadap mobil
-		local targetOffsetRel = roadCenterRel + currentLockedLane * laneSpacing
+		-- Batas aman mutlak: dikunci ketat di dalam 3 jalur (Anti-Tembus Pembatas & Anti-Lawan Arah)
+		targetSlideOffset = math.clamp(targetSlideOffset, -MAX_ROAD_OFFSET, MAX_ROAD_OFFSET)
 
-		-- Clamp agar tidak melebihi batas aman jalan (minimal 6 studs dari pembatas)
-		local minSafe = -math.max(distL - 6.0, 0)
-		local maxSafe = math.max(distR - 6.0, 0)
-		targetOffsetRel = math.clamp(targetOffsetRel, minSafe, maxSafe)
+		-- Geser lateral dengan halus (smooth strafe)
+		local diff = targetSlideOffset - currentSlideOffset
+		local maxStep = SLIDE_SPEED * dt
+		local slideStep = math.clamp(diff, -maxStep, maxStep)
+		currentSlideOffset = currentSlideOffset + slideStep
+		currentSlideOffset = math.clamp(currentSlideOffset, -MAX_ROAD_OFFSET, MAX_ROAD_OFFSET)
 
-		-- Hitung steer proporsional: saat mobil sudah pas di jalurnya, steer otomatis 0 (lurus tanpa zigzag)
-		local desiredSteer = math.clamp(targetOffsetRel * 0.030, -0.25, 0.25)
-
-		-- Emergency Reflex Evade jika ada mobil sangat dekat (< 16 studs) di depan
-		for _, obs in ipairs(obstacles) do
-			local oPivot = obs:GetPivot()
-			local delta = oPivot.Position - carPos
-			local fDist = delta:Dot(forwardDir)
-			if fDist > 1 and fDist < 16 then
-				local lDist = delta:Dot(rightVec)
-				if math.abs(lDist) < 4.8 then
-					local evade = (lDist >= 0) and -0.32 or 0.32
-					if evade > 0 and distR < 7.0 then evade = -0.32 end
-					if evade < 0 and distL < 7.0 then evade = 0.32 end
-					desiredSteer = evade
-					break
-				end
-			end
-		end
-
-		return desiredSteer
+		return currentSlideOffset
 	end
 
 	task.spawn(function()
@@ -1865,53 +1868,21 @@ local success, err = pcall(function()
 								seat.AssemblyLinearVelocity = Vector3.zero
 								seat.AssemblyAngularVelocity = Vector3.zero
 							end
-							activeLane = 0
+							currentLane = 0
+							currentSlideOffset = 0
+							targetSlideOffset = 0
 							task.wait(0.15)
 
-							-- Waypoints Resmi Highway: Titik tengah jalan raya (dead center)
-							local waypoints = {
-								Vector3.new(-3499.8, 63.4, -1882.2), -- Posisi awal tengah jalur
-								Vector3.new(-3499.8, 62.2, -2300.0), -- Jalan tol tengah
-								Vector3.new(-3499.8, 62.2, -2900.0), -- Jalan tol tengah
-								Vector3.new(-3499.8, 62.2, -3500.0), -- Menuju Checkpoint 6
-								Vector3.new(-3505.0, 79.4, -3922.6), -- Checkpoint 6 tengah
-								Vector3.new(-3516.0, 62.2, -4128.2), -- Checkpoint 7 tengah
-								Vector3.new(-3530.0, 61.3, -4459.7), -- Checkpoint 8 tengah
-								Vector3.new(-3555.0, 61.3, -4829.8), -- Checkpoint 9 tengah
-								Vector3.new(-3595.0, 61.3, -5242.1), -- Checkpoint 10 tengah
-								Vector3.new(-3660.0, 61.3, -5714.0), -- Checkpoint 11 tengah
-								Vector3.new(-3760.0, 61.5, -6322.1), -- Checkpoint 12 tengah
-								Vector3.new(-3820.0, 61.5, -6600.0), -- Tikungan highway 1
-								Vector3.new(-4070.0, 61.5, -7606.0), -- Tikungan highway 2
-								Vector3.new(-4389.0, 62.2, -8593.0), -- Tikungan highway 3
-								Vector3.new(-4580.0, 62.2, -9070.0), -- Tikungan highway 3.5
-								Vector3.new(-4776.0, 62.2, -9555.0), -- Tikungan highway 4 (Awal 56% Progress)
-								Vector3.new(-4980.0, 62.2, -9950.0), -- Tikungan highway 4.3 (Halus Kurva 56%)
-								Vector3.new(-5210.0, 62.2, -10350.0),-- Tikungan highway 4.6 (Halus Kurva 56%)
-								Vector3.new(-5451.0, 62.2, -10750.0),-- Highway strip 5
-								Vector3.new(-5850.0, 62.2, -11350.0),-- Highway strip 5.5
-								Vector3.new(-6301.0, 62.2, -12000.0),-- Highway strip 6
-								Vector3.new(-6780.0, 72.0, -12650.0),-- Highway strip 6.5
-								Vector3.new(-7300.0, 81.6, -13300.0),-- Highway strip 7
-								Vector3.new(-7820.0, 72.0, -13900.0),-- Highway strip 7.5
-								Vector3.new(-8382.0, 62.2, -14500.0),-- Menuju garis finish
-								Vector3.new(-9742.0, 62.2, -15626.9),-- RaceFinishLine
-								Vector3.new(-10200.0, 62.2, -16000.0),-- Tembus garis finish +450 studs
-								Vector3.new(-10800.0, 62.2, -16500.0) -- Tembus garis finish +1000 studs
-							}
-
 							local currentWpIndex = 1
-							local cruiseMPH = 150
+							local cruiseMPH = 100
 							local targetStudsSec = cruiseMPH * 1.760
 
 							local rayParams = RaycastParams.new()
 							rayParams.FilterType = Enum.RaycastFilterType.Exclude
 							rayParams.FilterDescendantsInstances = {player.Character, car}
 
-							-- Real-time road tracking & lane keeping loop with 3-Lane Smooth Dodge
+							-- Real-time road corridor tracking & 100% straight driving loop with lateral dodge
 							local heartbeatConn
-							local smoothDodge = 0
-							local smoothLateral = 0
 							local lastTick = os.clock()
 
 							heartbeatConn = RunService.Heartbeat:Connect(function()
@@ -1922,91 +1893,60 @@ local success, err = pcall(function()
 								lastTick = now
 
 								local currentPos = car:GetPivot().Position
-								local targetPos = waypoints[currentWpIndex] or waypoints[#waypoints]
-								local deltaTarget = targetPos - currentPos
-								local distToTarget = Vector2.new(deltaTarget.X, deltaTarget.Z).Magnitude
-
-								-- Arah pergerakan makro
-								local macroDir
-								if currentWpIndex >= #waypoints and distToTarget < 100 then
-									macroDir = Vector3.new(-0.768, 0, -0.640).Unit
-								else
-									macroDir = Vector3.new(deltaTarget.X, 0, deltaTarget.Z).Unit
+								local pA = highwayWaypoints[currentWpIndex]
+								local pB = highwayWaypoints[math.min(currentWpIndex + 1, #highwayWaypoints)]
+								local segVec = pB - pA
+								local roadForward = Vector3.new(segVec.X, 0, segVec.Z).Unit
+								if currentWpIndex >= #highwayWaypoints then
+									roadForward = Vector3.new(-0.768, 0, -0.640).Unit
 								end
 
-								-- Maju ke checkpoint berikutnya kalau sudah dekat (<120 studs) atau sudah terlewati
-								local isPassed = deltaTarget:Dot(macroDir) < -15
-								if (distToTarget < 120 or isPassed) and currentWpIndex < #waypoints then
+								-- Maju ke waypoint berikutnya jika sudah melewati pB
+								local toB = pB - currentPos
+								local distAlong = toB:Dot(roadForward)
+								if distAlong <= 20 and currentWpIndex < #highwayWaypoints then
 									currentWpIndex = currentWpIndex + 1
-									targetPos = waypoints[currentWpIndex]
-									deltaTarget = targetPos - currentPos
+									pA = highwayWaypoints[currentWpIndex]
+									pB = highwayWaypoints[math.min(currentWpIndex + 1, #highwayWaypoints)]
+									segVec = pB - pA
+									roadForward = Vector3.new(segVec.X, 0, segVec.Z).Unit
 								end
+
+								-- Titik tengah jalan (centerline) segmen saat ini
+								local t = (currentPos - pA):Dot(roadForward)
+								local segLen = (pB - pA):Dot(roadForward)
+								t = math.clamp(t, 0, math.max(segLen, 1))
+								local roadCenter = pA + roadForward * t
 
 								-- 1. Deteksi permukaan jalan tepat di bawah mobil
 								local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
 								local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
-								-- 2. Deteksi arah jalan di depan: probe lurus dulu, hanya probe sudut jika di depan melenceng
-								local bestDir = macroDir
-								local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 10, 0)
-								local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -45, 0), rayParams)
-								if not (hitAhead and hitAhead.Position.Y <= 95) then
-									local probeAngles = {8, -8, 16, -16}
-									for _, deg in ipairs(probeAngles) do
-										local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
-										local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-										if pHit and pHit.Position.Y <= 95 and not (pHit.Instance.Name:lower():find("wall") or pHit.Instance.Name:lower():find("guard") or pHit.Instance.Name:lower():find("rail")) then
-											bestDir = testDir
-											break
-										end
-									end
-								end
+								-- Arah maju highway (100% sejajar koridor jalan)
+								local forwardDir = roadForward
+								local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
-								-- 3. Discrete 3-Lane Traffic Dodge & Lane Keeping (100% Anti-Zigzag)
-								local rightVec = Vector3.new(-bestDir.Z, 0, bestDir.X).Unit
-
-								local targetDodge = 0
+								-- 2. Dapatkan offset lateral dari Traffic Streak Hunter (mendekati NPC untuk combo streak)
+								local lateralOffset = 0
 								if Config.farm.autoDodgeTraffic ~= false then
-									targetDodge = calculateDiscreteLaneDodge(currentPos, bestDir, rightVec, rayParams, car, cruiseMPH)
+									lateralOffset = calculateTrafficHunterOffset(currentPos, forwardDir, rightVec, dt)
 								end
 
-								-- Deteksi pembatas jalan real-time (Samping 90°, Serong 45°, & Downcast Tepi Aspal)
-								local _, _, distL, distR = detectBarriers(currentPos, rightVec, bestDir, rayParams)
-
-								-- Emergency barrier safety clamp & active repulsion:
-								if distL < 8.0 then
-									local pushRight = math.clamp((8.0 - distL) * 0.06, 0.08, 0.35)
-									targetDodge = math.max(targetDodge, pushRight)
-								elseif distR < 8.0 then
-									local pushLeft = -math.clamp((8.0 - distR) * 0.06, 0.08, 0.35)
-									targetDodge = math.min(targetDodge, pushLeft)
-								end
-
-								-- Transisi kemudi stabil tanpa getar & tanpa zigzag
-								smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.5, 0.08, 0.38)
-
-								local finalHeading = (bestDir + rightVec * smoothDodge).Unit
-
-								-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
-								local targetY = roadY + 2.0
+								-- 3. Posisi baru: Dikunci pada roadCenter + forwardDir * stepDist + rightVec * lateralOffset (-8.0 s/d +8.0)
 								local stepDist = targetStudsSec * dt
-								local nextPos = currentPos + finalHeading * stepDist
+								local nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
 
-								-- 🛡️ HARD PHYSICAL CUSHION CLAMP (Anti-Nembus Pagar Besi & Tembok Beton)
-								local _, _, nextDistL, nextDistR = detectBarriers(nextPos, rightVec, bestDir, rayParams)
-								if nextDistL < 5.0 then
-									nextPos = nextPos + rightVec * (5.0 - nextDistL)
-								elseif nextDistR < 5.0 then
-									nextPos = nextPos - rightVec * (5.0 - nextDistR)
+								-- 4. Kunci orientasi mobil 100% TEGAK LURUS SEJAJAR JALAN
+								local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
+								car:PivotTo(targetCF)
+
+								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah maju highway
+								seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
+								seat.AssemblyAngularVelocity = Vector3.zero
+								if seat:IsA("VehicleSeat") then
+									seat.ThrottleFloat = 1.0
+									seat.Throttle = 1
 								end
-
-								local lookAtPos = nextPos + finalHeading * 10
-								local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), Vector3.new(lookAtPos.X, targetY, lookAtPos.Z))
-								local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 14.0, 0.18, 0.75))
-								car:PivotTo(smoothCF)
-
-								-- 5. Dorong dengan kecepatan penuh stabil mengikuti arah halus mobil + Gas Pedal On
-								seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
 								seat.AssemblyAngularVelocity = Vector3.zero
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = 1.0
@@ -2096,76 +2036,40 @@ local success, err = pcall(function()
 					rayParams.FilterDescendantsInstances = {player.Character, car}
 
 					local currentPos = car:GetPivot().Position
+
+					-- Cari titik tengah & arah jalan raya terdekat dari daftar waypoints highway
+					local roadCenter, roadForward = getClosestRoadInfo(currentPos)
 					local currentLook = seat.CFrame.LookVector
-					local macroDir = Vector3.new(currentLook.X, 0, currentLook.Z).Unit
-					local rightVec = Vector3.new(-macroDir.Z, 0, macroDir.X).Unit
+					local forwardDir = roadForward or Vector3.new(currentLook.X, 0, currentLook.Z).Unit
+					local rightVec = Vector3.new(-forwardDir.Z, 0, forwardDir.X).Unit
 
 					-- 1. Deteksi permukaan jalan tepat di bawah mobil
 					local downHit = workspace:Raycast(currentPos + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
 					local roadY = (downHit and downHit.Position.Y <= 95) and downHit.Position.Y or 62.5
 
-					-- 2. Deteksi arah jalan ke depan (probe lurus dulu, hanya probe sudut jika di depan melenceng)
-					local bestDir = macroDir
-					local probeOrigin = currentPos + macroDir * 35 + Vector3.new(0, 10, 0)
-					local hitAhead = workspace:Raycast(probeOrigin, Vector3.new(0, -45, 0), rayParams)
-					if not (hitAhead and hitAhead.Position.Y <= 95) then
-						local probeAngles = {8, -8, 16, -16}
-						for _, deg in ipairs(probeAngles) do
-							local testDir = (CFrame.Angles(0, math.rad(deg), 0) * macroDir).Unit
-							local pHit = workspace:Raycast(currentPos + testDir * 35 + Vector3.new(0, 10, 0), Vector3.new(0, -45, 0), rayParams)
-							if pHit and pHit.Position.Y <= 95 and not (pHit.Instance.Name:lower():find("wall") or pHit.Instance.Name:lower():find("guard") or pHit.Instance.Name:lower():find("rail")) then
-								bestDir = testDir
-								break
-							end
-						end
-					end
-
-					local targetMPH = 150
-					local targetStudsSec = targetMPH * 1.760
-
-					-- 3. Discrete 3-Lane Traffic Dodge & Lane Keeping (100% Anti-Zigzag)
-					local targetDodge = 0
+					-- 2. Dapatkan offset lateral dari Traffic Streak Hunter (mendekati NPC untuk combo streak)
+					local lateralOffset = 0
 					if Config.farm.autoDodgeTraffic ~= false then
-						targetDodge = calculateDiscreteLaneDodge(currentPos, bestDir, rightVec, rayParams, car, targetMPH)
+						lateralOffset = calculateTrafficHunterOffset(currentPos, forwardDir, rightVec, dt)
 					end
 
-					-- Deteksi pembatas jalan real-time (Samping 90°, Serong 45°, & Downcast Tepi Aspal)
-					local _, _, distL, distR = detectBarriers(currentPos, rightVec, bestDir, rayParams)
-
-					-- Emergency barrier safety clamp & active repulsion:
-					if distL < 8.0 then
-						local pushRight = math.clamp((8.0 - distL) * 0.06, 0.08, 0.35)
-						targetDodge = math.max(targetDodge, pushRight)
-					elseif distR < 8.0 then
-						local pushLeft = -math.clamp((8.0 - distR) * 0.06, 0.08, 0.35)
-						targetDodge = math.min(targetDodge, pushLeft)
-					end
-
-					-- Transisi kemudi stabil tanpa getar & tanpa zigzag
-					smoothDodge = smoothDodge + (targetDodge - smoothDodge) * math.clamp(dt * 7.5, 0.08, 0.38)
-
-					local finalHeading = (bestDir + rightVec * smoothDodge).Unit
-
-					-- 4. Kunci orientasi mobil & dorong maju framerate-independent (Anti-Lag Redfinger)
-					local targetY = roadY + 2.0
+					-- 3. Posisi baru: Jika berada di dekat waypoint highway, kunci pada roadCenter + lateralOffset!
+					local targetMPH = Config.farm.targetSpeed or 100
+					local targetStudsSec = targetMPH * 1.760
 					local stepDist = targetStudsSec * dt
-					local nextPos = currentPos + finalHeading * stepDist
-
-					-- 🛡️ HARD PHYSICAL CUSHION CLAMP (Anti-Nembus Pagar Besi & Tembok Beton)
-					local _, _, nextDistL, nextDistR = detectBarriers(nextPos, rightVec, bestDir, rayParams)
-					if nextDistL < 5.0 then
-						nextPos = nextPos + rightVec * (5.0 - nextDistL)
-					elseif nextDistR < 5.0 then
-						nextPos = nextPos - rightVec * (5.0 - nextDistR)
+					local nextPos
+					if roadCenter then
+						nextPos = roadCenter + forwardDir * stepDist + rightVec * lateralOffset
+					else
+						nextPos = currentPos + forwardDir * stepDist + rightVec * (lateralOffset - currentSlideOffset)
 					end
 
-					local lookAtPos = nextPos + finalHeading * 10
-					local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, targetY, nextPos.Z), Vector3.new(lookAtPos.X, targetY, lookAtPos.Z))
-					local smoothCF = car:GetPivot():Lerp(targetCF, math.clamp(dt * 14.0, 0.18, 0.75))
-					car:PivotTo(smoothCF)
+					-- 4. Kunci orientasi mobil 100% TEGAK LURUS SEJAJAR JALAN
+					local targetCF = CFrame.lookAt(Vector3.new(nextPos.X, roadY + 2.0, nextPos.Z), Vector3.new(nextPos.X + forwardDir.X * 10, roadY + 2.0, nextPos.Z + forwardDir.Z * 10))
+					car:PivotTo(targetCF)
 
 					-- 5. Dorong dengan kecepatan target konstan + Gas Pedal On
-					seat.AssemblyLinearVelocity = finalHeading * targetStudsSec + Vector3.new(0, (targetY - currentPos.Y) * 6, 0)
+					seat.AssemblyLinearVelocity = forwardDir * targetStudsSec + Vector3.new(0, (roadY + 2.0 - currentPos.Y) * 6, 0)
 					seat.AssemblyAngularVelocity = Vector3.zero
 					if seat:IsA("VehicleSeat") then
 						seat.ThrottleFloat = 1.0
@@ -2233,6 +2137,7 @@ if not success then
 end
 
 
+-- [ vehicle.lua ] --
 -- HipHub Ghost Driver — Vehicle Modifications & Controls (Safe)
 -- Handles Car Spawning, Smooth Speed Booster, Auto-Flip, and Seat Helpers
 
@@ -2347,6 +2252,7 @@ if not success then
 end
 
 
+-- [ teleport.lua ] --
 -- HipHub Ghost Driver — Fast Teleport System
 -- Handles Map Teleports, Car Teleports, and Destination Shortcuts
 
@@ -2407,6 +2313,7 @@ if not success then
 end
 
 
+-- [ main.lua ] --
 -- HipHub Ghost Driver — Main Controller & UI Binding
 -- Populates all Dashboard, Auto Farm, Vehicle, Dealership, and Teleport tabs with live controls
 
@@ -2936,3 +2843,4 @@ end)
 if not success then
 	warn("[HipHub Ghost Driver Main Error]:", err)
 end
+
