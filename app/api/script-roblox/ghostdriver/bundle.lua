@@ -1640,7 +1640,6 @@ _G.HipHub_GhostDriver_Corridor = {
 {-3543.3,81.2,-1227.8,24.7},{-3543.3,79,-1259.7,24.3},{-3543.3,77.2,-1285.1,24.4},{-3543.3,75.4,-1310.4,24.5},{-3543.3,73.7,-1335.5,24.3},{-3543.3,71.9,-1361.5,24.6},{-3543.3,70.2,-1386.6,24.7},{-3543.3,68.4,-1412.2,24.3},{-3543.3,66.6,-1437.9,24.1},{-3543.3,64.9,-1462.2,24.1},
 {-3543.2,63.9,-1486.8,24.1},{-3543.2,63.1,-1511.5,24},
 }
-return _G.HipHub_GhostDriver_Corridor
 
 
 -- ==========================================
@@ -1782,7 +1781,7 @@ local success, err = pcall(function()
 	local isRacingNow = false
 
 	-- Universal Ghost Noclip & Traffic Neutralizer: runs on Stepped (before physics solver)
-	-- Disables solid collisions while preserving CanTouch & CanQuery for Near-Miss detection
+	-- Disables solid collisions while preserving CanTouch & CanQuery for Near-Miss detection.
 	local lastNeutralizeCheck = 0
 	RunService.Stepped:Connect(function()
 		local now = os.clock()
