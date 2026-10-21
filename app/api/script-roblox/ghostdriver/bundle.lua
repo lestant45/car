@@ -2637,35 +2637,34 @@ local success, err = pcall(function()
 						end
 
 						-- 4. Kunci posisi: roadCenter + stepDist + lateralOffset (100% di dalam aspal)
-						-- 🚗 30s DUAL-SPEED ALTERNATION ENGINE (90 MPH <-> 115 MPH)
-						-- 30 detik pertama: 90 MPH (Cruise)
-						-- 30 detik berikutnya: 115 MPH (Overdrive Boost)
-						-- Siklus berulang otomatis 24/7 tanpa henti.
-						-- Transisi dinamis & lift-off gas terbukti 100% mereset anti-cheat payout game!
-						local cyclePeriod = 60.0 -- 30s + 30s
+						-- 🚗 20s DUAL-SPEED ALTERNATION ENGINE (90 MPH <-> 115 MPH)
+						-- 10 detik pertama: 90 MPH (Cruise)
+						-- 10 detik berikutnya: 115 MPH (Overdrive Boost)
+						-- Siklus berulang otomatis 24/7 setiap 20 detik tanpa henti.
+						local cyclePeriod = 20.0 -- 10s + 10s
 						local timeInCycle = (now - speedCycleTimer) % cyclePeriod
 
 						local targetMPH = 90.0
 						local throttleVal = 1.0
 
-						if timeInCycle < 28.5 then
-							-- [Fase 1: 90 MPH Cruise] (0 s/d 28.5s)
+						if timeInCycle < 8.8 then
+							-- [Fase 1: 90 MPH Cruise] (0 s/d 8.8s)
 							local jitter = math.sin(now * 2.5) * 1.0
 							targetMPH = 90.0 + jitter
 							throttleVal = 1.0
-						elseif timeInCycle < 30.0 then
-							-- [Transisi 1: Akselerasi ke 115 MPH] (28.5 s/d 30.0s)
-							local frac = (timeInCycle - 28.5) / 1.5
+						elseif timeInCycle < 10.0 then
+							-- [Transisi 1: Akselerasi ke 115 MPH] (8.8 s/d 10.0s)
+							local frac = (timeInCycle - 8.8) / 1.2
 							targetMPH = 90.0 + (115.0 - 90.0) * frac
 							throttleVal = 1.0
-						elseif timeInCycle < 58.5 then
-							-- [Fase 2: 115 MPH Overdrive Boost] (30.0 s/d 58.5s)
+						elseif timeInCycle < 18.8 then
+							-- [Fase 2: 115 MPH Overdrive Boost] (10.0 s/d 18.8s)
 							local jitter = math.sin(now * 2.5) * 1.0
 							targetMPH = 115.0 + jitter
 							throttleVal = 1.0
 						else
-							-- [Transisi 2: Lepas Gas & Deselerasi ke 90 MPH] (58.5 s/d 60.0s)
-							local frac = (timeInCycle - 58.5) / 1.5
+							-- [Transisi 2: Lepas Gas & Deselerasi ke 90 MPH] (18.8 s/d 20.0s)
+							local frac = (timeInCycle - 18.8) / 1.2
 							targetMPH = 115.0 - (115.0 - 90.0) * frac
 							throttleVal = 0.0 -- Lepas pedal gas
 						end
