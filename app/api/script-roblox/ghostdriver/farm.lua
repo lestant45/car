@@ -678,15 +678,9 @@ local success, err = pcall(function()
 
 			activeLaneName = bestLane
 		else
-			-- Lajur kita saat ini aman dan lowong (threat >= 175 studs).
-			-- Jika kita sedang di LEFT atau RIGHT, kita HANYA kembali ke CENTER jika:
-			-- 1. Jalur tengah benar-benar kosong jauh di depan (> 185 studs)
-			-- 2. Tidak ada mobil yang sedang kita salip di samping tengah (beside.CENTER == false)
-			if activeLaneName ~= "CENTER" then
-				if not beside.CENTER and threats.CENTER > 185.0 then
-					activeLaneName = "CENTER"
-				end
-			end
+			-- Lajur aktif kita saat ini masih aman dan lowong (threat >= 175 studs).
+			-- TETAP DI LAJUR INI! Jalan lurus terus tanpa pindah-pindah!
+			-- Tidak ada lagi paksaan kembali ke tengah, sehingga mobil bisa jalan lurus stabil di jalur kanan/kiri!
 		end
 
 		local targetSlideOffset = laneOffsets[activeLaneName] or 0.0
