@@ -2139,14 +2139,16 @@ local success, err = pcall(function()
 	end
 
 	------------------------------------------------
-	-- 🎯 SMART 3-LANE TRAFFIC OVERTAKE & NEAR-MISS STREAK ENGINE
+	-- 🎯 DUAL-LANE (KIRI & TENGAH) OVERTAKE & NEAR-MISS ENGINE
 	------------------------------------------------
-	-- Dynamically evaluates Left Lane (-8.5 studs), Center Lane (0.0 studs), and Right Lane (+8.5 studs).
-	-- Eliminates the center-car collision bug completely!
-	-- Maintains a clean 2.0 - 2.5 stud open-air gap between vehicles, triggering Near Miss and
-	-- Close Call proximity sensors 100% reliably with ZERO bounding box overlap or crash impact!
+	-- Strictly limited to 2 lanes:
+	-- 1. Jalur Kiri   (-8.0 studs)
+	-- 2. Jalur Tengah ( 0.0 studs)
+	-- Eliminates cutting back into middle cars 100%!
+	-- Once the car commits to a lane, it stays in that lane and NEVER returns to the middle
+	-- while passing an obstacle.
 	local currentSlideOffset = 0.0
-	local targetSlideOffset = 0.0
+	local activeLane = 0.0 -- Persistent state: 0.0 (Tengah) or laneLeftOffset (Kiri)
 
 	local function calculateSmartTrafficDodge(carPos, forwardDir, rightVec, roadCenter, roadWidth, dt)
 		local tf = workspace:FindFirstChild("TrafficFolder")
@@ -2159,9 +2161,10 @@ local success, err = pcall(function()
 			minLateral, maxLateral = -0.5, 0.5
 		end
 
-		-- Standard highway lane offset: 8.5 studs, safely bounded so car never hits barriers on narrow roads
-		local maxSafeLane = math.max(0.0, maxLateral - 0.5)
-		local laneOffset = math.min(8.5, maxSafeLane)
+		-- Jalur Kiri offset: -8.0 studs (tetap aman dari pembatas kiri)
+		local maxSafeLeft = math.max(4.0, math.abs(minLateral) - 0.5)
+		local laneLeftOffset = -math.min(8.0, maxSafeLeft)
+		local laneCenterOffset = 0.0
 
 		-- 1. Kumpulkan semua mobil NPC dari TrafficFolder
 		if tf then
@@ -2184,92 +2187,82 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- 3. Evaluasi skor bahaya untuk 3 lajur jalan:
-		-- -1: Lajur Kiri  (-laneOffset, sekitar -8.5 studs)
-		--  0: Lajur Tengah (0.0 studs)
-		--  1: Lajur Kanan (+laneOffset, sekitar +8.5 studs)
-		local laneDanger = {
-			[-1] = 0,
-			[0]  = 0,
-			[1]  = 0
-		}
-
-		local minAheadDist = 999.0
-		local totalThreatsCount = 0
+		-- 3. Cek rintangan di Jalur Kiri dan Jalur Tengah
+		local threatAheadCenter = 999.0
+		local threatAheadLeft = 999.0
+		local besideCenter = false
+		local besideLeft = false
 
 		for _, obsPos in ipairs(obstacles) do
 			local delta = obsPos - roadCenter
 			local fDist = delta:Dot(forwardDir)
 			local obsLateral = delta:Dot(rightVec)
 
-			-- Periksa semua kendaraan di zona aktif: dari -16.0 studs (samping/belakang bumper)
-			-- sampai 140.0 studs (jauh di depan)
-			if fDist >= -16.0 and fDist <= 140.0 and math.abs(obsLateral) <= (halfWidth + 3.0) then
-				totalThreatsCount = totalThreatsCount + 1
+			-- Cek mobil di sekitar kita (dari -22 studs di belakang s/d 135 studs di depan)
+			if fDist >= -22.0 and fDist <= 135.0 then
+				local diffToCenter = math.abs(obsLateral - laneCenterOffset)
+				local diffToLeft = math.abs(obsLateral - laneLeftOffset)
 
-				if fDist > 0 and fDist < minAheadDist then
-					minAheadDist = fDist
+				-- Apakah mobil ini menutup lajur tengah? (lebar bodi ~5.5 studs)
+				if diffToCenter < 5.2 then
+					if fDist >= -22.0 and fDist <= 18.0 then
+						besideCenter = true -- Sedang berdampingan atau mepet di lajur tengah!
+					end
+					if fDist > 0 and fDist < threatAheadCenter then
+						threatAheadCenter = fDist
+					end
 				end
 
-				-- Bobot urgensi: mobil yang berdampingan atau dekat di depan punya urgensi tertinggi
-				local urgency
-				if fDist <= 16.0 then
-					urgency = 10000.0 -- Mobil sedang sejajar / nempel di samping! DILARANG KERAS MASUK LAJUR INI!
-				else
-					urgency = (140.0 - fDist) * 15.0 -- Semakin dekat jaraknya, semakin tinggi bahaya lajurnya
-				end
-
-				-- Periksa konflik terhadap masing-masing lajur
-				for _, laneCode in ipairs({-1, 0, 1}) do
-					local laneLat = laneCode * laneOffset
-					local latDiff = math.abs(laneLat - obsLateral)
-
-					-- Mobil NPC menutup lajur ini jika jarak lateral < 5.8 studs
-					if latDiff < 5.8 then
-						laneDanger[laneCode] = laneDanger[laneCode] + urgency
-					elseif latDiff < 7.2 then
-						-- Agak mepet, beri penalti moderat
-						laneDanger[laneCode] = laneDanger[laneCode] + urgency * 0.35
+				-- Apakah mobil ini menutup lajur kiri?
+				if diffToLeft < 5.2 then
+					if fDist >= -22.0 and fDist <= 18.0 then
+						besideLeft = true -- Sedang berdampingan atau mepet di lajur kiri!
+					end
+					if fDist > 0 and fDist < threatAheadLeft then
+						threatAheadLeft = fDist
 					end
 				end
 			end
 		end
 
-		-- 4. Hysteresis / Stabilitas Lajur: Prioritaskan lajur yang sedang dilalui agar tidak goyang bolak-balik
-		local currentLane = 0
-		if currentSlideOffset < -laneOffset * 0.35 then
-			currentLane = -1
-		elseif currentSlideOffset > laneOffset * 0.35 then
-			currentLane = 1
-		end
-		laneDanger[currentLane] = laneDanger[currentLane] - 25.0
-
-		-- Jika jalanan sepi tanpa mobil sama sekali, arahkan santai ke tengah jalan
-		if totalThreatsCount == 0 then
-			laneDanger[0] = laneDanger[0] - 35.0
+		-- 4. Logika Pindah Lajur Otomatis (Hanya Kiri & Tengah):
+		-- Inisialisasi awal ke Tengah (0.0)
+		if activeLane ~= laneCenterOffset and activeLane ~= laneLeftOffset then
+			activeLane = laneCenterOffset
 		end
 
-		-- 5. Pilih lajur dengan tingkat bahaya paling rendah (Paling Aman, Bersih & Memicu Near Miss)
-		local bestLane = 0
-		local lowestDanger = math.huge
-		for _, laneCode in ipairs({-1, 0, 1}) do
-			if laneDanger[laneCode] < lowestDanger then
-				lowestDanger = laneDanger[laneCode]
-				bestLane = laneCode
+		if activeLane == laneCenterOffset then
+			-- Kita sedang di Jalur Tengah.
+			-- Jika ada mobil di depan kita di Jalur Tengah (< 120 studs):
+			if threatAheadCenter < 120.0 then
+				-- Cek apakah Jalur Kiri aman (tidak ada mobil di samping kiri kita, dan ancaman kiri lebih jauh)
+				if not besideLeft and (threatAheadLeft > (threatAheadCenter + 20.0) or threatAheadLeft > 70.0) then
+					activeLane = laneLeftOffset -- Pindah ke Jalur Kiri!
+				end
+			end
+		else
+			-- Kita sedang di Jalur Kiri.
+			-- Jika ada mobil di depan kita di Jalur Kiri (< 120 studs):
+			if threatAheadLeft < 120.0 then
+				-- Cek apakah Jalur Tengah aman (tidak ada mobil di samping tengah kita, dan ancaman tengah lebih jauh)
+				if not besideCenter and (threatAheadCenter > (threatAheadLeft + 20.0) or threatAheadCenter > 70.0) then
+					activeLane = laneCenterOffset -- Pindah ke Jalur Tengah!
+				end
 			end
 		end
 
-		targetSlideOffset = bestLane * laneOffset
+		local targetSlideOffset = activeLane
 		if minLateral > maxLateral then
 			minLateral, maxLateral = -0.5, 0.5
 		end
 		targetSlideOffset = math.clamp(targetSlideOffset, minLateral, maxLateral)
 
-		-- 6. Dynamic Steering Speed: Responsif saat mendeteksi mobil di depan
+		-- 5. Dynamic Steering Speed: Responsif dan halus saat pindah lajur
+		local minThreat = math.min(threatAheadCenter, threatAheadLeft)
 		local steerSpeed = 26.0
-		if minAheadDist < 50.0 then
+		if minThreat < 50.0 then
 			steerSpeed = 40.0
-		elseif minAheadDist < 80.0 then
+		elseif minThreat < 80.0 then
 			steerSpeed = 32.0
 		end
 
@@ -2962,8 +2955,15 @@ local success, err = pcall(function()
 	local cardCurrent = UI.AddStatsCard(secTarget, "Current Balance", "$ 0.00 M")
 	local cardTarget = UI.AddStatsCard(secTarget, "Target Goal", "$ " .. tostring(Config.farm.targetEarnM or 5) .. ".00 M")
 	local cardRemaining = UI.AddStatsCard(secTarget, "Remaining Needed", "$ 0.00 M")
+	local cardIncomePerHour = UI.AddStatsCard(secTarget, "Est. Income / Hour", "$ 0 / hr")
+	local cardGainPerTick = UI.AddStatsCard(secTarget, "Cash / Tick (~2s)", "+$ 0")
+	local cardTimeToGoal = UI.AddStatsCard(secTarget, "Est. Time to Goal", "--")
 
 	local toggleRace -- forward reference agar bisa dimatikan otomatis saat target tercapai
+
+	local lastRecordedCash = nil
+	local lastCashTimestamp = nil
+	local smoothedHourlyRate = 0
 
 	local function checkTargetEarn()
 		local ls = player:FindFirstChild("leaderstats")
@@ -2976,6 +2976,60 @@ local success, err = pcall(function()
 
 		local remaining = math.max(0, targetInCash - curCash)
 		cardRemaining.Update(formatMillion(remaining))
+
+		-- Real-time Income / Hour & Tick Tracker
+		local now = os.clock()
+		if lastRecordedCash and lastCashTimestamp then
+			local dt = now - lastCashTimestamp
+			if dt >= 0.5 then
+				local delta = curCash - lastRecordedCash
+				if delta > 0 then
+					cardGainPerTick.Update("+" .. formatMoney(delta))
+					local instantRate = (delta / dt) * 3600
+					if smoothedHourlyRate <= 0 then
+						smoothedHourlyRate = instantRate
+					else
+						smoothedHourlyRate = (smoothedHourlyRate * 0.65) + (instantRate * 0.35)
+					end
+				end
+				lastRecordedCash = curCash
+				lastCashTimestamp = now
+			end
+		else
+			lastRecordedCash = curCash
+			lastCashTimestamp = now
+		end
+
+		if smoothedHourlyRate > 0 then
+			if smoothedHourlyRate >= 1000000 then
+				cardIncomePerHour.Update(string.format("$ %.2f M / hr", smoothedHourlyRate / 1000000))
+			else
+				cardIncomePerHour.Update(formatMoney(smoothedHourlyRate) .. " / hr")
+			end
+
+			if remaining <= 0 then
+				cardTimeToGoal.Update("Goal Reached!")
+			else
+				local secLeft = remaining / (smoothedHourlyRate / 3600)
+				if secLeft > 86400 * 3 then
+					cardTimeToGoal.Update("> 3 days")
+				else
+					local hrs = math.floor(secLeft / 3600)
+					local mins = math.floor((secLeft % 3600) / 60)
+					local secs = math.floor(secLeft % 60)
+					if hrs > 0 then
+						cardTimeToGoal.Update(string.format("%dh %dm", hrs, mins))
+					elseif mins > 0 then
+						cardTimeToGoal.Update(string.format("%dm %ds", mins, secs))
+					else
+						cardTimeToGoal.Update(string.format("%ds", secs))
+					end
+				end
+			end
+		else
+			cardIncomePerHour.Update("$ 0 / hr")
+			cardTimeToGoal.Update(remaining <= 0 and "Goal Reached!" or "--")
+		end
 
 		if Config.farm.targetEarn and Config.farm.targetEarnM then
 			if curCash >= targetInCash then

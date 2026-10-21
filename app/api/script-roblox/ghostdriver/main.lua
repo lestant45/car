@@ -171,8 +171,15 @@ local success, err = pcall(function()
 	local cardCurrent = UI.AddStatsCard(secTarget, "Current Balance", "$ 0.00 M")
 	local cardTarget = UI.AddStatsCard(secTarget, "Target Goal", "$ " .. tostring(Config.farm.targetEarnM or 5) .. ".00 M")
 	local cardRemaining = UI.AddStatsCard(secTarget, "Remaining Needed", "$ 0.00 M")
+	local cardIncomePerHour = UI.AddStatsCard(secTarget, "Est. Income / Hour", "$ 0 / hr")
+	local cardGainPerTick = UI.AddStatsCard(secTarget, "Cash / Tick (~2s)", "+$ 0")
+	local cardTimeToGoal = UI.AddStatsCard(secTarget, "Est. Time to Goal", "--")
 
 	local toggleRace -- forward reference agar bisa dimatikan otomatis saat target tercapai
+
+	local lastRecordedCash = nil
+	local lastCashTimestamp = nil
+	local smoothedHourlyRate = 0
 
 	local function checkTargetEarn()
 		local ls = player:FindFirstChild("leaderstats")
@@ -185,6 +192,60 @@ local success, err = pcall(function()
 
 		local remaining = math.max(0, targetInCash - curCash)
 		cardRemaining.Update(formatMillion(remaining))
+
+		-- Real-time Income / Hour & Tick Tracker
+		local now = os.clock()
+		if lastRecordedCash and lastCashTimestamp then
+			local dt = now - lastCashTimestamp
+			if dt >= 0.5 then
+				local delta = curCash - lastRecordedCash
+				if delta > 0 then
+					cardGainPerTick.Update("+" .. formatMoney(delta))
+					local instantRate = (delta / dt) * 3600
+					if smoothedHourlyRate <= 0 then
+						smoothedHourlyRate = instantRate
+					else
+						smoothedHourlyRate = (smoothedHourlyRate * 0.65) + (instantRate * 0.35)
+					end
+				end
+				lastRecordedCash = curCash
+				lastCashTimestamp = now
+			end
+		else
+			lastRecordedCash = curCash
+			lastCashTimestamp = now
+		end
+
+		if smoothedHourlyRate > 0 then
+			if smoothedHourlyRate >= 1000000 then
+				cardIncomePerHour.Update(string.format("$ %.2f M / hr", smoothedHourlyRate / 1000000))
+			else
+				cardIncomePerHour.Update(formatMoney(smoothedHourlyRate) .. " / hr")
+			end
+
+			if remaining <= 0 then
+				cardTimeToGoal.Update("Goal Reached!")
+			else
+				local secLeft = remaining / (smoothedHourlyRate / 3600)
+				if secLeft > 86400 * 3 then
+					cardTimeToGoal.Update("> 3 days")
+				else
+					local hrs = math.floor(secLeft / 3600)
+					local mins = math.floor((secLeft % 3600) / 60)
+					local secs = math.floor(secLeft % 60)
+					if hrs > 0 then
+						cardTimeToGoal.Update(string.format("%dh %dm", hrs, mins))
+					elseif mins > 0 then
+						cardTimeToGoal.Update(string.format("%dm %ds", mins, secs))
+					else
+						cardTimeToGoal.Update(string.format("%ds", secs))
+					end
+				end
+			end
+		else
+			cardIncomePerHour.Update("$ 0 / hr")
+			cardTimeToGoal.Update(remaining <= 0 and "Goal Reached!" or "--")
+		end
 
 		if Config.farm.targetEarn and Config.farm.targetEarnM then
 			if curCash >= targetInCash then
