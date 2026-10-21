@@ -386,6 +386,11 @@ local success, err = pcall(function()
 		if Settings then Settings.Save() end
 	end)
 
+	UI.AddToggle(secSpeedFarm, "Active Presence Heartbeat", "Sends virtual screen taps & light pulses every 3s to guarantee nonstop cash payout", Config.farm.activePresence ~= false, function(v)
+		Config.farm.activePresence = v
+		if Settings then Settings.Save() end
+	end)
+
 	UI.AddSlider(secSpeedFarm, "Target Speed", "Set cruise control speed for highway driving", 50, 200, Config.farm.targetSpeed or 70, " MPH", function(v)
 		Config.farm.targetSpeed = v
 		if Settings then Settings.Save() end

@@ -2579,6 +2579,51 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
+	-- 👆 ACTIVE PRESENCE HEARTBEAT & SCREEN TAP KEEPER
+	-- Mengirimkan tap layar virtual & pulsa tombol 'L' setiap 3 detik.
+	-- Memastikan sistem anti-idle game selalu mendeteksi kehadiran pemain aktif
+	-- sehingga payout uang driving terus masuk lancar 24/7 tanpa henti!
+	------------------------------------------------
+	local VIM = nil
+	pcall(function()
+		VIM = game:GetService("VirtualInputManager")
+	end)
+
+	local VirtualUser = nil
+	pcall(function()
+		VirtualUser = game:GetService("VirtualUser")
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(3.0)
+			if (Config.farm.autoSpeedFarm or Config.farm.autoRace) and Config.farm.activePresence ~= false then
+				pcall(function()
+					-- 1. Virtual Screen Tap di area aman (koordinat 30, 30)
+					if VIM then
+						VIM:SendMouseButtonEvent(30, 30, 0, true, game, 0)
+						task.wait(0.015)
+						VIM:SendMouseButtonEvent(30, 30, 0, false, game, 0)
+					end
+
+					-- 2. VirtualUser Fallback Controller Click
+					if VirtualUser then
+						VirtualUser:CaptureController()
+						VirtualUser:ClickButton1(Vector2.new(30, 30))
+					end
+
+					-- 3. Virtual Key Pulse 'L' (Lampu mobil - terbukti memicu reset payout)
+					if VIM then
+						VIM:SendKeyEvent(true, Enum.KeyCode.L, false, game)
+						task.wait(0.02)
+						VIM:SendKeyEvent(false, Enum.KeyCode.L, false, game)
+					end
+				end)
+			end
+		end
+	end)
+
+	------------------------------------------------
 	-- ⚡ AUTO SPEED & 24/7 ENDLESS HIGHWAY CRUISE (NEAR-MISS STREAK FARM)
 	------------------------------------------------
 	task.spawn(function()
@@ -3309,6 +3354,11 @@ local success, err = pcall(function()
 	local secSpeedFarm = UI.AddSection("Auto Farm", "Highway Speed & Distance Farm")
 	UI.AddToggle(secSpeedFarm, "Auto Speed Farm", "Maintains high velocity to grind near-misses and mileage", Config.farm.autoSpeedFarm, function(v)
 		Config.farm.autoSpeedFarm = v
+		if Settings then Settings.Save() end
+	end)
+
+	UI.AddToggle(secSpeedFarm, "Active Presence Heartbeat", "Sends virtual screen taps & light pulses every 3s to guarantee nonstop cash payout", Config.farm.activePresence ~= false, function(v)
+		Config.farm.activePresence = v
 		if Settings then Settings.Save() end
 	end)
 
