@@ -1837,18 +1837,23 @@ local success, err = pcall(function()
 							mod.DrainAdrenaline = function(self, dt, ...)
 								if Config.farm.autoSpeedFarm or Config.farm.autoRace then
 									local now = os.clock()
-									-- Setiap ~26 detik, biarkan adrenaline turun sebentar agar combo mencairkan uang bonus ke saldo!
-									if (now - lastBankTime) > 26.0 then
-										if self.adrenaline and self.adrenaline <= 0.2 then
-											lastBankTime = now -- Siklus baru dimulai
-										end
-										return origDrain(self, dt * 1.5, ...)
-									else
-										-- Pertahankan adrenaline (drain 50% lebih lambat) agar streak tidak gampang putus di antara mobil
+									local cycleElapsed = now - lastBankTime
+
+									-- Fase 1: Build Streak (0s s/d 22s) -> Jaga adrenaline tinggi agar streak bertumpuk
+									if cycleElapsed < 22.0 then
 										if self.adrenaline and self.adrenaline < 4.0 then
 											self.adrenaline = 4.0
 										end
 										return origDrain(self, dt * 0.5, ...)
+									else
+										-- Fase 2: Cash-Out & Auto-Bank (22s s/d 25s) -> Paksa adrenaline turun ke 0 agar combo mencairkan uang ke wallet!
+										if self.adrenaline then
+											self.adrenaline = 0
+										end
+										if cycleElapsed >= 25.0 then
+											lastBankTime = now
+										end
+										return origDrain(self, dt * 3.0, ...)
 									end
 								end
 								return origDrain(self, dt, ...)
@@ -2585,26 +2590,26 @@ local success, err = pcall(function()
 	-- Mengklik mouse (bahkan klik di UI script sekalipun) membuat uang bonus driving terus masuk lancar!
 	-- Hal ini karena game mendeteksi event UserInputService.InputBegan (MouseButton1) dari hardware mouse Windows.
 	--
-	-- SOLUSI 100% BAC-SAFE:
-	-- 1. Gunakan executor C++ API (mouse1click / mouse1press / mouse1release)
-	--    Ini mengirim Windows OS message (WM_LBUTTONDOWN/UP) sama persis seperti auto-clicker luar (0% BAC detection).
-	-- 2. Trigger getconnections(UserInputService.InputBegan) secara internal di Lua VM.
-	-- 3. Capture real InputObject saat player klik, lalu replay berkala setiap 1.5 detik.
-	-- 4. Tetap jalankan pulse Headlight & Shop prompt sebagai layer cadangan.
+	-- SOLUSI 100% BAC-SAFE (PC BACKGROUND & REDFINGER READY):
+	-- 1. Spoof UserInputService:IsWindowFocused() -> Selalu return true agar game tidak mendeteksi background AFK.
+	-- 2. Emulasi input dual-channel: MouseButton1 (PC) & Touch (Redfinger / Mobile) dengan gameProcessed = false.
+	-- 3. Camera Micro-Rotation Network Packet (setiap 15s) dari arsitektur DDS.
+	-- 4. Redfinger TouchGui Auto-Pulse pada kontrol sentuh mobile.
+	-- 5. Tetap sediakan executor native mouse1click() saat window PC aktif di foreground.
 	------------------------------------------------
 	task.spawn(function()
 		local UserInputService = game:GetService("UserInputService")
 		local getconns = getconnections or get_signal_cons
 		local lastHeadlightPulse = 0
-		local capturedMouseInput = nil
+		local lastCameraKeepAlive = 0
 
-		-- Capture real InputObject dari user saat klik pertama kali
+		-- 1. Spoof Window Focus (Cegah game mendeteksi bahwa Roblox sedang di-minimize / di background)
 		pcall(function()
-			UserInputService.InputBegan:Connect(function(input, processed)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					capturedMouseInput = input
-				end
-			end)
+			if hookfunction then
+				hookfunction(UserInputService.IsWindowFocused, function()
+					return true
+				end)
+			end
 		end)
 
 		local function findHeadlightGuiButton()
@@ -2613,7 +2618,6 @@ local success, err = pcall(function()
 
 			for _, gui in ipairs(pGui:GetChildren()) do
 				if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HipHub_GhostDriver_UI" then
-					-- Pass 1: GuiButton dengan nama atau teks terkait light/headlight/L
 					for _, desc in ipairs(gui:GetDescendants()) do
 						if desc:IsA("GuiButton") and desc.Visible then
 							local n = desc.Name:lower()
@@ -2631,7 +2635,6 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- Pass 2: Cari TextLabel "L", lalu lacak parent GuiButton-nya
 					for _, desc in ipairs(gui:GetDescendants()) do
 						if desc:IsA("TextLabel") and desc.Text:gsub("%s+", ""):upper() == "L" then
 							local p = desc.Parent
@@ -2702,45 +2705,106 @@ local success, err = pcall(function()
 			return fired
 		end
 
+		local function pulseInputSignal(inputType)
+			if not getconns then return end
+			local fakeInput = {
+				UserInputType = inputType,
+				UserInputState = Enum.UserInputState.Begin,
+				KeyCode = Enum.KeyCode.Unknown,
+				Position = Vector3.new(200, 200, 0),
+				Delta = Vector3.zero,
+				IsA = function(self, className)
+					return className == "InputObject" or className == "Instance"
+				end
+			}
+			setmetatable(fakeInput, {
+				__index = function(t, k)
+					if k == "UserInputType" then return inputType
+					elseif k == "UserInputState" then return Enum.UserInputState.Begin
+					end
+					return nil
+				end
+			})
+
+			for _, conn in ipairs(getconns(UserInputService.InputBegan)) do
+				pcall(function()
+					if conn.Fire then
+						conn:Fire(fakeInput, false) -- Wajib false agar tidak diabaikan game script!
+					elseif conn.Function then
+						conn.Function(fakeInput, false)
+					end
+				end)
+			end
+
+			task.delay(0.04, function()
+				fakeInput.UserInputState = Enum.UserInputState.End
+				for _, conn in ipairs(getconns(UserInputService.InputEnded)) do
+					pcall(function()
+						if conn.Fire then
+							conn:Fire(fakeInput, false)
+						elseif conn.Function then
+							conn.Function(fakeInput, false)
+						end
+					end)
+				end
+			end)
+		end
+
 		while true do
 			task.wait(1.5)
 			if Config.farm.autoSpeedFarm or Config.farm.autoRace or Config.farm.autoClicker then
 				local now = os.clock()
 
-				-- 🖱️ METODE 1: AUTO CLICKER PULSE (Persis seperti auto clicker luar, 100% BAC Safe)
+				-- 🖱️ UNIVERSAL INPUT PULSE (PC BACKGROUND & REDFINGER)
 				pcall(function()
-					-- A. C++ Executor Native Mouse Event (Solara, Wave, Codex, Delta, dll)
+					-- Channel 1: PC Mouse Click (Jika window foreground)
 					if mouse1click then
-						mouse1click()
+						pcall(mouse1click)
 					elseif mouse1press and mouse1release then
-						mouse1press()
-						task.wait(0.02)
-						mouse1release()
+						pcall(function()
+							mouse1press()
+							task.wait(0.02)
+							mouse1release()
+						end)
 					end
 
-					-- B. Replay event UserInputService.InputBegan ke seluruh listener game
-					if getconns then
-						local inputPayload = capturedMouseInput or {
-							UserInputType = Enum.UserInputType.MouseButton1,
-							UserInputState = Enum.UserInputState.Begin,
-							KeyCode = Enum.KeyCode.Unknown,
-							Position = Vector3.new(200, 200, 0),
-							Delta = Vector3.zero
-						}
+					-- Channel 2: PC Background Event (MouseButton1)
+					pulseInputSignal(Enum.UserInputType.MouseButton1)
 
-						for _, conn in ipairs(getconns(UserInputService.InputBegan)) do
-							pcall(function()
-								if conn.Fire then
-									conn:Fire(inputPayload, true)
-								elseif conn.Function then
-									conn.Function(inputPayload, true)
+					-- Channel 3: Redfinger / Mobile Touch Event (Touch)
+					pulseInputSignal(Enum.UserInputType.Touch)
+
+					-- Channel 4: Redfinger TouchGui Button Trigger (Jika ada kontrol mobile di layar)
+					local pGui = player:FindFirstChild("PlayerGui")
+					if pGui then
+						local touchGui = pGui:FindFirstChild("TouchGui") or pGui:FindFirstChild("MobileHUD")
+						if touchGui then
+							for _, desc in ipairs(touchGui:GetDescendants()) do
+								if desc:IsA("GuiButton") and desc.Visible then
+									triggerGuiButtonSafe(desc)
+									break
 								end
-							end)
+							end
 						end
 					end
 				end)
 
-				-- 💡 METODE 2: HEADLIGHT & CONTROLLER PULSE CADANGAN (Setiap 8.5 detik)
+				-- 📷 CAMERA KEEP-ALIVE PACKET (Bypass Idle Server Roblox pada Background PC & Redfinger)
+				if now - lastCameraKeepAlive >= 15.0 then
+					lastCameraKeepAlive = now
+					pcall(function()
+						local cam = workspace.CurrentCamera
+						if cam then
+							local cf = cam.CFrame
+							cam.CFrame = cf * CFrame.Angles(0, 0.0004, 0)
+							task.delay(0.04, function()
+								if cam then cam.CFrame = cf end
+							end)
+						end
+					end)
+				end
+
+				-- 💡 HEADLIGHT & CONTROLLER PULSE CADANGAN (Setiap 8.5 detik)
 				if now - lastHeadlightPulse >= 8.5 then
 					lastHeadlightPulse = now
 					local car, seat = getMyCar()
@@ -2919,6 +2983,10 @@ local success, err = pcall(function()
 						if seat:IsA("VehicleSeat") then
 							seat.ThrottleFloat = throttleVal
 							seat.Throttle = (throttleVal > 0.5) and 1 or 0
+							-- Micro-Steer Network Heartbeat (Memastikan server Roblox selalu menerima input setir aktif meski di background / Redfinger)
+							local steerMod = math.sin(now * 3.0) * 0.03
+							seat.SteerFloat = steerMod
+							seat.Steer = (math.abs(steerMod) > 0.02) and ((steerMod > 0) and 1 or -1) or 0
 						end
 					else
 						lastTick = os.clock()
