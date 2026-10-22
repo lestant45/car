@@ -33,6 +33,8 @@ end)
 local currentCap = 60
 local isMinimized = false
 local is3dEnabled = true
+local isPotatoActive = false
+local potatoConn = nil
 
 local function setCap(fps)
     currentCap = fps
@@ -70,13 +72,15 @@ local C = {
     btnBorder = Color3.fromRGB(40, 50, 75),
     btnActiveBg = Color3.fromRGB(18, 45, 60),
     btnActiveBorder = Color3.fromRGB(0, 220, 255),
-    danger = Color3.fromRGB(255, 80, 80)
+    danger = Color3.fromRGB(255, 80, 80),
+    nuke = Color3.fromRGB(255, 85, 45),
+    nukeActive = Color3.fromRGB(255, 140, 40)
 }
 
 -- Main Window Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 250, 0, 180)
+mainFrame.Size = UDim2.new(0, 250, 0, 218)
 mainFrame.Position = UDim2.new(0.5, -125, 0.2, 0)
 mainFrame.BackgroundColor3 = C.bg
 mainFrame.BorderSizePixel = 0
@@ -216,13 +220,21 @@ ramLayout.Padding = UDim.new(0, 6)
 ramLayout.SortOrder = Enum.SortOrder.LayoutOrder
 ramLayout.Parent = ramContainer
 
+-- Row 3: Potato Mode / Texture Nuker
+local nukeContainer = Instance.new("Frame")
+nukeContainer.Name = "NukeContainer"
+nukeContainer.Size = UDim2.new(1, -20, 0, 30)
+nukeContainer.Position = UDim2.new(0, 10, 0, 136)
+nukeContainer.BackgroundTransparency = 1
+nukeContainer.Parent = mainFrame
+
 -- Sub Note (AFK Tip)
 local tipLabel = Instance.new("TextLabel")
 tipLabel.Name = "TipLabel"
 tipLabel.Size = UDim2.new(1, -20, 0, 36)
-tipLabel.Position = UDim2.new(0, 10, 0, 136)
+tipLabel.Position = UDim2.new(0, 10, 0, 172)
 tipLabel.BackgroundTransparency = 1
-tipLabel.Text = "💡 Tip: Matikan 3D View untuk memangkas RAM hingga 70%!"
+tipLabel.Text = "💡 Tip: Matikan 3D View & Nuke Textures untuk drop RAM drastis!"
 tipLabel.TextColor3 = C.textMuted
 tipLabel.Font = Enum.Font.Gotham
 tipLabel.TextSize = 9.5
@@ -359,6 +371,108 @@ cleanBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
+-- Potato Mode / Extreme RAM Stripper Setup
+local nukeBtn = Instance.new("TextButton")
+nukeBtn.Name = "NukeBtn"
+nukeBtn.Size = UDim2.new(1, 0, 1, 0)
+nukeBtn.BackgroundColor3 = C.btnBg
+nukeBtn.BorderSizePixel = 0
+nukeBtn.Text = "💥 Nuke Textures (RAM Destroyer)"
+nukeBtn.TextColor3 = C.warning
+nukeBtn.Font = Enum.Font.GothamBold
+nukeBtn.TextSize = 11
+nukeBtn.Parent = nukeContainer
+
+local nukeCorner = Instance.new("UICorner")
+nukeCorner.CornerRadius = UDim.new(0, 7)
+nukeCorner.Parent = nukeBtn
+
+local nukeStroke = Instance.new("UIStroke")
+nukeStroke.Color = C.btnBorder
+nukeStroke.Thickness = 1.0
+nukeStroke.Parent = nukeBtn
+
+local function stripInstance(v)
+    pcall(function()
+        if v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 1
+            v.Texture = ""
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") or v:IsA("Explosion") then
+            v.Enabled = false
+        elseif v:IsA("BasePart") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+            v.CastShadow = false
+        elseif v:IsA("MeshPart") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.TextureID = ""
+            v.Reflectance = 0
+            v.CastShadow = false
+        elseif v:IsA("SpecialMesh") then
+            v.TextureId = ""
+        elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Atmosphere") then
+            v.Enabled = false
+        elseif v:IsA("Sound") then
+            v.Volume = 0
+        end
+    end)
+end
+
+local function applyPotatoMode()
+    isPotatoActive = true
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    end)
+    pcall(function()
+        local Lighting = game:GetService("Lighting")
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 9e9
+        Lighting.Brightness = 1
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("PostEffect") or effect:IsA("Atmosphere") or effect:IsA("Sky") then
+                pcall(function() effect.Enabled = false end)
+            end
+        end
+    end)
+    pcall(function()
+        local terrain = workspace:FindFirstChildOfClass("Terrain")
+        if terrain then
+            terrain.WaterWaveSize = 0
+            terrain.WaterWaveSpeed = 0
+            terrain.WaterReflectance = 0
+            terrain.WaterTransparency = 0
+        end
+    end)
+
+    for _, v in ipairs(workspace:GetDescendants()) do
+        stripInstance(v)
+    end
+
+    if not potatoConn then
+        potatoConn = workspace.DescendantAdded:Connect(function(v)
+            if isPotatoActive then
+                task.defer(function()
+                    stripInstance(v)
+                end)
+            end
+        end)
+    end
+
+    pcall(function()
+        collectgarbage("collect")
+        collectgarbage("setpause", 100)
+    end)
+
+    nukeBtn.Text = "🔥 Potato Mode Active (Textures Nuked!)"
+    nukeBtn.TextColor3 = C.accentActive
+    nukeBtn.BackgroundColor3 = Color3.fromRGB(15, 45, 35)
+    nukeStroke.Color = C.accentActive
+end
+
+nukeBtn.MouseButton1Click:Connect(function()
+    applyPotatoMode()
+end)
+
 -- Initialize Styles
 updateButtonStyles()
 update3dButton()
@@ -371,16 +485,18 @@ local function toggleMinimize()
         statusBar.Visible = false
         btnContainer.Visible = false
         ramContainer.Visible = false
+        nukeContainer.Visible = false
         tipLabel.Visible = false
         title.Text = "⚡ " .. tostring(currentCap) .. " FPS" .. (not is3dEnabled and " | 3D OFF" or "")
         title.Size = UDim2.new(1, -34, 1, 0)
         minBtn.Text = "+"
         closeBtn.Visible = false
     else
-        mainFrame.Size = UDim2.new(0, 250, 0, 180)
+        mainFrame.Size = UDim2.new(0, 250, 0, 218)
         statusBar.Visible = true
         btnContainer.Visible = true
         ramContainer.Visible = true
+        nukeContainer.Visible = true
         tipLabel.Visible = true
         title.Text = "⚡ HIPHUB FPS & RAM OPTIMIZER"
         title.Size = UDim2.new(1, -70, 1, 0)
@@ -401,6 +517,9 @@ end)
 closeBtn.MouseButton1Click:Connect(function()
     setCap(60)
     set3dRendering(true)
+    if potatoConn then
+        pcall(function() potatoConn:Disconnect() end)
+    end
     screenGui:Destroy()
 end)
 
