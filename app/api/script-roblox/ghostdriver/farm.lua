@@ -870,8 +870,6 @@ local success, err = pcall(function()
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = throttleVal
 									seat.Throttle = (throttleVal > 0.5) and 1 or 0
-									seat.SteerFloat = math.sin(now * 4.0) * 0.03
-									seat.Steer = (seat.SteerFloat > 0) and 1 or -1
 								end
 							end)
 
@@ -934,55 +932,204 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 💡 ACTIVE PRESENCE & VIRTUAL INPUT ENGINE (AUTO 'L' PULSE)
-	-- Mengirimkan pulse tombol 'L' (Headlight) & virtual input berkala setiap 2.5 detik.
-	-- Ini menjaga timer aktivitas/AFK game tetap ter-refresh terus menerus,
-	-- sehingga bonus uang dan payout driving TIDAK AKAN PERNAH macet lagi meski ditinggal AFK 24/7!
+	-- 💡 100% BAC-SAFE DRIVER PRESENCE HEARTBEAT (HEADLIGHT & GUI PULSE)
+	-- [CATATAN KRITIS ANTI-CHEAT]:
+	-- DILARANG KERAS menggunakan VirtualInputManager atau VirtualUser!
+	-- Roblox Byfron Anti-Cheat (BAC) mendeteksi VIM/VirtualUser dan langsung melempar Kick Error BAC.
+	--
+	-- SOLUSI 100% BAC-SAFE:
+	-- 1. Scan PlayerGui untuk tombol Headlight 'L' (di toolbar kanan HUD).
+	-- 2. Tembak event GUI via firesignal() (Murni eksekusi internal Lua VM, 0% BAC detection).
+	-- 3. Sinkronkan dengan Toggle Headlight Remote / Attribute mobil jika ada.
+	-- 4. Opsional / Backup: Pulse interaksi Shop UI lalu tutup seketika jika tombol L tidak ditemukan.
+	-- 5. Berjalan berkala setiap 8-10 detik agar timer AFK/Inactivity game tidak pernah expired,
+	--    sehingga bonus uang driving per 2 detik SELALU MASUK terus menerus tanpa henti!
 	------------------------------------------------
 	task.spawn(function()
-		local VirtualInputManager = nil
-		pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
-		local VirtualUser = nil
-		pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+		local lastPulse = 0
+
+		local function findHeadlightGuiButton()
+			local pGui = player:FindFirstChild("PlayerGui")
+			if not pGui then return nil end
+
+			for _, gui in ipairs(pGui:GetChildren()) do
+				if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HipHub_GhostDriver_UI" then
+					-- Pass 1: GuiButton dengan nama atau teks terkait light/headlight/L
+					for _, desc in ipairs(gui:GetDescendants()) do
+						if desc:IsA("GuiButton") and desc.Visible then
+							local n = desc.Name:lower()
+							if n:find("headlight") or n:find("light") or n == "l" then
+								return desc
+							end
+							if desc:IsA("TextButton") and desc.Text:gsub("%s+", ""):upper() == "L" then
+								return desc
+							end
+							for _, child in ipairs(desc:GetChildren()) do
+								if child:IsA("TextLabel") and child.Text:gsub("%s+", ""):upper() == "L" then
+									return desc
+								end
+							end
+						end
+					end
+
+					-- Pass 2: Cari TextLabel "L", lalu lacak parent GuiButton-nya
+					for _, desc in ipairs(gui:GetDescendants()) do
+						if desc:IsA("TextLabel") and desc.Text:gsub("%s+", ""):upper() == "L" then
+							local p = desc.Parent
+							while p and p ~= gui do
+								if p:IsA("GuiButton") then
+									return p
+								end
+								p = p.Parent
+							end
+						end
+					end
+				end
+			end
+			return nil
+		end
+
+		local function findShopGuiButton()
+			local pGui = player:FindFirstChild("PlayerGui")
+			if not pGui then return nil end
+			for _, gui in ipairs(pGui:GetChildren()) do
+				if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HipHub_GhostDriver_UI" then
+					for _, desc in ipairs(gui:GetDescendants()) do
+						if desc:IsA("GuiButton") and desc.Visible then
+							local n = desc.Name:lower()
+							if n:find("shop") or (desc:IsA("TextButton") and desc.Text:lower():find("shop")) then
+								return desc
+							end
+							for _, child in ipairs(desc:GetChildren()) do
+								if child:IsA("TextLabel") and child.Text:lower():find("shop") then
+									return desc
+								end
+							end
+						end
+					end
+				end
+			end
+			return nil
+		end
+
+		local function triggerGuiButtonSafe(btn)
+			if not btn then return false end
+			local fired = false
+			if firesignal then
+				pcall(function()
+					if btn.Activated then
+						firesignal(btn.Activated)
+						fired = true
+					end
+				end)
+				if not fired then
+					pcall(function()
+						if btn.MouseButton1Click then
+							firesignal(btn.MouseButton1Click)
+							fired = true
+						end
+					end)
+				end
+				if not fired then
+					pcall(function()
+						if btn.MouseButton1Down and btn.MouseButton1Up then
+							firesignal(btn.MouseButton1Down)
+							firesignal(btn.MouseButton1Up)
+							fired = true
+						end
+					end)
+				end
+			end
+			return fired
+		end
 
 		while true do
-			task.wait(2.5)
+			task.wait(2.0)
 			if Config.farm.autoSpeedFarm or Config.farm.autoRace then
-				pcall(function()
-					-- 1. Kirim native KeyCode.L via VirtualInputManager
-					if VirtualInputManager then
-						VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.L, false, game)
-						task.wait(0.04)
-						VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.L, false, game)
+				local now = os.clock()
+				if now - lastPulse >= 8.5 then
+					lastPulse = now
+					local car, seat = getMyCar()
+
+					-- METODE 1: Tekan tombol GUI Headlight 'L' di screen via firesignal (100% BAC Safe)
+					local lightBtn = findHeadlightGuiButton()
+					local firedSuccess = false
+					if lightBtn then
+						firedSuccess = triggerGuiButtonSafe(lightBtn)
 					end
 
-					-- 2. Trigger VirtualUser presence
-					if VirtualUser then
-						VirtualUser:CaptureController()
-						VirtualUser:ClickButton1(Vector2.new(50, 50))
-					end
-
-					-- 3. Trigger tombol GUI Headlight 'L' di screen jika ada
-					local pGui = player:FindFirstChild("PlayerGui")
-					if pGui then
-						for _, gui in ipairs(pGui:GetChildren()) do
-							if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HipHub_GhostDriver_UI" then
-								for _, desc in ipairs(gui:GetDescendants()) do
-									if desc:IsA("GuiButton") and desc.Visible then
-										local n = desc.Name:lower()
-										if n:find("light") or n:find("headlight") or (desc:IsA("TextButton") and desc.Text == "L") then
-											if firesignal then
-												firesignal(desc.Activated)
-												firesignal(desc.MouseButton1Down)
-												firesignal(desc.MouseButton1Up)
+					-- METODE 2: Fallback Controller / Remotes jika tombol GUI belum tertrigger
+					if not firedSuccess then
+						-- A. Trigger ModuleScript Controller game
+						pcall(function()
+							local controllers = ReplicatedStorage:FindFirstChild("Controllers")
+							if controllers then
+								for _, modScript in ipairs(controllers:GetDescendants()) do
+									if modScript:IsA("ModuleScript") and (modScript.Name:lower():find("vehicle") or modScript.Name:lower():find("car") or modScript.Name:lower():find("light")) then
+										local mod = require(modScript)
+										if type(mod) == "table" then
+											if type(mod.ToggleHeadlights) == "function" then
+												mod:ToggleHeadlights()
+												firedSuccess = true
+											elseif type(mod.ToggleLights) == "function" then
+												mod:ToggleLights()
+												firedSuccess = true
 											end
 										end
 									end
 								end
 							end
+						end)
+
+						-- B. Trigger Remotes Lampu pada Model Mobil
+						if not firedSuccess and car then
+							pcall(function()
+								for _, desc in ipairs(car:GetDescendants()) do
+									if desc:IsA("RemoteEvent") and (desc.Name:lower():find("light") or desc.Name:lower():find("headlight")) then
+										desc:FireServer()
+										firedSuccess = true
+									end
+								end
+							end)
+						end
+
+						-- C. Toggle atribut lampu pada mobil
+						if car then
+							pcall(function()
+								if car:GetAttribute("Headlights") ~= nil then
+									car:SetAttribute("Headlights", not car:GetAttribute("Headlights"))
+									firedSuccess = true
+								elseif car:GetAttribute("Lights") ~= nil then
+									car:SetAttribute("Lights", not car:GetAttribute("Lights"))
+									firedSuccess = true
+								end
+							end)
 						end
 					end
-				end)
+
+					-- METODE 3 (OPSIONAL BACKUP): Pulse Shop Prompt / UI lalu langsung tutup kembali
+					-- Hanya jika metode lampu tidak menemukan tombol
+					if not firedSuccess then
+						local shopBtn = findShopGuiButton()
+						if shopBtn and triggerGuiButtonSafe(shopBtn) then
+							task.delay(0.2, function()
+								local pGui = player:FindFirstChild("PlayerGui")
+								if pGui then
+									for _, desc in ipairs(pGui:GetDescendants()) do
+										if desc:IsA("GuiButton") and desc.Visible then
+											local n = desc.Name:lower()
+											if n:find("close") or (desc:IsA("TextButton") and desc.Text:lower():find("close")) or (desc:IsA("TextButton") and desc.Text:gsub("%s+", "") == "X") then
+												triggerGuiButtonSafe(desc)
+											end
+										end
+									end
+								end
+							end)
+						end
+					end
+				end
+			else
+				lastPulse = os.clock()
 			end
 		end
 	end)
@@ -1087,8 +1234,6 @@ local success, err = pcall(function()
 						if seat:IsA("VehicleSeat") then
 							seat.ThrottleFloat = throttleVal
 							seat.Throttle = (throttleVal > 0.5) and 1 or 0
-							seat.SteerFloat = math.sin(now * 4.0) * 0.03
-							seat.Steer = (seat.SteerFloat > 0) and 1 or -1
 						end
 					else
 						lastTick = os.clock()
