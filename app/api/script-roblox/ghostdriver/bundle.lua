@@ -2517,6 +2517,8 @@ local success, err = pcall(function()
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = throttleVal
 									seat.Throttle = (throttleVal > 0.5) and 1 or 0
+									seat.SteerFloat = math.sin(now * 4.0) * 0.03
+									seat.Steer = (seat.SteerFloat > 0) and 1 or -1
 								end
 							end)
 
@@ -2579,44 +2581,53 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 👆 ACTIVE PRESENCE HEARTBEAT & SCREEN TAP KEEPER
-	-- Mengirimkan tap layar virtual & pulsa tombol 'L' setiap 3 detik.
-	-- Memastikan sistem anti-idle game selalu mendeteksi kehadiran pemain aktif
-	-- sehingga payout uang driving terus masuk lancar 24/7 tanpa henti!
+	-- 💡 ACTIVE PRESENCE & VIRTUAL INPUT ENGINE (AUTO 'L' PULSE)
+	-- Mengirimkan pulse tombol 'L' (Headlight) & virtual input berkala setiap 2.5 detik.
+	-- Ini menjaga timer aktivitas/AFK game tetap ter-refresh terus menerus,
+	-- sehingga bonus uang dan payout driving TIDAK AKAN PERNAH macet lagi meski ditinggal AFK 24/7!
 	------------------------------------------------
-	local VIM = nil
-	pcall(function()
-		VIM = game:GetService("VirtualInputManager")
-	end)
-
-	local VirtualUser = nil
-	pcall(function()
-		VirtualUser = game:GetService("VirtualUser")
-	end)
-
 	task.spawn(function()
+		local VirtualInputManager = nil
+		pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+		local VirtualUser = nil
+		pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+
 		while true do
-			task.wait(3.0)
-			if (Config.farm.autoSpeedFarm or Config.farm.autoRace) and Config.farm.activePresence ~= false then
+			task.wait(2.5)
+			if Config.farm.autoSpeedFarm or Config.farm.autoRace then
 				pcall(function()
-					-- 1. Virtual Screen Tap di area aman (koordinat 30, 30)
-					if VIM then
-						VIM:SendMouseButtonEvent(30, 30, 0, true, game, 0)
-						task.wait(0.015)
-						VIM:SendMouseButtonEvent(30, 30, 0, false, game, 0)
+					-- 1. Kirim native KeyCode.L via VirtualInputManager
+					if VirtualInputManager then
+						VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.L, false, game)
+						task.wait(0.04)
+						VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.L, false, game)
 					end
 
-					-- 2. VirtualUser Fallback Controller Click
+					-- 2. Trigger VirtualUser presence
 					if VirtualUser then
 						VirtualUser:CaptureController()
-						VirtualUser:ClickButton1(Vector2.new(30, 30))
+						VirtualUser:ClickButton1(Vector2.new(50, 50))
 					end
 
-					-- 3. Virtual Key Pulse 'L' (Lampu mobil - terbukti memicu reset payout)
-					if VIM then
-						VIM:SendKeyEvent(true, Enum.KeyCode.L, false, game)
-						task.wait(0.02)
-						VIM:SendKeyEvent(false, Enum.KeyCode.L, false, game)
+					-- 3. Trigger tombol GUI Headlight 'L' di screen jika ada
+					local pGui = player:FindFirstChild("PlayerGui")
+					if pGui then
+						for _, gui in ipairs(pGui:GetChildren()) do
+							if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HipHub_GhostDriver_UI" then
+								for _, desc in ipairs(gui:GetDescendants()) do
+									if desc:IsA("GuiButton") and desc.Visible then
+										local n = desc.Name:lower()
+										if n:find("light") or n:find("headlight") or (desc:IsA("TextButton") and desc.Text == "L") then
+											if firesignal then
+												firesignal(desc.Activated)
+												firesignal(desc.MouseButton1Down)
+												firesignal(desc.MouseButton1Up)
+											end
+										end
+									end
+								end
+							end
+						end
 					end
 				end)
 			end
@@ -2723,6 +2734,8 @@ local success, err = pcall(function()
 						if seat:IsA("VehicleSeat") then
 							seat.ThrottleFloat = throttleVal
 							seat.Throttle = (throttleVal > 0.5) and 1 or 0
+							seat.SteerFloat = math.sin(now * 4.0) * 0.03
+							seat.Steer = (seat.SteerFloat > 0) and 1 or -1
 						end
 					else
 						lastTick = os.clock()
@@ -3354,11 +3367,6 @@ local success, err = pcall(function()
 	local secSpeedFarm = UI.AddSection("Auto Farm", "Highway Speed & Distance Farm")
 	UI.AddToggle(secSpeedFarm, "Auto Speed Farm", "Maintains high velocity to grind near-misses and mileage", Config.farm.autoSpeedFarm, function(v)
 		Config.farm.autoSpeedFarm = v
-		if Settings then Settings.Save() end
-	end)
-
-	UI.AddToggle(secSpeedFarm, "Active Presence Heartbeat", "Sends virtual screen taps & light pulses every 3s to guarantee nonstop cash payout", Config.farm.activePresence ~= false, function(v)
-		Config.farm.activePresence = v
 		if Settings then Settings.Save() end
 	end)
 

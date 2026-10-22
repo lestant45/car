@@ -870,6 +870,8 @@ local success, err = pcall(function()
 								if seat:IsA("VehicleSeat") then
 									seat.ThrottleFloat = throttleVal
 									seat.Throttle = (throttleVal > 0.5) and 1 or 0
+									seat.SteerFloat = math.sin(now * 4.0) * 0.03
+									seat.Steer = (seat.SteerFloat > 0) and 1 or -1
 								end
 							end)
 
@@ -922,6 +924,60 @@ local success, err = pcall(function()
 										UI.Notify("Quest Claimed", "Claimed " .. scope .. " Quest " .. tostring(i) .. " (+$" .. tostring(q.Reward) .. ")", 3, "success")
 									end
 									task.wait(0.4)
+								end
+							end
+						end
+					end
+				end)
+			end
+		end
+	end)
+
+	------------------------------------------------
+	-- 💡 ACTIVE PRESENCE & VIRTUAL INPUT ENGINE (AUTO 'L' PULSE)
+	-- Mengirimkan pulse tombol 'L' (Headlight) & virtual input berkala setiap 2.5 detik.
+	-- Ini menjaga timer aktivitas/AFK game tetap ter-refresh terus menerus,
+	-- sehingga bonus uang dan payout driving TIDAK AKAN PERNAH macet lagi meski ditinggal AFK 24/7!
+	------------------------------------------------
+	task.spawn(function()
+		local VirtualInputManager = nil
+		pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+		local VirtualUser = nil
+		pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+
+		while true do
+			task.wait(2.5)
+			if Config.farm.autoSpeedFarm or Config.farm.autoRace then
+				pcall(function()
+					-- 1. Kirim native KeyCode.L via VirtualInputManager
+					if VirtualInputManager then
+						VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.L, false, game)
+						task.wait(0.04)
+						VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.L, false, game)
+					end
+
+					-- 2. Trigger VirtualUser presence
+					if VirtualUser then
+						VirtualUser:CaptureController()
+						VirtualUser:ClickButton1(Vector2.new(50, 50))
+					end
+
+					-- 3. Trigger tombol GUI Headlight 'L' di screen jika ada
+					local pGui = player:FindFirstChild("PlayerGui")
+					if pGui then
+						for _, gui in ipairs(pGui:GetChildren()) do
+							if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HipHub_GhostDriver_UI" then
+								for _, desc in ipairs(gui:GetDescendants()) do
+									if desc:IsA("GuiButton") and desc.Visible then
+										local n = desc.Name:lower()
+										if n:find("light") or n:find("headlight") or (desc:IsA("TextButton") and desc.Text == "L") then
+											if firesignal then
+												firesignal(desc.Activated)
+												firesignal(desc.MouseButton1Down)
+												firesignal(desc.MouseButton1Up)
+											end
+										end
+									end
 								end
 							end
 						end
@@ -1031,6 +1087,8 @@ local success, err = pcall(function()
 						if seat:IsA("VehicleSeat") then
 							seat.ThrottleFloat = throttleVal
 							seat.Throttle = (throttleVal > 0.5) and 1 or 0
+							seat.SteerFloat = math.sin(now * 4.0) * 0.03
+							seat.Steer = (seat.SteerFloat > 0) and 1 or -1
 						end
 					else
 						lastTick = os.clock()
