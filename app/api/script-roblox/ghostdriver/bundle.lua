@@ -3301,14 +3301,18 @@ local success, err = pcall(function()
 	local cardTarget = UI.AddStatsCard(secTarget, "Target Goal", "$ " .. tostring(Config.farm.targetEarnM or 5) .. ".00 M")
 	local cardRemaining = UI.AddStatsCard(secTarget, "Remaining Needed", "$ 0.00 M")
 	local cardIncomePerHour = UI.AddStatsCard(secTarget, "Est. Income / Hour", "$ 0 / hr")
-	local cardGainPerTick = UI.AddStatsCard(secTarget, "Cash / Tick (~2s)", "+$ 0")
+	local cardSessionEarned = UI.AddStatsCard(secTarget, "Session Earned", "+$ 0")
 	local cardTimeToGoal = UI.AddStatsCard(secTarget, "Est. Time to Goal", "--")
 
 	local toggleRace -- forward reference agar bisa dimatikan otomatis saat target tercapai
 
-	local lastRecordedCash = nil
-	local lastCashTimestamp = nil
-	local smoothedHourlyRate = 0
+	-- 📊 SESSION EARNING & ACCUMULATED HOURLY RATE ENGINE (STYLE DDS)
+	-- Mendeteksi total uang yang diterima pada sesi ini & mengakumulasikan rata-rata per jam:
+	-- ratePerHour = math.floor((totalEarned / elapsed) * 3600)
+	local sessionStartMoney = nil
+	local sessionStartTime = nil
+	local totalSessionEarned = 0
+	local lastTrackedCash = nil
 
 	local function checkTargetEarn()
 		local ls = player:FindFirstChild("leaderstats")
@@ -3322,40 +3326,56 @@ local success, err = pcall(function()
 		local remaining = math.max(0, targetInCash - curCash)
 		cardRemaining.Update(formatMillion(remaining))
 
-		-- Real-time Income / Hour & Tick Tracker
 		local now = os.clock()
-		if lastRecordedCash and lastCashTimestamp then
-			local dt = now - lastCashTimestamp
-			if dt >= 0.5 then
-				local delta = curCash - lastRecordedCash
-				if delta > 0 then
-					cardGainPerTick.Update("+" .. formatMoney(delta))
-					local instantRate = (delta / dt) * 3600
-					if smoothedHourlyRate <= 0 then
-						smoothedHourlyRate = instantRate
-					else
-						smoothedHourlyRate = (smoothedHourlyRate * 0.65) + (instantRate * 0.35)
-					end
-				end
-				lastRecordedCash = curCash
-				lastCashTimestamp = now
+		if curCash > 0 then
+			if not sessionStartMoney then
+				sessionStartMoney = curCash
+				sessionStartTime = now
+				lastTrackedCash = curCash
 			end
-		else
-			lastRecordedCash = curCash
-			lastCashTimestamp = now
+
+			-- Akumulasi setiap uang masuk selama sesi berlangsung
+			if lastTrackedCash then
+				local delta = curCash - lastTrackedCash
+				if delta > 0 then
+					totalSessionEarned = totalSessionEarned + delta
+				end
+			end
+			lastTrackedCash = curCash
 		end
 
-		if smoothedHourlyRate > 0 then
-			if smoothedHourlyRate >= 1000000 then
-				cardIncomePerHour.Update(string.format("$ %.2f M / hr", smoothedHourlyRate / 1000000))
+		local directEarned = sessionStartMoney and math.max(0, curCash - sessionStartMoney) or 0
+		local totalEarned = math.max(totalSessionEarned, directEarned)
+
+		-- Update kartu Session Earned
+		if totalEarned > 0 then
+			if totalEarned >= 1000000 then
+				cardSessionEarned.Update(string.format("+$ %.2f M", totalEarned / 1000000))
 			else
-				cardIncomePerHour.Update(formatMoney(smoothedHourlyRate) .. " / hr")
+				cardSessionEarned.Update("+" .. formatMoney(totalEarned))
+			end
+		else
+			cardSessionEarned.Update("+$ 0")
+		end
+
+		-- Hitung Rata-Rata Penghasilan per 1 Jam (Formula DDS: math.floor((earned / elapsed) * 3600))
+		local elapsed = sessionStartTime and math.max(1, math.floor(now - sessionStartTime)) or 1
+		local ratePerHour = 0
+		if elapsed >= 3 and totalEarned > 0 then
+			ratePerHour = math.floor((totalEarned / elapsed) * 3600)
+		end
+
+		if ratePerHour > 0 then
+			if ratePerHour >= 1000000 then
+				cardIncomePerHour.Update(string.format("$ %.2f M / hr", ratePerHour / 1000000))
+			else
+				cardIncomePerHour.Update(formatMoney(ratePerHour) .. " / hr")
 			end
 
 			if remaining <= 0 then
 				cardTimeToGoal.Update("Goal Reached!")
 			else
-				local secLeft = remaining / (smoothedHourlyRate / 3600)
+				local secLeft = remaining / (ratePerHour / 3600)
 				if secLeft > 86400 * 3 then
 					cardTimeToGoal.Update("> 3 days")
 				else
@@ -3385,7 +3405,7 @@ local success, err = pcall(function()
 				end
 				if Settings then Settings.Save() end
 
-				-- Disconnect player dengan pesan sesuai permintaan:
+				-- Disconnect player dengan pesan:
 				-- "Auto Farm Selesai, Uangmu Sekarang 'Total Uang'"
 				local finalMsg = "Auto Farm Selesai, Uangmu Sekarang " .. formatMoney(curCash)
 				task.delay(0.2, function()
@@ -3395,7 +3415,7 @@ local success, err = pcall(function()
 		end
 	end
 
-	-- Real-time Cash Balance Listener
+	-- Real-time Cash Balance Listener & 1s Ticker (Dynamic Income/Hr & Time Elapsed)
 	task.spawn(function()
 		pcall(function()
 			local ls = player:WaitForChild("leaderstats", 15)
@@ -3404,9 +3424,13 @@ local success, err = pcall(function()
 				cashObj.Changed:Connect(function()
 					checkTargetEarn()
 				end)
-				checkTargetEarn()
 			end
 		end)
+
+		while true do
+			task.wait(1)
+			pcall(checkTargetEarn)
+		end
 	end)
 
 	UI.AddToggle(secTarget, "Enable Target Earn Disconnect", "Disconnects player once target total cash is achieved", Config.farm.targetEarn or false, function(v)
