@@ -181,32 +181,16 @@ local success, err = pcall(function()
 							if origLose then return origLose(self, reason, ...) end
 						end
 
-						-- Otomatis cairkan (Bank) combo ke wallet setelah streak tinggi
-						-- agar uang bonus streak masuk terus ke akun tanpa harus toggle off/on!
+						-- Pertahankan adrenaline agar streak tidak pernah putus saat menyalip mobil
+						-- Uang near-miss langsung masuk otomatis setiap kali menyalip kendaraan!
 						local origDrain = mod.DrainAdrenaline
 						if origDrain then
-							local lastBankTime = os.clock()
 							mod.DrainAdrenaline = function(self, dt, ...)
 								if Config.farm.autoSpeedFarm or Config.farm.autoRace then
-									local now = os.clock()
-									local cycleElapsed = now - lastBankTime
-
-									-- Fase 1: Build Streak (0s s/d 22s) -> Jaga adrenaline tinggi agar streak bertumpuk
-									if cycleElapsed < 22.0 then
-										if self.adrenaline and self.adrenaline < 4.0 then
-											self.adrenaline = 4.0
-										end
-										return origDrain(self, dt * 0.5, ...)
-									else
-										-- Fase 2: Cash-Out & Auto-Bank (22s s/d 25s) -> Paksa adrenaline turun ke 0 agar combo mencairkan uang ke wallet!
-										if self.adrenaline then
-											self.adrenaline = 0
-										end
-										if cycleElapsed >= 25.0 then
-											lastBankTime = now
-										end
-										return origDrain(self, dt * 3.0, ...)
+									if self.adrenaline and self.adrenaline < 4.0 then
+										self.adrenaline = 4.0
 									end
+									return origDrain(self, dt * 0.5, ...)
 								end
 								return origDrain(self, dt, ...)
 							end
@@ -578,8 +562,8 @@ local success, err = pcall(function()
 			minLateral, maxLateral = -0.5, 0.5
 		end
 
-		-- Jalur Kiri offset: -8.0 studs (aman dari barrier kiri)
-		local maxSafeLeft = math.min(8.0, math.max(4.0, math.abs(minLateral) - 1.0))
+		-- Jalur Kiri offset: -11.2 studs (jarak aman bebas tabrakan dari mobil di jalur tengah & bebas barrier kiri)
+		local maxSafeLeft = math.min(11.2, math.max(6.0, math.abs(minLateral) - 1.5))
 		local laneOffsets = {
 			LEFT = -maxSafeLeft,
 			CENTER = 0.0
@@ -605,9 +589,10 @@ local success, err = pcall(function()
 		end
 
 		-- 3. Klasifikasi Ancaman Jalan ke 2 Jalur (CENTER dan LEFT)
-		-- Batas pembatas lateral: -4.5 studs
-		-- Jika obsLateral > -4.5 -> Masuk Jalur TENGAH (CENTER)
-		-- Jika obsLateral <= -4.5 -> Masuk Jalur KIRI (LEFT)
+		-- Memperhitungkan lebar badan mobil (~8.5 studs):
+		-- Mobil dengan obsLateral >= -5.5 mengancam jalur TENGAH
+		-- Mobil dengan obsLateral <= -4.0 mengancam jalur KIRI
+		-- Mobil di antara -5.5 s/d -4.0 (straddle garis) mengancam KEDUA jalur sekaligus!
 		local threats = {
 			LEFT = 999.0,
 			CENTER = 999.0
@@ -622,18 +607,25 @@ local success, err = pcall(function()
 			local fDist = delta:Dot(forwardDir)
 			local obsLateral = delta:Dot(rightVec)
 
-			-- Pindai kendaraan dari -35 studs di belakang s/d 220 studs di depan
-			if fDist >= -35.0 and fDist <= 220.0 then
-				local lane = (obsLateral > -4.5) and "CENTER" or "LEFT"
+			-- Pindai kendaraan dari -40 studs di belakang s/d 230 studs di depan
+			if fDist >= -40.0 and fDist <= 230.0 then
+				local threatensCenter = (obsLateral >= -5.5)
+				local threatensLeft = (obsLateral <= -4.0)
 
-				-- Sedang berdampingan atau mepet (-35 s/d +30 studs)
-				if fDist >= -35.0 and fDist <= 30.0 then
-					beside[lane] = true
+				-- Sedang berdampingan atau belum aman dilewati (-40 s/d +35 studs)
+				if fDist >= -40.0 and fDist <= 35.0 then
+					if threatensLeft then beside.LEFT = true end
+					if threatensCenter then beside.CENTER = true end
 				end
 
 				-- Ancaman di depan
-				if fDist > 0 and fDist < threats[lane] then
-					threats[lane] = fDist
+				if fDist > 0 then
+					if threatensLeft and fDist < threats.LEFT then
+						threats.LEFT = fDist
+					end
+					if threatensCenter and fDist < threats.CENTER then
+						threats.CENTER = fDist
+					end
 				end
 			end
 		end
@@ -647,23 +639,22 @@ local success, err = pcall(function()
 			-- Kita sedang di Jalur Tengah (0.0).
 			-- Jika jalur tengah terhalang mobil di depan (< 180 studs di 115 MPH):
 			if threats.CENTER < 180.0 then
-				-- Pindah ke Jalur Kiri jika:
-				-- 1. Tidak ada mobil di samping kiri kita (beside.LEFT == false)
-				-- 2. Jalur kiri lebih aman dari jalur tengah (threats.LEFT > threats.CENTER + 20.0 atau threats.LEFT > 75.0)
-				if not beside.LEFT and (threats.LEFT > (threats.CENTER + 20.0) or threats.LEFT > 75.0) then
-					activeLaneName = "LEFT" -- Pindah ke Jalur Kiri!
+				-- Pindah ke Jalur Kiri jika jalur kiri bebas mobil di samping dan lebih lapang
+				if not beside.LEFT and (threats.LEFT > (threats.CENTER + 25.0) or threats.LEFT > 120.0) then
+					activeLaneName = "LEFT" -- Pindah ke Jalur Kiri (-11.2 studs)
 				end
 			end
 			-- Jika jalur tengah aman, TETAP JALAN LURUS DI TENGAH!
 		else
-			-- Kita sedang di Jalur Kiri (-8.0).
-			-- Jika jalur kiri terhalang mobil di depan (< 180 studs di 115 MPH):
+			-- Kita sedang di Jalur Kiri (-11.2 studs).
+			-- HANYA boleh kembali ke Jalur Tengah jika:
+			-- 1. Jalur kiri terhalang mobil di depan (< 180 studs)
+			-- 2. Mobil di tengah yang tadi disalip sudah benar-benar lewat aman di belakang (beside.CENTER == false)
+			-- 3. JALUR TENGAH JAUH LEBIH AMAN (threats.CENTER > threats.LEFT + 35.0 dan threats.CENTER > 140.0)
+			-- JANGAN PERNAH potong balik ke tengah jika di depan jalur tengah masih ada mobil dekat (< 140 studs)!
 			if threats.LEFT < 180.0 then
-				-- Pindah kembali ke Jalur Tengah jika:
-				-- 1. Mobil yang tadi kita salip di tengah sudah lewat aman di belakang (beside.CENTER == false, fDist < -35 studs)
-				-- 2. Jalur tengah lebih aman dari jalur kiri (threats.CENTER > threats.LEFT + 20.0 atau threats.CENTER > 75.0)
-				if not beside.CENTER and (threats.CENTER > (threats.LEFT + 20.0) or threats.CENTER > 75.0) then
-					activeLaneName = "CENTER" -- Pindah kembali ke Jalur Tengah!
+				if not beside.CENTER and (threats.CENTER > (threats.LEFT + 35.0) and threats.CENTER > 140.0) then
+					activeLaneName = "CENTER" -- Kembali ke tengah hanya jika benar-benar lapang!
 				end
 			end
 			-- JIKA JALUR KIRI MASIH AMAN (threats.LEFT >= 180.0):
