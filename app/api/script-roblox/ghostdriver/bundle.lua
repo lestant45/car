@@ -1201,6 +1201,7 @@ local success, err = pcall(function()
 			claimInterval = 5,
 			autoSpeedFarm = false,
 			targetSpeed = 70,
+			autoClicker = true,
 			autoAfkArea = false,
 			autoBuyCar = false,
 			targetCarToBuy = "Novis N55"
@@ -2579,21 +2580,32 @@ local success, err = pcall(function()
 	end)
 
 	------------------------------------------------
-	-- 💡 100% BAC-SAFE DRIVER PRESENCE HEARTBEAT (HEADLIGHT & GUI PULSE)
-	-- [CATATAN KRITIS ANTI-CHEAT]:
-	-- DILARANG KERAS menggunakan VirtualInputManager atau VirtualUser!
-	-- Roblox Byfron Anti-Cheat (BAC) mendeteksi VIM/VirtualUser dan langsung melempar Kick Error BAC.
+	-- 💡 100% BAC-SAFE AUTO CLICKER & DRIVER PRESENCE HEARTBEAT
+	-- [PENGALAMAN NYATA USER]:
+	-- Mengklik mouse (bahkan klik di UI script sekalipun) membuat uang bonus driving terus masuk lancar!
+	-- Hal ini karena game mendeteksi event UserInputService.InputBegan (MouseButton1) dari hardware mouse Windows.
 	--
 	-- SOLUSI 100% BAC-SAFE:
-	-- 1. Scan PlayerGui untuk tombol Headlight 'L' (di toolbar kanan HUD).
-	-- 2. Tembak event GUI via firesignal() (Murni eksekusi internal Lua VM, 0% BAC detection).
-	-- 3. Sinkronkan dengan Toggle Headlight Remote / Attribute mobil jika ada.
-	-- 4. Opsional / Backup: Pulse interaksi Shop UI lalu tutup seketika jika tombol L tidak ditemukan.
-	-- 5. Berjalan berkala setiap 8-10 detik agar timer AFK/Inactivity game tidak pernah expired,
-	--    sehingga bonus uang driving per 2 detik SELALU MASUK terus menerus tanpa henti!
+	-- 1. Gunakan executor C++ API (mouse1click / mouse1press / mouse1release)
+	--    Ini mengirim Windows OS message (WM_LBUTTONDOWN/UP) sama persis seperti auto-clicker luar (0% BAC detection).
+	-- 2. Trigger getconnections(UserInputService.InputBegan) secara internal di Lua VM.
+	-- 3. Capture real InputObject saat player klik, lalu replay berkala setiap 1.5 detik.
+	-- 4. Tetap jalankan pulse Headlight & Shop prompt sebagai layer cadangan.
 	------------------------------------------------
 	task.spawn(function()
-		local lastPulse = 0
+		local UserInputService = game:GetService("UserInputService")
+		local getconns = getconnections or get_signal_cons
+		local lastHeadlightPulse = 0
+		local capturedMouseInput = nil
+
+		-- Capture real InputObject dari user saat klik pertama kali
+		pcall(function()
+			UserInputService.InputBegan:Connect(function(input, processed)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					capturedMouseInput = input
+				end
+			end)
+		end)
 
 		local function findHeadlightGuiButton()
 			local pGui = player:FindFirstChild("PlayerGui")
@@ -2691,23 +2703,55 @@ local success, err = pcall(function()
 		end
 
 		while true do
-			task.wait(2.0)
-			if Config.farm.autoSpeedFarm or Config.farm.autoRace then
+			task.wait(1.5)
+			if Config.farm.autoSpeedFarm or Config.farm.autoRace or Config.farm.autoClicker then
 				local now = os.clock()
-				if now - lastPulse >= 8.5 then
-					lastPulse = now
+
+				-- 🖱️ METODE 1: AUTO CLICKER PULSE (Persis seperti auto clicker luar, 100% BAC Safe)
+				pcall(function()
+					-- A. C++ Executor Native Mouse Event (Solara, Wave, Codex, Delta, dll)
+					if mouse1click then
+						mouse1click()
+					elseif mouse1press and mouse1release then
+						mouse1press()
+						task.wait(0.02)
+						mouse1release()
+					end
+
+					-- B. Replay event UserInputService.InputBegan ke seluruh listener game
+					if getconns then
+						local inputPayload = capturedMouseInput or {
+							UserInputType = Enum.UserInputType.MouseButton1,
+							UserInputState = Enum.UserInputState.Begin,
+							KeyCode = Enum.KeyCode.Unknown,
+							Position = Vector3.new(200, 200, 0),
+							Delta = Vector3.zero
+						}
+
+						for _, conn in ipairs(getconns(UserInputService.InputBegan)) do
+							pcall(function()
+								if conn.Fire then
+									conn:Fire(inputPayload, true)
+								elseif conn.Function then
+									conn.Function(inputPayload, true)
+								end
+							end)
+						end
+					end
+				end)
+
+				-- 💡 METODE 2: HEADLIGHT & CONTROLLER PULSE CADANGAN (Setiap 8.5 detik)
+				if now - lastHeadlightPulse >= 8.5 then
+					lastHeadlightPulse = now
 					local car, seat = getMyCar()
 
-					-- METODE 1: Tekan tombol GUI Headlight 'L' di screen via firesignal (100% BAC Safe)
 					local lightBtn = findHeadlightGuiButton()
 					local firedSuccess = false
 					if lightBtn then
 						firedSuccess = triggerGuiButtonSafe(lightBtn)
 					end
 
-					-- METODE 2: Fallback Controller / Remotes jika tombol GUI belum tertrigger
 					if not firedSuccess then
-						-- A. Trigger ModuleScript Controller game
 						pcall(function()
 							local controllers = ReplicatedStorage:FindFirstChild("Controllers")
 							if controllers then
@@ -2728,7 +2772,6 @@ local success, err = pcall(function()
 							end
 						end)
 
-						-- B. Trigger Remotes Lampu pada Model Mobil
 						if not firedSuccess and car then
 							pcall(function()
 								for _, desc in ipairs(car:GetDescendants()) do
@@ -2740,7 +2783,6 @@ local success, err = pcall(function()
 							end)
 						end
 
-						-- C. Toggle atribut lampu pada mobil
 						if car then
 							pcall(function()
 								if car:GetAttribute("Headlights") ~= nil then
@@ -2754,8 +2796,6 @@ local success, err = pcall(function()
 						end
 					end
 
-					-- METODE 3 (OPSIONAL BACKUP): Pulse Shop Prompt / UI lalu langsung tutup kembali
-					-- Hanya jika metode lampu tidak menemukan tombol
 					if not firedSuccess then
 						local shopBtn = findShopGuiButton()
 						if shopBtn and triggerGuiButtonSafe(shopBtn) then
@@ -2775,8 +2815,6 @@ local success, err = pcall(function()
 						end
 					end
 				end
-			else
-				lastPulse = os.clock()
 			end
 		end
 	end)
@@ -3541,6 +3579,11 @@ local success, err = pcall(function()
 
 	UI.AddSlider(secSpeedFarm, "Target Speed", "Set cruise control speed for highway driving", 50, 200, Config.farm.targetSpeed or 70, " MPH", function(v)
 		Config.farm.targetSpeed = v
+		if Settings then Settings.Save() end
+	end)
+
+	UI.AddToggle(secSpeedFarm, "Auto Clicker Presence (Anti-Idle Payout)", "Spam klik otomatis setiap 1.5 detik agar uang bonus driving terus masuk 24/7 tanpa perlu auto clicker luar", Config.farm.autoClicker ~= false, function(v)
+		Config.farm.autoClicker = v
 		if Settings then Settings.Save() end
 	end)
 

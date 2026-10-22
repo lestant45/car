@@ -415,6 +415,11 @@ local success, err = pcall(function()
 		if Settings then Settings.Save() end
 	end)
 
+	UI.AddToggle(secSpeedFarm, "Auto Clicker Presence (Anti-Idle Payout)", "Spam klik otomatis setiap 1.5 detik agar uang bonus driving terus masuk 24/7 tanpa perlu auto clicker luar", Config.farm.autoClicker ~= false, function(v)
+		Config.farm.autoClicker = v
+		if Settings then Settings.Save() end
+	end)
+
 	------------------------------------------------
 	-- 🏎️ TAB 3: VEHICLE MODS
 	------------------------------------------------

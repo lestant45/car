@@ -18,6 +18,7 @@ local success, err = pcall(function()
 			claimInterval = 5,
 			autoSpeedFarm = false,
 			targetSpeed = 70,
+			autoClicker = true,
 			autoAfkArea = false,
 			autoBuyCar = false,
 			targetCarToBuy = "Novis N55"
