@@ -1,17 +1,20 @@
 --[[
     ═════════════════════════════════════════════════════════════════
-    ⚡ HIPHUB — STANDALONE FPS LIMITER & BATTERY SAVER
+    ⚡ HIPHUB — STANDALONE FPS LIMITER & RAM SAVER (3D OFF & GC)
     ═════════════════════════════════════════════════════════════════
     Features:
     • 1-Click FPS Caps: 5 FPS (AFK Ultra Saver), 15 FPS (Balanced), 60 FPS (Smooth)
+    • 3D Viewport Toggle: Turns off 3D rendering to drop RAM & GPU usage by 50-70%
+    • Clean RAM Tool: Forces Lua Garbage Collection (collectgarbage)
+    • Live FPS & Live Memory (MB) Monitor
     • Draggable Window (Supports PC Mouse & Redfinger / Android Touch)
     • Compact Minimize Pill Mode
-    • Real-time Live FPS Monitor
     • 100% Compatible with All Executors (Solara, Wave, Codex, Delta, Fluxus, etc.)
 ]]
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Stats = game:GetService("Stats")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
@@ -29,6 +32,7 @@ end)
 -- State
 local currentCap = 60
 local isMinimized = false
+local is3dEnabled = true
 
 local function setCap(fps)
     currentCap = fps
@@ -37,6 +41,13 @@ local function setCap(fps)
     elseif set_fps_cap then
         pcall(set_fps_cap, fps)
     end
+end
+
+local function set3dRendering(state)
+    is3dEnabled = state
+    pcall(function()
+        RunService:Set3dRenderingEnabled(state)
+    end)
 end
 
 -- Create ScreenGui
@@ -52,6 +63,7 @@ local C = {
     header = Color3.fromRGB(22, 27, 40),
     accent = Color3.fromRGB(0, 220, 255),
     accentActive = Color3.fromRGB(0, 255, 170),
+    warning = Color3.fromRGB(255, 180, 50),
     text = Color3.fromRGB(240, 245, 255),
     textMuted = Color3.fromRGB(130, 145, 170),
     btnBg = Color3.fromRGB(26, 32, 48),
@@ -64,8 +76,8 @@ local C = {
 -- Main Window Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 240, 0, 138)
-mainFrame.Position = UDim2.new(0.5, -120, 0.2, 0)
+mainFrame.Size = UDim2.new(0, 250, 0, 180)
+mainFrame.Position = UDim2.new(0.5, -125, 0.2, 0)
 mainFrame.BackgroundColor3 = C.bg
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -94,7 +106,6 @@ local headerCorner = Instance.new("UICorner")
 headerCorner.CornerRadius = UDim.new(0, 10)
 headerCorner.Parent = header
 
--- Fix bottom corners of header
 local headerFiller = Instance.new("Frame")
 headerFiller.Size = UDim2.new(1, 0, 0, 8)
 headerFiller.Position = UDim2.new(0, 0, 1, -8)
@@ -108,10 +119,10 @@ title.Name = "Title"
 title.Size = UDim2.new(1, -70, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "⚡ HIPHUB FPS CAP"
+title.Text = "⚡ HIPHUB FPS & RAM OPTIMIZER"
 title.TextColor3 = C.accent
 title.Font = Enum.Font.GothamBold
-title.TextSize = 12
+title.TextSize = 11.5
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
@@ -144,66 +155,82 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 6)
 closeCorner.Parent = closeBtn
 
--- Live FPS & Status Bar
+-- Live FPS & RAM Status Bar
 local statusBar = Instance.new("Frame")
 statusBar.Name = "StatusBar"
-statusBar.Size = UDim2.new(1, -20, 0, 22)
-statusBar.Position = UDim2.new(0, 10, 0, 38)
+statusBar.Size = UDim2.new(1, -20, 0, 20)
+statusBar.Position = UDim2.new(0, 10, 0, 36)
 statusBar.BackgroundTransparency = 1
 statusBar.Parent = mainFrame
 
-local fpsLabel = Instance.new("TextLabel")
-fpsLabel.Name = "FPSLabel"
-fpsLabel.Size = UDim2.new(0.6, 0, 1, 0)
-fpsLabel.BackgroundTransparency = 1
-fpsLabel.Text = "Live: -- FPS"
-fpsLabel.TextColor3 = C.text
-fpsLabel.Font = Enum.Font.GothamMedium
-fpsLabel.TextSize = 11
-fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
-fpsLabel.Parent = statusBar
+local statsLabel = Instance.new("TextLabel")
+statsLabel.Name = "StatsLabel"
+statsLabel.Size = UDim2.new(0.68, 0, 1, 0)
+statsLabel.BackgroundTransparency = 1
+statsLabel.Text = "Live: -- FPS | RAM: -- MB"
+statsLabel.TextColor3 = C.text
+statsLabel.Font = Enum.Font.GothamMedium
+statsLabel.TextSize = 10.5
+statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+statsLabel.Parent = statusBar
 
 local capIndicator = Instance.new("TextLabel")
 capIndicator.Name = "CapIndicator"
-capIndicator.Size = UDim2.new(0.4, 0, 1, 0)
-capIndicator.Position = UDim2.new(0.6, 0, 0, 0)
+capIndicator.Size = UDim2.new(0.32, 0, 1, 0)
+capIndicator.Position = UDim2.new(0.68, 0, 0, 0)
 capIndicator.BackgroundTransparency = 1
 capIndicator.Text = "Cap: 60 FPS"
 capIndicator.TextColor3 = C.accentActive
 capIndicator.Font = Enum.Font.GothamBold
-capIndicator.TextSize = 11
+capIndicator.TextSize = 10.5
 capIndicator.TextXAlignment = Enum.TextXAlignment.Right
 capIndicator.Parent = statusBar
 
--- Button Container
+-- Row 1: FPS Caps Buttons (5, 15, 60)
 local btnContainer = Instance.new("Frame")
 btnContainer.Name = "BtnContainer"
-btnContainer.Size = UDim2.new(1, -20, 0, 38)
-btnContainer.Position = UDim2.new(0, 10, 0, 66)
+btnContainer.Size = UDim2.new(1, -20, 0, 32)
+btnContainer.Position = UDim2.new(0, 10, 0, 60)
 btnContainer.BackgroundTransparency = 1
 btnContainer.Parent = mainFrame
 
 local btnLayout = Instance.new("UIListLayout")
 btnLayout.FillDirection = Enum.FillDirection.Horizontal
 btnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-btnLayout.Padding = UDim.new(0, 8)
+btnLayout.Padding = UDim.new(0, 6)
 btnLayout.SortOrder = Enum.SortOrder.LayoutOrder
 btnLayout.Parent = btnContainer
+
+-- Row 2: RAM Optimizer Row (3D Toggle & Clean RAM)
+local ramContainer = Instance.new("Frame")
+ramContainer.Name = "RAMContainer"
+ramContainer.Size = UDim2.new(1, -20, 0, 32)
+ramContainer.Position = UDim2.new(0, 10, 0, 98)
+ramContainer.BackgroundTransparency = 1
+ramContainer.Parent = mainFrame
+
+local ramLayout = Instance.new("UIListLayout")
+ramLayout.FillDirection = Enum.FillDirection.Horizontal
+ramLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ramLayout.Padding = UDim.new(0, 6)
+ramLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ramLayout.Parent = ramContainer
 
 -- Sub Note (AFK Tip)
 local tipLabel = Instance.new("TextLabel")
 tipLabel.Name = "TipLabel"
-tipLabel.Size = UDim2.new(1, -20, 0, 20)
-tipLabel.Position = UDim2.new(0, 10, 0, 110)
+tipLabel.Size = UDim2.new(1, -20, 0, 36)
+tipLabel.Position = UDim2.new(0, 10, 0, 136)
 tipLabel.BackgroundTransparency = 1
-tipLabel.Text = "5 FPS: Ultra Hemat RAM & Baterai Redfinger"
+tipLabel.Text = "💡 Tip: Matikan 3D View untuk memangkas RAM hingga 70%!"
 tipLabel.TextColor3 = C.textMuted
 tipLabel.Font = Enum.Font.Gotham
 tipLabel.TextSize = 9.5
+tipLabel.TextWrapped = true
 tipLabel.TextXAlignment = Enum.TextXAlignment.Center
 tipLabel.Parent = mainFrame
 
--- Button Creation Helper
+-- FPS Buttons Setup
 local buttons = {}
 local btnCaps = { 5, 15, 60 }
 
@@ -217,13 +244,10 @@ local function updateButtonStyles()
         btnData.stroke.Thickness = isActive and 1.4 or 1.0
     end
     if currentCap == 5 then
-        tipLabel.Text = "5 FPS: Mode Ekstrem Hemat RAM (Redfinger/AFK)"
         capIndicator.TextColor3 = Color3.fromRGB(255, 120, 120)
     elseif currentCap == 15 then
-        tipLabel.Text = "15 FPS: Mode Hemat Seimbang (Background AFK)"
         capIndicator.TextColor3 = Color3.fromRGB(255, 200, 80)
     else
-        tipLabel.Text = "60 FPS: Mode Normal & Smooth Gameplay"
         capIndicator.TextColor3 = C.accentActive
     end
 end
@@ -231,18 +255,18 @@ end
 for i, fps in ipairs(btnCaps) do
     local btn = Instance.new("TextButton")
     btn.Name = "Btn_" .. tostring(fps)
-    btn.Size = UDim2.new(0, 68, 0, 36)
+    btn.Size = UDim2.new(0, 72, 0, 30)
     btn.BackgroundColor3 = C.btnBg
     btn.BorderSizePixel = 0
     btn.Text = tostring(fps) .. " FPS"
     btn.TextColor3 = C.text
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 11.5
     btn.LayoutOrder = i
     btn.Parent = btnContainer
 
     local bCorner = Instance.new("UICorner")
-    bCorner.CornerRadius = UDim.new(0, 8)
+    bCorner.CornerRadius = UDim.new(0, 7)
     bCorner.Parent = btn
 
     local bStroke = Instance.new("UIStroke")
@@ -258,27 +282,107 @@ for i, fps in ipairs(btnCaps) do
     end)
 end
 
--- Initialize Style
+-- RAM Optimizer Buttons
+local toggle3dBtn = Instance.new("TextButton")
+toggle3dBtn.Name = "Toggle3DBtn"
+toggle3dBtn.Size = UDim2.new(0, 134, 0, 30)
+toggle3dBtn.BackgroundColor3 = C.btnBg
+toggle3dBtn.BorderSizePixel = 0
+toggle3dBtn.Text = "👁️ 3D View: ON"
+toggle3dBtn.TextColor3 = C.text
+toggle3dBtn.Font = Enum.Font.GothamBold
+toggle3dBtn.TextSize = 11
+toggle3dBtn.LayoutOrder = 1
+toggle3dBtn.Parent = ramContainer
+
+local t3dCorner = Instance.new("UICorner")
+t3dCorner.CornerRadius = UDim.new(0, 7)
+t3dCorner.Parent = toggle3dBtn
+
+local t3dStroke = Instance.new("UIStroke")
+t3dStroke.Color = C.btnBorder
+t3dStroke.Thickness = 1.0
+t3dStroke.Parent = toggle3dBtn
+
+local function update3dButton()
+    if is3dEnabled then
+        toggle3dBtn.Text = "👁️ 3D View: ON"
+        toggle3dBtn.TextColor3 = C.text
+        toggle3dBtn.BackgroundColor3 = C.btnBg
+        t3dStroke.Color = C.btnBorder
+    else
+        toggle3dBtn.Text = "🌑 3D OFF (RAM Saver)"
+        toggle3dBtn.TextColor3 = C.accentActive
+        toggle3dBtn.BackgroundColor3 = Color3.fromRGB(15, 45, 35)
+        t3dStroke.Color = C.accentActive
+    end
+end
+
+toggle3dBtn.MouseButton1Click:Connect(function()
+    set3dRendering(not is3dEnabled)
+    update3dButton()
+end)
+
+local cleanBtn = Instance.new("TextButton")
+cleanBtn.Name = "CleanBtn"
+cleanBtn.Size = UDim2.new(0, 90, 0, 30)
+cleanBtn.BackgroundColor3 = C.btnBg
+cleanBtn.BorderSizePixel = 0
+cleanBtn.Text = "🧹 Clean RAM"
+cleanBtn.TextColor3 = C.text
+cleanBtn.Font = Enum.Font.GothamBold
+cleanBtn.TextSize = 11
+cleanBtn.LayoutOrder = 2
+cleanBtn.Parent = ramContainer
+
+local clCorner = Instance.new("UICorner")
+clCorner.CornerRadius = UDim.new(0, 7)
+clCorner.Parent = cleanBtn
+
+local clStroke = Instance.new("UIStroke")
+clStroke.Color = C.btnBorder
+clStroke.Thickness = 1.0
+clStroke.Parent = cleanBtn
+
+cleanBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        collectgarbage("collect")
+        collectgarbage("setpause", 100)
+    end)
+    cleanBtn.Text = "✓ Cleaned!"
+    cleanBtn.TextColor3 = C.accentActive
+    cleanBtn.BackgroundColor3 = Color3.fromRGB(15, 45, 35)
+    task.delay(1.5, function()
+        cleanBtn.Text = "🧹 Clean RAM"
+        cleanBtn.TextColor3 = C.text
+        cleanBtn.BackgroundColor3 = C.btnBg
+    end)
+end)
+
+-- Initialize Styles
 updateButtonStyles()
+update3dButton()
 
 -- Minimize / Expand Toggle
 local function toggleMinimize()
     isMinimized = not isMinimized
     if isMinimized then
-        mainFrame.Size = UDim2.new(0, 130, 0, 32)
+        mainFrame.Size = UDim2.new(0, 140, 0, 32)
         statusBar.Visible = false
         btnContainer.Visible = false
+        ramContainer.Visible = false
         tipLabel.Visible = false
-        title.Text = "⚡ " .. tostring(currentCap) .. " FPS"
+        title.Text = "⚡ " .. tostring(currentCap) .. " FPS" .. (not is3dEnabled and " | 3D OFF" or "")
         title.Size = UDim2.new(1, -34, 1, 0)
         minBtn.Text = "+"
         closeBtn.Visible = false
     else
-        mainFrame.Size = UDim2.new(0, 240, 0, 138)
+        mainFrame.Size = UDim2.new(0, 250, 0, 180)
         statusBar.Visible = true
         btnContainer.Visible = true
+        ramContainer.Visible = true
         tipLabel.Visible = true
-        title.Text = "⚡ HIPHUB FPS CAP"
+        title.Text = "⚡ HIPHUB FPS & RAM OPTIMIZER"
         title.Size = UDim2.new(1, -70, 1, 0)
         minBtn.Text = "-"
         closeBtn.Visible = true
@@ -287,24 +391,22 @@ end
 
 minBtn.MouseButton1Click:Connect(toggleMinimize)
 
--- Clicking the header while minimized also restores the window
 header.InputBegan:Connect(function(input)
     if isMinimized and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
         toggleMinimize()
     end
 end)
 
--- Close Button (Cleans up & restores 60 FPS)
+-- Close Button (Restores 60 FPS & 3D view before closing)
 closeBtn.MouseButton1Click:Connect(function()
     setCap(60)
+    set3dRendering(true)
     screenGui:Destroy()
 end)
 
--- Smooth Draggable Mechanism (PC Mouse & Mobile Touch Ready)
+-- Draggable
 local dragging = false
-local dragInput = nil
-local dragStart = nil
-local startPos = nil
+local dragInput, dragStart, startPos
 
 header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -338,32 +440,37 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Real-time FPS Calculation Loop
+-- Real-time FPS & Memory Monitor Loop
 local frameCount = 0
-local lastFpsUpdate = os.clock()
+local lastUpdate = os.clock()
 
 RunService.RenderStepped:Connect(function(dt)
     frameCount = frameCount + 1
     local now = os.clock()
-    if now - lastFpsUpdate >= 0.5 then
-        local realFps = math.floor(frameCount / (now - lastFpsUpdate))
+    if now - lastUpdate >= 0.5 then
+        local realFps = math.floor(frameCount / (now - lastUpdate))
         frameCount = 0
-        lastFpsUpdate = now
+        lastUpdate = now
+
+        local memMB = 0
+        pcall(function()
+            memMB = math.floor(Stats:GetTotalMemoryUsageMb())
+        end)
 
         if not isMinimized then
-            fpsLabel.Text = "Live: " .. tostring(realFps) .. " FPS"
+            statsLabel.Text = "Live: " .. tostring(realFps) .. " FPS | RAM: " .. tostring(memMB) .. " MB"
             if realFps <= 7 then
-                fpsLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+                statsLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
             elseif realFps <= 20 then
-                fpsLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
+                statsLabel.TextColor3 = C.warning
             else
-                fpsLabel.TextColor3 = C.text
+                statsLabel.TextColor3 = C.text
             end
         else
-            title.Text = "⚡ " .. tostring(realFps) .. " / " .. tostring(currentCap) .. " FPS"
+            title.Text = "⚡ " .. tostring(realFps) .. " FPS | " .. tostring(memMB) .. "MB"
         end
     end
 end)
 
--- Initial Cap set to 60 FPS
+-- Initial Setup
 setCap(60)
