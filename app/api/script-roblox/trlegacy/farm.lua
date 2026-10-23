@@ -498,6 +498,31 @@ local success, err = pcall(function()
 	-- AUTO RACE LOGIC
 	------------------------------------------------
 
+	-- Safely noclip ONLY obstacle props (fences, walls, barriers, poles, trees, furniture, bus stops)
+	-- NEVER noclip terrain, ground, grass, floors, road, spawn, or baseplate
+	local function noclipSurroundings(bikeRef, pos, radius)
+		pcall(function()
+			local overlap = OverlapParams.new()
+			overlap.FilterDescendantsInstances = { bikeRef, player.Character }
+			overlap.FilterType = Enum.RaycastFilterType.Exclude
+			overlap.MaxParts = 50
+			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)
+			for _, hit in ipairs(hits) do
+				if hit:IsA("BasePart") and hit.CanCollide then
+					local n = hit.Name:lower()
+					-- NEVER disable collision on ground/floor/terrain/road/spawn/baseplate
+					local isGround = n:find("road") or n:find("ground") or n:find("grass") or n:find("floor") or n:find("spawn") or n:find("terrain") or n:find("baseplate") or n:find("plate") or n:find("walk") or n:find("asphalt")
+					if not isGround then
+						local isObstacle = n:find("fence") or n:find("rail") or n:find("wall") or n:find("barrier") or n:find("post") or n:find("pole") or n:find("tree") or n:find("stop") or n:find("shelf") or n:find("sign") or n:find("light") or n:find("prop") or n:find("decor") or n:find("curb")
+						if isObstacle then
+							hit.CanCollide = false
+						end
+					end
+				end
+			end
+		end)
+	end
+
 	local function getCheckpointsForRace(raceModel)
 		-- 1. Prioritize MinimapPath attribute (Dense spline nodes following exact road curvature, e.g. 375 nodes on Race 1)
 		local minimapAttr = raceModel:GetAttribute("MinimapPath")
@@ -510,6 +535,29 @@ local success, err = pcall(function()
 				end
 			end
 			if #pathCheckpoints >= 2 then
+				-- Outlier & Spike Filter: Sanitize dense nodes (e.g. Race 1 curve 100-120) to prevent rogue coordinates
+				for j = 2, #pathCheckpoints - 1 do
+					local prevP = pathCheckpoints[j - 1].Position
+					local curP = pathCheckpoints[j].Position
+					local nextP = pathCheckpoints[j + 1].Position
+
+					local d1 = (curP - prevP).Magnitude
+					local d2 = (nextP - curP).Magnitude
+					local dBase = (nextP - prevP).Magnitude
+
+					-- Detect horizontal acute spike (outlier waypoint jumping off-track)
+					if d1 > 70 and d2 > 70 and dBase < 60 then
+						pathCheckpoints[j].Position = (prevP + nextP) * 0.5
+					end
+
+					-- Detect vertical spike (huge sudden Y elevation delta that drops right back)
+					local yDelta1 = math.abs(curP.Y - prevP.Y)
+					local yDelta2 = math.abs(curP.Y - nextP.Y)
+					local yBaseDelta = math.abs(nextP.Y - prevP.Y)
+					if yDelta1 > 20 and yDelta2 > 20 and yBaseDelta < 10 then
+						pathCheckpoints[j].Position = Vector3.new(curP.X, (prevP.Y + nextP.Y) * 0.5, curP.Z)
+					end
+				end
 				return pathCheckpoints
 			end
 		end
@@ -570,7 +618,7 @@ local success, err = pcall(function()
 		return {}
 	end
 
-	-- Helper: Safe Noclip during race flight (only modify vehicle parts, never modify character parts)
+	-- Helper: Safe Full Noclip during race flight (both motorcycle and character to prevent ejection from walls/guardrails)
 	local function setFullFlightNoclip(b, char, enableNoclip)
 		pcall(function()
 			if b then
@@ -583,6 +631,14 @@ local success, err = pcall(function()
 							local isWheel = n:find("wheel") or n:find("tire") or desc.CollisionGroup == "BikeWheel"
 							desc.CanCollide = isWheel
 						end
+					end
+				end
+			end
+			local targetChar = char or (player and player.Character)
+			if targetChar then
+				for _, desc in ipairs(targetChar:GetDescendants()) do
+					if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+						desc.CanCollide = not enableNoclip
 					end
 				end
 			end
@@ -830,6 +886,8 @@ local success, err = pcall(function()
 
 		local raceStartTime = os.clock()
 
+		local lastObstacleClear = 0
+
 		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
@@ -864,21 +922,57 @@ local success, err = pcall(function()
 				local currentPos = startPos:Lerp(endPos, alpha)
 
 				-- Terrain-Surface Raycast (Road Alignment)
+				-- Cast safely from just 10 studs above the interpolated position down 25 studs
+				-- NEVER cast from Y = 350 which hits mountain overhangs, cliffs, trees, or upper road levels!
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = { bike, player.Character }
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local groundRay = workspace:Raycast(Vector3.new(currentPos.X, math.max(currentPos.Y + 200, 350), currentPos.Z), Vector3.new(0, -700, 0), rayParams)
+				local rayOrigin = Vector3.new(currentPos.X, currentPos.Y + 10, currentPos.Z)
+				local groundRay = workspace:Raycast(rayOrigin, Vector3.new(0, -25, 0), rayParams)
 
 				if groundRay and groundRay.Position then
-					local groundY = groundRay.Position.Y
-					if i == #checkpoints and alpha > 0.5 then
-						-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
-						setFlightNoclipState(false)
+					local diffY = groundRay.Position.Y - currentPos.Y
+					-- Only snap if the surface hit is within natural road clearance (-12 to +8 studs)
+					if diffY >= -12 and diffY <= 8 then
+						local targetGroundY = groundRay.Position.Y + 2.8
+						if i == #checkpoints and alpha > 0.5 then
+							-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
+							setFlightNoclipState(false)
+						end
+						currentPos = Vector3.new(currentPos.X, targetGroundY, currentPos.Z)
 					end
-					currentPos = Vector3.new(currentPos.X, groundY + 2.8, currentPos.Z)
 				end
 
-				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
+				-- 🛡️ Anti-Ejection & Seated Guardian: Keep driver firmly attached to the motorcycle
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum and seat then
+					if hum.SeatPart ~= seat or not hum.Sit then
+						hum.Sit = true
+						pcall(function()
+							seat:Sit(hum)
+							hum:ChangeState(Enum.HumanoidStateType.Seated)
+						end)
+					end
+					pcall(function()
+						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+					end)
+				end
+
+				-- Periodically clear roadside barrier / fence / pole collisions around sharp turns
+				if (now - lastObstacleClear) > 0.25 then
+					lastObstacleClear = now
+					noclipSurroundings(bike, currentPos, 35)
+				end
+
+				-- Smooth orientation: banking and pitch matching road grade (clamped to max ±18 degrees)
+				local flatDir = Vector3.new(dir.X, 0, dir.Z)
+				local lookUnit = (flatDir.Magnitude > 0.01) and flatDir.Unit or Vector3.new(0, 0, 1)
+				local pitch = math.clamp(math.atan2(dir.Y, flatDir.Magnitude), -math.rad(18), math.rad(18))
+				local targetCF = CFrame.lookAt(currentPos, currentPos + lookUnit * 10) * CFrame.Angles(-pitch, 0, 0)
+
+				bike:PivotTo(targetCF)
 				farmBV.Velocity = moveVelocity
 				primary.AssemblyLinearVelocity = moveVelocity
 				primary.AssemblyAngularVelocity = Vector3.zero
@@ -896,9 +990,16 @@ local success, err = pcall(function()
 				RunService.Heartbeat:Wait()
 			end
 
-			-- Pastikan motor persis di atas waypoint di akhir segmen
-			local cpLook = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.CFrame.LookVector or dir
-			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
+			-- Pastikan motor menempati posisi waypoint akhir secara mulus tanpa lonjakan Y
+			local finalPos = Vector3.new(endPos.X, currentPos.Y, endPos.Z)
+			local flatDir = Vector3.new(dir.X, 0, dir.Z)
+			local lookUnit = (flatDir.Magnitude > 0.01) and flatDir.Unit or Vector3.new(0, 0, 1)
+			bike:PivotTo(CFrame.lookAt(finalPos, finalPos + lookUnit * 10))
+
+			-- Update startPos untuk segmen berikutnya agar kontinu sempurna
+			if legStartPositions[i + 1] then
+				legStartPositions[i + 1] = finalPos
+			end
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
@@ -1047,31 +1148,6 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local ray = workspace:Raycast(Vector3.new(posX, 250, posZ), Vector3.new(0, -500, 0), rayParams)
 		return ray and ray.Position.Y or 0.5
-	end
-
-	-- Safely noclip ONLY obstacle props (fences, walls, barriers, poles, trees, furniture, bus stops)
-	-- NEVER noclip terrain, ground, grass, floors, road, spawn, or baseplate
-	local function noclipSurroundings(bikeRef, pos, radius)
-		pcall(function()
-			local overlap = OverlapParams.new()
-			overlap.FilterDescendantsInstances = { bikeRef, player.Character }
-			overlap.FilterType = Enum.RaycastFilterType.Exclude
-			overlap.MaxParts = 50
-			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)
-			for _, hit in ipairs(hits) do
-				if hit:IsA("BasePart") and hit.CanCollide then
-					local n = hit.Name:lower()
-					-- NEVER disable collision on ground/floor/terrain/road/spawn/baseplate
-					local isGround = n:find("road") or n:find("ground") or n:find("grass") or n:find("floor") or n:find("spawn") or n:find("terrain") or n:find("baseplate") or n:find("plate") or n:find("walk") or n:find("asphalt")
-					if not isGround then
-						local isObstacle = n:find("fence") or n:find("rail") or n:find("wall") or n:find("barrier") or n:find("post") or n:find("pole") or n:find("tree") or n:find("stop") or n:find("shelf") or n:find("sign") or n:find("light") or n:find("prop") or n:find("decor") or n:find("curb")
-						if isObstacle then
-							hit.CanCollide = false
-						end
-					end
-				end
-			end
-		end)
 	end
 
 	-- Noclip bike frame/exhaust/pegs so they don't catch on curbs (wheels MUST stay collidable)
