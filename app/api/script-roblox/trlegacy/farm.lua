@@ -498,65 +498,53 @@ local success, err = pcall(function()
 	-- AUTO RACE LOGIC
 	------------------------------------------------
 
-	-- Safely noclip ONLY obstacle props (fences, walls, barriers, poles, trees, furniture, bus stops)
-	-- NEVER noclip terrain, ground, grass, floors, road, spawn, or baseplate
-	local function noclipSurroundings(bikeRef, pos, radius)
-		pcall(function()
-			local overlap = OverlapParams.new()
-			overlap.FilterDescendantsInstances = { bikeRef, player.Character }
-			overlap.FilterType = Enum.RaycastFilterType.Exclude
-			overlap.MaxParts = 50
-			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)
-			for _, hit in ipairs(hits) do
-				if hit:IsA("BasePart") and hit.CanCollide then
-					local n = hit.Name:lower()
-					-- NEVER disable collision on ground/floor/terrain/road/spawn/baseplate
-					local isGround = n:find("road") or n:find("ground") or n:find("grass") or n:find("floor") or n:find("spawn") or n:find("terrain") or n:find("baseplate") or n:find("plate") or n:find("walk") or n:find("asphalt")
-					if not isGround then
-						local isObstacle = n:find("fence") or n:find("rail") or n:find("wall") or n:find("barrier") or n:find("post") or n:find("pole") or n:find("tree") or n:find("stop") or n:find("shelf") or n:find("sign") or n:find("light") or n:find("prop") or n:find("decor") or n:find("curb")
-						if isObstacle then
-							hit.CanCollide = false
-						end
-					end
-				end
-			end
-		end)
-	end
-
 	local function getCheckpointsForRace(raceModel)
-		-- 1. Prioritize MinimapPath attribute (Dense spline nodes following exact road curvature, e.g. 375 nodes on Race 1)
+		-- 1. Prioritize MinimapPath attribute (with Smart Road Spline Anomaly & Spike Filter)
 		local minimapAttr = raceModel:GetAttribute("MinimapPath")
 		if minimapAttr and type(minimapAttr) == "string" and #minimapAttr > 0 then
-			local pathCheckpoints = {}
+			local raw = {}
 			for seg in minimapAttr:gmatch("[^|]+") do
 				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
 				if x and y and z then
-					table.insert(pathCheckpoints, { Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) })
+					table.insert(raw, Vector3.new(tonumber(x), tonumber(y), tonumber(z)))
 				end
 			end
-			if #pathCheckpoints >= 2 then
-				-- Outlier & Spike Filter: Sanitize dense nodes (e.g. Race 1 curve 100-120) to prevent rogue coordinates
-				for j = 2, #pathCheckpoints - 1 do
-					local prevP = pathCheckpoints[j - 1].Position
-					local curP = pathCheckpoints[j].Position
-					local nextP = pathCheckpoints[j + 1].Position
+			if #raw >= 2 then
+				-- FILTER OUT OFF-ROAD ANOMALIES & ROGUE SPIKES:
+				-- Prunes rogue coordinates that jump into rocks/mountains/trees or make sharp acute reversals (> 65 deg or > 45 deg with detour)
+				local filtered = { raw[1] }
+				for i = 2, #raw - 1 do
+					local prev = filtered[#filtered]
+					local cur = raw[i]
+					local nxt = raw[i + 1]
 
-					local d1 = (curP - prevP).Magnitude
-					local d2 = (nextP - curP).Magnitude
-					local dBase = (nextP - prevP).Magnitude
+					local d1 = (cur - prev).Magnitude
+					local d2 = (nxt - cur).Magnitude
+					local direct = (nxt - prev).Magnitude
 
-					-- Detect horizontal acute spike (outlier waypoint jumping off-track)
-					if d1 > 70 and d2 > 70 and dBase < 60 then
-						pathCheckpoints[j].Position = (prevP + nextP) * 0.5
+					local isAnomaly = false
+					if d1 > 0.05 and d2 > 0.05 then
+						local v1 = (cur - prev).Unit
+						local v2 = (nxt - cur).Unit
+						local dot = math.clamp(v1:Dot(v2), -1, 1)
+						local turnAngle = math.deg(math.acos(dot))
+
+						if turnAngle > 65 then
+							isAnomaly = true
+						elseif turnAngle > 45 and direct > 0.05 and (d1 + d2) > (1.12 * direct) then
+							isAnomaly = true
+						end
 					end
 
-					-- Detect vertical spike (huge sudden Y elevation delta that drops right back)
-					local yDelta1 = math.abs(curP.Y - prevP.Y)
-					local yDelta2 = math.abs(curP.Y - nextP.Y)
-					local yBaseDelta = math.abs(nextP.Y - prevP.Y)
-					if yDelta1 > 20 and yDelta2 > 20 and yBaseDelta < 10 then
-						pathCheckpoints[j].Position = Vector3.new(curP.X, (prevP.Y + nextP.Y) * 0.5, curP.Z)
+					if not isAnomaly then
+						table.insert(filtered, cur)
 					end
+				end
+				table.insert(filtered, raw[#raw])
+
+				local pathCheckpoints = {}
+				for _, pos in ipairs(filtered) do
+					table.insert(pathCheckpoints, { Position = pos })
 				end
 				return pathCheckpoints
 			end
@@ -618,7 +606,7 @@ local success, err = pcall(function()
 		return {}
 	end
 
-	-- Helper: Safe Full Noclip during race flight (both motorcycle and character to prevent ejection from walls/guardrails)
+	-- Helper: Safe Noclip during race flight (both vehicle & character to prevent unseating from terrain/barriers)
 	local function setFullFlightNoclip(b, char, enableNoclip)
 		pcall(function()
 			if b then
@@ -634,11 +622,20 @@ local success, err = pcall(function()
 					end
 				end
 			end
-			local targetChar = char or (player and player.Character)
-			if targetChar then
-				for _, desc in ipairs(targetChar:GetDescendants()) do
-					if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+			if char then
+				for _, desc in ipairs(char:GetDescendants()) do
+					if desc:IsA("BasePart") then
 						desc.CanCollide = not enableNoclip
+					end
+				end
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					if enableNoclip then
+						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					else
+						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
 					end
 				end
 			end
@@ -669,17 +666,18 @@ local success, err = pcall(function()
 			return false
 		end
 
-		-- Step 1: Ensure Kasaki z800 2015 is spawned and player is seated
+		-- Step 1: Ensure motorcycle is spawned and player is seated
 		raceStatusCard.Set("Memeriksa motor & driver...")
 		local seated = false
 		if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
 			seated = _G.HipHubVehicle.EnsureDriverSeated(true)
 		end
-		-- Auto-Respawn Recovery: If seating failed (e.g. fresh respawn after death), force spawn fresh bike and retry
+		-- Auto-Respawn Recovery: If seating failed, force spawn vehicle and retry
 		if not seated then
-			if _G.HipHub_SpawnKasaki then
-				_G.HipHub_SpawnKasaki()
-				task.wait(2.0)
+			if _G.HipHub_SpawnVehicle then
+				local targetModel = _G.HipHubConfig and _G.HipHubConfig.vehicle and _G.HipHubConfig.vehicle.selectedVehicle
+				_G.HipHub_SpawnVehicle(targetModel)
+				task.wait(1.5)
 				if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
 					seated = _G.HipHubVehicle.EnsureDriverSeated(true)
 				end
@@ -687,7 +685,7 @@ local success, err = pcall(function()
 		end
 		if not seated then
 			raceStatusCard.Set("Menunggu driver duduk di motor...")
-			task.wait(1.5)
+			task.wait(1.0)
 			return false
 		end
 
@@ -696,7 +694,7 @@ local success, err = pcall(function()
 			bike, seat, primary = _G.HipHub_GetPlayerBike()
 		end
 		if not bike or not seat or not primary then
-			raceStatusCard.Set("Menunggu motor Kasaki z800...")
+			raceStatusCard.Set("Menunggu motor pemain...")
 			task.wait(1.0)
 			return false
 		end
@@ -721,12 +719,17 @@ local success, err = pcall(function()
 		local rotCF = typeof(startArea) == "CFrame" and (startArea - startArea.Position) or (startArea:IsA("BasePart") and (startArea.CFrame - startArea.CFrame.Position) or CFrame.identity)
 		local startCF = CFrame.new(startAreaPos.X, groundY, startAreaPos.Z) * rotCF
 
-		local distToStart = (primary.Position - startCF.Position).Magnitude
-		if distToStart > 10 then
-			bike:PivotTo(startCF)
-		end
+		bike:PivotTo(startCF)
 		primary.AssemblyLinearVelocity = Vector3.zero
 		primary.AssemblyAngularVelocity = Vector3.zero
+
+		-- Ensure driver remains firmly seated after PivotTo
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.SeatPart ~= seat then
+			pcall(function() seat:Sit(hum) end)
+			task.wait(0.2)
+		end
 
 		-- Step 3: Check for post-race cooldown (while stationed in StartingArea)
 		local tCdWait = os.clock()
@@ -750,40 +753,36 @@ local success, err = pcall(function()
 
 		-- Step 4: Wait for RacingUI MenuPanel to open in StartingArea
 		local racingUI = player.PlayerGui:WaitForChild("RacingUI", 5)
-		local menuPanel = nil
-		if racingUI and racingUI:FindFirstChild("MainFrame") then
-			menuPanel = racingUI.MainFrame:FindFirstChild("MenuPanel")
-		end
+		local menuPanel = racingUI and racingUI:FindFirstChild("MainFrame") and racingUI.MainFrame:FindFirstChild("MenuPanel")
+		
 		local tWaitMenu = os.clock()
-		while (not menuPanel or not menuPanel.Visible) and (os.clock() - tWaitMenu) < 6 and Config.autoRace do
-			if (primary.Position - startCF.Position).Magnitude > 10 then
-				bike:PivotTo(startCF)
+		while (not menuPanel or not menuPanel.Visible) and (os.clock() - tWaitMenu) < 4 and Config.autoRace do
+			if hum and hum.SeatPart ~= seat then
+				pcall(function() seat:Sit(hum) end)
 			end
 			primary.AssemblyLinearVelocity = Vector3.zero
 			primary.AssemblyAngularVelocity = Vector3.zero
-			task.wait(0.25)
+			task.wait(0.2)
 			if racingUI and racingUI:FindFirstChild("MainFrame") then
 				menuPanel = racingUI.MainFrame:FindFirstChild("MenuPanel")
 			end
 		end
 
-		-- Step 5: Trigger Solo Race / Session Creation
-		raceStatusCard.Set("Mendaftarkan race di StartingArea...")
-		local footer = menuPanel and menuPanel:FindFirstChild("Footer")
-		local quickBtn = footer and footer:FindFirstChild("Quick")
-		if quickBtn then
-			local tQuick = os.clock()
-			while not quickBtn.Interactable and (os.clock() - tQuick) < 4 and Config.autoRace do
-				task.wait(0.1)
-			end
-			safeClickButton(quickBtn)
-		end
+		-- Step 5: Trigger Solo Race (TimeTrial) / Session Creation
+		raceStatusCard.Set("Mendaftarkan Solo Race...")
 
-		-- Always ensure fallback Warp remote create is dispatched
+		-- Direct official Warp remote call (guaranteed 100% reliable)
 		fireWarp("RaceSessionAction", true, "create", {
 			zoneId = raceData.id,
 			config = { Mode = "TimeTrial", Laps = 1, MaxPlayers = 1 }
 		})
+
+		-- Also activate Quick button in UI if available
+		local footer = menuPanel and menuPanel:FindFirstChild("Footer")
+		local quickBtn = footer and footer:FindFirstChild("Quick")
+		if quickBtn then
+			safeClickButton(quickBtn)
+		end
 
 		-- Watch active sessions card & trigger Start
 		local tSessionWait = os.clock()
@@ -886,8 +885,6 @@ local success, err = pcall(function()
 
 		local raceStartTime = os.clock()
 
-		local lastObstacleClear = 0
-
 		for i, cp in ipairs(checkpoints) do
 			if not Config.autoRace then break end
 
@@ -922,57 +919,21 @@ local success, err = pcall(function()
 				local currentPos = startPos:Lerp(endPos, alpha)
 
 				-- Terrain-Surface Raycast (Road Alignment)
-				-- Cast safely from just 10 studs above the interpolated position down 25 studs
-				-- NEVER cast from Y = 350 which hits mountain overhangs, cliffs, trees, or upper road levels!
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = { bike, player.Character }
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local rayOrigin = Vector3.new(currentPos.X, currentPos.Y + 10, currentPos.Z)
-				local groundRay = workspace:Raycast(rayOrigin, Vector3.new(0, -25, 0), rayParams)
+				local groundRay = workspace:Raycast(Vector3.new(currentPos.X, math.max(currentPos.Y + 200, 350), currentPos.Z), Vector3.new(0, -700, 0), rayParams)
 
 				if groundRay and groundRay.Position then
-					local diffY = groundRay.Position.Y - currentPos.Y
-					-- Only snap if the surface hit is within natural road clearance (-12 to +8 studs)
-					if diffY >= -12 and diffY <= 8 then
-						local targetGroundY = groundRay.Position.Y + 2.8
-						if i == #checkpoints and alpha > 0.5 then
-							-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
-							setFlightNoclipState(false)
-						end
-						currentPos = Vector3.new(currentPos.X, targetGroundY, currentPos.Z)
+					local groundY = groundRay.Position.Y
+					if i == #checkpoints and alpha > 0.5 then
+						-- Saat mendekati garis finish: mendarat mulus menapak di permukaan aspal
+						setFlightNoclipState(false)
 					end
+					currentPos = Vector3.new(currentPos.X, groundY + 2.8, currentPos.Z)
 				end
 
-				-- 🛡️ Anti-Ejection & Seated Guardian: Keep driver firmly attached to the motorcycle
-				local char = player.Character
-				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				if hum and seat then
-					if hum.SeatPart ~= seat or not hum.Sit then
-						hum.Sit = true
-						pcall(function()
-							seat:Sit(hum)
-							hum:ChangeState(Enum.HumanoidStateType.Seated)
-						end)
-					end
-					pcall(function()
-						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-					end)
-				end
-
-				-- Periodically clear roadside barrier / fence / pole collisions around sharp turns
-				if (now - lastObstacleClear) > 0.25 then
-					lastObstacleClear = now
-					noclipSurroundings(bike, currentPos, 35)
-				end
-
-				-- Smooth orientation: banking and pitch matching road grade (clamped to max ±18 degrees)
-				local flatDir = Vector3.new(dir.X, 0, dir.Z)
-				local lookUnit = (flatDir.Magnitude > 0.01) and flatDir.Unit or Vector3.new(0, 0, 1)
-				local pitch = math.clamp(math.atan2(dir.Y, flatDir.Magnitude), -math.rad(18), math.rad(18))
-				local targetCF = CFrame.lookAt(currentPos, currentPos + lookUnit * 10) * CFrame.Angles(-pitch, 0, 0)
-
-				bike:PivotTo(targetCF)
+				bike:PivotTo(CFrame.lookAt(currentPos, currentPos + dir * 10))
 				farmBV.Velocity = moveVelocity
 				primary.AssemblyLinearVelocity = moveVelocity
 				primary.AssemblyAngularVelocity = Vector3.zero
@@ -983,6 +944,13 @@ local success, err = pcall(function()
 				local speedKmh = math.floor(speedDisplay * 1.097)
 				raceStatusCard.Set(string.format("CP %d/%d (%.0f%% | %d km/h | %02d:%02d/%02d:%02d)", i, #checkpoints, alpha * 100, speedKmh, math.floor(totalElapsed / 60), math.floor(totalElapsed % 60), math.floor(targetDuration / 60), math.floor(targetDuration % 60)))
 
+				-- Anti-Dismount Guardian: Always ensure rider stays firmly seated on bike!
+				local curChar = player.Character
+				local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+				if curHum and curHum.SeatPart ~= seat then
+					pcall(function() seat:Sit(curHum) end)
+				end
+
 				if alpha >= 1 then
 					break
 				end
@@ -990,16 +958,9 @@ local success, err = pcall(function()
 				RunService.Heartbeat:Wait()
 			end
 
-			-- Pastikan motor menempati posisi waypoint akhir secara mulus tanpa lonjakan Y
-			local finalPos = Vector3.new(endPos.X, currentPos.Y, endPos.Z)
-			local flatDir = Vector3.new(dir.X, 0, dir.Z)
-			local lookUnit = (flatDir.Magnitude > 0.01) and flatDir.Unit or Vector3.new(0, 0, 1)
-			bike:PivotTo(CFrame.lookAt(finalPos, finalPos + lookUnit * 10))
-
-			-- Update startPos untuk segmen berikutnya agar kontinu sempurna
-			if legStartPositions[i + 1] then
-				legStartPositions[i + 1] = finalPos
-			end
+			-- Pastikan motor persis di atas waypoint di akhir segmen
+			local cpLook = (typeof(cp) == "Instance" and cp:IsA("BasePart")) and cp.CFrame.LookVector or dir
+			bike:PivotTo(CFrame.lookAt(endPos, endPos + (cpLook.Magnitude > 0.01 and cpLook or dir)))
 
 			if Config.checkpointDelay and Config.checkpointDelay > 0 then
 				task.wait(Config.checkpointDelay)
@@ -1148,6 +1109,31 @@ local success, err = pcall(function()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local ray = workspace:Raycast(Vector3.new(posX, 250, posZ), Vector3.new(0, -500, 0), rayParams)
 		return ray and ray.Position.Y or 0.5
+	end
+
+	-- Safely noclip ONLY obstacle props (fences, walls, barriers, poles, trees, furniture, bus stops)
+	-- NEVER noclip terrain, ground, grass, floors, road, spawn, or baseplate
+	local function noclipSurroundings(bikeRef, pos, radius)
+		pcall(function()
+			local overlap = OverlapParams.new()
+			overlap.FilterDescendantsInstances = { bikeRef, player.Character }
+			overlap.FilterType = Enum.RaycastFilterType.Exclude
+			overlap.MaxParts = 50
+			local hits = workspace:GetPartBoundsInRadius(pos, radius or 25, overlap)
+			for _, hit in ipairs(hits) do
+				if hit:IsA("BasePart") and hit.CanCollide then
+					local n = hit.Name:lower()
+					-- NEVER disable collision on ground/floor/terrain/road/spawn/baseplate
+					local isGround = n:find("road") or n:find("ground") or n:find("grass") or n:find("floor") or n:find("spawn") or n:find("terrain") or n:find("baseplate") or n:find("plate") or n:find("walk") or n:find("asphalt")
+					if not isGround then
+						local isObstacle = n:find("fence") or n:find("rail") or n:find("wall") or n:find("barrier") or n:find("post") or n:find("pole") or n:find("tree") or n:find("stop") or n:find("shelf") or n:find("sign") or n:find("light") or n:find("prop") or n:find("decor") or n:find("curb")
+						if isObstacle then
+							hit.CanCollide = false
+						end
+					end
+				end
+			end
+		end)
 	end
 
 	-- Noclip bike frame/exhaust/pegs so they don't catch on curbs (wheels MUST stay collidable)

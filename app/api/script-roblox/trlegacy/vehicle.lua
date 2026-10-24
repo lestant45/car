@@ -131,7 +131,49 @@ local success, err = pcall(function()
 		"Zuzuki Hayabusa Racing Modified 2015"
 	}
 
-	-- Find player's active motorbike in workspace
+	-- Helper to detect all owned vehicles dynamically from player.Vehicle
+	local function getOwnedVehicles()
+		local owned = {}
+		local vFolder = player:FindFirstChild("Vehicle")
+		if vFolder then
+			for _, child in ipairs(vFolder:GetChildren()) do
+				if child.Name and #child.Name > 0 then
+					table.insert(owned, child.Name)
+				end
+			end
+		end
+		return owned
+	end
+
+	local function getVehicleDropdownList()
+		local owned = getOwnedVehicles()
+		local list = {}
+		local added = {}
+		for _, name in ipairs(owned) do
+			table.insert(list, name .. " [Owned]")
+			added[name] = true
+		end
+		for _, name in ipairs(ALL_MOTORCYCLES) do
+			if not added[name] then
+				table.insert(list, name)
+			end
+		end
+		return list, owned
+	end
+
+	-- Auto-pick first owned vehicle if default is not set or not owned
+	local initialOwned = getOwnedVehicles()
+	if #initialOwned > 0 then
+		local cleanCur = Config.selectedVehicle and Config.selectedVehicle:gsub("%s*%[Owned%]", "")
+		local ownsCurrent = false
+		for _, o in ipairs(initialOwned) do
+			if o == cleanCur then ownsCurrent = true break end
+		end
+		if not ownsCurrent then
+			Config.selectedVehicle = initialOwned[1]
+		end
+	end
+
 	-- Find player's active motorbike in workspace
 	local function getPlayerBike(preferredModel)
 		local vFolder = workspace:FindFirstChild("Vehicles")
@@ -140,6 +182,8 @@ local success, err = pcall(function()
 		if not playerVehicles then return nil end
 
 		local targetName = preferredModel or Config.selectedVehicle or "Kasaki z800 2015"
+		targetName = targetName:gsub("%s*%[Owned%]", "")
+
 		local bike = playerVehicles:FindFirstChild(targetName)
 		if not bike or not (bike:FindFirstChild("DriveSeat", true) or bike:FindFirstChildWhichIsA("VehicleSeat", true)) then
 			bike = nil
@@ -197,12 +241,45 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Universal Vehicle Spawner via Native UI & Network Remotes
+	-- Universal Vehicle Spawner via Native UI & Verified Network Remotes
 	local function spawnVehicle(modelName)
 		modelName = modelName or Config.selectedVehicle or "Kasaki z800 2015"
+		modelName = modelName:gsub("%s*%[Owned%]", "")
+
+		-- If modelName is not owned, auto-fallback to user's first owned bike if available
+		local owned = getOwnedVehicles()
+		local isOwned = false
+		for _, o in ipairs(owned) do
+			if o == modelName then isOwned = true break end
+		end
+		if not isOwned and #owned > 0 then
+			modelName = owned[1]
+			Config.selectedVehicle = modelName
+		end
+
 		local success = false
 
-		-- Method 1: Native Game MainUI Vehicle List Spawn Button (100% Reliable & Direct)
+		-- Method 1: Official Game Dealership remote (Direct & 100% Verified)
+		pcall(function()
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local dClient = Warp.Client("Dealership")
+			if dClient and dClient.Fire then
+				dClient:Fire(true, modelName, "Spawn")
+				success = true
+			end
+		end)
+
+		-- Method 2: Official SpawnClient remote (DealershipUI handler)
+		pcall(function()
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local sClient = Warp.Client("SpawnClient")
+			if sClient and sClient.Fire then
+				sClient:Fire(false, modelName, "Dealership")
+				success = true
+			end
+		end)
+
+		-- Method 3: Native Game MainUI Vehicle List Spawn Button
 		pcall(function()
 			local pGui = player:FindFirstChild("PlayerGui")
 			local mainUI = pGui and pGui:FindFirstChild("MainUI")
@@ -211,7 +288,7 @@ local success, err = pcall(function()
 				local vMenu = selected and selected:FindFirstChild("Vehicle")
 				local vList = vMenu and vMenu:FindFirstChild("ListPane") and vMenu.ListPane:FindFirstChild("VehicleList")
 				if vList then
-					local target = vList:FindFirstChild(modelName) or vList:FindFirstChild("Kasaki z800 2015") or vList:FindFirstChildWhichIsA("Frame")
+					local target = vList:FindFirstChild(modelName)
 					if target then
 						local btn = target:FindFirstChild("SpawnButton") or target:FindFirstChildWhichIsA("TextButton")
 						if btn then
@@ -221,43 +298,10 @@ local success, err = pcall(function()
 					end
 				end
 
-				-- Also trigger Hero Acts Spawn button if available
 				if not success and vMenu and vMenu:FindFirstChild("Hero") and vMenu.Hero:FindFirstChild("Acts") and vMenu.Hero.Acts:FindFirstChild("Spawn") then
 					safeClickButton(vMenu.Hero.Acts.Spawn)
 					success = true
 				end
-			end
-		end)
-
-		-- Method 2: Warp Network Remotes (Dealership & Garage)
-		pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			local dClient = Warp.Client("Dealership")
-			if dClient and dClient.Fire then
-				dClient:Fire(true, modelName, "Spawn")
-				dClient:Fire(modelName, "Spawn")
-				dClient:Fire("Spawn", modelName)
-				success = true
-			end
-		end)
-
-		pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			local gClient = Warp.Client("Garage")
-			if gClient and gClient.Fire then
-				gClient:Fire(true, modelName, "Spawn")
-				gClient:Fire(modelName, "Spawn")
-				gClient:Fire("Spawn", modelName)
-				success = true
-			end
-		end)
-
-		pcall(function()
-			local Warp = require(ReplicatedStorage.Modules.Warp)
-			local sClient = Warp.Client("VehicleSpawn")
-			if sClient and sClient.Fire then
-				sClient:Fire(modelName)
-				success = true
 			end
 		end)
 
@@ -290,7 +334,7 @@ local success, err = pcall(function()
 	_G.HipHub_SpawnVehicle = spawnVehicle
 	_G.HipHub_SpawnKasaki = spawnVehicle
 
-	-- Ensure player is seated on bike's DriveSeat with authentic riding pose & Speedometer HUD
+	-- Ensure player is seated on bike's DriveSeat with rock-solid stability
 	local function ensureDriverSeated(autoSpawn)
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -315,12 +359,14 @@ local success, err = pcall(function()
 
 		if not bike and autoSpawn then
 			newlySpawned = true
-			spawnVehicle(Config.selectedVehicle)
-			-- Step 1: Wait for bike model and parts to appear in workspace
+			local targetModel = Config.selectedVehicle or "Kasaki z800 2015"
+			targetModel = targetModel:gsub("%s*%[Owned%]", "")
+			spawnVehicle(targetModel)
+			-- Wait for bike model and parts to appear in workspace
 			local start = os.clock()
 			while (os.clock() - start) < 6.0 do
 				task.wait(0.2)
-				bike, seat, primary = getPlayerBike()
+				bike, seat, primary = getPlayerBike(targetModel)
 				if bike and seat and primary and #bike:GetChildren() >= 6 then break end
 			end
 		end
@@ -341,7 +387,7 @@ local success, err = pcall(function()
 			end
 		end
 
-		-- Step 2: Ensure wheels are collidable so bike won't glitch through the ground
+		-- Ensure wheels are collidable
 		pcall(function()
 			for _, desc in ipairs(bike:GetDescendants()) do
 				if desc:IsA("BasePart") then
@@ -353,7 +399,7 @@ local success, err = pcall(function()
 			end
 		end)
 
-		-- Step 3: Wait until bike is fully spawned AND grounded & settled on terrain
+		-- Wait until bike is fully settled on terrain
 		if newlySpawned or (primary.AssemblyLinearVelocity.Magnitude > 8.0) then
 			local groundTimeout = os.clock() + 4.0
 			while os.clock() < groundTimeout do
@@ -370,55 +416,38 @@ local success, err = pcall(function()
 				end
 				task.wait(0.1)
 			end
-			task.wait(0.6)
+			task.wait(0.4)
 		end
 
-		local pGui = player:FindFirstChild("PlayerGui")
-		local hasGauge = pGui and pGui:FindFirstChild("Gauge_EXRGARAGE", true)
-
-		-- If already seated and has the gauge HUD active, authentic riding pose is active!
-		if hum.SeatPart == seat and hasGauge and hasGauge.Visible then
+		-- If already seated, driver is ready!
+		if hum.SeatPart == seat then
 			return true
 		end
 
-		-- If seated without gauge HUD (buggy sit state), jump out first so prompt can properly re-seat with HUD
-		if hum.SeatPart == seat and (not hasGauge or not hasGauge.Visible) then
-			hum.Sit = false
-			task.wait(0.3)
-		end
-
-		-- Priority 1: Official Game VehiclePrompt (Mounts bike with custom riding animations & Speedometer HUD)
+		-- Mount Attempt 1: Official Game VehiclePrompt
 		local prompt = seat:FindFirstChild("VehiclePrompt") or seat:FindFirstChildWhichIsA("ProximityPrompt") or bike:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt and fireproximityprompt then
 			pcall(function()
 				char:PivotTo(seat.CFrame + Vector3.new(0, 1.2, 0))
-				task.wait(0.2)
+				task.wait(0.1)
 				prompt.Enabled = true
 				prompt.RequiresLineOfSight = false
 				prompt.MaxActivationDistance = 50
 				fireproximityprompt(prompt, 0)
 			end)
 			local waitStart = os.clock()
-			while (os.clock() - waitStart) < 2.0 do
-				task.wait(0.1)
+			while (os.clock() - waitStart) < 1.5 do
+				task.wait(0.05)
 				if hum.SeatPart == seat then break end
 			end
 		end
 
-		-- Priority 2: Fallback to direct sit if prompt failed
+		-- Mount Attempt 2: Direct sit fallback
 		if hum.SeatPart ~= seat then
 			pcall(function()
 				seat:Sit(hum)
 			end)
-			task.wait(0.2)
-		end
-
-		-- Step 4: Verify Speedometer HUD (Gauge_EXRGARAGE)
-		local waitHud = os.clock()
-		while (os.clock() - waitHud) < 2.0 do
-			hasGauge = pGui and pGui:FindFirstChild("Gauge_EXRGARAGE", true)
-			if hasGauge and hasGauge.Visible then break end
-			task.wait(0.1)
+			task.wait(0.15)
 		end
 
 		return hum.SeatPart == seat
@@ -433,8 +462,11 @@ local success, err = pcall(function()
 
 	local bikeStatusCard = UI.AddStatsCard(bikeSection, "Active Motorcycle", "Searching...", 2)
 
-	local bikeDropdown = UI.AddDropdown(bikeSection, "Pilih Motor (Searchable)", ALL_MOTORCYCLES, Config.selectedVehicle or "Kasaki z800 2015", function(val)
-		Config.selectedVehicle = val
+	local fullDropdownList = getVehicleDropdownList()
+	local initialSelected = Config.selectedVehicle or (initialOwned[1] and (initialOwned[1] .. " [Owned]")) or "Kasaki z800 2015 [Owned]"
+
+	local bikeDropdown = UI.AddDropdown(bikeSection, "Pilih Motor (Searchable)", fullDropdownList, initialSelected, function(val)
+		Config.selectedVehicle = val:gsub("%s*%[Owned%]", "")
 		if _G.HipHubAutoSave then _G.HipHubAutoSave() end
 	end, 3)
 
