@@ -99,9 +99,27 @@ local success, err = pcall(function()
 		end)
 	end
 
-	-- Safe Multi-Layer Anti-Cheat & Ghost Telemetry Shield
-	-- 1. Keeps GhostRecorder frames purged without hooking/modifying the 60fps render loop
+	-- Safe Multi-Layer Anti-Cheat & Adonis Silencer Shield
+	-- 1. Hooks Adonis Anti.Detected to prevent server notifications / bans
 	-- 2. Intercepts finishLap return value & blocks RaceGhostSubmit remote packets
+	-- 3. Keeps GhostRecorder frames purged without modifying the 60fps render loop
+	local function silenceAdonis()
+		pcall(function()
+			if getgc then
+				for _, v in ipairs(getgc(true)) do
+					if type(v) == "table" and rawget(v, "Detected") and type(rawget(v, "Detected")) == "function" then
+						if hookfunction then
+							hookfunction(v.Detected, function(...) return nil end)
+						else
+							v.Detected = function(...) return nil end
+						end
+					end
+				end
+			end
+		end)
+	end
+	silenceAdonis()
+
 	pcall(function()
 		local okRecorder, GhostRecorder = pcall(function()
 			return require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
@@ -137,10 +155,11 @@ local success, err = pcall(function()
 		end
 	end)
 
-	-- Active Ghost Frame Purger Routine (Runs periodically without touching engine method pointers)
+	-- Active Ghost Frame Purger & Adonis Guard Routine
 	task.spawn(function()
 		while true do
-			task.wait(1.0)
+			task.wait(1.5)
+			silenceAdonis()
 			if _G.HipHub_IsAutoRacing or (Config and Config.autoRace) then
 				pcall(function()
 					local GhostRecorder = require(ReplicatedStorage.Modules.UI.Racing.Ghost.GhostRecorder)
@@ -499,114 +518,138 @@ local success, err = pcall(function()
 	------------------------------------------------
 
 	local function getCheckpointsForRace(raceModel)
-		-- 1. Prioritize MinimapPath attribute (with Smart Road Spline Anomaly & Spike Filter)
+		-- 1. Query official game-tracked checkpoints (Guaranteed trigger volumes for server validation)
+		local officialCheckpoints = nil
+		pcall(function()
+			local getOrdered = require(ReplicatedStorage.Modules.UI.Racing.Utility.getOrderedCheckpoints)
+			officialCheckpoints = getOrdered(raceModel)
+		end)
+		if not officialCheckpoints or #officialCheckpoints == 0 then
+			local folder = raceModel:FindFirstChild("Checkpoints")
+			if folder then
+				local list = {}
+				for _, child in ipairs(folder:GetChildren()) do
+					if child:IsA("BasePart") then
+						local num = tonumber(child.Name:match("%d+"))
+						if num then table.insert(list, { part = child, index = num }) end
+					end
+				end
+				table.sort(list, function(a, b) return a.index < b.index end)
+				if #list > 0 then
+					officialCheckpoints = {}
+					for _, item in ipairs(list) do table.insert(officialCheckpoints, item.part) end
+				end
+			end
+		end
+
+		-- 2. Extract and filter road spline from MinimapPath attribute (smooth asphalt curvature)
 		local minimapAttr = raceModel:GetAttribute("MinimapPath")
+		local rawSpline = {}
 		if minimapAttr and type(minimapAttr) == "string" and #minimapAttr > 0 then
-			local raw = {}
 			for seg in minimapAttr:gmatch("[^|]+") do
 				local x, y, z = seg:match("([^,]+),([^,]+),([^,]+)")
 				if x and y and z then
-					table.insert(raw, Vector3.new(tonumber(x), tonumber(y), tonumber(z)))
+					table.insert(rawSpline, Vector3.new(tonumber(x), tonumber(y), tonumber(z)))
 				end
 			end
-			if #raw >= 2 then
-				-- FILTER OUT OFF-ROAD ANOMALIES & ROGUE SPIKES:
-				-- Prunes rogue coordinates that jump into rocks/mountains/trees or make sharp acute reversals (> 65 deg or > 45 deg with detour)
-				local filtered = { raw[1] }
-				for i = 2, #raw - 1 do
-					local prev = filtered[#filtered]
-					local cur = raw[i]
-					local nxt = raw[i + 1]
+		end
 
-					local d1 = (cur - prev).Magnitude
-					local d2 = (nxt - cur).Magnitude
-					local direct = (nxt - prev).Magnitude
+		local cleanSpline = {}
+		if #rawSpline >= 2 then
+			table.insert(cleanSpline, rawSpline[1])
+			for i = 2, #rawSpline - 1 do
+				local prev = cleanSpline[#cleanSpline]
+				local cur = rawSpline[i]
+				local nxt = rawSpline[i + 1]
+				local d1 = (cur - prev).Magnitude
+				local d2 = (nxt - cur).Magnitude
+				local direct = (nxt - prev).Magnitude
+				local isAnomaly = false
+				if d1 > 0.05 and d2 > 0.05 then
+					local v1 = (cur - prev).Unit
+					local v2 = (nxt - cur).Unit
+					local dot = math.clamp(v1:Dot(v2), -1, 1)
+					local turnAngle = math.deg(math.acos(dot))
+					if turnAngle > 65 then
+						isAnomaly = true
+					elseif turnAngle > 45 and direct > 0.05 and (d1 + d2) > (1.12 * direct) then
+						isAnomaly = true
+					end
+				end
+				if not isAnomaly then
+					table.insert(cleanSpline, cur)
+				end
+			end
+			table.insert(cleanSpline, rawSpline[#rawSpline])
+		end
 
-					local isAnomaly = false
-					if d1 > 0.05 and d2 > 0.05 then
-						local v1 = (cur - prev).Unit
-						local v2 = (nxt - cur).Unit
-						local dot = math.clamp(v1:Dot(v2), -1, 1)
-						local turnAngle = math.deg(math.acos(dot))
+		-- 3. Construct Guaranteed Hybrid Route:
+		-- Every official checkpoint (including Checkpoint 30) MUST be physically included,
+		-- connected by smooth asphalt road spline points between each pair of consecutive checkpoints!
+		if officialCheckpoints and #officialCheckpoints > 0 then
+			if #cleanSpline >= 2 then
+				local hybridWaypoints = {}
+				local lastSplineIdx = 1
 
-						if turnAngle > 65 then
-							isAnomaly = true
-						elseif turnAngle > 45 and direct > 0.05 and (d1 + d2) > (1.12 * direct) then
-							isAnomaly = true
+				for cpIdx = 1, #officialCheckpoints do
+					local cpPart = officialCheckpoints[cpIdx]
+					local cpPos = (typeof(cpPart) == "Instance" and cpPart:IsA("BasePart")) and cpPart.Position or cpPart.Position
+
+					-- Find closest spline point to this official checkpoint at or after lastSplineIdx
+					local bestIdx = lastSplineIdx
+					local bestDist = 1e9
+					for sIdx = lastSplineIdx, #cleanSpline do
+						local d = (cleanSpline[sIdx] - cpPos).Magnitude
+						if d < bestDist then
+							bestDist = d
+							bestIdx = sIdx
+						elseif d > (bestDist + 150) and sIdx > (bestIdx + 8) then
+							break
 						end
 					end
 
-					if not isAnomaly then
-						table.insert(filtered, cur)
+					-- Add intermediate spline curve points between previous checkpoint and current checkpoint
+					if bestIdx > lastSplineIdx then
+						for k = lastSplineIdx + 1, bestIdx - 1 do
+							local pt = cleanSpline[k]
+							if (pt - cpPos).Magnitude > 8 then
+								table.insert(hybridWaypoints, { Position = pt })
+							end
+						end
 					end
-				end
-				table.insert(filtered, raw[#raw])
 
-				local pathCheckpoints = {}
-				for _, pos in ipairs(filtered) do
-					table.insert(pathCheckpoints, { Position = pos })
+					-- Explicitly add the exact official checkpoint location (ensures trigger part touch)
+					table.insert(hybridWaypoints, { Position = cpPos, isOfficial = true, part = cpPart })
+					lastSplineIdx = bestIdx
 				end
-				return pathCheckpoints
+
+				if #hybridWaypoints >= #officialCheckpoints then
+					return hybridWaypoints
+				end
 			end
+
+			-- Fallback to official checkpoints directly if spline unavailable
+			local res = {}
+			for _, cp in ipairs(officialCheckpoints) do
+				table.insert(res, { Position = cp.Position, isOfficial = true, part = cp })
+			end
+			return res
 		end
 
-		-- 2. Check MinimapPath folder if present
-		local minimapFolder = raceModel:FindFirstChild("MinimapPath")
-		if minimapFolder then
-			local parts = {}
-			for _, child in ipairs(minimapFolder:GetChildren()) do
-				if child:IsA("BasePart") or child:IsA("Attachment") then
-					table.insert(parts, child)
-				end
+		-- Fallback to cleanSpline if officialCheckpoints missing
+		if #cleanSpline >= 2 then
+			local res = {}
+			for _, pos in ipairs(cleanSpline) do
+				table.insert(res, { Position = pos })
 			end
-			table.sort(parts, function(a, b)
-				return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
-			end)
-			if #parts >= 2 then
-				local res = {}
-				for _, v in ipairs(parts) do
-					local pos = v:IsA("Attachment") and v.WorldPosition or v.Position
-					table.insert(res, { Position = pos })
-				end
-				return res
-			end
-		end
-
-		-- 3. Fallback to physical Checkpoints folder / getOrderedCheckpoints
-		local ordered = nil
-		pcall(function()
-			local getOrdered = require(ReplicatedStorage.Modules.UI.Racing.Utility.getOrderedCheckpoints)
-			ordered = getOrdered(raceModel)
-		end)
-		if ordered and #ordered > 0 then return ordered end
-
-		local folder = raceModel:FindFirstChild("Checkpoints")
-		if folder then
-			local list = {}
-			for _, child in ipairs(folder:GetChildren()) do
-				if child:IsA("BasePart") then
-					local num = tonumber(child.Name:match("%d+"))
-					if num then
-						table.insert(list, { part = child, index = num })
-					end
-				end
-			end
-
-			table.sort(list, function(a, b) return a.index < b.index end)
-
-			if #list > 0 then
-				local res = {}
-				for _, item in ipairs(list) do
-					table.insert(res, item.part)
-				end
-				return res
-			end
+			return res
 		end
 
 		return {}
 	end
 
 	-- Helper: Safe Noclip during race flight (both vehicle & character to prevent unseating from terrain/barriers)
+	-- Note: Does NOT modify Humanoid state to stay 100% invisible to Adonis Anticheat HumanoidState monitors
 	local function setFullFlightNoclip(b, char, enableNoclip)
 		pcall(function()
 			if b then
@@ -626,16 +669,6 @@ local success, err = pcall(function()
 				for _, desc in ipairs(char:GetDescendants()) do
 					if desc:IsA("BasePart") then
 						desc.CanCollide = not enableNoclip
-					end
-				end
-				local hum = char:FindFirstChildOfClass("Humanoid")
-				if hum then
-					if enableNoclip then
-						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-					else
-						hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
-						hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
 					end
 				end
 			end
@@ -939,6 +972,19 @@ local success, err = pcall(function()
 				primary.AssemblyAngularVelocity = Vector3.zero
 				seat.Throttle = 1
 
+				-- Physical wheel rotation to register Odometer Miles in vehicle chassis script
+				pcall(function()
+					for _, part in ipairs(bike:GetDescendants()) do
+						if part:IsA("BasePart") then
+							local n = part.Name:lower()
+							if n:find("wheel") or n:find("tire") then
+								part.AssemblyLinearVelocity = moveVelocity
+								part.AssemblyAngularVelocity = Vector3.new(dir.Z * 45, 0, -dir.X * 45)
+							end
+						end
+					end
+				end)
+
 				local totalElapsed = now - raceStartTime
 				local speedDisplay = (totalTrackDist > 0 and targetDuration > 0) and (totalTrackDist / targetDuration) or 0
 				local speedKmh = math.floor(speedDisplay * 1.097)
@@ -1031,15 +1077,35 @@ local success, err = pcall(function()
 			raceStatusCard.Set("Finish! Menyiapkan putaran berikutnya...")
 		end
 
-		-- Immediately return bike to StartingArea for next round & leave old session
-		bike:PivotTo(startCF)
-		primary.AssemblyLinearVelocity = Vector3.zero
-		primary.AssemblyAngularVelocity = Vector3.zero
+		-- Step 11: Clean Session Exit & Safe Pit Stop Transition (Anti-Teleport Ban Shield)
+		raceStatusCard.Set("Meninggalkan sesi balapan resmi...")
 		fireWarp("RaceSessionAction", true, "leave", { zoneId = raceData.id })
+		task.wait(0.5)
 
-		-- Wait for server cooldown (RaceCooldownUntil) + Natural Human Rest Buffer (5-8s)
+		-- Dismount driver safely at finish line
+		local curChar = player.Character
+		local curHum = curChar and curChar:FindFirstChildOfClass("Humanoid")
+		if curHum and curHum.SeatPart then
+			curHum.Sit = false
+			task.wait(0.2)
+		end
+
+		-- Cleanly despawn finished bike at finish line
+		if _G.HipHub_DespawnVehicle then
+			_G.HipHub_DespawnVehicle()
+		end
+
+		-- Relocate character to StartingArea pit stop (Standard Roblox player spawn/pit relocation)
+		if curChar and curChar:FindFirstChild("HumanoidRootPart") then
+			curChar:PivotTo(startCF + Vector3.new(0, 3, 0))
+			curChar.HumanoidRootPart.AssemblyLinearVelocity = Vector3.zero
+			curChar.HumanoidRootPart.AssemblyAngularVelocity = Vector3.zero
+		end
+		task.wait(0.6)
+
+		-- Wait for server cooldown (RaceCooldownUntil) + Natural Human Rest Buffer (8-12s)
 		local tCooldown = os.clock()
-		local naturalRest = math.random(5, 8)
+		local naturalRest = math.random(8, 12)
 		while Config.autoRace do
 			local elapsed = os.clock() - tCooldown
 			local cd = player:GetAttribute("RaceCooldownUntil")
@@ -1050,6 +1116,17 @@ local success, err = pcall(function()
 				task.wait(1.0)
 			else
 				break
+			end
+		end
+
+		-- Re-spawn motorcycle fresh at StartingArea pit stop for the next race cycle
+		if Config.autoRace and _G.HipHub_SpawnVehicle then
+			raceStatusCard.Set("Menyiapkan motor di StartingArea...")
+			local targetModel = _G.HipHubConfig and _G.HipHubConfig.vehicle and _G.HipHubConfig.vehicle.selectedVehicle
+			_G.HipHub_SpawnVehicle(targetModel)
+			task.wait(1.2)
+			if _G.HipHubVehicle and _G.HipHubVehicle.EnsureDriverSeated then
+				_G.HipHubVehicle.EnsureDriverSeated(true)
 			end
 		end
 

@@ -334,6 +334,26 @@ local success, err = pcall(function()
 	_G.HipHub_SpawnVehicle = spawnVehicle
 	_G.HipHub_SpawnKasaki = spawnVehicle
 
+	-- Despawn active vehicle safely
+	local function despawnVehicle()
+		pcall(function()
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local dClient = Warp.Client("Dealership")
+			if dClient and dClient.Fire then
+				dClient:Fire(true, "", "Despawn")
+			end
+		end)
+		pcall(function()
+			local Warp = require(ReplicatedStorage.Modules.Warp)
+			local sClient = Warp.Client("SpawnClient")
+			if sClient and sClient.Fire then
+				sClient:Fire(false, "", "Despawn")
+			end
+		end)
+	end
+
+	_G.HipHub_DespawnVehicle = despawnVehicle
+
 	-- Ensure player is seated on bike's DriveSeat with rock-solid stability
 	local function ensureDriverSeated(autoSpawn)
 		local char = player.Character
